@@ -7,12 +7,17 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 
 version = 1.0
-requirements = python3,kivy,requests,pyjnius
+requirements = python3,kivy==2.0.0,requests
 
 permissions = INTERNET,ACCESS_NETWORK_STATE
 
 orientation = portrait
 fullscreen = 0
+
+android.api = 31
+android.minapi = 21
+android.ndk = 25b
+android.arch = arm64-v8a
 
 [buildozer]
 log_level = 2
