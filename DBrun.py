@@ -10,111 +10,116 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.filechooser import FileChooserListView
-import sqlite3
 import webbrowser
 import os
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
-try:
-    import openpyxl
-except ImportError:
-    openpyxl = None
+
+from database import init_db
+from importers import (
+    import_elements_from_csv,
+    import_elements_from_excel,
+    import_substations_from_csv,
+    import_substations_from_excel,
+)
+from popups import show_message_popup
+from templates import create_elements_template, create_substations_template
 
 class SubstationApp(App):
     # Define element types as a class variable
     ELEMENT_TYPES = ['Διακόπτης Ισχύος', 'Μετασχηματιστής', 'Motor Drive']
     VOLTAGE_LEVELS = ['20 KV', '150 KV', '20/150 KV']
+    # Central definition of element fields for easy future extension
+    ELEMENT_FIELD_DEFS = [
+        {'key': 'name', 'label': 'Όνομα Στοιχείου', 'type': 'text', 'hint': 'Όνομα Στοιχείου'},
+        {'key': 'serial_number', 'label': 'Σειριακός Αριθμός', 'type': 'text', 'hint': 'Σειριακός Αριθμός'},
+        {'key': 'maintenance_date', 'label': 'Ημερομηνία τελευταίας συντήρησης', 'type': 'text', 'hint': 'YYYY-MM-DD'},
+        {'key': 'voltage_level', 'label': 'Επίπεδο Τάσης', 'type': 'spinner', 'values': VOLTAGE_LEVELS},
+        {'key': 'manufacturer', 'label': 'Κατασκευαστής', 'type': 'text', 'hint': 'Κατασκευαστής'},
+        {'key': 'type', 'label': 'Τύπος', 'type': 'text', 'hint': 'Τύπος'},
+    ]
     
     def build(self):
+        self.title = 'Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ'
         layout = BoxLayout(orientation='vertical')
-        self.submit_btn = Button(text='Προσθήκη Υποσταθμού')
-        self.submit_btn.bind(on_press=self.show_add_substation_popup)
-        self.show_btn = Button(text='Εμφάνιση')
+        self.show_btn = Button(text='Εμφάνιση βάσης υποσταθμών')
         self.show_btn.bind(on_press=self.show_records)
+        self.import_btn = Button(text='Εισαγωγή υποσταθμών και στοιχείων από αρχείο')
+        self.import_btn.bind(on_press=self.show_import_menu)
+        self.add_btn = Button(text='Προσθήκη υποσταθμών και στοιχείων')
+        self.add_btn.bind(on_press=self.show_add_menu)
         self.delete_btn = Button(text='Διαγραφή όλων')
         self.delete_btn.bind(on_press=self.delete_all)
-        self.import_sub_btn = Button(text='Εισαγωγή Υποσταθμών')
-        self.import_sub_btn.bind(on_press=self.show_import_substations_dialog)
-        self.import_elem_btn = Button(text='Εισαγωγή Στοιχείων')
-        self.import_elem_btn.bind(on_press=self.show_import_elements_dialog)
-        self.output = Label(text='Καμία εγγραφή')
-        layout.add_widget(self.submit_btn)
         layout.add_widget(self.show_btn)
+        layout.add_widget(self.import_btn)
+        layout.add_widget(self.add_btn)
         layout.add_widget(self.delete_btn)
-        layout.add_widget(self.import_sub_btn)
-        layout.add_widget(self.import_elem_btn)
-        layout.add_widget(self.output)
-        self.init_db()
+        self.conn = init_db()
         return layout
 
-    def init_db(self):
-        self.conn = sqlite3.connect('substations.db')
-        c = self.conn.cursor()
+    def show_import_menu(self, instance):
+        # Show intermediate menu for importing substations or elements
+        menu_popup = Popup(title='Εισαγωγή υποσταθμών και στοιχείων από αρχείο', size_hint=(0.6, 0.4))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
-        # Create tables with new schema
-        c.execute('''CREATE TABLE IF NOT EXISTS substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, adoption_date TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, FOREIGN KEY(substation_id) REFERENCES substations(id))''')
+        layout.add_widget(Label(text='Επιλέξτε τι θέλετε να εισάγετε:', size_hint_y=0.3))
         
-        # Check if substations table needs migration (has old schema without location/adoption_date)
-        c.execute("PRAGMA table_info(substations)")
-        columns = [column[1] for column in c.fetchall()]
+        # Import substations button
+        import_substations_btn = Button(text='Εισαγωγή Υποσταθμών από Αρχείο', size_hint_y=0.3)
+        import_substations_btn.bind(on_press=lambda x: self._show_import_substations_from_menu(menu_popup))
+        layout.add_widget(import_substations_btn)
         
-        # If old schema without location column, add it
-        if 'location' not in columns:
-            try:
-                c.execute("ALTER TABLE substations ADD COLUMN location TEXT DEFAULT ''")
-            except:
-                pass
+        # Import elements button
+        import_elements_btn = Button(text='Εισαγωγή Στοιχείων από Αρχείο', size_hint_y=0.3)
+        import_elements_btn.bind(on_press=lambda x: self._show_import_elements_from_menu(menu_popup))
+        layout.add_widget(import_elements_btn)
         
-        # If old schema without adoption_date column, add it
-        if 'adoption_date' not in columns:
-            try:
-                c.execute("ALTER TABLE substations ADD COLUMN adoption_date TEXT DEFAULT ''")
-            except:
-                pass
+        # Cancel button
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.2)
+        cancel_btn.bind(on_press=menu_popup.dismiss)
+        layout.add_widget(cancel_btn)
         
-        # Check if elements table needs migration
-        c.execute("PRAGMA table_info(elements)")
-        elem_columns = [column[1] for column in c.fetchall()]
+        menu_popup.content = layout
+        menu_popup.open()
+    
+    def _show_import_substations_from_menu(self, menu_popup):
+        menu_popup.dismiss()
+        self.show_import_substations_dialog(None)
+    
+    def _show_import_elements_from_menu(self, menu_popup):
+        menu_popup.dismiss()
+        self.show_import_elements_dialog(None)
+
+    def show_add_menu(self, instance):
+        # Show intermediate menu for adding substation or element
+        menu_popup = Popup(title='Προσθήκη υποσταθμών και στοιχείων', size_hint=(0.6, 0.4))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
-        # If old schema without serial_number column, add it
-        if elem_columns and 'serial_number' not in elem_columns:
-            try:
-                c.execute("ALTER TABLE elements ADD COLUMN serial_number TEXT DEFAULT ''")
-            except:
-                pass
+        layout.add_widget(Label(text='Επιλέξτε τι θέλετε να προσθέσετε:', size_hint_y=0.3))
         
-        # If old schema without maintenance_date column, add it
-        if elem_columns and 'maintenance_date' not in elem_columns:
-            try:
-                c.execute("ALTER TABLE elements ADD COLUMN maintenance_date TEXT DEFAULT ''")
-            except:
-                pass
+        # Add substation button
+        add_substation_btn = Button(text='Προσθήκη Νέου Υποσταθμού', size_hint_y=0.3)
+        add_substation_btn.bind(on_press=lambda x: self._show_add_substation_from_menu(menu_popup))
+        layout.add_widget(add_substation_btn)
         
-        # If old schema without voltage_level column, add it
-        if elem_columns and 'voltage_level' not in elem_columns:
-            try:
-                c.execute("ALTER TABLE elements ADD COLUMN voltage_level TEXT DEFAULT ''")
-            except:
-                pass
+        # Add element button
+        add_element_btn = Button(text='Προσθήκη Νέου Στοιχείου', size_hint_y=0.3)
+        add_element_btn.bind(on_press=lambda x: self._show_add_element_from_menu(menu_popup))
+        layout.add_widget(add_element_btn)
         
-        # If old schema without manufacturer column, add it
-        if elem_columns and 'manufacturer' not in elem_columns:
-            try:
-                c.execute("ALTER TABLE elements ADD COLUMN manufacturer TEXT DEFAULT ''")
-            except:
-                pass
+        # Cancel button
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.2)
+        cancel_btn.bind(on_press=menu_popup.dismiss)
+        layout.add_widget(cancel_btn)
         
-        # If old schema without type column, add it
-        if elem_columns and 'type' not in elem_columns:
-            try:
-                c.execute("ALTER TABLE elements ADD COLUMN type TEXT DEFAULT ''")
-            except:
-                pass
-        
-        self.conn.commit()
+        menu_popup.content = layout
+        menu_popup.open()
+    
+    def _show_add_substation_from_menu(self, menu_popup):
+        menu_popup.dismiss()
+        self.show_add_substation_popup(None)
+    
+    def _show_add_element_from_menu(self, menu_popup):
+        menu_popup.dismiss()
+        self.show_add_element_popup(None)
 
     def show_add_substation_popup(self, instance):
         # Create popup
@@ -135,16 +140,14 @@ class SubstationApp(App):
         
         def add_substation():
             if not name_input.text:
-                self.output.text = 'Παρακαλώ εισάγετε όνομα υποσταθμού!'
+                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε όνομα υποσταθμού!')
                 return
             
             c = self.conn.cursor()
             c.execute("INSERT INTO substations (name, location, adoption_date) VALUES (?, ?, ?)", (name_input.text, '', ''))
             self.conn.commit()
-            self.output.text = 'Υποσταθμός προστέθηκε!'
             popup.dismiss()
-            # Refresh display
-            self.show_records(None)
+            show_message_popup('Επιτυχία', 'Υποσταθμός προστέθηκε!', callback=lambda: self.show_records(None))
         
         add_btn = Button(text='Προσθήκη')
         add_btn.bind(on_press=lambda x: add_substation())
@@ -159,12 +162,70 @@ class SubstationApp(App):
         popup.open()
 
     def show_records(self, instance):
+        # Show intermediate selection dialog
         c = self.conn.cursor()
-        c.execute("SELECT id, name, location, adoption_date FROM substations")
+        c.execute("SELECT id, name FROM substations ORDER BY name")
+        all_substations = c.fetchall()
+        
+        if not all_substations:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν υποσταθμοί στη βάση!')
+            return
+        
+        # Create selection popup
+        selection_popup = Popup(title='Επιλογή Προβολής', size_hint=(0.6, 0.5))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        layout.add_widget(Label(text='Επιλέξτε τι θέλετε να δείτε:', size_hint_y=0.2))
+        
+        # "Show All" button
+        show_all_btn = Button(text='Εμφάνιση Όλων των Υποσταθμών', size_hint_y=0.25)
+        show_all_btn.bind(on_press=lambda x: self._show_all_substations(selection_popup))
+        layout.add_widget(show_all_btn)
+        
+        # Dropdown for specific substation
+        layout.add_widget(Label(text='Ή επιλέξτε συγκεκριμένο υποσταθμό:', size_hint_y=0.15))
+        
+        substation_names = [name for _, name in all_substations]
+        substation_spinner = Spinner(
+            text=substation_names[0],
+            values=substation_names,
+            size_hint_y=0.2
+        )
+        layout.add_widget(substation_spinner)
+        
+        show_specific_btn = Button(text='Εμφάνιση Επιλεγμένου', size_hint_y=0.25)
+        show_specific_btn.bind(on_press=lambda x: self._show_specific_substation(substation_spinner.text, selection_popup))
+        layout.add_widget(show_specific_btn)
+        
+        # Cancel button
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.2)
+        cancel_btn.bind(on_press=selection_popup.dismiss)
+        layout.add_widget(cancel_btn)
+        
+        selection_popup.content = layout
+        selection_popup.open()
+    
+    def _show_all_substations(self, selection_popup):
+        selection_popup.dismiss()
+        self._display_substations(None)
+    
+    def _show_specific_substation(self, substation_name, selection_popup):
+        selection_popup.dismiss()
+        self._display_substations(substation_name)
+    
+    def _display_substations(self, filter_name=None):
+        c = self.conn.cursor()
+        if filter_name:
+            c.execute("SELECT id, name, location, adoption_date FROM substations WHERE name=?", (filter_name,))
+            title = f'Υποσταθμός: {filter_name}'
+        else:
+            c.execute("SELECT id, name, location, adoption_date FROM substations")
+            title = 'Εγγραφές Υποσταθμών'
+        
         substations = c.fetchall()
         
         # Create popup window
-        popup = Popup(title='Εγγραφές Υποσταθμών', size_hint=(0.95, 0.9))
+        popup = Popup(title=title, size_hint=(0.95, 0.9))
         
         # Create main layout
         main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
@@ -283,95 +344,20 @@ class SubstationApp(App):
         c = self.conn.cursor()
         c.execute("DELETE FROM substations")
         self.conn.commit()
-        self.output.text = 'Όλες οι εγγραφές διαγράφηκαν!'
+        show_message_popup('Ολοκληρώθηκε', 'Όλες οι εγγραφές διαγράφηκαν!', callback=lambda: self.show_records(None))
     
     def create_substations_template(self, instance):
-        if openpyxl is None:
-            self.output.text = 'openpyxl δεν είναι εγκατεστημένο!'
-            return
-        
-        try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill
-            
-            wb = Workbook()
-            ws = wb.active
-            ws.title = 'Substations'
-            
-            # Substations sheet
-            headers = ['Name', 'Location', 'Adoption Date']
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col, value=header)
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-                cell.font = Font(bold=True, color='FFFFFF')
-            
-            ws.column_dimensions['A'].width = 30
-            ws.column_dimensions['B'].width = 50
-            ws.column_dimensions['C'].width = 15
-            
-            # Add example rows
-            examples = [
-                ('Υποσταθμός Α', 'https://maps.google.com/?q=example1', '2025-01-15'),
-                ('Υποσταθμός Β', 'https://maps.google.com/?q=example2', '2025-01-20'),
-            ]
-            for idx, (name, location, date) in enumerate(examples, 2):
-                ws.cell(row=idx, column=1, value=name)
-                ws.cell(row=idx, column=2, value=location)
-                ws.cell(row=idx, column=3, value=date)
-            
-            template_path = os.path.join(os.path.dirname(__file__), 'substations_import_template.xlsx')
-            wb.save(template_path)
-            self.output.text = f'Template Υποσταθμών δημιουργήθηκε: {template_path}'
-        except Exception as e:
-            self.output.text = f'Σφάλμα: {str(e)}'
+        success, message = create_substations_template(os.path.dirname(__file__))
+        title = 'Template Υποσταθμών' if success else 'Σφάλμα'
+        show_message_popup(title, message)
     
     def create_elements_template(self, instance):
-        if openpyxl is None:
-            self.output.text = 'openpyxl δεν είναι εγκατεστημένο!'
-            return
-        
-        try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill
-            
-            wb = Workbook()
-            ws = wb.active
-            ws.title = 'Elements'
-            
-            # Elements sheet
-            headers = ['Substation Name', 'Element Type', 'Name', 'Serial Number', 'Maintenance Date', 'Voltage Level', 'Manufacturer', 'Type']
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col, value=header)
-                cell.font = Font(bold=True, color='FFFFFF')
-                cell.fill = PatternFill(start_color='70AD47', end_color='70AD47', fill_type='solid')
-            
-            ws.column_dimensions['A'].width = 30
-            ws.column_dimensions['B'].width = 20
-            ws.column_dimensions['C'].width = 20
-            ws.column_dimensions['D'].width = 15
-            ws.column_dimensions['E'].width = 15
-            ws.column_dimensions['F'].width = 15
-            ws.column_dimensions['G'].width = 20
-            ws.column_dimensions['H'].width = 20
-            
-            # Add example rows
-            examples = [
-                ('Υποσταθμός Α', 'Διακόπτης Ισχύος', 'Main Breaker', 'SN-001', '2025-01-20', '150 KV', 'ABB', 'Type-X'),
-                ('Υποσταθμός Α', 'Μετασχηματιστής', 'Transformer 1', 'SN-002', '2025-01-18', '20/150 KV', 'Siemens', 'Type-Y'),
-            ]
-            for idx, row_data in enumerate(examples, 2):
-                for col, value in enumerate(row_data, 1):
-                    ws.cell(row=idx, column=col, value=value)
-            
-            template_path = os.path.join(os.path.dirname(__file__), 'elements_import_template.xlsx')
-            wb.save(template_path)
-            self.output.text = f'Template Στοιχείων δημιουργήθηκε: {template_path}'
-        except Exception as e:
-            self.output.text = f'Σφάλμα: {str(e)}'
+        success, message = create_elements_template(os.path.dirname(__file__))
+        title = 'Template Στοιχείων' if success else 'Σφάλμα'
+        show_message_popup(title, message)
     
     def show_import_substations_dialog(self, instance):
-        popup = Popup(title='Εισαγωγή Υποσταθμών', size_hint=(0.9, 0.9))
+        popup = Popup(title='Εισαγωγή υποσταθμών από αρχείο', size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         # Path input
@@ -397,11 +383,11 @@ class SubstationApp(App):
             file_path = path_input.text.strip() if path_input.text.strip() else (chooser.selection[0] if chooser.selection else None)
             
             if not file_path:
-                self.output.text = 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!'
+                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!')
                 return
             
             if not os.path.exists(file_path):
-                self.output.text = 'Το αρχείο δεν βρέθηκε!'
+                show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
                 return
             
             self.import_substations_from_file(file_path)
@@ -420,7 +406,7 @@ class SubstationApp(App):
         popup.open()
     
     def show_import_elements_dialog(self, instance):
-        popup = Popup(title='Εισαγωγή Στοιχείων', size_hint=(0.9, 0.9))
+        popup = Popup(title='Εισαγωγή στοιχείων από αρχείο', size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         # Path input
@@ -446,11 +432,11 @@ class SubstationApp(App):
             file_path = path_input.text.strip() if path_input.text.strip() else (chooser.selection[0] if chooser.selection else None)
             
             if not file_path:
-                self.output.text = 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!'
+                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!')
                 return
             
             if not os.path.exists(file_path):
-                self.output.text = 'Το αρχείο δεν βρέθηκε!'
+                show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
                 return
             
             self.import_elements_from_file(file_path)
@@ -469,209 +455,212 @@ class SubstationApp(App):
         popup.open()
     
     def import_substations_from_file(self, file_path):
-        try:
-            if file_path.endswith('.xlsx'):
-                self.import_substations_from_excel(file_path)
-            elif file_path.endswith('.csv'):
-                self.import_substations_from_csv(file_path)
-        except Exception as e:
-            self.output.text = f'Σφάλμα κατά την εισαγωγή: {str(e)}'
+        def on_success(message):
+            show_message_popup('Εισαγωγή Υποσταθμών', message, callback=lambda: self.show_records(None))
+
+        def on_error(message):
+            show_message_popup('Σφάλμα', message)
+
+        if file_path.endswith('.xlsx'):
+            import_substations_from_excel(self.conn, file_path, on_success, on_error)
+        elif file_path.endswith('.csv'):
+            import_substations_from_csv(self.conn, file_path, on_success, on_error)
+        else:
+            on_error('Μη υποστηριζόμενη μορφή αρχείου')
     
     def import_elements_from_file(self, file_path):
+        # Step 1: detect duplicates
         try:
+            import pandas as pd
+            cursor = self.conn.cursor()
+
             if file_path.endswith('.xlsx'):
-                self.import_elements_from_excel(file_path)
+                df_elem = pd.read_excel(file_path, sheet_name='Elements')
             elif file_path.endswith('.csv'):
-                self.import_elements_from_csv(file_path)
-        except Exception as e:
-            self.output.text = f'Σφάλμα κατά την εισαγωγή: {str(e)}'
-    
-    def import_substations_from_excel(self, file_path):
-        if pd is None:
-            self.output.text = 'pandas δεν είναι εγκατεστημένο!'
-            return
-        
-        try:
-            c = self.conn.cursor()
-            df_sub = pd.read_excel(file_path, sheet_name='Substations')
-            count = 0
-            duplicates = []
-            
-            for _, row in df_sub.iterrows():
-                name = str(row.get('Name', '')).strip() if pd.notna(row.get('Name', '')) else ''
-                location = str(row.get('Location', '')) if pd.notna(row.get('Location', '')) else ''
-                adoption_date = str(row.get('Adoption Date', '')) if pd.notna(row.get('Adoption Date', '')) else ''
-                
-                if name and name.strip():
-                    # Check if substation already exists
-                    c.execute("SELECT id FROM substations WHERE name=?", (name,))
-                    if c.fetchone():
-                        duplicates.append(name)
-                    else:
-                        c.execute("INSERT INTO substations (name, location, adoption_date) VALUES (?, ?, ?)",
-                                 (name, location, adoption_date))
-                        count += 1
-            
-            self.conn.commit()
-            
-            if duplicates:
-                dup_list = ', '.join(duplicates)
-                msg = f'{count} νέοι υποσταθμοί εισήχθησαν.\nΥπάρχοντες (δεν εισήχθησαν): {dup_list}'
+                df_elem = pd.read_csv(file_path)
             else:
-                msg = f'{count} υποσταθμοί εισήχθησαν με επιτυχία!'
-            
-            self.output.text = msg
-            # Show popup with message, then refresh records
-            self.show_message_popup('Εισαγωγή Υποσταθμών (Excel)', msg, callback=lambda: self.show_records(None))
-        except Exception as e:
-            error_msg = f'Σφάλμα: {str(e)}'
-            self.output.text = error_msg
-            self.show_message_popup('Σφάλμα', error_msg)
-    
-    def import_substations_from_csv(self, file_path):
-        if pd is None:
-            self.output.text = 'pandas δεν είναι εγκατεστημένο!'
-            return
-        
-        try:
-            c = self.conn.cursor()
-            df_sub = pd.read_csv(file_path)
-            count = 0
-            duplicates = []
-            
-            for _, row in df_sub.iterrows():
-                name = str(row.get('Name', '')).strip() if pd.notna(row.get('Name', '')) else ''
-                location = str(row.get('Location', '')) if pd.notna(row.get('Location', '')) else ''
-                adoption_date = str(row.get('Adoption Date', '')) if pd.notna(row.get('Adoption Date', '')) else ''
-                
-                if name and name.strip():
-                    # Check if substation already exists
-                    c.execute("SELECT id FROM substations WHERE name=?", (name,))
-                    if c.fetchone():
-                        duplicates.append(name)
-                    else:
-                        c.execute("INSERT INTO substations (name, location, adoption_date) VALUES (?, ?, ?)",
-                                 (name, location, adoption_date))
-                        count += 1
-            
-            self.conn.commit()
-            
-            if duplicates:
-                dup_list = ', '.join(duplicates)
-                msg = f'{count} νέοι υποσταθμοί εισήχθησαν.\nΥπάρχοντες (δεν εισήχθησαν): {dup_list}'
-            else:
-                msg = f'{count} υποσταθμοί εισήχθησαν με επιτυχία!'
-            
-            self.output.text = msg
-            # Show popup with message, then refresh records
-            self.show_message_popup('Εισαγωγή Υποσταθμών (CSV)', msg, callback=lambda: self.show_records(None))
-        except Exception as e:
-            error_msg = f'Σφάλμα: {str(e)}'
-            self.output.text = error_msg
-            self.show_message_popup('Σφάλμα', error_msg)
-    
-    def import_elements_from_excel(self, file_path):
-        if pd is None:
-            self.output.text = 'pandas δεν είναι εγκατεστημένο!'
-            return
-        
-        try:
-            c = self.conn.cursor()
-            df_elem = pd.read_excel(file_path, sheet_name='Elements')
-            count = 0
-            not_found = []
-            
+                show_message_popup('Σφάλμα', 'Μη υποστηριζόμενη μορφή αρχείου')
+                return
+
+            duplicates = []  # list of tuples (sub_name, name, serial)
             for _, row in df_elem.iterrows():
                 sub_name = row.get('Substation Name', '')
-                element_type = row.get('Element Type', '')
-                name = row.get('Name', '')
-                serial_number = row.get('Serial Number', '')
-                maintenance_date = row.get('Maintenance Date', '')
-                voltage_level = row.get('Voltage Level', '')
-                manufacturer = row.get('Manufacturer', '')
-                elem_type = row.get('Type', '')
-                
+                name = str(row.get('Name', '')) if pd.notna(row.get('Name', '')) else ''
+                serial_number = str(row.get('Serial Number', '')) if pd.notna(row.get('Serial Number', '')) else ''
+
                 if sub_name and name:
-                    c.execute("SELECT id FROM substations WHERE name=?", (str(sub_name),))
-                    result = c.fetchone()
+                    cursor.execute('SELECT id FROM substations WHERE name=?', (str(sub_name),))
+                    result = cursor.fetchone()
                     if result:
                         sub_id = result[0]
-                        c.execute("INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                 (sub_id, str(element_type) if pd.notna(element_type) else '', str(name), str(serial_number) if pd.notna(serial_number) else '', str(maintenance_date) if pd.notna(maintenance_date) else '', str(voltage_level) if pd.notna(voltage_level) else '', str(manufacturer) if pd.notna(manufacturer) else '', str(elem_type) if pd.notna(elem_type) else ''))
-                        count += 1
-                    else:
-                        not_found.append(sub_name)
-            
-            self.conn.commit()
-            
-            if not_found:
-                msg = f'{count} στοιχεία εισήχθησαν. Υποσταθμοί δεν βρέθησαν: {set(not_found)}'
+                        cursor.execute(
+                            'SELECT id FROM elements WHERE substation_id=? AND name=? AND serial_number=?',
+                            (sub_id, name, serial_number)
+                        )
+                        if cursor.fetchone():
+                            duplicates.append((str(sub_name), name, serial_number))
+
+            if duplicates:
+                self._show_duplicate_choice_popup(file_path, duplicates)
             else:
-                msg = f'{count} στοιχεία εισήχθησαν με επιτυχία!'
-            
-            self.output.text = msg
-            # Show popup with message, then refresh records
-            self.show_message_popup('Εισαγωγή Στοιχείων (Excel)', msg, callback=lambda: self.show_records(None))
+                self._proceed_with_import(file_path, default_choice=None, decisions={})
+
         except Exception as e:
-            error_msg = f'Σφάλμα: {str(e)}'
-            self.output.text = error_msg
-            self.show_message_popup('Σφάλμα', error_msg)
-    
-    def import_elements_from_csv(self, file_path):
-        if pd is None:
-            self.output.text = 'pandas δεν είναι εγκατεστημένο!'
-            return
-        
-        try:
-            c = self.conn.cursor()
-            df_elem = pd.read_csv(file_path)
-            count = 0
-            not_found = []
-            
-            for _, row in df_elem.iterrows():
-                sub_name = row.get('Substation Name', '')
-                element_type = row.get('Element Type', '')
-                name = row.get('Name', '')
-                serial_number = row.get('Serial Number', '')
-                maintenance_date = row.get('Maintenance Date', '')
-                voltage_level = row.get('Voltage Level', '')
-                manufacturer = row.get('Manufacturer', '')
-                elem_type = row.get('Type', '')
-                
-                if sub_name and name:
-                    c.execute("SELECT id FROM substations WHERE name=?", (str(sub_name),))
-                    result = c.fetchone()
-                    if result:
-                        sub_id = result[0]
-                        c.execute("INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                 (sub_id, str(element_type) if pd.notna(element_type) else '', str(name), str(serial_number) if pd.notna(serial_number) else '', str(maintenance_date) if pd.notna(maintenance_date) else '', str(voltage_level) if pd.notna(voltage_level) else '', str(manufacturer) if pd.notna(manufacturer) else '', str(elem_type) if pd.notna(elem_type) else ''))
-                        count += 1
-                    else:
-                        not_found.append(sub_name)
-            
-            self.conn.commit()
-            
-            if not_found:
-                msg = f'{count} στοιχεία εισήχθησαν. Υποσταθμοί δεν βρέθησαν: {set(not_found)}'
-            else:
-                msg = f'{count} στοιχεία εισήχθησαν με επιτυχία!'
-            
-            self.output.text = msg
-            # Show popup with message, then refresh records
-            self.show_message_popup('Εισαγωγή Στοιχείων (CSV)', msg, callback=lambda: self.show_records(None))
-        except Exception as e:
-            error_msg = f'Σφάλμα: {str(e)}'
-            self.output.text = error_msg
-            self.show_message_popup('Σφάλμα', error_msg)
+            show_message_popup('Σφάλμα', f'Σφάλμα κατά τον έλεγχο: {e}')
+
+    def _show_duplicate_choice_popup(self, file_path, duplicates_list):
+        # User chooses per-duplicate replace/skip, plus replace-all / skip-all shortcuts
+        popup = Popup(title='Διπλότυπα Στοιχεία Εντοπίστηκαν', size_hint=(0.9, 0.85))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        instructions = Label(
+            text='Επιλέξτε για κάθε διπλότυπο αν θα αντικατασταθεί ή θα παραλειφθεί.\nΜπορείτε να επιλέξετε "Αντικατάσταση Όλων" ή "Παράλειψη Όλων".',
+            size_hint_y=None,
+            height=60
+        )
+        layout.add_widget(instructions)
+
+        # State
+        decisions = {}  # key: (sub_name, name, serial) -> True/False
+        default_choice = {'value': None}  # True replace all, False skip all
+        manual_choice_made = {'value': False}  # track if any per-item choice occurred
+
+        # Scrollable list
+        scroll = ScrollView()
+        grid = GridLayout(cols=1, spacing=6, size_hint_y=None)
+        grid.bind(minimum_height=grid.setter('height'))
+
+        def update_continue_state():
+            # Enable continue only if all decisions made or default chosen
+            if default_choice['value'] is not None:
+                continue_btn.disabled = False
+                return
+            continue_btn.disabled = len(decisions) < len(duplicates_list)
+
+        def disable_global_buttons():
+            btn_replace_all.disabled = True
+            btn_skip_all.disabled = True
+
+        def make_row(sub_name, name, serial):
+            row = BoxLayout(size_hint_y=None, height=50, spacing=8)
+            label_text = f"{name} (S/N: {serial or '-'}), Υποστ.: {sub_name}"
+            row.add_widget(Label(text=label_text, size_hint_x=0.6))
+
+            key = (sub_name, name, serial)
+
+            def set_decision(val, btn_replace, btn_skip):
+                decisions[key] = val
+                manual_choice_made['value'] = True
+                # Gray out both buttons after selection and color to show choice
+                btn_replace.disabled = True
+                btn_skip.disabled = True
+                if val:
+                    btn_replace.background_color = (0.6, 1, 0.6, 1)  # light green
+                    btn_skip.background_color = (0.7, 0.7, 0.7, 1)
+                else:
+                    btn_skip.background_color = (1, 0.6, 0.6, 1)    # light red
+                    btn_replace.background_color = (0.7, 0.7, 0.7, 1)
+                disable_global_buttons()
+                update_continue_state()
+
+            replace_btn = Button(text='Αντικατάσταση', size_hint_x=0.2)
+            skip_btn = Button(text='Παράλειψη', size_hint_x=0.2)
+            replace_btn.bind(on_press=lambda _x, br=replace_btn, bs=skip_btn: set_decision(True, br, bs))
+            skip_btn.bind(on_press=lambda _x, br=replace_btn, bs=skip_btn: set_decision(False, br, bs))
+
+            row.add_widget(replace_btn)
+            row.add_widget(skip_btn)
+            return row
+
+        for sub_name, name, serial in duplicates_list:
+            grid.add_widget(make_row(sub_name, name, serial))
+
+        scroll.add_widget(grid)
+        layout.add_widget(scroll)
+
+        # Global buttons
+        buttons_all = BoxLayout(size_hint_y=None, height=50, spacing=10)
+
+        def choose_all(val):
+            default_choice['value'] = val
+            # set all decisions too
+            for tup in duplicates_list:
+                decisions[tup] = val
+            # Gray out all buttons visually by disabling continue gating
+            update_continue_state()
+            # disable global buttons once used
+            btn_replace_all.disabled = True
+            btn_skip_all.disabled = True
+
+        btn_replace_all = Button(text='Αντικατάσταση Όλων')
+        btn_replace_all.bind(on_press=lambda _x: choose_all(True))
+        buttons_all.add_widget(btn_replace_all)
+
+        btn_skip_all = Button(text='Παράλειψη Όλων')
+        btn_skip_all.bind(on_press=lambda _x: choose_all(False))
+        buttons_all.add_widget(btn_skip_all)
+
+        layout.add_widget(buttons_all)
+
+        # Action buttons
+        actions = BoxLayout(size_hint_y=None, height=50, spacing=10)
+
+        def on_continue(_x):
+            if default_choice['value'] is None and len(decisions) < len(duplicates_list):
+                show_message_popup('Σφάλμα', 'Ολοκληρώστε τις επιλογές για όλα τα διπλότυπα ή χρησιμοποιήστε "Αντικατάσταση Όλων" / "Παράλειψη Όλων".')
+                return
+            popup.dismiss()
+            self._proceed_with_import(file_path, default_choice=default_choice['value'], decisions=decisions)
+
+        def on_cancel(_x):
+            popup.dismiss()
+
+        continue_btn = Button(text='Συνέχεια', disabled=True)
+        continue_btn.bind(on_press=on_continue)
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=on_cancel)
+
+        actions.add_widget(continue_btn)
+        actions.add_widget(cancel_btn)
+        layout.add_widget(actions)
+
+        popup.content = layout
+        popup.open()
+
+        # Initial state
+        update_continue_state()
+
+    def _proceed_with_import(self, file_path, default_choice=None, decisions=None):
+        decisions = decisions or {}
+
+        def on_success(message):
+            show_message_popup('Εισαγωγή Στοιχείων', message, callback=lambda: self.show_records(None))
+
+        def on_error(message):
+            show_message_popup('Σφάλμα', message)
+
+        # Resolver passed to importer per duplicate
+        def on_duplicate(sub_name, name, serial_number):
+            key = (sub_name, name, serial_number)
+            if key in decisions:
+                return decisions[key]
+            if default_choice is not None:
+                return default_choice
+            return False  # safe default
+
+        if file_path.endswith('.xlsx'):
+            import_elements_from_excel(self.conn, file_path, on_success, on_error, on_duplicate)
+        elif file_path.endswith('.csv'):
+            import_elements_from_csv(self.conn, file_path, on_success, on_error, on_duplicate)
+        else:
+            on_error('Μη υποστηριζόμενη μορφή αρχείου')
 
     def delete_element(self, element_id, substation_id, parent_popup):
         c = self.conn.cursor()
         c.execute("DELETE FROM elements WHERE id=?", (element_id,))
         self.conn.commit()
-        self.output.text = 'Στοιχείο διαγράφηκε!'
         parent_popup.dismiss()
-        # Refresh the records view to show the updated list
-        self.show_records(None)
+        show_message_popup('Ολοκληρώθηκε', 'Στοιχείο διαγράφηκε!', callback=lambda: self.show_records(None))
 
     def delete_substation(self, substation_id, parent_popup):
         c = self.conn.cursor()
@@ -680,42 +669,9 @@ class SubstationApp(App):
         # Then delete the substation
         c.execute("DELETE FROM substations WHERE id=?", (substation_id,))
         self.conn.commit()
-        self.output.text = 'Υποσταθμός και όλα τα στοιχεία του διαγράφηκαν!'
         parent_popup.dismiss()
-        # Refresh the records view
-        self.show_records(None)
+        show_message_popup('Ολοκληρώθηκε', 'Υποσταθμός και όλα τα στοιχεία του διαγράφηκαν!', callback=lambda: self.show_records(None))
     
-    def show_message_popup(self, title, message, callback=None):
-        # Dynamically adjust popup size based on message length
-        msg_len = len(message)
-        if msg_len < 100:
-            size_hint = (0.7, 0.3)
-        elif msg_len < 200:
-            size_hint = (0.85, 0.4)
-        else:
-            size_hint = (0.9, 0.55)
-        
-        popup = Popup(title=title, size_hint=size_hint)
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        
-        # Scrollable message for long text
-        scroll = ScrollView()
-        msg_label = Label(text=message, size_hint_y=None, markup=False)
-        msg_label.bind(texture_size=msg_label.setter('size'))
-        scroll.add_widget(msg_label)
-        layout.add_widget(scroll)
-        
-        close_btn = Button(text='OK', size_hint_y=0.15)
-        def on_close(btn):
-            popup.dismiss()
-            if callback:
-                callback()
-        close_btn.bind(on_press=on_close)
-        layout.add_widget(close_btn)
-        
-        popup.content = layout
-        popup.open()
-
     def show_edit_substation_popup(self, substation_id, substation_name, location, adoption_date, parent_popup):
         # Create popup
         popup = Popup(title=f'Επεξεργασία Υποσταθμού: {substation_name}', size_hint=(0.8, 0.6))
@@ -749,11 +705,9 @@ class SubstationApp(App):
             c.execute("UPDATE substations SET location=?, adoption_date=? WHERE id=?", 
                      (location_input.text, date_input.text, substation_id))
             self.conn.commit()
-            self.output.text = 'Υποσταθμός ενημερώθηκε!'
             popup.dismiss()
             parent_popup.dismiss()
-            # Refresh the records view
-            self.show_records(None)
+            show_message_popup('Ολοκληρώθηκε', 'Υποσταθμός ενημερώθηκε!', callback=lambda: self.show_records(None))
         
         save_btn = Button(text='Αποθήκευση')
         save_btn.bind(on_press=lambda x: save_changes())
@@ -774,49 +728,96 @@ class SubstationApp(App):
         substations = c.fetchall()
         
         if not substations:
-            self.output.text = 'Δεν υπάρχουν υποσταθμοί!'
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν υποσταθμοί!')
             return
         
         # Store substations mapping for later use
         self.substations_map = {s[1]: s[0] for s in substations}
         
         # Create popup
-        popup = Popup(title='Προσθήκη Στοιχείου', size_hint=(0.8, 0.6))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        popup = Popup(title='Προσθήκη Στοιχείου', size_hint=(0.8, 0.9))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # Create scrollable area for inputs
+        scroll = ScrollView()
+        layout = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=8)
+        layout.bind(minimum_height=layout.setter('height'))
         
         # Substation spinner
         substation_names = list(self.substations_map.keys())
+        layout.add_widget(Label(text='Επιλέξτε Υποσταθμό:', size_hint_y=None, height=30))
         substation_spinner = Spinner(
             text=substation_names[0],
             values=substation_names,
-            size_hint_y=0.2
+            size_hint_y=None,
+            height=40
         )
-        layout.add_widget(Label(text='Επιλέξτε Υποσταθμό:', size_hint_y=0.2))
         layout.add_widget(substation_spinner)
         
         # Element type spinner
+        layout.add_widget(Label(text='Επιλέξτε Στοιχείο:', size_hint_y=None, height=30))
         element_spinner = Spinner(
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
-            size_hint_y=0.2
+            size_hint_y=None,
+            height=40
         )
-        layout.add_widget(Label(text='Επιλέξτε Στοιχείο:', size_hint_y=0.2))
         layout.add_widget(element_spinner)
         
-        # Buttons layout
-        buttons_layout = BoxLayout(size_hint_y=0.2, spacing=10)
+        # Dynamic element fields
+        field_inputs = {}
+        for field in self.ELEMENT_FIELD_DEFS:
+            layout.add_widget(Label(text=f"{field['label']}:", size_hint_y=None, height=30))
+            if field.get('type') == 'spinner':
+                spinner = Spinner(text=field['values'][0], values=field['values'], size_hint_y=None, height=40)
+                field_inputs[field['key']] = spinner
+                layout.add_widget(spinner)
+            else:
+                ti = TextInput(hint_text=field.get('hint', ''), size_hint_y=None, height=40, multiline=False)
+                field_inputs[field['key']] = ti
+                layout.add_widget(ti)
         
+        scroll.add_widget(layout)
+        main_layout.add_widget(scroll)
+
+        # Buttons layout
+        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+
         def add_element():
             substation_name = substation_spinner.text
-            element_type = element_spinner.text
             substation_id = self.substations_map[substation_name]
-            
+            element_type = element_spinner.text
+
+            name_val = field_inputs['name'].text if hasattr(field_inputs['name'], 'text') else field_inputs['name'].text
+            if not name_val:
+                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε όνομα στοιχείου!')
+                return
+
+            # Gather values
+            values = {
+                key: (field_inputs[key].text if hasattr(field_inputs[key], 'text') else field_inputs[key].text)
+                for key in field_inputs
+            }
+            if 'voltage_level' in values and hasattr(field_inputs['voltage_level'], 'text'):
+                values['voltage_level'] = field_inputs['voltage_level'].text
+
             c = self.conn.cursor()
-            c.execute("INSERT INTO elements (substation_id, element_type) VALUES (?, ?)", 
-                     (substation_id, element_type))
+            c.execute(
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    substation_id,
+                    element_type,
+                    values.get('name', ''),
+                    values.get('serial_number', ''),
+                    values.get('maintenance_date', ''),
+                    values.get('voltage_level', ''),
+                    values.get('manufacturer', ''),
+                    values.get('type', ''),
+                ),
+            )
             self.conn.commit()
-            self.output.text = f'Στοιχείο προστέθηκε στον {substation_name}!'
             popup.dismiss()
+            show_message_popup('Επιτυχία', f'Στοιχείο προστέθηκε στον {substation_name}!', callback=lambda: self.show_records(None))
         
         add_btn = Button(text='Προσθήκη')
         add_btn.bind(on_press=lambda x: add_element())
@@ -826,8 +827,8 @@ class SubstationApp(App):
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
         
-        layout.add_widget(buttons_layout)
-        popup.content = layout
+        main_layout.add_widget(buttons_layout)
+        popup.content = main_layout
         popup.open()
 
     def show_add_element_popup_for_substation(self, substation_id, substation_name, parent_popup):
@@ -849,66 +850,29 @@ class SubstationApp(App):
         )
         input_layout.add_widget(Label(text='Επιλέξτε Τύπο Στοιχείου:', size_hint_y=None, height=30))
         input_layout.add_widget(element_spinner)
-        
-        # Element name input
-        element_name_input = TextInput(
-            hint_text='Όνομα Στοιχείου',
-            size_hint_y=None,
-            height=40,
-            multiline=False
-        )
-        input_layout.add_widget(Label(text='Όνομα Στοιχείου:', size_hint_y=None, height=30))
-        input_layout.add_widget(element_name_input)
-        
-        # Serial number input
-        serial_number_input = TextInput(
-            hint_text='Σειριακός Αριθμός',
-            size_hint_y=None,
-            height=40,
-            multiline=False
-        )
-        input_layout.add_widget(Label(text='Σειριακός Αριθμός:', size_hint_y=None, height=30))
-        input_layout.add_widget(serial_number_input)
-        
-        # Maintenance date input
-        maintenance_date_input = TextInput(
-            hint_text='Ημερομηνία (YYYY-MM-DD)',
-            size_hint_y=None,
-            height=40,
-            multiline=False
-        )
-        input_layout.add_widget(Label(text='Ημερομηνία τελευταίας συντήρησης:', size_hint_y=None, height=30))
-        input_layout.add_widget(maintenance_date_input)
-        
-        # Voltage level spinner
-        voltage_spinner = Spinner(
-            text=self.VOLTAGE_LEVELS[0],
-            values=self.VOLTAGE_LEVELS,
-            size_hint_y=None,
-            height=40
-        )
-        input_layout.add_widget(Label(text='Επίπεδο Τάσης:', size_hint_y=None, height=30))
-        input_layout.add_widget(voltage_spinner)
-        
-        # Manufacturer input
-        manufacturer_input = TextInput(
-            hint_text='Κατασκευστής',
-            size_hint_y=None,
-            height=40,
-            multiline=False
-        )
-        input_layout.add_widget(Label(text='Κατασκευστής:', size_hint_y=None, height=30))
-        input_layout.add_widget(manufacturer_input)
-        
-        # Type input
-        type_input = TextInput(
-            hint_text='Τύπος',
-            size_hint_y=None,
-            height=40,
-            multiline=False
-        )
-        input_layout.add_widget(Label(text='Τύπος:', size_hint_y=None, height=30))
-        input_layout.add_widget(type_input)
+
+        # Dynamic element fields
+        field_inputs = {}
+        for field in self.ELEMENT_FIELD_DEFS:
+            input_layout.add_widget(Label(text=f"{field['label']}:", size_hint_y=None, height=30))
+            if field.get('type') == 'spinner':
+                spinner = Spinner(
+                    text=field['values'][0],
+                    values=field['values'],
+                    size_hint_y=None,
+                    height=40
+                )
+                field_inputs[field['key']] = spinner
+                input_layout.add_widget(spinner)
+            else:
+                ti = TextInput(
+                    hint_text=field.get('hint', ''),
+                    size_hint_y=None,
+                    height=40,
+                    multiline=False
+                )
+                field_inputs[field['key']] = ti
+                input_layout.add_widget(ti)
         
         scroll.add_widget(input_layout)
         layout.add_widget(scroll)
@@ -918,26 +882,35 @@ class SubstationApp(App):
         
         def add_element():
             element_type = element_spinner.text
-            element_name = element_name_input.text
-            serial_number = serial_number_input.text
-            maintenance_date = maintenance_date_input.text
-            voltage_level = voltage_spinner.text
-            manufacturer = manufacturer_input.text
-            elem_type = type_input.text
-            
-            if not element_name:
-                self.output.text = 'Παρακαλώ εισάγετε όνομα στοιχείου!'
+
+            # Gather values
+            values = {
+                key: (field_inputs[key].text if hasattr(field_inputs[key], 'text') else field_inputs[key].text)
+                for key in field_inputs
+            }
+            if 'voltage_level' in values and hasattr(field_inputs['voltage_level'], 'text'):
+                values['voltage_level'] = field_inputs['voltage_level'].text
+
+            if not values.get('name'):
+                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε όνομα στοιχείου!')
                 return
             
             c = self.conn.cursor()
             c.execute("INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
-                     (substation_id, element_type, element_name, serial_number, maintenance_date, voltage_level, manufacturer, elem_type))
+                     (
+                        substation_id,
+                        element_type,
+                        values.get('name', ''),
+                        values.get('serial_number', ''),
+                        values.get('maintenance_date', ''),
+                        values.get('voltage_level', ''),
+                        values.get('manufacturer', ''),
+                        values.get('type', ''),
+                     ))
             self.conn.commit()
-            self.output.text = f'Στοιχείο προστέθηκε!'
             popup.dismiss()
             parent_popup.dismiss()
-            # Refresh the records view to show the new element
-            self.show_records(None)
+            show_message_popup('Επιτυχία', 'Στοιχείο προστέθηκε!', callback=lambda: self.show_records(None))
         
         add_btn = Button(text='Προσθήκη')
         add_btn.bind(on_press=lambda x: add_element())

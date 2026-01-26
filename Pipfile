@@ -1,0 +1,22 @@
+runtime = "python312"
+
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+flask = "==2.0.0"
+flask-cors = "==3.0.0"
+kivy = "==2.0.0"
+pandas = ">=1.3.0"
+openpyxl = ">=3.6.0"
+requests = ">=2.26.0"
+firebase-admin = ">=6.0.0"
+gunicorn = "==20.1.0"
+
+[dev-packages]
+pytest = "*"
+
+[requires]
+python_version = "3.12"
