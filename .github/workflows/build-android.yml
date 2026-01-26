@@ -13,72 +13,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Build with Buildozer
+      uses: ArtemSBulgakov/buildozer-action@v1
+      id: buildozer
       with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          git \
-          ffmpeg \
-          libsdl2-dev \
-          libsdl2-image-dev \
-          libsdl2-mixer-dev \
-          libsdl2-ttf-dev \
-          libportmidi-dev \
-          libswscale-dev \
-          libavformat-dev \
-          libavcodec-dev \
-          zlib1g-dev \
-          libgstreamer1.0 \
-          gstreamer1.0-plugins-base \
-          gstreamer1.0-plugins-good \
-          libncurses5-dev \
-          libncursesw5-dev \
-          libtinfo6 \
-          cmake \
-          libffi-dev \
-          libssl-dev \
-          automake \
-          autoconf \
-          libtool \
-          pkg-config \
-          libltdl-dev \
-          openjdk-17-jdk \
-          unzip
-
-    - name: Install Cython and Buildozer
-      run: |
-        pip install --upgrade pip
-        pip install --upgrade cython==0.29.33
-        pip install --upgrade buildozer
-
-    - name: Set up Android SDK
-      run: |
-        mkdir -p $HOME/.buildozer/android/platform/android-sdk/cmdline-tools
-        cd $HOME/.buildozer/android/platform/android-sdk/cmdline-tools
-        wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
-        unzip -q commandlinetools-linux-10406996_latest.zip
-        rm commandlinetools-linux-10406996_latest.zip
-        mv cmdline-tools latest
-        export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
-        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "platforms;android-31" "build-tools;31.0.0" "ndk;25.0.8775105" 2>&1 | tail -20
-
-    - name: Build APK with Buildozer
-      env:
-        ANDROID_SDK_ROOT: ${{ runner.home }}/.buildozer/android/platform/android-sdk
-        ANDROID_NDK_ROOT: ${{ runner.home }}/.buildozer/android/platform/android-sdk/ndk/25.0.8775105
-      run: |
-        export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-        buildozer android debug
+        command: buildozer android debug
+        buildozer_version: stable
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: db-substations-apk
-        path: bin/*.apk
+        path: ${{ steps.buildozer.outputs.filename }}
         retention-days: 30
