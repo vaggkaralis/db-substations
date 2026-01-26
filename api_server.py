@@ -56,14 +56,21 @@ DATABASE = app.config['DATABASE']
 def init_database():
     """Initialize database if it doesn't exist"""
     try:
-        conn = sqlite3.connect(DATABASE)
-        # Ensure database directory exists
+        # Ensure database directory exists FIRST
         db_dir = os.path.dirname(DATABASE)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
         
+        conn = sqlite3.connect(DATABASE)
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
+        
+        # Check if tables exist
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='substations'")
+        if c.fetchone():
+            logger.info("Database tables already exist")
+            conn.close()
+            return
         
         # Create substations table
         c.execute("""
@@ -98,8 +105,8 @@ def init_database():
         conn.close()
         logger.info("Database initialized successfully")
     except Exception as e:
-        logger.error(f"Database initialization error: {str(e)}")
-        # Don't raise - allow app to start even if DB init fails
+        logger.error(f"Database initialization error: {str(e)}", exc_info=True)
+        raise
 
 # Initialize database when module loads
 init_database()
