@@ -57,7 +57,22 @@ jobs:
         pip install --upgrade cython==0.29.33
         pip install --upgrade buildozer
 
+    - name: Set up Android SDK
+      run: |
+        mkdir -p $HOME/.buildozer/android/platform/android-sdk
+        cd $HOME/.buildozer/android/platform
+        wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+        unzip -q commandlinetools-linux-10406996_latest.zip
+        rm commandlinetools-linux-10406996_latest.zip
+        mkdir -p android-sdk/cmdline-tools
+        mv cmdline-tools android-sdk/cmdline-tools/latest
+        export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
+        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "platforms;android-31" "build-tools;31.0.0" "ndk;25.0.8775105" 2>&1 | tail -20
+
     - name: Build APK with Buildozer
+      env:
+        ANDROID_SDK_ROOT: ${{ runner.home }}/.buildozer/android/platform/android-sdk
+        ANDROID_NDK_ROOT: ${{ runner.home }}/.buildozer/android/platform/android-sdk/ndk/25.0.8775105
       run: |
         buildozer android debug
 
