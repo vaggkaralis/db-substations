@@ -30,7 +30,7 @@ class SubstationAndroidApp(App):
         {'key': 'type', 'label': 'Τύπος', 'type': 'text', 'hint': 'Τύπος'},
     ]
     
-    API_BASE_URL = 'http://192.168.1.100:5000/api'  # Change to your server IP
+    API_BASE_URL = 'https://db-substations.onrender.com/api'  # Render Cloud API URL
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
