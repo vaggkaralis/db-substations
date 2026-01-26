@@ -52,6 +52,58 @@ logger = logging.getLogger(__name__)
 # Database path from config
 DATABASE = app.config['DATABASE']
 
+# Initialize database on module load (important for gunicorn)
+def init_database():
+    """Initialize database if it doesn't exist"""
+    try:
+        conn = sqlite3.connect(DATABASE)
+        # Ensure database directory exists
+        db_dir = os.path.dirname(DATABASE)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+        
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Create substations table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS substations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                location TEXT,
+                adoption_date TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create elements table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS elements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                substation_id INTEGER NOT NULL,
+                element_type TEXT,
+                name TEXT NOT NULL,
+                serial_number TEXT,
+                maintenance_date TEXT,
+                voltage_level TEXT,
+                manufacturer TEXT,
+                type TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (substation_id) REFERENCES substations(id),
+                UNIQUE(substation_id, name, serial_number)
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization error: {str(e)}")
+        # Don't raise - allow app to start even if DB init fails
+
+# Initialize database when module loads
+init_database()
+
 def get_db():
     """Get database connection with error handling"""
     try:
@@ -259,56 +311,7 @@ def server_error(error):
     logger.error(f"500 error: {str(error)}")
     return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
-def init_database():
-    """Initialize database if it doesn't exist"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-        
-        # Create substations table
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS substations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                location TEXT,
-                adoption_date TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Create elements table
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS elements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                substation_id INTEGER NOT NULL,
-                element_type TEXT,
-                name TEXT NOT NULL,
-                serial_number TEXT,
-                maintenance_date TEXT,
-                voltage_level TEXT,
-                manufacturer TEXT,
-                type TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (substation_id) REFERENCES substations(id),
-                UNIQUE(substation_id, name, serial_number)
-            )
-        """)
-        
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Database initialization error: {str(e)}")
-        raise
-
 if __name__ == '__main__':
-    # Initialize database
-    try:
-        init_database()
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {str(e)}")
-        exit(1)
-    
     # Get host and port from environment variables
     # Railway provides PORT, fallback to FLASK_PORT or 5000
     host = os.environ.get('FLASK_HOST', '0.0.0.0')
