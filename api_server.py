@@ -310,8 +310,9 @@ if __name__ == '__main__':
         exit(1)
     
     # Get host and port from environment variables
+    # Railway provides PORT, fallback to FLASK_PORT or 5000
     host = os.environ.get('FLASK_HOST', '0.0.0.0')
-    port = int(os.environ.get('FLASK_PORT', 5000))
+    port = int(os.environ.get('PORT', os.environ.get('FLASK_PORT', 5000)))
     debug = app.config['DEBUG']
     
     logger.info(f"Starting Flask server on {host}:{port}")

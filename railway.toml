@@ -1,16 +1,16 @@
 # Railway.app deployment configuration
 [build]
 builder = "nixpacks"
-buildpacks = ["python"]
 
 [deploy]
-startCommand = "gunicorn api_server:app"
+startCommand = "gunicorn api_server:app --bind 0.0.0.0:$PORT"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
 # Environment variables (set these in Railway dashboard):
 # FLASK_ENV=production
-# DATABASE_PATH=/var/data/database.db
+# DATABASE_PATH=/app/data/database.db
 # FLASK_HOST=0.0.0.0
-# FLASK_PORT=8000
+# PORT is automatically set by Railway
