@@ -1,20 +1,64 @@
 """
 Android Kivy App for DB Substations - connects to Flask API backend
 """
-import kivy
-kivy.require('2.0.0')
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.textinput import TextInput
-from kivy.uix.popup import Popup
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.spinner import Spinner
-from kivy.network.urlrequest import UrlRequest
-import json
-import threading
+import sys
+import traceback
+
+# Set up logging FIRST before any other imports
+from kivy.logger import Logger
+Logger.info('APP: ========== Starting DB Substations App ==========')
+Logger.info(f'APP: Python version: {sys.version}')
+
+try:
+    import kivy
+    Logger.info(f'APP: Kivy version: {kivy.__version__}')
+    kivy.require('2.0.0')
+    
+    from kivy.app import App
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.textinput import TextInput
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.spinner import Spinner
+    Logger.info('APP: Kivy UI imports successful')
+    
+    from kivy.network.urlrequest import UrlRequest
+    Logger.info('APP: UrlRequest import successful')
+    
+    import json
+    Logger.info('APP: JSON import successful')
+    
+    import threading
+    Logger.info('APP: Threading import successful')
+    
+    # Test SSL/HTTPS dependencies
+    try:
+        import ssl
+        Logger.info(f'APP: SSL module available: {ssl.OPENSSL_VERSION}')
+    except Exception as e:
+        Logger.warning(f'APP: SSL module issue: {str(e)}')
+    
+    try:
+        import certifi
+        Logger.info(f'APP: Certifi available at: {certifi.where()}')
+    except Exception as e:
+        Logger.warning(f'APP: Certifi issue: {str(e)}')
+        
+    try:
+        import urllib3
+        Logger.info(f'APP: urllib3 version: {urllib3.__version__}')
+    except Exception as e:
+        Logger.warning(f'APP: urllib3 issue: {str(e)}')
+    
+    Logger.info('APP: All imports completed successfully')
+    
+except Exception as e:
+    Logger.critical(f'APP: FATAL - Import error: {str(e)}')
+    Logger.critical(f'APP: Traceback: {traceback.format_exc()}')
+    raise
 
 class SubstationAndroidApp(App):
     # Element field definitions (same as Windows version)
@@ -32,72 +76,114 @@ class SubstationAndroidApp(App):
     API_BASE_URL = 'https://db-substations.onrender.com/api'  # Render Cloud API URL
     
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.substations = []
-        self.elements = {}
-        self.current_substation = None
+        Logger.info('APP: Initializing SubstationAndroidApp')
+        try:
+            super().__init__(**kwargs)
+            self.substations = []
+            self.elements = {}
+            self.current_substation = None
+            Logger.info('APP: SubstationAndroidApp initialized successfully')
+        except Exception as e:
+            Logger.critical(f'APP: Error in __init__: {str(e)}')
+            Logger.critical(f'APP: Traceback: {traceback.format_exc()}')
+            raise
         
     def build(self):
-        self.title = 'DB Substations'
-        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        
-        # Header
-        header = Label(
-            text='Υποσταθμοί ΔΕΔΔΗΕ',
-            size_hint_y=0.1,
-            bold=True
-        )
-        main_layout.add_widget(header)
-        
-        # Main content area
-        self.content_layout = BoxLayout(orientation='vertical', size_hint_y=0.8)
-        main_layout.add_widget(self.content_layout)
-        
-        # Bottom buttons
-        button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
-        
-        refresh_btn = Button(text='Ανανέωση')
-        refresh_btn.bind(on_press=self.load_substations)
-        button_layout.add_widget(refresh_btn)
-        
-        add_substation_btn = Button(text='+ Υποσταθμός')
-        add_substation_btn.bind(on_press=self.show_add_substation_popup)
-        button_layout.add_widget(add_substation_btn)
-        
-        main_layout.add_widget(button_layout)
-        
-        # Load data on startup
-        self.load_substations(None)
-        
-        return main_layout
+        Logger.info('APP: Building UI')
+        try:
+            self.title = 'DB Substations'
+            main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            
+            # Header
+            header = Label(
+                text='Υποσταθμοί ΔΕΔΔΗΕ',
+                size_hint_y=0.1,
+                bold=True
+            )
+            main_layout.add_widget(header)
+            Logger.info('APP: Header added')
+            
+            # Main content area
+            self.content_layout = BoxLayout(orientation='vertical', size_hint_y=0.8)
+            main_layout.add_widget(self.content_layout)
+            Logger.info('APP: Content layout added')
+            
+            # Bottom buttons
+            button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+            
+            refresh_btn = Button(text='Ανανέωση')
+            refresh_btn.bind(on_press=self.load_substations)
+            button_layout.add_widget(refresh_btn)
+            
+            add_substation_btn = Button(text='+ Υποσταθμός')
+            add_substation_btn.bind(on_press=self.show_add_substation_popup)
+            button_layout.add_widget(add_substation_btn)
+            
+            main_layout.add_widget(button_layout)
+            Logger.info('APP: Buttons added')
+            
+            # Load data on startup
+            Logger.info('APP: About to load substations')
+            self.load_substations(None)
+            
+            Logger.info('APP: UI build completed successfully')
+            return main_layout
+            
+        except Exception as e:
+            Logger.critical(f'APP: Error in build(): {str(e)}')
+            Logger.critical(f'APP: Traceback: {traceback.format_exc()}')
+            # Return a simple error display instead of crashing
+            error_layout = BoxLayout(orientation='vertical', padding=20)
+            error_layout.add_widget(Label(text=f'Error: {str(e)}'))
+            return error_layout
     
     def load_substations(self, instance):
         """Load substations from API"""
-        self.content_layout.clear_widgets()
-        loading_label = Label(text='Φόρτωση...', size_hint_y=1)
-        self.content_layout.add_widget(loading_label)
-        
-        def on_success(req, result):
-            try:
-                data = json.loads(result)
-                if data.get('success'):
-                    self.substations = data.get('data', [])
-                    self.root.ids = {}  # Clear any cached IDs
-                    self.display_substations()
-                else:
-                    self.show_error(data.get('error', 'Unknown error'))
-            except Exception as e:
-                self.show_error(f'Parse error: {str(e)}')
-        
-        def on_error(req, error):
-            self.show_error(f'Connection error: {str(error)}')
-        
-        # Non-blocking request
-        UrlRequest(
-            f'{self.API_BASE_URL}/substations',
-            on_success=on_success,
-            on_error=on_error
-        )
+        Logger.info('APP: load_substations called')
+        try:
+            self.content_layout.clear_widgets()
+            loading_label = Label(text='Φόρτωση...', size_hint_y=1)
+            self.content_layout.add_widget(loading_label)
+            
+            def on_success(req, result):
+                Logger.info(f'APP: API success, result length: {len(result) if result else 0}')
+                try:
+                    data = json.loads(result)
+                    Logger.info(f'APP: Parsed JSON: {data}')
+                    if data.get('success'):
+                        self.substations = data.get('data', [])
+                        Logger.info(f'APP: Loaded {len(self.substations)} substations')
+                        self.root.ids = {}  # Clear any cached IDs
+                        self.display_substations()
+                    else:
+                        error_msg = data.get('error', 'Unknown error')
+                        Logger.error(f'APP: API returned error: {error_msg}')
+                        self.show_error(error_msg)
+                except Exception as e:
+                    Logger.error(f'APP: Parse error: {str(e)}')
+                    Logger.error(f'APP: Traceback: {traceback.format_exc()}')
+                    self.show_error(f'Parse error: {str(e)}')
+            
+            def on_error(req, error):
+                Logger.error(f'APP: Connection error: {str(error)}')
+                Logger.error(f'APP: Request: {req}')
+                self.show_error(f'Connection error: {str(error)}')
+            
+            # Non-blocking request
+            url = f'{self.API_BASE_URL}/substations'
+            Logger.info(f'APP: Making request to: {url}')
+            UrlRequest(
+                url,
+                on_success=on_success,
+                on_error=on_error,
+                timeout=30
+            )
+            Logger.info('APP: UrlRequest initiated')
+            
+        except Exception as e:
+            Logger.critical(f'APP: Error in load_substations: {str(e)}')
+            Logger.critical(f'APP: Traceback: {traceback.format_exc()}')
+            self.show_error(f'Error: {str(e)}')
     
     def display_substations(self):
         """Display list of substations"""
@@ -442,4 +528,13 @@ class SubstationAndroidApp(App):
         popup.open()
 
 if __name__ == '__main__':
-    SubstationAndroidApp().run()
+    Logger.info('APP: ========== Running main ==========')
+    try:
+        app = SubstationAndroidApp()
+        Logger.info('APP: App instance created')
+        app.run()
+        Logger.info('APP: App run completed')
+    except Exception as e:
+        Logger.critical(f'APP: FATAL ERROR in main: {str(e)}')
+        Logger.critical(f'APP: Traceback: {traceback.format_exc()}')
+        raise
