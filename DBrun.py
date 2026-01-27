@@ -1012,7 +1012,6 @@ class SubstationApp(App):
                 
                 # Checkbox and name
                 checkbox_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                from kivy.uix.checkbox import CheckBox
                 checkbox = CheckBox(size_hint_x=0.1)
                 checkbox_layout.add_widget(checkbox)
                 
@@ -1112,7 +1111,10 @@ class SubstationApp(App):
         
         for maint_id, sub_name, date_time, overall_comments in maintenance_records:
             # Maintenance card
-            card = BoxLayout(orientation='vertical', size_hint_y=None, height=None, padding=5, spacing=5)
+            card = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=5)
+            
+            # Calculate card height as we build
+            card_height = 0
             
             # Header
             header = BoxLayout(size_hint_y=None, height=40, spacing=5)
@@ -1126,14 +1128,17 @@ class SubstationApp(App):
                 size_hint_x=0.4
             ))
             card.add_widget(header)
+            card_height += 40
             
             # Overall comments
             if overall_comments:
-                card.add_widget(Label(
+                comment_label = Label(
                     text=f'Σχόλια: {overall_comments}',
                     size_hint_y=None,
                     height=30
-                ))
+                )
+                card.add_widget(comment_label)
+                card_height += 30
             
             # Get elements for this maintenance
             c.execute('''
@@ -1152,17 +1157,21 @@ class SubstationApp(App):
                 bold=True
             )
             card.add_widget(elements_label)
+            card_height += 25
             
             for elem_type, elem_name, serial_num, elem_comments in elements:
                 elem_text = f'  • {elem_type}: {elem_name} (S/N: {serial_num or "-"})'
                 if elem_comments:
                     elem_text += f'\n    Σχόλια: {elem_comments}'
                 
-                card.add_widget(Label(
+                elem_height = 40 if elem_comments else 25
+                elem_label = Label(
                     text=elem_text,
                     size_hint_y=None,
-                    height=40 if elem_comments else 25
-                ))
+                    height=elem_height
+                )
+                card.add_widget(elem_label)
+                card_height += elem_height
             
             # Delete button
             delete_btn = Button(
@@ -1170,16 +1179,19 @@ class SubstationApp(App):
                 size_hint_y=None,
                 height=35
             )
-            delete_btn.bind(on_press=lambda x, mid=maint_id, p=popup: self.delete_maintenance(mid, p))
+            # Use a proper function to avoid lambda issues
+            def make_delete_handler(m_id, p):
+                return lambda x: self.delete_maintenance(m_id, p)
+            
+            delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
             card.add_widget(delete_btn)
+            card_height += 35
             
-            # Separator
-            from kivy.uix.widget import Widget
-            separator = Widget(size_hint_y=None, height=2)
-            card.add_widget(separator)
+            # Add spacing at bottom
+            card_height += 10
             
-            # Adjust card height
-            card.height = 40 + 30 + (25 if overall_comments else 0) + 25 + (len(elements) * 35) + 35 + 2
+            # Set final card height
+            card.height = card_height
             
             grid.add_widget(card)
         
