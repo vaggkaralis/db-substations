@@ -13,6 +13,10 @@ permissions = INTERNET,ACCESS_NETWORK_STATE,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL
 
 android.permissions = INTERNET,ACCESS_NETWORK_STATE
 
+# Bootstrap and backend
+p4a.bootstrap = sdl2
+p4a.backend = kivy
+
 orientation = portrait
 fullscreen = 0
 
@@ -20,6 +24,10 @@ android.api = 31
 android.minapi = 21
 android.ndk = 25b
 android.archs = arm64-v8a
+android.accept_sdk_license = True
+
+# Enable logcat output
+android.logcat_filters = *:S python:D
 
 [buildozer]
 log_level = 2
