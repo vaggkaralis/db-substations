@@ -24,6 +24,7 @@ jobs:
         sudo apt-get install -y \
           openjdk-17-jdk \
           autoconf \
+          automake \
           libtool \
           pkg-config \
           zlib1g-dev \
@@ -34,7 +35,11 @@ jobs:
           libffi-dev \
           libssl-dev \
           zip \
-          unzip
+          unzip \
+          build-essential \
+          ccache \
+          libltdl-dev \
+          wget
 
     - name: Install Python dependencies
       run: |
