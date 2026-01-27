@@ -12,7 +12,6 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
-from kivy.garden.navigationdrawer import NavigationDrawer
 from kivy.network.urlrequest import UrlRequest
 import json
 import threading
