@@ -60,6 +60,10 @@ jobs:
         export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
         export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
         
+        # Create symlink for buildozer compatibility (expects tools/bin)
+        mkdir -p $ANDROID_SDK_ROOT/tools/bin
+        ln -s $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+        
         # Accept licenses and install build tools with AIDL
         yes | sdkmanager --licenses
         sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0" "ndk;25.2.9519653"
