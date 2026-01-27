@@ -247,31 +247,43 @@ class SubstationApp(App):
             for sub_id, sub_name, location, adoption_date in substations:
                 # Add header for each substation
                 header_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
-                header_layout.add_widget(Label(text='Όνομα', bold=True, size_hint_x=0.25))
-                header_layout.add_widget(Label(text='Τοποθεσία', bold=True, size_hint_x=0.3))
-                header_layout.add_widget(Label(text='Ανάληψη', bold=True, size_hint_x=0.2))
-                header_layout.add_widget(Label(text='Στοιχεία', bold=True, size_hint_x=0.15))
+                header_layout.add_widget(Label(text='Όνομα', bold=True, size_hint_x=0.2))
+                header_layout.add_widget(Label(text='Τοποθεσία', bold=True, size_hint_x=0.25))
+                header_layout.add_widget(Label(text='Ανάληψη', bold=True, size_hint_x=0.15))
+                header_layout.add_widget(Label(text='Στοιχεία', bold=True, size_hint_x=0.1))
+                header_layout.add_widget(Label(text='Συντηρήσεις', bold=True, size_hint_x=0.15))
+                header_layout.add_widget(Label(text='Τελευταία', bold=True, size_hint_x=0.15))
                 grid.add_widget(header_layout)
                 
                 # Count elements for this substation
                 c.execute("SELECT COUNT(*) FROM elements WHERE substation_id=?", (sub_id,))
                 elem_count = c.fetchone()[0]
                 
+                # Get maintenance statistics
+                c.execute("SELECT COUNT(*) FROM maintenance WHERE substation_id=?", (sub_id,))
+                maint_count = c.fetchone()[0]
+                
+                c.execute("SELECT MAX(date_time) FROM maintenance WHERE substation_id=?", (sub_id,))
+                last_maint = c.fetchone()[0]
+                last_maint_display = last_maint if last_maint else '-'
+                
                 # Substation row
                 sub_row_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                sub_row_layout.add_widget(Label(text=sub_name, size_hint_x=0.25))
+                sub_row_layout.add_widget(Label(text=sub_name, size_hint_x=0.2))
                 
                 # Location button (clickable)
                 if location:
                     location_display = (location[:30] + '...') if len(location) > 30 else location
-                    location_btn = Button(text=location_display, size_hint_x=0.3)
+                    location_btn = Button(text=location_display, size_hint_x=0.25)
                     location_btn.bind(on_press=lambda x, url=location: webbrowser.open(url))
                     sub_row_layout.add_widget(location_btn)
                 else:
-                    sub_row_layout.add_widget(Label(text='-', size_hint_x=0.3))
+                    sub_row_layout.add_widget(Label(text='-', size_hint_x=0.25))
                 
-                sub_row_layout.add_widget(Label(text=adoption_date or '-', size_hint_x=0.2))
-                sub_row_layout.add_widget(Label(text=str(elem_count), size_hint_x=0.15))
+                sub_row_layout.add_widget(Label(text=adoption_date or '-', size_hint_x=0.15))
+                sub_row_layout.add_widget(Label(text=str(elem_count), size_hint_x=0.1))
+                sub_row_layout.add_widget(Label(text=str(maint_count), size_hint_x=0.15))
+                sub_row_layout.add_widget(Label(text=last_maint_display, size_hint_x=0.15))
                 grid.add_widget(sub_row_layout)
                 
                 # Edit and Delete buttons

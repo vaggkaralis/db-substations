@@ -152,15 +152,32 @@ def get_db():
 
 @app.route('/api/substations', methods=['GET'])
 def get_substations():
-    """Get all substations"""
+    """Get all substations with maintenance statistics"""
     try:
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT id, name, location, adoption_date FROM substations ORDER BY name")
-        substations = [dict(row) for row in c.fetchall()]
+        substations = []
+        
+        for row in c.fetchall():
+            substation = dict(row)
+            
+            # Add maintenance count
+            c.execute("SELECT COUNT(*) as count FROM maintenance WHERE substation_id = ?", (row['id'],))
+            maint_result = c.fetchone()
+            substation['maintenance_count'] = maint_result['count'] if maint_result else 0
+            
+            # Add last maintenance date
+            c.execute("SELECT MAX(date_time) as last_maintenance FROM maintenance WHERE substation_id = ?", (row['id'],))
+            last_result = c.fetchone()
+            substation['last_maintenance'] = last_result['last_maintenance'] if last_result else None
+            
+            substations.append(substation)
+        
         conn.close()
         return jsonify({'success': True, 'data': substations})
     except Exception as e:
+        logger.error(f"Error fetching substations: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/substations', methods=['POST'])
