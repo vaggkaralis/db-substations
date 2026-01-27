@@ -273,16 +273,20 @@ class SubstationApp(App):
                 
                 # Location button (clickable)
                 if location:
-                    location_display = (location[:30] + '...') if len(location) > 30 else location
+                    # Shorten location text to fit
+                    if len(location) > 25:
+                        location_display = location[:22] + '...'
+                    else:
+                        location_display = location
+                    
                     location_btn = Button(
                         text=location_display, 
                         size_hint_x=0.25,
-                        text_size=(None, None),
-                        halign='center',
-                        valign='middle',
-                        shorten=True,
-                        shorten_from='right'
+                        font_size='11sp',
+                        padding=(5, 5)
                     )
+                    # Bind text_size to button size for proper text wrapping
+                    location_btn.bind(size=lambda btn, size: setattr(btn, 'text_size', size))
                     location_btn.bind(on_press=lambda x, url=location: webbrowser.open(url))
                     sub_row_layout.add_widget(location_btn)
                 else:
