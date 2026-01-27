@@ -13,9 +13,42 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Build APK using Docker
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install system dependencies
       run: |
-        docker run --rm -v "$PWD":/home/user/hostcwd kivy/buildozer --accept-sdk-license android debug
+        sudo apt-get update
+        sudo apt-get install -y \
+          openjdk-17-jdk \
+          autoconf \
+          libtool \
+          pkg-config \
+          zlib1g-dev \
+          libncurses5-dev \
+          libncursesw5-dev \
+          libtinfo6 \
+          cmake \
+          libffi-dev \
+          libssl-dev \
+          zip \
+          unzip
+
+    - name: Install Python dependencies
+      run: |
+        pip3 install --upgrade pip
+        pip3 install --upgrade buildozer cython==0.29.33
+
+    - name: Rename android_app.py to main.py
+      run: |
+        mv android_app.py main.py
+        ls -la
+
+    - name: Build APK with Buildozer
+      run: |
+        buildozer android debug
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
