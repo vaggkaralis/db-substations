@@ -274,7 +274,15 @@ class SubstationApp(App):
                 # Location button (clickable)
                 if location:
                     location_display = (location[:30] + '...') if len(location) > 30 else location
-                    location_btn = Button(text=location_display, size_hint_x=0.25)
+                    location_btn = Button(
+                        text=location_display, 
+                        size_hint_x=0.25,
+                        text_size=(None, None),
+                        halign='center',
+                        valign='middle',
+                        shorten=True,
+                        shorten_from='right'
+                    )
                     location_btn.bind(on_press=lambda x, url=location: webbrowser.open(url))
                     sub_row_layout.add_widget(location_btn)
                 else:
