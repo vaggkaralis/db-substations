@@ -7,7 +7,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 
 version = 1.0
-requirements = python3,kivy==2.0.0,requests
+requirements = python3,kivy==2.0.0,requests,kivy-garden,garden.navigationdrawer
 
 permissions = INTERNET,ACCESS_NETWORK_STATE
 
