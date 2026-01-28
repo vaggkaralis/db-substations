@@ -131,17 +131,26 @@ class SubstationApp(App):
 
     def show_add_substation_popup(self, instance):
         # Create popup
-        popup = Popup(title='Προσθήκη Νέου Υποσταθμού', size_hint=(0.8, 0.4))
+        popup = Popup(title='Προσθήκη Νέου Υποσταθμού', size_hint=(0.8, 0.5))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         # Name input
         name_input = TextInput(
             hint_text='Όνομα Υποσταθμού',
-            size_hint_y=0.3,
+            size_hint_y=0.25,
             multiline=False
         )
-        layout.add_widget(Label(text='Όνομα Υποσταθμού:', size_hint_y=0.2))
+        layout.add_widget(Label(text='Όνομα Υποσταθμού:', size_hint_y=0.15))
         layout.add_widget(name_input)
+        
+        # Division spinner
+        division_spinner = Spinner(
+            text='ΤΜΘ',
+            values=['ΤΜΘ'],
+            size_hint_y=0.25
+        )
+        layout.add_widget(Label(text='Τομέας:', size_hint_y=0.15))
+        layout.add_widget(division_spinner)
         
         # Buttons layout
         buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
@@ -152,7 +161,8 @@ class SubstationApp(App):
                 return
             
             c = self.conn.cursor()
-            c.execute("INSERT INTO substations (name, location, adoption_date) VALUES (?, ?, ?)", (name_input.text, '', ''))
+            c.execute("INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)", 
+                     (name_input.text, '', '', division_spinner.text))
             self.conn.commit()
             popup.dismiss()
             show_message_popup('Επιτυχία', 'Υποσταθμός προστέθηκε!', callback=lambda: self.show_records(None))
@@ -224,10 +234,10 @@ class SubstationApp(App):
     def _display_substations(self, filter_name=None):
         c = self.conn.cursor()
         if filter_name:
-            c.execute("SELECT id, name, location, adoption_date FROM substations WHERE name=?", (filter_name,))
+            c.execute("SELECT id, name, location, adoption_date, division FROM substations WHERE name=?", (filter_name,))
             title = f'Υποσταθμός: {filter_name}'
         else:
-            c.execute("SELECT id, name, location, adoption_date FROM substations")
+            c.execute("SELECT id, name, location, adoption_date, division FROM substations")
             title = 'Εγγραφές Υποσταθμών'
         
         substations = c.fetchall()
@@ -244,7 +254,7 @@ class SubstationApp(App):
         grid.bind(minimum_height=grid.setter('height'))
         
         if substations:
-            for sub_id, sub_name, location, adoption_date in substations:
+            for sub_id, sub_name, location, adoption_date, division in substations:
                 # Add header for each substation
                 header_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
                 header_layout.add_widget(Label(text='Όνομα', bold=True, size_hint_x=0.2))
@@ -704,19 +714,28 @@ class SubstationApp(App):
         parent_popup.dismiss()
         show_message_popup('Ολοκληρώθηκε', 'Ο υποσταθμός και όλα τα στοιχεία του διαγράφηκαν!', callback=lambda: self.show_records(None))
     
-    def show_edit_substation_popup(self, substation_id, substation_name, location, adoption_date, parent_popup):
+    def show_edit_substation_popup(self, substation_id, substation_name, location, adoption_date, division, parent_popup):
         # Create popup
-        popup = Popup(title=f'Επεξεργασία Υποσταθμού: {substation_name}', size_hint=(0.8, 0.6))
+        popup = Popup(title=f'Επεξεργασία Υποσταθμού: {substation_name}', size_hint=(0.8, 0.7))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # Division spinner
+        division_spinner = Spinner(
+            text=division or 'ΤΜΘ',
+            values=['ΤΜΘ'],
+            size_hint_y=0.15
+        )
+        layout.add_widget(Label(text='Τομέας:', size_hint_y=0.08))
+        layout.add_widget(division_spinner)
         
         # Location input
         location_input = TextInput(
             text=location or '',
             hint_text='Τοποθεσία (Google Maps link)',
-            size_hint_y=0.2,
+            size_hint_y=0.15,
             multiline=False
         )
-        layout.add_widget(Label(text='Τοποθεσία:', size_hint_y=0.1))
+        layout.add_widget(Label(text='Τοποθεσία:', size_hint_y=0.08))
         layout.add_widget(location_input)
         
         # Adoption date input
@@ -734,8 +753,8 @@ class SubstationApp(App):
         
         def save_changes():
             c = self.conn.cursor()
-            c.execute("UPDATE substations SET location=?, adoption_date=? WHERE id=?", 
-                     (location_input.text, date_input.text, substation_id))
+            c.execute("UPDATE substations SET location=?, adoption_date=?, division=? WHERE id=?", 
+                     (location_input.text, date_input.text, division_spinner.text, substation_id))
             self.conn.commit()
             popup.dismiss()
             parent_popup.dismiss()

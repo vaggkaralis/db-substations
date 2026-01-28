@@ -79,6 +79,7 @@ def init_database():
                 name TEXT NOT NULL UNIQUE,
                 location TEXT,
                 adoption_date TEXT,
+                division TEXT DEFAULT 'ΤΜΘ',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -188,6 +189,7 @@ def add_substation():
         name = data.get('name', '').strip()
         location = data.get('location', '').strip()
         adoption_date = data.get('adoption_date', '').strip()
+        division = data.get('division', 'ΤΜΘ').strip()
         
         if not name:
             return jsonify({'success': False, 'error': 'Name is required'}), 400
@@ -202,8 +204,8 @@ def add_substation():
             return jsonify({'success': False, 'error': 'Substation already exists'}), 400
         
         c.execute(
-            "INSERT INTO substations (name, location, adoption_date) VALUES (?, ?, ?)",
-            (name, location, adoption_date)
+            "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
+            (name, location, adoption_date, division)
         )
         conn.commit()
         substation_id = c.lastrowid
@@ -224,12 +226,13 @@ def update_substation(substation_id):
         data = request.get_json()
         location = data.get('location', '').strip()
         adoption_date = data.get('adoption_date', '').strip()
+        division = data.get('division', 'ΤΜΘ').strip()
         
         conn = get_db()
         c = conn.cursor()
         c.execute(
-            "UPDATE substations SET location=?, adoption_date=? WHERE id=?",
-            (location, adoption_date, substation_id)
+            "UPDATE substations SET location=?, adoption_date=?, division=? WHERE id=?",
+            (location, adoption_date, division, substation_id)
         )
         conn.commit()
         conn.close()

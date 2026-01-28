@@ -47,6 +47,11 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
             cursor.execute('ALTER TABLE substations ADD COLUMN adoption_date TEXT DEFAULT ""')
         except Exception:
             pass
+    if 'division' not in sub_columns:
+        try:
+            cursor.execute('ALTER TABLE substations ADD COLUMN division TEXT DEFAULT "ΤΜΘ"')
+        except Exception:
+            pass
 
     cursor.execute('PRAGMA table_info(elements)')
     elem_columns = [column[1] for column in cursor.fetchall()]
