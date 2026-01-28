@@ -23,6 +23,7 @@ try:
     from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.spinner import Spinner
+    from kivy.clock import Clock
     Logger.info('APP: Kivy UI imports successful')
     
     from kivy.network.urlrequest import UrlRequest
@@ -122,9 +123,9 @@ class SubstationAndroidApp(App):
             main_layout.add_widget(button_layout)
             Logger.info('APP: Buttons added')
             
-            # Load data on startup
-            Logger.info('APP: About to load substations')
-            self.load_substations(None)
+            # Load data after UI is rendered (prevent ANR)
+            Logger.info('APP: Scheduling load_substations to run after UI renders')
+            Clock.schedule_once(self.load_substations, 0.5)
             
             Logger.info('APP: UI build completed successfully')
             return main_layout
