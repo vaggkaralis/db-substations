@@ -9,9 +9,11 @@ from kivy.uix.popup import Popup
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
+from kivy.uix.checkbox import CheckBox
 from kivy.uix.filechooser import FileChooserListView
 import webbrowser
 import os
+from datetime import datetime
 
 from database import init_db
 from importers import (
@@ -46,11 +48,17 @@ class SubstationApp(App):
         self.import_btn.bind(on_press=self.show_import_menu)
         self.add_btn = Button(text='Προσθήκη υποσταθμών και στοιχείων')
         self.add_btn.bind(on_press=self.show_add_menu)
+        self.maintenance_btn = Button(text='Καταχώρηση Συντήρησης')
+        self.maintenance_btn.bind(on_press=self.show_maintenance_menu)
+        self.view_maintenance_btn = Button(text='Προβολή Ιστορικού Συντήρησης')
+        self.view_maintenance_btn.bind(on_press=self.show_maintenance_history)
         self.delete_btn = Button(text='Διαγραφή όλων')
         self.delete_btn.bind(on_press=self.delete_all)
         layout.add_widget(self.show_btn)
         layout.add_widget(self.import_btn)
         layout.add_widget(self.add_btn)
+        layout.add_widget(self.maintenance_btn)
+        layout.add_widget(self.view_maintenance_btn)
         layout.add_widget(self.delete_btn)
         self.conn = init_db()
         return layout
@@ -239,31 +247,55 @@ class SubstationApp(App):
             for sub_id, sub_name, location, adoption_date in substations:
                 # Add header for each substation
                 header_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
-                header_layout.add_widget(Label(text='Όνομα', bold=True, size_hint_x=0.25))
-                header_layout.add_widget(Label(text='Τοποθεσία', bold=True, size_hint_x=0.3))
-                header_layout.add_widget(Label(text='Ανάληψη', bold=True, size_hint_x=0.2))
-                header_layout.add_widget(Label(text='Στοιχεία', bold=True, size_hint_x=0.15))
+                header_layout.add_widget(Label(text='Όνομα', bold=True, size_hint_x=0.2))
+                header_layout.add_widget(Label(text='Τοποθεσία', bold=True, size_hint_x=0.25))
+                header_layout.add_widget(Label(text='Ανάληψη', bold=True, size_hint_x=0.15))
+                header_layout.add_widget(Label(text='Στοιχεία', bold=True, size_hint_x=0.1))
+                header_layout.add_widget(Label(text='Συντηρήσεις', bold=True, size_hint_x=0.15))
+                header_layout.add_widget(Label(text='Τελευταία', bold=True, size_hint_x=0.15))
                 grid.add_widget(header_layout)
                 
                 # Count elements for this substation
                 c.execute("SELECT COUNT(*) FROM elements WHERE substation_id=?", (sub_id,))
                 elem_count = c.fetchone()[0]
                 
+                # Get maintenance statistics
+                c.execute("SELECT COUNT(*) FROM maintenance WHERE substation_id=?", (sub_id,))
+                maint_count = c.fetchone()[0]
+                
+                c.execute("SELECT MAX(date_time) FROM maintenance WHERE substation_id=?", (sub_id,))
+                last_maint = c.fetchone()[0]
+                last_maint_display = last_maint if last_maint else '-'
+                
                 # Substation row
                 sub_row_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                sub_row_layout.add_widget(Label(text=sub_name, size_hint_x=0.25))
+                sub_row_layout.add_widget(Label(text=sub_name, size_hint_x=0.2))
                 
                 # Location button (clickable)
                 if location:
-                    location_display = (location[:30] + '...') if len(location) > 30 else location
-                    location_btn = Button(text=location_display, size_hint_x=0.3)
+                    # Shorten location text to fit
+                    if len(location) > 25:
+                        location_display = location[:22] + '...'
+                    else:
+                        location_display = location
+                    
+                    location_btn = Button(
+                        text=location_display, 
+                        size_hint_x=0.25,
+                        font_size='11sp',
+                        padding=(5, 5)
+                    )
+                    # Bind text_size to button size for proper text wrapping
+                    location_btn.bind(size=lambda btn, size: setattr(btn, 'text_size', size))
                     location_btn.bind(on_press=lambda x, url=location: webbrowser.open(url))
                     sub_row_layout.add_widget(location_btn)
                 else:
-                    sub_row_layout.add_widget(Label(text='-', size_hint_x=0.3))
+                    sub_row_layout.add_widget(Label(text='-', size_hint_x=0.25))
                 
-                sub_row_layout.add_widget(Label(text=adoption_date or '-', size_hint_x=0.2))
-                sub_row_layout.add_widget(Label(text=str(elem_count), size_hint_x=0.15))
+                sub_row_layout.add_widget(Label(text=adoption_date or '-', size_hint_x=0.15))
+                sub_row_layout.add_widget(Label(text=str(elem_count), size_hint_x=0.1))
+                sub_row_layout.add_widget(Label(text=str(maint_count), size_hint_x=0.15))
+                sub_row_layout.add_widget(Label(text=last_maint_display, size_hint_x=0.15))
                 grid.add_widget(sub_row_layout)
                 
                 # Edit and Delete buttons
@@ -414,7 +446,7 @@ class SubstationApp(App):
         layout.add_widget(path_label)
         
         path_input = TextInput(
-            hint_text='Παστάρε διαδρομή αρχείου',
+            hint_text='Διαδρομή αρχείου',
             size_hint_y=0.15,
             multiline=False
         )
@@ -660,7 +692,7 @@ class SubstationApp(App):
         c.execute("DELETE FROM elements WHERE id=?", (element_id,))
         self.conn.commit()
         parent_popup.dismiss()
-        show_message_popup('Ολοκληρώθηκε', 'Στοιχείο διαγράφηκε!', callback=lambda: self.show_records(None))
+        show_message_popup('Ολοκληρώθηκε', 'Το στοιχείο διαγράφηκε!', callback=lambda: self.show_records(None))
 
     def delete_substation(self, substation_id, parent_popup):
         c = self.conn.cursor()
@@ -670,7 +702,7 @@ class SubstationApp(App):
         c.execute("DELETE FROM substations WHERE id=?", (substation_id,))
         self.conn.commit()
         parent_popup.dismiss()
-        show_message_popup('Ολοκληρώθηκε', 'Υποσταθμός και όλα τα στοιχεία του διαγράφηκαν!', callback=lambda: self.show_records(None))
+        show_message_popup('Ολοκληρώθηκε', 'Ο υποσταθμός και όλα τα στοιχεία του διαγράφηκαν!', callback=lambda: self.show_records(None))
     
     def show_edit_substation_popup(self, substation_id, substation_name, location, adoption_date, parent_popup):
         # Create popup
@@ -923,5 +955,287 @@ class SubstationApp(App):
         layout.add_widget(buttons_layout)
         popup.content = layout
         popup.open()
+
+    def show_maintenance_menu(self, instance):
+        """Show maintenance recording dialog"""
+        # Get list of substations
+        c = self.conn.cursor()
+        c.execute("SELECT id, name FROM substations ORDER BY name")
+        substations = c.fetchall()
+        
+        if not substations:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν υποσταθμοί!')
+            return
+        
+        popup = Popup(title='Καταχώρηση Συντήρησης', size_hint=(0.9, 0.95))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # Substation selection
+        main_layout.add_widget(Label(text='Επιλογή Υποσταθμού:', size_hint_y=0.08))
+        substation_map = {s[1]: s[0] for s in substations}
+        substation_spinner = Spinner(
+            text=substations[0][1],
+            values=[s[1] for s in substations],
+            size_hint_y=0.08
+        )
+        main_layout.add_widget(substation_spinner)
+        
+        # Date/Time (auto-filled with current)
+        from datetime import datetime
+        main_layout.add_widget(Label(text='Ημερομηνία & Ώρα:', size_hint_y=0.08))
+        datetime_input = TextInput(
+            text=datetime.now().strftime('%Y-%m-%d %H:%M'),
+            hint_text='YYYY-MM-DD HH:MM',
+            size_hint_y=0.08,
+            multiline=False
+        )
+        main_layout.add_widget(datetime_input)
+        
+        # Overall comments
+        main_layout.add_widget(Label(text='Γενικά Σχόλια Συντήρησης:', size_hint_y=0.08))
+        overall_comments = TextInput(
+            hint_text='Γενικά σχόλια για την συντήρηση...',
+            size_hint_y=0.15,
+            multiline=True
+        )
+        main_layout.add_widget(overall_comments)
+        
+        # Elements selection area
+        main_layout.add_widget(Label(text='Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):', size_hint_y=0.08))
+        
+        # Container for element checkboxes
+        elements_scroll = ScrollView(size_hint_y=0.3)
+        elements_container = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
+        elements_container.bind(minimum_height=elements_container.setter('height'))
+        elements_scroll.add_widget(elements_container)
+        main_layout.add_widget(elements_scroll)
+        
+        # Dictionary to store element widgets
+        element_widgets = {}
+        
+        def load_elements(substation_name):
+            """Load elements for selected substation"""
+            elements_container.clear_widgets()
+            element_widgets.clear()
+            
+            substation_id = substation_map[substation_name]
+            c.execute("SELECT id, element_type, name, serial_number FROM elements WHERE substation_id=? ORDER BY name", (substation_id,))
+            elements = c.fetchall()
+            
+            if not elements:
+                elements_container.add_widget(Label(
+                    text='Δεν υπάρχουν στοιχεία σε αυτόν τον υποσταθμό',
+                    size_hint_y=None,
+                    height=40
+                ))
+                return
+            
+            for elem_id, elem_type, elem_name, serial_number in elements:
+                # Element row
+                elem_box = BoxLayout(size_hint_y=None, height=80, spacing=5, orientation='vertical')
+                
+                # Checkbox and name
+                checkbox_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                checkbox = CheckBox(size_hint_x=0.1)
+                checkbox_layout.add_widget(checkbox)
+                
+                elem_label = Label(
+                    text=f'{elem_type}: {elem_name}\n S/N: {serial_number or "-"}',
+                    size_hint_x=0.9
+                )
+                checkbox_layout.add_widget(elem_label)
+                elem_box.add_widget(checkbox_layout)
+                
+                # Comments for this element
+                elem_comments = TextInput(
+                    hint_text='Σχόλια για αυτό το στοιχείο...',
+                    size_hint_y=None,
+                    height=40,
+                    multiline=False
+                )
+                elem_box.add_widget(elem_comments)
+                
+                elements_container.add_widget(elem_box)
+                element_widgets[elem_id] = {'checkbox': checkbox, 'comments': elem_comments}
+        
+        # Load initial elements
+        load_elements(substation_spinner.text)
+        
+        # Update elements when substation changes
+        substation_spinner.bind(text=lambda spinner, text: load_elements(text))
+        
+        # Save button
+        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+        
+        def save_maintenance():
+            # Validate at least one element selected
+            selected_elements = [(eid, widgets) for eid, widgets in element_widgets.items() 
+                                if widgets['checkbox'].active]
+            
+            if not selected_elements:
+                show_message_popup('Σφάλμα', 'Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!')
+                return
+            
+            if not datetime_input.text.strip():
+                show_message_popup('Σφάλμα', 'Η ημερομηνία είναι υποχρεωτική!')
+                return
+            
+            # Insert maintenance record
+            substation_id = substation_map[substation_spinner.text]
+            c.execute(
+                "INSERT INTO maintenance (substation_id, date_time, overall_comments) VALUES (?, ?, ?)",
+                (substation_id, datetime_input.text.strip(), overall_comments.text.strip())
+            )
+            maintenance_id = c.lastrowid
+            
+            # Insert maintenance elements
+            for elem_id, widgets in selected_elements:
+                c.execute(
+                    "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+                    (maintenance_id, elem_id, widgets['comments'].text.strip())
+                )
+            
+            self.conn.commit()
+            popup.dismiss()
+            show_message_popup('Επιτυχία', 'Η συντήρηση καταχωρήθηκε!')
+        
+        save_btn = Button(text='Αποθήκευση')
+        save_btn.bind(on_press=lambda x: save_maintenance())
+        buttons_layout.add_widget(save_btn)
+        
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons_layout.add_widget(cancel_btn)
+        
+        main_layout.add_widget(buttons_layout)
+        popup.content = main_layout
+        popup.open()
+    
+    def show_maintenance_history(self, instance):
+        """Show maintenance history"""
+        c = self.conn.cursor()
+        c.execute('''
+            SELECT m.id, s.name, m.date_time, m.overall_comments
+            FROM maintenance m
+            JOIN substations s ON m.substation_id = s.id
+            ORDER BY m.date_time DESC
+        ''')
+        maintenance_records = c.fetchall()
+        
+        if not maintenance_records:
+            show_message_popup('Πληροφορία', 'Δεν υπάρχουν καταχωρημένες συντηρήσεις')
+            return
+        
+        popup = Popup(title='Ιστορικό Συντήρησης', size_hint=(0.95, 0.9))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        scroll = ScrollView()
+        grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        grid.bind(minimum_height=grid.setter('height'))
+        
+        for maint_id, sub_name, date_time, overall_comments in maintenance_records:
+            # Maintenance card
+            card = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=5)
+            
+            # Calculate card height as we build
+            card_height = 0
+            
+            # Header
+            header = BoxLayout(size_hint_y=None, height=40, spacing=5)
+            header.add_widget(Label(
+                text=f'Υποσταθμός: {sub_name}',
+                bold=True,
+                size_hint_x=0.6
+            ))
+            header.add_widget(Label(
+                text=f'Ημ/νία: {date_time}',
+                size_hint_x=0.4
+            ))
+            card.add_widget(header)
+            card_height += 40
+            
+            # Overall comments
+            if overall_comments:
+                comment_label = Label(
+                    text=f'Σχόλια: {overall_comments}',
+                    size_hint_y=None,
+                    height=30
+                )
+                card.add_widget(comment_label)
+                card_height += 30
+            
+            # Get elements for this maintenance
+            c.execute('''
+                SELECT e.element_type, e.name, e.serial_number, me.element_comments
+                FROM maintenance_elements me
+                JOIN elements e ON me.element_id = e.id
+                WHERE me.maintenance_id = ?
+            ''', (maint_id,))
+            elements = c.fetchall()
+            
+            # Elements list
+            elements_label = Label(
+                text='Στοιχεία που συντηρήθηκαν:',
+                size_hint_y=None,
+                height=25,
+                bold=True
+            )
+            card.add_widget(elements_label)
+            card_height += 25
+            
+            for elem_type, elem_name, serial_num, elem_comments in elements:
+                elem_text = f'  • {elem_type}: {elem_name} (S/N: {serial_num or "-"})'
+                if elem_comments:
+                    elem_text += f'\n    Σχόλια: {elem_comments}'
+                
+                elem_height = 40 if elem_comments else 25
+                elem_label = Label(
+                    text=elem_text,
+                    size_hint_y=None,
+                    height=elem_height
+                )
+                card.add_widget(elem_label)
+                card_height += elem_height
+            
+            # Delete button
+            delete_btn = Button(
+                text='Διαγραφή Συντήρησης',
+                size_hint_y=None,
+                height=35
+            )
+            # Use a proper function to avoid lambda issues
+            def make_delete_handler(m_id, p):
+                return lambda x: self.delete_maintenance(m_id, p)
+            
+            delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
+            card.add_widget(delete_btn)
+            card_height += 35
+            
+            # Add spacing at bottom
+            card_height += 10
+            
+            # Set final card height
+            card.height = card_height
+            
+            grid.add_widget(card)
+        
+        scroll.add_widget(grid)
+        main_layout.add_widget(scroll)
+        
+        # Close button
+        close_btn = Button(text='Κλείσιμο', size_hint_y=0.1)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+        
+        popup.content = main_layout
+        popup.open()
+    
+    def delete_maintenance(self, maintenance_id, parent_popup):
+        """Delete a maintenance record"""
+        c = self.conn.cursor()
+        c.execute("DELETE FROM maintenance WHERE id=?", (maintenance_id,))
+        self.conn.commit()
+        parent_popup.dismiss()
+        show_message_popup('Ολοκληρώθηκε', 'Η συντήρηση διαγράφηκε!', callback=lambda: self.show_maintenance_history(None))
 
 SubstationApp().run()

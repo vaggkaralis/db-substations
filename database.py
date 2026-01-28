@@ -12,6 +12,28 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
     cursor.execute(
         'CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, FOREIGN KEY(substation_id) REFERENCES substations(id))'
     )
+    
+    # Maintenance tracking tables
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER NOT NULL,
+            date_time TEXT NOT NULL,
+            overall_comments TEXT,
+            FOREIGN KEY(substation_id) REFERENCES substations(id) ON DELETE CASCADE
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER NOT NULL,
+            element_id INTEGER NOT NULL,
+            element_comments TEXT,
+            FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+            FOREIGN KEY(element_id) REFERENCES elements(id) ON DELETE CASCADE
+        )
+    ''')
 
     cursor.execute('PRAGMA table_info(substations)')
     sub_columns = [column[1] for column in cursor.fetchall()]

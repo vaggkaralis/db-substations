@@ -101,6 +101,28 @@ def init_database():
             )
         """)
         
+        # Create maintenance tracking tables
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS maintenance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                substation_id INTEGER NOT NULL,
+                date_time TEXT NOT NULL,
+                overall_comments TEXT,
+                FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE CASCADE
+            )
+        """)
+        
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS maintenance_elements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                maintenance_id INTEGER NOT NULL,
+                element_id INTEGER NOT NULL,
+                element_comments TEXT,
+                FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+                FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
+            )
+        """)
+        
         conn.commit()
         conn.close()
         logger.info("Database initialized successfully")
@@ -130,15 +152,32 @@ def get_db():
 
 @app.route('/api/substations', methods=['GET'])
 def get_substations():
-    """Get all substations"""
+    """Get all substations with maintenance statistics"""
     try:
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT id, name, location, adoption_date FROM substations ORDER BY name")
-        substations = [dict(row) for row in c.fetchall()]
+        substations = []
+        
+        for row in c.fetchall():
+            substation = dict(row)
+            
+            # Add maintenance count
+            c.execute("SELECT COUNT(*) as count FROM maintenance WHERE substation_id = ?", (row['id'],))
+            maint_result = c.fetchone()
+            substation['maintenance_count'] = maint_result['count'] if maint_result else 0
+            
+            # Add last maintenance date
+            c.execute("SELECT MAX(date_time) as last_maintenance FROM maintenance WHERE substation_id = ?", (row['id'],))
+            last_result = c.fetchone()
+            substation['last_maintenance'] = last_result['last_maintenance'] if last_result else None
+            
+            substations.append(substation)
+        
         conn.close()
         return jsonify({'success': True, 'data': substations})
     except Exception as e:
+        logger.error(f"Error fetching substations: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/substations', methods=['POST'])
@@ -292,6 +331,142 @@ def delete_element(element_id):
         
         return jsonify({'success': True, 'message': 'Element deleted'})
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ==================== MAINTENANCE ENDPOINTS ====================
+
+@app.route('/api/maintenance', methods=['GET'])
+def get_maintenance():
+    """Get all maintenance records or filter by substation"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        substation_id = request.args.get('substation_id', type=int)
+        
+        if substation_id:
+            c.execute('''
+                SELECT m.id, m.substation_id, s.name as substation_name, 
+                       m.date_time, m.overall_comments
+                FROM maintenance m
+                JOIN substations s ON m.substation_id = s.id
+                WHERE m.substation_id = ?
+                ORDER BY m.date_time DESC
+            ''', (substation_id,))
+        else:
+            c.execute('''
+                SELECT m.id, m.substation_id, s.name as substation_name,
+                       m.date_time, m.overall_comments
+                FROM maintenance m
+                JOIN substations s ON m.substation_id = s.id
+                ORDER BY m.date_time DESC
+            ''')
+        
+        maintenance_records = []
+        for row in c.fetchall():
+            maint_dict = dict(row)
+            
+            # Get elements for this maintenance
+            c.execute('''
+                SELECT me.id, me.element_id, e.element_type, e.name, 
+                       e.serial_number, me.element_comments
+                FROM maintenance_elements me
+                JOIN elements e ON me.element_id = e.id
+                WHERE me.maintenance_id = ?
+            ''', (row['id'],))
+            
+            maint_dict['elements'] = [dict(elem_row) for elem_row in c.fetchall()]
+            maintenance_records.append(maint_dict)
+        
+        conn.close()
+        return jsonify({'success': True, 'data': maintenance_records})
+    
+    except Exception as e:
+        logger.error(f"Error fetching maintenance: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/maintenance', methods=['POST'])
+def create_maintenance():
+    """Create a new maintenance record"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('substation_id'):
+            return jsonify({'success': False, 'error': 'substation_id is required'}), 400
+        
+        if not data.get('date_time'):
+            return jsonify({'success': False, 'error': 'date_time is required'}), 400
+        
+        if not data.get('elements') or len(data['elements']) == 0:
+            return jsonify({'success': False, 'error': 'At least one element is required'}), 400
+        
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Insert maintenance record
+        c.execute('''
+            INSERT INTO maintenance (substation_id, date_time, overall_comments)
+            VALUES (?, ?, ?)
+        ''', (
+            data['substation_id'],
+            data['date_time'],
+            data.get('overall_comments', '')
+        ))
+        
+        maintenance_id = c.lastrowid
+        
+        # Insert maintenance elements
+        for element in data['elements']:
+            c.execute('''
+                INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments)
+                VALUES (?, ?, ?)
+            ''', (
+                maintenance_id,
+                element['element_id'],
+                element.get('element_comments', '')
+            ))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Created maintenance record {maintenance_id} for substation {data['substation_id']}")
+        return jsonify({
+            'success': True,
+            'data': {'id': maintenance_id}
+        }), 201
+    
+    except sqlite3.IntegrityError as e:
+        logger.error(f"Database integrity error: {str(e)}")
+        return jsonify({'success': False, 'error': 'Database constraint violation'}), 400
+    except Exception as e:
+        logger.error(f"Error creating maintenance: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/maintenance/<int:maintenance_id>', methods=['DELETE'])
+def delete_maintenance(maintenance_id):
+    """Delete a maintenance record"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Check if maintenance exists
+        c.execute('SELECT id FROM maintenance WHERE id = ?', (maintenance_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': 'Maintenance not found'}), 404
+        
+        # Delete maintenance (elements will cascade)
+        c.execute('DELETE FROM maintenance WHERE id = ?', (maintenance_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Deleted maintenance {maintenance_id}")
+        return jsonify({'success': True, 'data': {'deleted_id': maintenance_id}})
+    
+    except Exception as e:
+        logger.error(f"Error deleting maintenance: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== HEALTH CHECK ====================
