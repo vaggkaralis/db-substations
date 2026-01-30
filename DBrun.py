@@ -2431,7 +2431,15 @@ class SubstationApp(App):
             
             substation_id = substation_map[substation_name]
             c = self.conn.cursor()
-            c.execute("SELECT id, element_type, name, serial_number, bar, is_main_switch FROM elements WHERE substation_id=? ORDER BY bar", (substation_id,))
+            c.execute("""
+                SELECT e.id, e.element_type, e.name, e.serial_number, e.bar, e.is_main_switch,
+                       e.breaker_category, e.manufacturer, e.model,
+                       em.manufacturer as model_manufacturer, em.model_name
+                FROM elements e
+                LEFT JOIN element_models em ON e.element_model_id = em.id
+                WHERE e.substation_id=?
+                ORDER BY e.bar
+            """, (substation_id,))
             elements = c.fetchall()
             
             if not elements:
@@ -2444,7 +2452,7 @@ class SubstationApp(App):
             
             # Define sort priority for element types
             def get_element_priority(elem):
-                elem_id, elem_type, elem_name, serial_number, bar, is_main_switch = elem
+                elem_id, elem_type, elem_name, serial_number, bar, is_main_switch, breaker_category, manufacturer, model, model_manufacturer, model_name = elem
                 
                 # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
                 if elem_type == 'Διακόπτης ΥΤ':
@@ -2467,7 +2475,7 @@ class SubstationApp(App):
             # Group elements by bar
             bars_dict = {}
             for elem in elements:
-                elem_id, elem_type, elem_name, serial_number, bar, is_main_switch = elem
+                elem_id, elem_type, elem_name, serial_number, bar, is_main_switch, breaker_category, manufacturer, model, model_manufacturer, model_name = elem
                 
                 bar_key = bar if bar else '(Μη καταχωρημένο)'
                 if bar_key not in bars_dict:
@@ -2500,21 +2508,32 @@ class SubstationApp(App):
                 elements_container.add_widget(bar_label)
                 
                 # Display elements in this bar
-                for elem_id, elem_type, elem_name, serial_number, bar, is_main_switch in bar_elements:
+                for elem_id, elem_type, elem_name, serial_number, bar, is_main_switch, breaker_category, manufacturer, model, model_manufacturer, model_name in bar_elements:
                     # Determine if this is a circuit breaker for showing measurement fields
                     is_breaker = (elem_type in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ'])
+                    
+                    # Build element display text with breaker type, manufacturer, and model
+                    elem_display = f'[b]{elem_name}[/b] - {elem_type}'
+                    if breaker_category:
+                        elem_display += f' ({breaker_category})'
+                    elem_display += f'\nS/N: {serial_number or "-"}'
+                    
+                    # Add manufacturer and model info
+                    mfr = model_manufacturer or manufacturer or '-'
+                    mdl = model_name or model or '-'
+                    elem_display += f' | Κατ.: {mfr} | Μοντ.: {mdl}'
                     
                     # Element container - initially just checkbox and label
                     elem_box = BoxLayout(size_hint_y=None, spacing=5, orientation='vertical')
                     elem_box.bind(minimum_height=elem_box.setter('height'))
                     
                     # Checkbox and name (always visible)
-                    checkbox_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
+                    checkbox_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
                     checkbox = CheckBox(size_hint_x=0.08)
                     checkbox_layout.add_widget(checkbox)
                     
                     elem_label = Label(
-                        text=f'[b]{elem_name}[/b] - {elem_type} (S/N: {serial_number or "-"})',
+                        text=elem_display,
                         size_hint_x=0.92,
                         markup=True
                     )

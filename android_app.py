@@ -670,13 +670,27 @@ class SubstationAndroidApp(App):
                                 elem_box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5, padding=5)
                                 elem_box.bind(minimum_height=elem_box.setter('height'))
                                 
+                                # Build element display text
+                                elem_type_display = elem['element_type']
+                                if elem.get('breaker_category'):
+                                    elem_type_display += f" ({elem['breaker_category']})"
+                                
+                                elem_text = f"{elem['name']} - {elem_type_display}\n"
+                                elem_text += f"S/N: {elem.get('serial_number', '-')}"
+                                
+                                # Add manufacturer and model
+                                mfr = elem.get('manufacturer', '-')
+                                mdl = elem.get('model', '-')
+                                if mfr != '-' or mdl != '-':
+                                    elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
+                                
                                 # Checkbox and name
-                                checkbox_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                checkbox_layout = BoxLayout(size_hint_y=None, height=60, spacing=5)
                                 checkbox = CheckBox(size_hint_x=0.15)
                                 checkbox_layout.add_widget(checkbox)
                                 
                                 elem_label = Label(
-                                    text=f"{elem['name']} - {elem['element_type']}\nS/N: {elem.get('serial_number', '-')}",
+                                    text=elem_text,
                                     size_hint_x=0.85
                                 )
                                 checkbox_layout.add_widget(elem_label)
