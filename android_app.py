@@ -81,13 +81,22 @@ class SubstationAndroidApp(App):
         'Συστοιχία Συσσωρευτών'
     ]
     VOLTAGE_LEVELS = ['20 KV', '150 KV', '20/150 KV']
+    OPERATING_STATUS = ['Ενεργή', 'Ανενεργή']
+    INSTALLATION_SPACE = ['Εσωτερικός', 'Εξωτερικός']
     ELEMENT_FIELD_DEFS = [
         {'key': 'name', 'label': 'Όνομα Στοιχείου', 'type': 'text', 'hint': 'Όνομα Στοιχείου'},
         {'key': 'serial_number', 'label': 'Σειριακός Αριθμός', 'type': 'text', 'hint': 'Σειριακός Αριθμός'},
         {'key': 'maintenance_date', 'label': 'Ημερομηνία τελευταίας συντήρησης', 'type': 'text', 'hint': 'YYYY-MM-DD'},
-        {'key': 'voltage_level', 'label': 'Επίπεδο Τάσης', 'type': 'spinner', 'values': VOLTAGE_LEVELS},
+        {'key': 'voltage_level', 'label': 'Επίπεδο Τάσης', 'type': 'text', 'hint': 'π.χ. 20 KV, 150 KV'},
         {'key': 'manufacturer', 'label': 'Κατασκευαστής', 'type': 'text', 'hint': 'Κατασκευαστής'},
         {'key': 'type', 'label': 'Τύπος', 'type': 'text', 'hint': 'Τύπος'},
+        {'key': 'manufacture_year', 'label': 'Έτος Κατασκευής', 'type': 'text', 'hint': 'π.χ. 2010'},
+        {'key': 'model', 'label': 'Μοντέλο', 'type': 'text', 'hint': 'Μοντέλο'},
+        {'key': 'model_version', 'label': 'Έκδοση Μοντέλου', 'type': 'text', 'hint': 'Έκδοση'},
+        {'key': 'operating_status', 'label': 'Κατάσταση Λειτουργίας', 'type': 'spinner', 'values': OPERATING_STATUS},
+        {'key': 'installation_space', 'label': 'Χώρος Εγκατάστασης', 'type': 'spinner', 'values': INSTALLATION_SPACE},
+        {'key': 'maintenance_cycle', 'label': 'Κύκλος Συντήρησης (μήνες)', 'type': 'text', 'hint': 'π.χ. 12'},
+        {'key': 'bar', 'label': 'Ζυγός', 'type': 'text', 'hint': 'π.χ. ΖΥΓΟΣ 1'},
     ]
     
     API_BASE_URL = 'https://db-substations.onrender.com/api'  # Render Cloud API URL
@@ -323,14 +332,23 @@ class SubstationAndroidApp(App):
                         grid.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
                     else:
                         for elem in elements:
-                            elem_layout = BoxLayout(size_hint_y=None, height=90, spacing=5, orientation='vertical')
+                            elem_layout = BoxLayout(size_hint_y=None, height=120, spacing=5, orientation='vertical')
                             
-                            elem_text = f"{elem['element_type']}: {elem['name']}\nS/N: {elem.get('serial_number', '-')} | Voltage: {elem.get('voltage_level', '-')}"
-                            label = Label(text=elem_text, size_hint_y=None, height=50)
+                            # Line 1: Type and Name
+                            elem_text = f"{elem['element_type']}: {elem['name']}"
+                            # Line 2: S/N, Voltage, Manufacturer
+                            elem_text += f"\nS/N: {elem.get('serial_number', '-')} | Τάση: {elem.get('voltage_level', '-')}"
+                            # Line 3: Model, Year, Status
+                            model_info = f"Μοντέλο: {elem.get('model', '-')}" if elem.get('model') else ""
+                            year_info = f"Έτος: {elem.get('manufacture_year', '-')}" if elem.get('manufacture_year') else ""
+                            status = elem.get('operating_status', '-')
+                            elem_text += f"\n{model_info} {year_info} | Κατάσταση: {status}"
+                            
+                            label = Label(text=elem_text, size_hint_y=None, height=75)
                             elem_layout.add_widget(label)
                             
                             # Delete button
-                            del_btn = Button(text='X', size_hint_y=None, height=35)
+                            del_btn = Button(text='X', size_hint_y=None, height=40)
                             del_btn.bind(on_press=lambda x, eid=elem['id']: self.delete_element(eid))
                             elem_layout.add_widget(del_btn)
                             
@@ -484,15 +502,31 @@ class SubstationAndroidApp(App):
             def on_error(req, error):
                 self.show_error(f'Error: {str(error)}')
             
+            # Get all field values, handling both text and spinner fields
+            def get_field_value(key):
+                field = field_inputs.get(key)
+                if not field:
+                    return ''
+                return field.text.strip() if hasattr(field, 'text') else ''
+            
             payload = {
                 'substation_id': substation_id,
                 'element_type': element_spinner.text,
-                'name': field_inputs['name'].text.strip(),
-                'serial_number': field_inputs['serial_number'].text.strip(),
-                'maintenance_date': field_inputs['maintenance_date'].text.strip(),
-                'voltage_level': field_inputs['voltage_level'].text,
-                'manufacturer': field_inputs['manufacturer'].text.strip(),
-                'type': field_inputs['type'].text.strip()
+                'name': get_field_value('name'),
+                'serial_number': get_field_value('serial_number'),
+                'maintenance_date': get_field_value('maintenance_date'),
+                'voltage_level': get_field_value('voltage_level'),
+                'manufacturer': get_field_value('manufacturer'),
+                'type': get_field_value('type'),
+                'manufacture_year': get_field_value('manufacture_year'),
+                'model': get_field_value('model'),
+                'model_version': get_field_value('model_version'),
+                'operating_status': get_field_value('operating_status'),
+                'installation_space': get_field_value('installation_space'),
+                'maintenance_cycle': get_field_value('maintenance_cycle'),
+                'bar': get_field_value('bar'),
+                'is_main_switch': 0,  # Default to Line breaker
+                'element_model_id': None  # Will be added later with model selection
             }
             
             UrlRequest(
