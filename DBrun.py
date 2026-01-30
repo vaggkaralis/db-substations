@@ -622,12 +622,21 @@ class SubstationApp(App):
                             elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display}"
                             
                             # Create a horizontal layout for element and buttons
-                            elem_layout = BoxLayout(size_hint_y=None, height=70, spacing=5)
+                            elem_layout = BoxLayout(size_hint_y=None, spacing=5)
+                            elem_layout.bind(minimum_height=elem_layout.setter('height'))
                             
                             elem_label = Label(
                                 text=elem_text,
-                                size_hint_x=0.75,
+                                size_hint=(0.75, None),
                                 markup=True
+                            )
+                            # Enable text wrapping and automatic height calculation
+                            elem_label.bind(
+                                width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                                texture_size=lambda instance, value: (
+                                    setattr(instance, 'height', max(70, value[1] + 10)),
+                                    setattr(elem_layout, 'height', max(70, value[1] + 10))
+                                )
                             )
                             elem_layout.add_widget(elem_label)
                             
