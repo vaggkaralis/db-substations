@@ -90,12 +90,17 @@ class SubstationAndroidApp(App):
             raise
         
     def build(self):
+        Logger.info('APP: ========== BUILD METHOD STARTING ==========')
         Logger.info('APP: Building UI')
         try:
+            Logger.info('APP: Setting window title')
             self.title = 'DB Substations'
+            Logger.info('APP: Creating main_layout BoxLayout')
             main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            Logger.info('APP: Main layout created successfully')
             
             # Header
+            Logger.info('APP: Creating header Label')
             header = Label(
                 text='Υποσταθμοί ΔΕΔΔΗΕ',
                 size_hint_y=0.1,
@@ -140,11 +145,16 @@ class SubstationAndroidApp(App):
     
     def load_substations(self, instance):
         """Load substations from API"""
-        Logger.info('APP: load_substations called')
+        Logger.info('APP: ========== LOAD_SUBSTATIONS CALLED ==========')
+        Logger.info(f'APP: Instance: {instance}')
+        Logger.info(f'APP: Content layout exists: {hasattr(self, "content_layout")}')
         try:
+            Logger.info('APP: Clearing content_layout widgets')
             self.content_layout.clear_widgets()
+            Logger.info('APP: Creating loading label')
             loading_label = Label(text='Φόρτωση...', size_hint_y=1)
             self.content_layout.add_widget(loading_label)
+            Logger.info('APP: Loading label added')
             
             def on_success(req, result):
                 Logger.info(f'APP: API success, result length: {len(result) if result else 0}')
@@ -177,7 +187,7 @@ class SubstationAndroidApp(App):
                 url,
                 on_success=on_success,
                 on_error=on_error,
-                timeout=30
+                timeout=60  # Increased for Render.com cold start
             )
             Logger.info('APP: UrlRequest initiated')
             
@@ -188,9 +198,13 @@ class SubstationAndroidApp(App):
     
     def display_substations(self):
         """Display list of substations"""
+        Logger.info('APP: ========== DISPLAY_SUBSTATIONS CALLED ==========')
+        Logger.info(f'APP: Number of substations: {len(self.substations)}')
         self.content_layout.clear_widgets()
+        Logger.info('APP: Content layout cleared')
         
         if not self.substations:
+            Logger.info('APP: No substations found - showing message')
             self.content_layout.add_widget(Label(text='Κανένας υποσταθμός δεν βρέθηκε'))
             return
         
