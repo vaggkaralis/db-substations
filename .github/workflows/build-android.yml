@@ -46,11 +46,11 @@ jobs:
         pip3 install --upgrade pip
         pip3 install --upgrade buildozer cython==0.29.33
 
-    - name: Rename android_test_simple.py to main.py
+    - name: Rename android_app.py to main.py
       run: |
-        mv android_test_simple.py main.py
+        mv android_app.py main.py
         ls -la main.py
-        echo "Building TEST version with debug logging"
+        echo "Building PRODUCTION version with enhanced logging"
 
     - name: Setup Android SDK
       run: |
@@ -83,12 +83,12 @@ jobs:
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: db-substations-test-apk
+        name: db-substations-apk
         path: bin/*.apk
         retention-days: 30
         
     - name: List built APK
       run: |
         ls -lh bin/
-        echo "✅ TEST APK built successfully!"
+        echo "✅ Production APK built successfully!"
         echo "📦 Download from Actions artifacts"
