@@ -426,11 +426,17 @@ def get_elements():
         
         if substation_id:
             c.execute(
-                "SELECT id, substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, type FROM elements WHERE substation_id=? ORDER BY element_type, name",
+                """SELECT id, substation_id, element_type, name, serial_number, maintenance_date, 
+                   voltage_level, manufacturer, type, element_model_id, manufacture_year, model, 
+                   model_version, operating_status, installation_space, maintenance_cycle, bar, is_main_switch 
+                   FROM elements WHERE substation_id=? ORDER BY element_type, name""",
                 (substation_id,)
             )
         else:
-            c.execute("SELECT id, substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, type FROM elements ORDER BY element_type, name")
+            c.execute("""SELECT id, substation_id, element_type, name, serial_number, maintenance_date, 
+                         voltage_level, manufacturer, type, element_model_id, manufacture_year, model, 
+                         model_version, operating_status, installation_space, maintenance_cycle, bar, is_main_switch 
+                         FROM elements ORDER BY element_type, name""")
         
         elements = [dict(row) for row in c.fetchall()]
         conn.close()
@@ -448,13 +454,18 @@ def add_element():
         name = data.get('name', '').strip()
         serial_number = data.get('serial_number', '').strip()
         maintenance_date = data.get('maintenance_date', '').strip()
+        voltage_level = data.get('voltage_level', '').strip()
         manufacturer = data.get('manufacturer', '').strip()
-        model = data.get('model', '').strip()
-        breaker_category = data.get('breaker_category', '').strip()
-        installation_space = data.get('installation_space', '').strip()
-        operating_status = data.get('operating_status', 'Ενεργή').strip()
-        maintenance_cycle = data.get('maintenance_cycle', 0)
+        element_type_field = data.get('type', '').strip()  # Renamed to avoid conflict
+        element_model_id = data.get('element_model_id')
         manufacture_year = data.get('manufacture_year', '').strip()
+        model = data.get('model', '').strip()
+        model_version = data.get('model_version', '').strip()
+        operating_status = data.get('operating_status', 'Ενεργή').strip()
+        installation_space = data.get('installation_space', 'Εσωτερικός').strip()
+        maintenance_cycle = data.get('maintenance_cycle', 0)
+        bar = data.get('bar', '').strip()
+        is_main_switch = data.get('is_main_switch', 0)
         
         if not substation_id or not name:
             return jsonify({'success': False, 'error': 'Substation ID and name are required'}), 400
@@ -464,6 +475,12 @@ def add_element():
             maintenance_cycle = int(maintenance_cycle)
         except (ValueError, TypeError):
             maintenance_cycle = 0
+        
+        # Validate is_main_switch is integer
+        try:
+            is_main_switch = int(is_main_switch)
+        except (ValueError, TypeError):
+            is_main_switch = 0
         
         conn = get_db()
         c = conn.cursor()
@@ -481,8 +498,13 @@ def add_element():
             return jsonify({'success': False, 'error': f'Element with name "{name}" already exists in this substation'}), 400
         
         c.execute(
-            "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, manufacturer, model, breaker_category, installation_space, operating_status, maintenance_cycle, manufacture_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (substation_id, element_type, name, serial_number, maintenance_date, manufacturer, model, breaker_category, installation_space, operating_status, maintenance_cycle, manufacture_year)
+            """INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, 
+               voltage_level, manufacturer, type, element_model_id, manufacture_year, model, model_version, 
+               operating_status, installation_space, maintenance_cycle, bar, is_main_switch) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, 
+             manufacturer, element_type_field, element_model_id, manufacture_year, model, model_version, 
+             operating_status, installation_space, maintenance_cycle, bar, is_main_switch)
         )
         conn.commit()
         element_id = c.lastrowid
