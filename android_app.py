@@ -62,8 +62,24 @@ except Exception as e:
     raise
 
 class SubstationAndroidApp(App):
-    # Element field definitions (same as Windows version)
-    ELEMENT_TYPES = ['Διακόπτης Ισχύος', 'Μετασχηματιστής', 'Motor Drive']
+    # Element types - matches desktop app
+    ELEMENT_TYPES = [
+        'Διακόπτης ΥΤ',
+        'Διακόπτης ΜΤ',
+        'Μετασχηματιστής 150/20KV',
+        'Motor Drive',
+        'Μ/Σ Εγχύσεως',
+        'Μ/Σ Έντασης',
+        'Μ/Σ Τάσης',
+        'Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)',
+        'Αποζεύκτης',
+        'Ασφαλειοαποζεύκτης',
+        'Γειωτής',
+        'Συστοιχία Πυκνωτών',
+        'Αντίσταση Κόμβου',
+        'Αλεξικέραυνο',
+        'Συστοιχία Συσσωρευτών'
+    ]
     VOLTAGE_LEVELS = ['20 KV', '150 KV', '20/150 KV']
     ELEMENT_FIELD_DEFS = [
         {'key': 'name', 'label': 'Όνομα Στοιχείου', 'type': 'text', 'hint': 'Όνομα Στοιχείου'},
@@ -224,11 +240,11 @@ class SubstationAndroidApp(App):
             return
         
         scroll = ScrollView()
-        grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
         grid.bind(minimum_height=grid.setter('height'))
         
         for substation in self.substations:
-            btn_layout = BoxLayout(size_hint_y=None, height=60, spacing=10)
+            btn_layout = BoxLayout(size_hint_y=None, height=80, spacing=10)
             
             # Substation info
             info_text = f"{substation['name']}\nΤοποθεσία: {substation.get('location', '-')}"
@@ -307,14 +323,14 @@ class SubstationAndroidApp(App):
                         grid.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
                     else:
                         for elem in elements:
-                            elem_layout = BoxLayout(size_hint_y=None, height=70, spacing=5, orientation='vertical')
+                            elem_layout = BoxLayout(size_hint_y=None, height=90, spacing=5, orientation='vertical')
                             
                             elem_text = f"{elem['element_type']}: {elem['name']}\nS/N: {elem.get('serial_number', '-')} | Voltage: {elem.get('voltage_level', '-')}"
-                            label = Label(text=elem_text)
+                            label = Label(text=elem_text, size_hint_y=None, height=50)
                             elem_layout.add_widget(label)
                             
                             # Delete button
-                            del_btn = Button(text='X', size_hint_y=None, height=30)
+                            del_btn = Button(text='X', size_hint_y=None, height=35)
                             del_btn.bind(on_press=lambda x, eid=elem['id']: self.delete_element(eid))
                             elem_layout.add_widget(del_btn)
                             
