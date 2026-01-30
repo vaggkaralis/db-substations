@@ -681,6 +681,43 @@ def health():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/admin/reset-database', methods=['POST'])
+def reset_database():
+    """ADMIN: Reset database with full schema - USE WITH CAUTION!"""
+    try:
+        # Require secret key for safety
+        data = request.get_json() or {}
+        secret = data.get('secret', '')
+        
+        if secret != os.environ.get('ADMIN_SECRET', 'reset-db-2026'):
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        
+        # Delete old database
+        if os.path.exists(DATABASE):
+            os.remove(DATABASE)
+            logger.info("Deleted old database")
+        
+        # Initialize new database with full schema
+        from database import init_db
+        conn = init_db(DATABASE)
+        
+        # Verify schema
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(elements)")
+        columns = [col[1] for col in cursor.fetchall()]
+        conn.close()
+        
+        logger.info(f"Database reset complete. Elements table has {len(columns)} columns")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Database reset successfully',
+            'element_columns_count': len(columns)
+        })
+    except Exception as e:
+        logger.error(f"Error resetting database: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==================== ERROR HANDLERS ====================
 
 @app.errorhandler(404)
