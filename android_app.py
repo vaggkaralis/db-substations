@@ -76,6 +76,21 @@ class SubstationAndroidApp(App):
     
     API_BASE_URL = 'https://db-substations.onrender.com/api'  # Render Cloud API URL
     
+    @staticmethod
+    def parse_json_response(result):
+        """Helper to parse JSON response - handles both string and already-parsed dict"""
+        if isinstance(result, (dict, list)):
+            # Already parsed
+            return result
+        elif isinstance(result, bytes):
+            # Decode bytes to string first
+            return json.loads(result.decode('utf-8'))
+        elif isinstance(result, str):
+            # Parse string
+            return json.loads(result)
+        else:
+            raise ValueError(f"Unexpected result type: {type(result)}")
+    
     def __init__(self, **kwargs):
         Logger.info('APP: Initializing SubstationAndroidApp')
         try:
@@ -157,9 +172,9 @@ class SubstationAndroidApp(App):
             Logger.info('APP: Loading label added')
             
             def on_success(req, result):
-                Logger.info(f'APP: API success, result length: {len(result) if result else 0}')
+                Logger.info(f'APP: API success, result type: {type(result)}')
                 try:
-                    data = json.loads(result)
+                    data = self.parse_json_response(result)
                     Logger.info(f'APP: Parsed JSON: {data}')
                     if data.get('success'):
                         self.substations = data.get('data', [])
@@ -285,7 +300,7 @@ class SubstationAndroidApp(App):
         """Load and display elements for a substation"""
         def on_success(req, result):
             try:
-                data = json.loads(result)
+                data = self.parse_json_response(result)
                 if data.get('success'):
                     elements = data.get('data', [])
                     if not elements:
@@ -346,7 +361,7 @@ class SubstationAndroidApp(App):
             
             def on_success(req, result):
                 try:
-                    data = json.loads(result)
+                    data = self.parse_json_response(result)
                     if data.get('success'):
                         popup.dismiss()
                         self.load_substations(None)
@@ -441,7 +456,7 @@ class SubstationAndroidApp(App):
             
             def on_success(req, result):
                 try:
-                    data = json.loads(result)
+                    data = self.parse_json_response(result)
                     if data.get('success'):
                         popup.dismiss()
                         self.show_substation_details(substation_id)
@@ -489,7 +504,7 @@ class SubstationAndroidApp(App):
         """Delete an element"""
         def on_success(req, result):
             try:
-                data = json.loads(result)
+                data = self.parse_json_response(result)
                 if data.get('success'):
                     self.show_substation_details(self.current_substation['id'])
                 else:
@@ -511,7 +526,7 @@ class SubstationAndroidApp(App):
         """Delete a substation"""
         def on_success(req, result):
             try:
-                data = json.loads(result)
+                data = self.parse_json_response(result)
                 if data.get('success'):
                     self.load_substations(None)
                 else:
