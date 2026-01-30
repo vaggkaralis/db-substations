@@ -518,6 +518,7 @@ class SubstationAndroidApp(App):
                 'voltage_level': get_field_value('voltage_level'),
                 'manufacturer': get_field_value('manufacturer'),
                 'type': get_field_value('type'),
+                'breaker_category': '',  # Will be set from model selection later
                 'manufacture_year': get_field_value('manufacture_year'),
                 'model': get_field_value('model'),
                 'model_version': get_field_value('model_version'),
