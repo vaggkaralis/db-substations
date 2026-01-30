@@ -15,6 +15,8 @@ from kivy.core.window import Window
 import webbrowser
 import os
 from datetime import datetime
+import requests
+import json
 
 # Maximize window on startup
 Window.maximize()
@@ -29,6 +31,172 @@ from importers import (
 from popups import show_message_popup
 from templates import create_elements_template, create_substations_template
 from model_management import show_models_management
+
+class CloudSync:
+    """Helper class to sync TEST substation changes to Render.com"""
+    API_BASE_URL = 'https://db-substations.onrender.com/api'
+    TEST_SUBSTATION_NAME = 'TEST'
+    
+    @classmethod
+    def get_test_substation_id(cls, conn):
+        """Get the local ID of TEST substation"""
+        c = conn.cursor()
+        c.execute("SELECT id FROM substations WHERE name=?", (cls.TEST_SUBSTATION_NAME,))
+        result = c.fetchone()
+        return result[0] if result else None
+    
+    @classmethod
+    def sync_element_add(cls, conn, element_id, substation_id):
+        """Sync newly added element to cloud if it's in TEST substation"""
+        test_id = cls.get_test_substation_id(conn)
+        if test_id is None or substation_id != test_id:
+            return  # Not TEST substation, skip sync
+        
+        # Get element data
+        c = conn.cursor()
+        c.execute("""
+            SELECT element_type, name, serial_number, maintenance_date, manufacturer, 
+                   model, model_version, installation_space, operating_status, 
+                   maintenance_cycle, manufacture_year, bar, is_main_switch, 
+                   breaker_category, voltage_level
+            FROM elements WHERE id=?
+        """, (element_id,))
+        elem = c.fetchone()
+        if not elem:
+            return
+        
+        # Prepare payload
+        payload = {
+            'substation_id': 1,  # Cloud TEST substation ID
+            'element_type': elem[0],
+            'name': elem[1],
+            'serial_number': elem[2] or '',
+            'maintenance_date': elem[3] or '',
+            'manufacturer': elem[4] or '',
+            'model': elem[5] or '',
+            'model_version': elem[6] or '',
+            'installation_space': elem[7] or 'Εσωτερικός',
+            'operating_status': elem[8] or 'Ενεργή',
+            'maintenance_cycle': elem[9] or 0,
+            'manufacture_year': elem[10] or '',
+            'bar': elem[11] or '',
+            'is_main_switch': elem[12] or 0,
+            'breaker_category': elem[13] or '',
+            'voltage_level': elem[14] or ''
+        }
+        
+        try:
+            response = requests.post(
+                f'{cls.API_BASE_URL}/elements',
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=30
+            )
+            if response.status_code == 201:
+                print(f"✓ Synced new element '{elem[1]}' to cloud")
+            else:
+                print(f"✗ Failed to sync element: {response.text}")
+        except Exception as e:
+            print(f"✗ Sync error: {str(e)}")
+    
+    @classmethod
+    def sync_element_update(cls, conn, element_id, substation_id):
+        """Sync element updates to cloud if it's in TEST substation"""
+        test_id = cls.get_test_substation_id(conn)
+        if test_id is None or substation_id != test_id:
+            return
+        
+        # Get element data
+        c = conn.cursor()
+        c.execute("""
+            SELECT name, element_type, serial_number, maintenance_date, manufacturer,
+                   model, model_version, installation_space, operating_status,
+                   maintenance_cycle, manufacture_year, bar, is_main_switch,
+                   breaker_category, voltage_level
+            FROM elements WHERE id=?
+        """, (element_id,))
+        elem = c.fetchone()
+        if not elem:
+            return
+        
+        # Find cloud element by name (since IDs differ)
+        try:
+            # Get cloud element ID by name
+            response = requests.get(
+                f'{cls.API_BASE_URL}/elements?substation_id=1',
+                timeout=30
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success'):
+                    cloud_elements = data.get('data', [])
+                    cloud_elem = next((e for e in cloud_elements if e['name'] == elem[0]), None)
+                    
+                    if cloud_elem:
+                        # Update existing element
+                        cloud_id = cloud_elem['id']
+                        payload = {
+                            'element_type': elem[1],
+                            'name': elem[0],
+                            'serial_number': elem[2] or '',
+                            'maintenance_date': elem[3] or '',
+                            'manufacturer': elem[4] or '',
+                            'model': elem[5] or '',
+                            'model_version': elem[6] or '',
+                            'installation_space': elem[7] or 'Εσωτερικός',
+                            'operating_status': elem[8] or 'Ενεργή',
+                            'maintenance_cycle': elem[9] or 0,
+                            'manufacture_year': elem[10] or '',
+                            'bar': elem[11] or '',
+                            'is_main_switch': elem[12] or 0,
+                            'breaker_category': elem[13] or '',
+                            'voltage_level': elem[14] or ''
+                        }
+                        
+                        update_response = requests.put(
+                            f'{cls.API_BASE_URL}/elements/{cloud_id}',
+                            json=payload,
+                            headers={'Content-Type': 'application/json'},
+                            timeout=30
+                        )
+                        if update_response.status_code == 200:
+                            print(f"✓ Synced updated element '{elem[0]}' to cloud")
+                        else:
+                            print(f"✗ Failed to sync element update: {update_response.text}")
+        except Exception as e:
+            print(f"✗ Sync error: {str(e)}")
+    
+    @classmethod
+    def sync_element_delete(cls, conn, element_name, substation_id):
+        """Sync element deletion to cloud if it's in TEST substation"""
+        test_id = cls.get_test_substation_id(conn)
+        if test_id is None or substation_id != test_id:
+            return
+        
+        try:
+            # Get cloud element ID by name
+            response = requests.get(
+                f'{cls.API_BASE_URL}/elements?substation_id=1',
+                timeout=30
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success'):
+                    cloud_elements = data.get('data', [])
+                    cloud_elem = next((e for e in cloud_elements if e['name'] == element_name), None)
+                    
+                    if cloud_elem:
+                        cloud_id = cloud_elem['id']
+                        delete_response = requests.delete(
+                            f'{cls.API_BASE_URL}/elements/{cloud_id}',
+                            timeout=30
+                        )
+                        if delete_response.status_code == 200:
+                            print(f"✓ Synced deleted element '{element_name}' to cloud")
+                        else:
+                            print(f"✗ Failed to sync element deletion: {delete_response.text}")
+        except Exception as e:
+            print(f"✗ Sync error: {str(e)}")
 
 class SubstationApp(App):
     # Define element types as a class variable
@@ -2013,7 +2181,12 @@ class SubstationApp(App):
                     is_main_switch,
                 ),
             )
+            new_element_id = c.lastrowid
             self.conn.commit()
+            
+            # Sync to cloud if TEST substation
+            CloudSync.sync_element_add(self.conn, new_element_id, substation_id)
+            
             popup.dismiss()
             show_message_popup('Επιτυχία', f'Στοιχείο προστέθηκε στον {substation_name}!', callback=lambda: self._display_substations(substation_name))
         
@@ -2321,7 +2494,12 @@ class SubstationApp(App):
                         bar_value,
                         is_main_switch,
                      ))
+            new_element_id = c.lastrowid
             self.conn.commit()
+            
+            # Sync to cloud if TEST substation
+            CloudSync.sync_element_add(self.conn, new_element_id, selected_substation_id)
+            
             popup.dismiss()
             parent_popup.dismiss()
             show_message_popup('Επιτυχία', 'Στοιχείο προστέθηκε!', callback=lambda: self._display_substations(selected_substation_name))
