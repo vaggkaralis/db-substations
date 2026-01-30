@@ -31,6 +31,7 @@ from importers import (
 from popups import show_message_popup
 from templates import create_elements_template, create_substations_template
 from model_management import show_models_management
+from pdf_reports import generate_maintenance_report
 
 class CloudSync:
     """Helper class to sync TEST substation changes to Render.com"""
@@ -3058,7 +3059,7 @@ class SubstationApp(App):
             
             # Get elements for this maintenance
             c.execute('''
-                SELECT e.element_type, e.name, e.serial_number, me.element_comments
+                SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
                 FROM maintenance_elements me
                 JOIN elements e ON me.element_id = e.id
                 WHERE me.maintenance_id = ?
@@ -3075,19 +3076,40 @@ class SubstationApp(App):
             card.add_widget(elements_label)
             card_height += 25
             
-            for elem_type, elem_name, serial_num, elem_comments in elements:
+            for elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in elements:
+                # Element info with optional PDF button
+                elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                
                 elem_text = f'  • {elem_type}: {elem_name} (S/N: {serial_num or "-"})'
                 if elem_comments:
                     elem_text += f'\n    Σχόλια: {elem_comments}'
                 
-                elem_height = 40 if elem_comments else 25
                 elem_label = Label(
                     text=elem_text,
-                    size_hint_y=None,
-                    height=elem_height
+                    size_hint_x=0.7
                 )
-                card.add_widget(elem_label)
-                card_height += elem_height
+                elem_row.add_widget(elem_label)
+                
+                # Add PDF button for circuit breakers
+                if 'Διακόπτης' in elem_type and breaker_category in ['SF6', 'Oil', 'Vacuum']:
+                    pdf_btn = Button(
+                        text='📄 PDF',
+                        size_hint_x=0.3,
+                        size_hint_y=None,
+                        height=35
+                    )
+                    
+                    def make_pdf_handler(m_id, e_id, e_name):
+                        return lambda x: self.generate_pdf_report(m_id, e_id, e_name)
+                    
+                    pdf_btn.bind(on_press=make_pdf_handler(maint_id, elem_id, elem_name))
+                    elem_row.add_widget(pdf_btn)
+                else:
+                    # Add spacer for non-breaker elements to maintain alignment
+                    elem_row.add_widget(Label(text='', size_hint_x=0.3))
+                
+                card.add_widget(elem_row)
+                card_height += 40
             
             # Delete button
             delete_btn = Button(
@@ -3182,7 +3204,7 @@ class SubstationApp(App):
             
             # Get elements for this maintenance
             c.execute('''
-                SELECT e.element_type, e.name, e.serial_number, me.element_comments
+                SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
                 FROM maintenance_elements me
                 JOIN elements e ON me.element_id = e.id
                 WHERE me.maintenance_id = ?
@@ -3199,19 +3221,40 @@ class SubstationApp(App):
             card.add_widget(elements_label)
             card_height += 25
             
-            for elem_type, elem_name, serial_num, elem_comments in elements:
+            for elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in elements:
+                # Element info with optional PDF button
+                elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                
                 elem_text = f'  • {elem_type}: {elem_name} (S/N: {serial_num or "-"})'
                 if elem_comments:
                     elem_text += f'\n    Σχόλια: {elem_comments}'
                 
-                elem_height = 40 if elem_comments else 25
                 elem_label = Label(
                     text=elem_text,
-                    size_hint_y=None,
-                    height=elem_height
+                    size_hint_x=0.7
                 )
-                card.add_widget(elem_label)
-                card_height += elem_height
+                elem_row.add_widget(elem_label)
+                
+                # Add PDF button for circuit breakers
+                if 'Διακόπτης' in elem_type and breaker_category in ['SF6', 'Oil', 'Vacuum']:
+                    pdf_btn = Button(
+                        text='📄 PDF',
+                        size_hint_x=0.3,
+                        size_hint_y=None,
+                        height=35
+                    )
+                    
+                    def make_pdf_handler(m_id, e_id, e_name):
+                        return lambda x: self.generate_pdf_report(m_id, e_id, e_name)
+                    
+                    pdf_btn.bind(on_press=make_pdf_handler(maint_id, elem_id, elem_name))
+                    elem_row.add_widget(pdf_btn)
+                else:
+                    # Add spacer for non-breaker elements to maintain alignment
+                    elem_row.add_widget(Label(text='', size_hint_x=0.3))
+                
+                card.add_widget(elem_row)
+                card_height += 40
             
             # Delete button
             delete_btn = Button(
@@ -3245,6 +3288,62 @@ class SubstationApp(App):
         
         popup.content = main_layout
         popup.open()
+    
+    def generate_pdf_report(self, maintenance_id, element_id, element_name):
+        """Generate PDF maintenance report for a circuit breaker"""
+        try:
+            # Generate the PDF
+            pdf_path = generate_maintenance_report(self.conn, maintenance_id, element_id)
+            
+            # Show success message and offer to open
+            from kivy.uix.popup import Popup
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.button import Button
+            from kivy.uix.label import Label
+            
+            confirm_popup = Popup(title='PDF Δημιουργήθηκε', size_hint=(0.6, 0.4))
+            layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            
+            msg_label = Label(
+                text=f'Το αρχείο PDF για το στοιχείο "{element_name}"\nδημιουργήθηκε επιτυχώς!',
+                size_hint_y=0.5
+            )
+            layout.add_widget(msg_label)
+            
+            path_label = Label(
+                text=f'Αποθηκεύτηκε στο:\n{pdf_path}',
+                size_hint_y=0.3,
+                font_size='10sp'
+            )
+            layout.add_widget(path_label)
+            
+            buttons_layout = BoxLayout(size_hint_y=0.2, spacing=10)
+            
+            def open_pdf():
+                import subprocess
+                import sys
+                if sys.platform == 'win32':
+                    os.startfile(pdf_path)
+                elif sys.platform == 'darwin':
+                    subprocess.call(['open', pdf_path])
+                else:
+                    subprocess.call(['xdg-open', pdf_path])
+                confirm_popup.dismiss()
+            
+            open_btn = Button(text='Άνοιγμα PDF')
+            open_btn.bind(on_press=lambda x: open_pdf())
+            buttons_layout.add_widget(open_btn)
+            
+            close_btn = Button(text='Κλείσιμο')
+            close_btn.bind(on_press=confirm_popup.dismiss)
+            buttons_layout.add_widget(close_btn)
+            
+            layout.add_widget(buttons_layout)
+            confirm_popup.content = layout
+            confirm_popup.open()
+            
+        except Exception as e:
+            show_message_popup('Σφάλμα', f'Αποτυχία δημιουργίας PDF:\n{str(e)}')
     
     def delete_maintenance(self, maintenance_id, parent_popup):
         """Delete a maintenance record and update related last maintenance dates"""
