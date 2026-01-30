@@ -1,12 +1,12 @@
 [app]
-title = DB Substations
+title = DB Substations TEST
 package.name = dbsubstations
 package.domain = org.dbsubstations
 
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 
-version = 1.0
+version = 1.0.test
 requirements = python3,kivy==2.0.0,certifi,urllib3,charset-normalizer,idna,requests
 
 permissions = INTERNET,ACCESS_NETWORK_STATE,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
