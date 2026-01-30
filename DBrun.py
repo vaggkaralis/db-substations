@@ -448,14 +448,8 @@ class SubstationApp(App):
                 
                 # Location button (clickable)
                 if location:
-                    # Shorten location text to fit
-                    if len(location) > 25:
-                        location_display = location[:22] + '...'
-                    else:
-                        location_display = location
-                    
                     location_btn = Button(
-                        text=location_display, 
+                        text='Google Maps Link', 
                         size_hint_x=0.2,
                         font_size='11sp',
                         padding=(5, 5)

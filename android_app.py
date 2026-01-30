@@ -249,21 +249,28 @@ class SubstationAndroidApp(App):
             return
         
         scroll = ScrollView()
-        grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
+        grid = GridLayout(cols=1, spacing=20, size_hint_y=None, padding=10)
         grid.bind(minimum_height=grid.setter('height'))
         
         for substation in self.substations:
-            btn_layout = BoxLayout(size_hint_y=None, height=80, spacing=10)
+            btn_layout = BoxLayout(size_hint_y=None, height=100, spacing=10, orientation='vertical')
             
-            # Substation info
-            info_text = f"{substation['name']}\nΤοποθεσία: {substation.get('location', '-')}"
-            info_label = Label(text=info_text, size_hint_x=0.7)
-            btn_layout.add_widget(info_label)
+            # Top row: Name and View button
+            top_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            name_label = Label(text=substation['name'], size_hint_x=0.7, bold=True)
+            top_row.add_widget(name_label)
             
-            # View button
             view_btn = Button(text='Δες', size_hint_x=0.3)
             view_btn.bind(on_press=lambda x, sid=substation['id']: self.show_substation_details(sid))
-            btn_layout.add_widget(view_btn)
+            top_row.add_widget(view_btn)
+            
+            btn_layout.add_widget(top_row)
+            
+            # Bottom row: Location link
+            location = substation.get('location', '')
+            location_text = 'Google Maps Link' if location else '-'
+            location_label = Label(text=f'Τοποθεσία: {location_text}', size_hint_y=None, height=30, font_size='14sp')
+            btn_layout.add_widget(location_label)
             
             grid.add_widget(btn_layout)
         
@@ -282,19 +289,21 @@ class SubstationAndroidApp(App):
         
         self.current_substation = substation
         
-        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=15)
         
         # Substation header
-        header = Label(
-            text=f"{substation['name']}\nΤοποθεσία: {substation.get('location', '-')}",
-            size_hint_y=0.15,
-            bold=True
-        )
-        main_layout.add_widget(header)
+        header_layout = BoxLayout(orientation='vertical', size_hint_y=0.15, spacing=5)
+        name_label = Label(text=substation['name'], bold=True, font_size='18sp', size_hint_y=None, height=30)
+        location = substation.get('location', '')
+        location_text = 'Google Maps Link' if location else '-'
+        location_label = Label(text=f'Τοποθεσία: {location_text}', font_size='14sp', size_hint_y=None, height=25)
+        header_layout.add_widget(name_label)
+        header_layout.add_widget(location_label)
+        main_layout.add_widget(header_layout)
         
         # Load elements for this substation
         scroll = ScrollView()
-        grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
         grid.bind(minimum_height=grid.setter('height'))
         
         self._load_substation_elements(substation_id, grid)
