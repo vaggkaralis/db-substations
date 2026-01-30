@@ -72,6 +72,21 @@ def init_database():
             conn.close()
             return
         
+        # Create element models master table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS element_models (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                element_category TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                manufacturer TEXT,
+                maintenance_cycle INTEGER DEFAULT 0,
+                installation_space TEXT,
+                breaker_category TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(element_category, model_name, manufacturer)
+            )
+        """)
+        
         # Create substations table
         c.execute("""
             CREATE TABLE IF NOT EXISTS substations (
@@ -80,6 +95,7 @@ def init_database():
                 location TEXT,
                 adoption_date TEXT,
                 division TEXT DEFAULT 'ΤΜΘ',
+                last_maintenance TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -93,12 +109,16 @@ def init_database():
                 name TEXT NOT NULL,
                 serial_number TEXT,
                 maintenance_date TEXT,
-                voltage_level TEXT,
                 manufacturer TEXT,
-                type TEXT,
+                model TEXT,
+                breaker_category TEXT,
+                installation_space TEXT,
+                operating_status TEXT DEFAULT 'Ενεργή',
+                maintenance_cycle INTEGER DEFAULT 0,
+                manufacture_year TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (substation_id) REFERENCES substations(id),
-                UNIQUE(substation_id, name, serial_number)
+                UNIQUE(substation_id, name)
             )
         """)
         
@@ -256,6 +276,144 @@ def delete_substation(substation_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# ==================== ELEMENT MODELS ENDPOINTS ====================
+
+@app.route('/api/element_models', methods=['GET'])
+def get_element_models():
+    """Get all element models, optionally filtered by element_category"""
+    try:
+        element_category = request.args.get('element_category')
+        conn = get_db()
+        c = conn.cursor()
+        
+        if element_category:
+            c.execute("SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models WHERE element_category=? ORDER BY model_name", (element_category,))
+        else:
+            c.execute("SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models ORDER BY element_category, model_name")
+        
+        models = c.fetchall()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'models': [
+                {
+                    'id': m[0],
+                    'element_category': m[1],
+                    'model_name': m[2],
+                    'manufacturer': m[3],
+                    'maintenance_cycle': m[4],
+                    'installation_space': m[5],
+                    'breaker_category': m[6]
+                }
+                for m in models
+            ]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/element_models', methods=['POST'])
+def create_element_model():
+    """Create a new element model"""
+    try:
+        data = request.json
+        required_fields = ['element_category', 'model_name', 'manufacturer']
+        
+        # Validate required fields
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Check for duplicate model (unique constraint)
+        c.execute("SELECT id FROM element_models WHERE element_category=? AND model_name=? AND manufacturer=?",
+                  (data['element_category'], data['model_name'], data['manufacturer']))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': 'Model already exists'}), 400
+        
+        # Insert new model
+        c.execute("""INSERT INTO element_models 
+                     (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category) 
+                     VALUES (?, ?, ?, ?, ?, ?)""",
+                  (
+                      data['element_category'],
+                      data['model_name'],
+                      data['manufacturer'],
+                      data.get('maintenance_cycle', 0),
+                      data.get('installation_space', ''),
+                      data.get('breaker_category', '')
+                  ))
+        
+        model_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'model_id': model_id, 'message': 'Model created'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/element_models/<int:model_id>', methods=['PUT'])
+def update_element_model(model_id):
+    """Update an element model"""
+    try:
+        data = request.json
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Check if model exists
+        c.execute("SELECT id FROM element_models WHERE id=?", (model_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': 'Model not found'}), 404
+        
+        # Update model (element_category cannot be changed to maintain data integrity)
+        c.execute("""UPDATE element_models 
+                     SET model_name=?, manufacturer=?, maintenance_cycle=?, 
+                         installation_space=?, breaker_category=?
+                     WHERE id=?""",
+                  (
+                      data.get('model_name', ''),
+                      data.get('manufacturer', ''),
+                      data.get('maintenance_cycle', 0),
+                      data.get('installation_space', ''),
+                      data.get('breaker_category', ''),
+                      model_id
+                  ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Model updated'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/element_models/<int:model_id>', methods=['DELETE'])
+def delete_element_model(model_id):
+    """Delete an element model (only if not in use)"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Check if model is in use
+        c.execute("SELECT COUNT(*) FROM elements WHERE element_model_id=?", (model_id,))
+        count = c.fetchone()[0]
+        
+        if count > 0:
+            conn.close()
+            return jsonify({'success': False, 'error': f'Cannot delete model: it is used by {count} element(s)'}), 400
+        
+        # Delete model
+        c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Model deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==================== ELEMENTS ENDPOINTS ====================
 
 @app.route('/api/elements', methods=['GET'])
@@ -290,12 +448,22 @@ def add_element():
         name = data.get('name', '').strip()
         serial_number = data.get('serial_number', '').strip()
         maintenance_date = data.get('maintenance_date', '').strip()
-        voltage_level = data.get('voltage_level', '').strip()
         manufacturer = data.get('manufacturer', '').strip()
-        elem_type = data.get('type', '').strip()
+        model = data.get('model', '').strip()
+        breaker_category = data.get('breaker_category', '').strip()
+        installation_space = data.get('installation_space', '').strip()
+        operating_status = data.get('operating_status', 'Ενεργή').strip()
+        maintenance_cycle = data.get('maintenance_cycle', 0)
+        manufacture_year = data.get('manufacture_year', '').strip()
         
         if not substation_id or not name:
             return jsonify({'success': False, 'error': 'Substation ID and name are required'}), 400
+        
+        # Validate maintenance_cycle is integer
+        try:
+            maintenance_cycle = int(maintenance_cycle)
+        except (ValueError, TypeError):
+            maintenance_cycle = 0
         
         conn = get_db()
         c = conn.cursor()
@@ -306,9 +474,15 @@ def add_element():
             conn.close()
             return jsonify({'success': False, 'error': 'Substation not found'}), 404
         
+        # Check for duplicate name within substation
+        c.execute("SELECT id FROM elements WHERE substation_id=? AND name=?", (substation_id, name))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': f'Element with name "{name}" already exists in this substation'}), 400
+        
         c.execute(
-            "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, elem_type)
+            "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, manufacturer, model, breaker_category, installation_space, operating_status, maintenance_cycle, manufacture_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (substation_id, element_type, name, serial_number, maintenance_date, manufacturer, model, breaker_category, installation_space, operating_status, maintenance_cycle, manufacture_year)
         )
         conn.commit()
         element_id = c.lastrowid

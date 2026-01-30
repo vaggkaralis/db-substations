@@ -97,6 +97,12 @@ APP: FATAL - Import error: [specific module]
 APP: Traceback: [detailed error]
 ```
 
+### Normal/Ignorable Messages:
+```
+GetBestInfo: /data/app/.../base.apk has no usable artifacts
+```
+**What it means:** Android's profiling system can't find debug symbols. This is normal for release builds and can be safely ignored. It's not an error - just informational logging from Android's debugging infrastructure.
+
 Common issues:
 - `ModuleNotFoundError: No module named 'certifi'` → Missing SSL dependencies
 - `ImportError: cannot import name 'UrlRequest'` → Kivy installation issue
