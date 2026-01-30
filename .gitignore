@@ -8,6 +8,9 @@ env/
 *.sqlite
 *.sqlite3
 
+# Bug reports (Android debugging)
+bugreport-*/
+
 # Excel and CSV files (templates and imports)
 *.xlsx
 *.csv

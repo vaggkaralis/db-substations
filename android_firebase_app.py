@@ -1,8 +1,7 @@
 """
 Firebase-based Android Kivy App for DB Substations
 Works with mobile data - no WiFi required
-"""
-import kivy
+"""import sysimport kivy
 kivy.require('2.0.0')
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -49,43 +48,69 @@ class SubstationFirebaseApp(App):
         self.user_id = str(uuid.uuid4())[:8]  # Anonymous user ID
         
     def build(self):
+        print('='*60)
+        print('FIREBASE APP: ========== BUILD METHOD STARTING ==========')
+        print(f'FIREBASE APP: Python version: {sys.version}')
+        print(f'FIREBASE APP: Kivy version: {kivy.__version__}')
+        print('='*60)
+        
         self.title = 'DB Substations'
+        print('FIREBASE APP: Title set')
         
         if not FIREBASE_AVAILABLE:
+            print('FIREBASE APP: Firebase NOT available - showing error screen')
             return self._build_error_screen()
         
+        print('FIREBASE APP: Firebase available - initializing')
         self._init_firebase()
+        print('FIREBASE APP: Firebase initialized')
         
+        print('FIREBASE APP: Creating main layout')
         main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        print('FIREBASE APP: Main layout created')
+        print('FIREBASE APP: Main layout created')
         
         # Header
+        print('FIREBASE APP: Creating header')
         header = Label(
             text='Υποσταθμοί ΔΕΔΔΗΕ',
             size_hint_y=0.1,
             bold=True
         )
         main_layout.add_widget(header)
+        print('FIREBASE APP: Header added')
         
         # Main content area
+        print('FIREBASE APP: Creating content layout')
         self.content_layout = BoxLayout(orientation='vertical', size_hint_y=0.8)
         main_layout.add_widget(self.content_layout)
+        print('FIREBASE APP: Content layout added')
         
         # Bottom buttons
+        print('FIREBASE APP: Creating buttons')
         button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
         
         refresh_btn = Button(text='Ανανέωση')
         refresh_btn.bind(on_press=self.load_substations)
         button_layout.add_widget(refresh_btn)
+        print('FIREBASE APP: Refresh button added')
         
         add_substation_btn = Button(text='+ Υποσταθμός')
         add_substation_btn.bind(on_press=self.show_add_substation_popup)
         button_layout.add_widget(add_substation_btn)
+        print('FIREBASE APP: Add button added')
         
         main_layout.add_widget(button_layout)
+        print('FIREBASE APP: Button layout added')
         
         # Load data on startup
+        print('FIREBASE APP: Scheduling data load')
         Clock.schedule_once(lambda dt: self.load_substations(None), 0.5)
         
+        print('='*60)
+        print('FIREBASE APP: ========== BUILD COMPLETE - RETURNING UI ==========')
+        print(f'FIREBASE APP: Main layout children: {len(main_layout.children)}')
+        print('='*60)
         return main_layout
     
     def _build_error_screen(self):
