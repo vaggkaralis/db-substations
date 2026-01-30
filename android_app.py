@@ -12,7 +12,7 @@ Logger.info(f'APP: Python version: {sys.version}')
 try:
     import kivy
     Logger.info(f'APP: Kivy version: {kivy.__version__}')
-    kivy.require('2.0.0')
+    kivy.require('2.3.0')  # Minimum version with Android Cython modules
     
     from kivy.app import App
     from kivy.uix.boxlayout import BoxLayout
