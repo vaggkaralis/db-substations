@@ -314,13 +314,9 @@ class SubstationAndroidApp(App):
         # Action buttons
         button_layout = BoxLayout(size_hint_y=0.15, spacing=10)
         
-        add_elem_btn = Button(text='+ Στοιχείο')
-        add_elem_btn.bind(on_press=lambda x: self.show_add_element_popup(substation_id))
-        button_layout.add_widget(add_elem_btn)
-        
-        delete_sub_btn = Button(text='Διαγραφή')
-        delete_sub_btn.bind(on_press=lambda x: self.delete_substation(substation_id))
-        button_layout.add_widget(delete_sub_btn)
+        maint_btn = Button(text='Συντήρηση')
+        maint_btn.bind(on_press=lambda x: self.show_maintenance_menu(substation_id, substation))
+        button_layout.add_widget(maint_btn)
         
         back_btn = Button(text='Πίσω')
         back_btn.bind(on_press=lambda x: self.load_substations(None))
@@ -341,7 +337,8 @@ class SubstationAndroidApp(App):
                         grid.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
                     else:
                         for elem in elements:
-                            elem_layout = BoxLayout(size_hint_y=None, height=120, spacing=5, orientation='vertical')
+                            elem_layout = BoxLayout(size_hint_y=None, spacing=5, orientation='vertical')
+                            elem_layout.bind(minimum_height=elem_layout.setter('height'))
                             
                             # Line 1: Type and Name
                             elem_text = f"{elem['element_type']}: {elem['name']}"
@@ -353,13 +350,16 @@ class SubstationAndroidApp(App):
                             status = elem.get('operating_status', '-')
                             elem_text += f"\n{model_info} {year_info} | Κατάσταση: {status}"
                             
-                            label = Label(text=elem_text, size_hint_y=None, height=75)
+                            label = Label(text=elem_text, size_hint=(1, None))
+                            # Enable text wrapping and automatic height calculation
+                            label.bind(
+                                width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                                texture_size=lambda instance, value: (
+                                    setattr(instance, 'height', max(75, value[1] + 10)),
+                                    setattr(elem_layout, 'height', max(75, value[1] + 10))
+                                )
+                            )
                             elem_layout.add_widget(label)
-                            
-                            # Delete button
-                            del_btn = Button(text='X', size_hint_y=None, height=40)
-                            del_btn.bind(on_press=lambda x, eid=elem['id']: self.delete_element(eid))
-                            elem_layout.add_widget(del_btn)
                             
                             grid.add_widget(elem_layout)
             except Exception as e:
@@ -603,6 +603,288 @@ class SubstationAndroidApp(App):
             on_error=on_error,
             method='DELETE'
         )
+    
+    def show_maintenance_menu(self, substation_id, substation):
+        """Show maintenance recording interface"""
+        from datetime import datetime
+        from kivy.uix.checkbox import CheckBox
+        from kivy.uix.spinner import Spinner
+        
+        popup = Popup(title=f'Συντήρηση - {substation["name"]}', size_hint=(0.95, 0.95))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # Scrollable content area
+        scroll = ScrollView(bar_width=10, size_hint=(1, 0.85))
+        content_layout = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=10)
+        content_layout.bind(minimum_height=content_layout.setter('height'))
+        
+        # Maintenance Type
+        content_layout.add_widget(Label(text='Τύπος Συντήρησης:', size_hint_y=None, height=30))
+        maint_type_spinner = Spinner(
+            text='Επαναληπτική συντήρηση',
+            values=['Επαναληπτική συντήρηση', 'Βλάβη', 'Οπτικός έλεγχος'],
+            size_hint_y=None,
+            height=40
+        )
+        content_layout.add_widget(maint_type_spinner)
+        
+        # Date/Time
+        content_layout.add_widget(Label(text='Ημερομηνία & Ώρα:', size_hint_y=None, height=30))
+        datetime_input = TextInput(
+            text=datetime.now().strftime('%Y-%m-%d %H:%M'),
+            hint_text='YYYY-MM-DD HH:MM',
+            size_hint_y=None,
+            height=40,
+            multiline=False
+        )
+        content_layout.add_widget(datetime_input)
+        
+        # Overall comments
+        content_layout.add_widget(Label(text='Γενικά Σχόλια:', size_hint_y=None, height=30))
+        overall_comments = TextInput(
+            hint_text='Γενικά σχόλια για την συντήρηση...',
+            size_hint_y=None,
+            height=60,
+            multiline=True
+        )
+        content_layout.add_widget(overall_comments)
+        
+        # Elements section
+        content_layout.add_widget(Label(text='Στοιχεία που συντηρήθηκαν:', size_hint_y=None, height=40, bold=True))
+        
+        # Store element widgets
+        element_widgets = {}
+        
+        def load_elements():
+            """Load elements and create checkboxes with fields"""
+            def on_success(req, result):
+                try:
+                    data = self.parse_json_response(result)
+                    if data.get('success'):
+                        elements = data.get('data', [])
+                        if not elements:
+                            content_layout.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
+                        else:
+                            for elem in elements:
+                                # Element container
+                                elem_box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5, padding=5)
+                                elem_box.bind(minimum_height=elem_box.setter('height'))
+                                
+                                # Checkbox and name
+                                checkbox_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                checkbox = CheckBox(size_hint_x=0.15)
+                                checkbox_layout.add_widget(checkbox)
+                                
+                                elem_label = Label(
+                                    text=f"{elem['name']} - {elem['element_type']}\nS/N: {elem.get('serial_number', '-')}",
+                                    size_hint_x=0.85
+                                )
+                                checkbox_layout.add_widget(elem_label)
+                                elem_box.add_widget(checkbox_layout)
+                                
+                                # Container for details (initially hidden)
+                                details_container = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5)
+                                details_container.bind(minimum_height=details_container.setter('height'))
+                                
+                                # Comments
+                                elem_comments = TextInput(
+                                    hint_text='Σχόλια για αυτό το στοιχείο...',
+                                    size_hint_y=None,
+                                    height=40,
+                                    multiline=False
+                                )
+                                details_container.add_widget(elem_comments)
+                                
+                                # Measurement fields for circuit breakers
+                                measurements = {}
+                                is_breaker = elem['element_type'] in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']
+                                
+                                if is_breaker:
+                                    # Insulation measurements (closed position)
+                                    details_container.add_widget(Label(text='Μονώσεις (Κλειστό):', size_hint_y=None, height=30, bold=True))
+                                    
+                                    for phase in ['fa', 'fb', 'fc']:
+                                        phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
+                                        phase_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                        phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
+                                        
+                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False)
+                                        phase_layout.add_widget(value_input)
+                                        
+                                        unit_spinner = Spinner(
+                                            text='GΩ',
+                                            values=['GΩ', 'MΩ', 'kΩ'],
+                                            size_hint_x=0.25
+                                        )
+                                        phase_layout.add_widget(unit_spinner)
+                                        details_container.add_widget(phase_layout)
+                                        
+                                        measurements[f'ins_closed_{phase}'] = value_input
+                                        measurements[f'ins_closed_{phase}_unit'] = unit_spinner
+                                    
+                                    # Insulation measurements (open position)
+                                    details_container.add_widget(Label(text='Μονώσεις (Ανοιχτό):', size_hint_y=None, height=30, bold=True))
+                                    
+                                    for phase in ['fa', 'fb', 'fc']:
+                                        phase_label = {'fa': 'Φάση A-A', 'fb': 'Φάση B-B', 'fc': 'Φάση C-C'}[phase]
+                                        phase_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                        phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
+                                        
+                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False)
+                                        phase_layout.add_widget(value_input)
+                                        
+                                        unit_spinner = Spinner(
+                                            text='GΩ',
+                                            values=['GΩ', 'MΩ', 'kΩ'],
+                                            size_hint_x=0.25
+                                        )
+                                        phase_layout.add_widget(unit_spinner)
+                                        details_container.add_widget(phase_layout)
+                                        
+                                        measurements[f'ins_open_{phase}'] = value_input
+                                        measurements[f'ins_open_{phase}_unit'] = unit_spinner
+                                    
+                                    # Contact resistance
+                                    details_container.add_widget(Label(text='Αντίσταση Επαφών (μΩ):', size_hint_y=None, height=30, bold=True))
+                                    
+                                    for phase in ['fa', 'fb', 'fc']:
+                                        phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
+                                        phase_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                        phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.3))
+                                        
+                                        value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False)
+                                        phase_layout.add_widget(value_input)
+                                        details_container.add_widget(phase_layout)
+                                        
+                                        measurements[f'cont_{phase}'] = value_input
+                                
+                                # Toggle details visibility
+                                def toggle_details(cb, value, eb=elem_box, dc=details_container):
+                                    if value:
+                                        if dc not in eb.children:
+                                            eb.add_widget(dc)
+                                    else:
+                                        if dc in eb.children:
+                                            eb.remove_widget(dc)
+                                
+                                checkbox.bind(active=toggle_details)
+                                
+                                content_layout.add_widget(elem_box)
+                                
+                                element_widgets[elem['id']] = {
+                                    'checkbox': checkbox,
+                                    'comments': elem_comments,
+                                    'measurements': measurements,
+                                    'elem_type': elem['element_type']
+                                }
+                except Exception as e:
+                    self.show_error(f'Error loading elements: {str(e)}')
+            
+            def on_error(req, error):
+                self.show_error(f'Error: {str(error)}')
+            
+            UrlRequest(
+                f'{self.API_BASE_URL}/elements?substation_id={substation_id}',
+                on_success=on_success,
+                on_error=on_error,
+                timeout=60
+            )
+        
+        load_elements()
+        
+        scroll.add_widget(content_layout)
+        main_layout.add_widget(scroll)
+        
+        # Buttons
+        button_layout = BoxLayout(size_hint_y=0.15, spacing=10)
+        
+        def save_maintenance():
+            # Validate
+            selected_elements = [(eid, widgets) for eid, widgets in element_widgets.items() 
+                                if widgets['checkbox'].active]
+            
+            if not selected_elements:
+                self.show_error('Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!')
+                return
+            
+            if not datetime_input.text.strip():
+                self.show_error('Η ημερομηνία είναι υποχρεωτική!')
+                return
+            
+            # Prepare payload
+            maintenance_elements = []
+            for elem_id, widgets in selected_elements:
+                elem_data = {
+                    'element_id': elem_id,
+                    'element_comments': widgets['comments'].text.strip()
+                }
+                
+                # Add measurements if available
+                measurements = widgets['measurements']
+                if measurements:
+                    for key, widget in measurements.items():
+                        if hasattr(widget, 'text'):
+                            try:
+                                elem_data[key] = float(widget.text) if widget.text.strip() else None
+                            except ValueError:
+                                elem_data[key] = None
+                        else:  # Spinner
+                            elem_data[key] = widget.text
+                
+                maintenance_elements.append(elem_data)
+            
+            payload = {
+                'substation_id': substation_id,
+                'date_time': datetime_input.text.strip(),
+                'overall_comments': overall_comments.text.strip(),
+                'maintenance_type': maint_type_spinner.text,
+                'elements': maintenance_elements
+            }
+            
+            def on_success(req, result):
+                try:
+                    data = self.parse_json_response(result)
+                    if data.get('success'):
+                        popup.dismiss()
+                        # Show success message
+                        success_popup = Popup(title='Επιτυχία', size_hint=(0.8, 0.4))
+                        success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                        success_layout.add_widget(Label(text='Η συντήρηση καταχωρήθηκε!'))
+                        ok_btn = Button(text='OK', size_hint_y=0.3)
+                        ok_btn.bind(on_press=success_popup.dismiss)
+                        success_layout.add_widget(ok_btn)
+                        success_popup.content = success_layout
+                        success_popup.open()
+                    else:
+                        self.show_error(data.get('error', 'Unknown error'))
+                except Exception as e:
+                    self.show_error(f'Error: {str(e)}')
+            
+            def on_error(req, error):
+                self.show_error(f'Error saving maintenance: {str(error)}')
+            
+            import json
+            UrlRequest(
+                f'{self.API_BASE_URL}/maintenance',
+                on_success=on_success,
+                on_error=on_error,
+                method='POST',
+                req_headers={'Content-Type': 'application/json'},
+                req_body=json.dumps(payload),
+                timeout=60
+            )
+        
+        save_btn = Button(text='Αποθήκευση')
+        save_btn.bind(on_press=lambda x: save_maintenance())
+        button_layout.add_widget(save_btn)
+        
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        button_layout.add_widget(cancel_btn)
+        
+        main_layout.add_widget(button_layout)
+        popup.content = main_layout
+        popup.open()
     
     def show_error(self, message):
         """Show error popup"""
