@@ -457,6 +457,7 @@ def add_element():
         voltage_level = data.get('voltage_level', '').strip()
         manufacturer = data.get('manufacturer', '').strip()
         element_type_field = data.get('type', '').strip()  # Renamed to avoid conflict
+        breaker_category = data.get('breaker_category', '').strip()
         element_model_id = data.get('element_model_id')
         manufacture_year = data.get('manufacture_year', '').strip()
         model = data.get('model', '').strip()
@@ -499,11 +500,11 @@ def add_element():
         
         c.execute(
             """INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, 
-               voltage_level, manufacturer, type, element_model_id, manufacture_year, model, model_version, 
+               voltage_level, manufacturer, type, breaker_category, element_model_id, manufacture_year, model, model_version, 
                operating_status, installation_space, maintenance_cycle, bar, is_main_switch) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, 
-             manufacturer, element_type_field, element_model_id, manufacture_year, model, model_version, 
+             manufacturer, element_type_field, breaker_category, element_model_id, manufacture_year, model, model_version, 
              operating_status, installation_space, maintenance_cycle, bar, is_main_switch)
         )
         conn.commit()
