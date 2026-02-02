@@ -13,7 +13,7 @@ The application can now automatically generate professional PDF maintenance repo
 
 ### Report Contents
 Each PDF report includes:
-- **Equipment Information**: Name, S/N, manufacturer, model, voltage level, bar assignment, manufacturing year
+- **Equipment Information**: Name, S/N, manufacturer, model, voltage level, gate assignment, manufacturing year
 - **Maintenance Details**: Date, maintenance type (Επαναληπτική συντήρηση, Βλάβη, Οπτικός έλεγχος), division
 - **Insulation Measurements**: 
   - Closed position (to ground) - 3 phases with units (GΩ, MΩ, kΩ)

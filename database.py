@@ -24,7 +24,7 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
     ''')
     
     cursor.execute(
-        'CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, FOREIGN KEY(substation_id) REFERENCES substations(id))'
+        'CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, FOREIGN KEY(substation_id) REFERENCES substations(id))'
     )
     
     # Maintenance tracking tables
@@ -32,8 +32,10 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS maintenance (
             id INTEGER PRIMARY KEY,
             substation_id INTEGER NOT NULL,
+            name TEXT,
             date_time TEXT NOT NULL,
             overall_comments TEXT,
+            responsible_id INTEGER,
             FOREIGN KEY(substation_id) REFERENCES substations(id) ON DELETE CASCADE
         )
     ''')
@@ -46,6 +48,59 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
             element_comments TEXT,
             FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
             FOREIGN KEY(element_id) REFERENCES elements(id) ON DELETE CASCADE
+        )
+    ''')
+
+    # People management tables
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS people (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            email TEXT,
+            report_receiver INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS maintenance_people (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER NOT NULL,
+            person_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+            FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Inspections table (monthly inspection reports)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS inspections (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            substation_name TEXT,
+            inspection_date TEXT NOT NULL,
+            month_key TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            source_file TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(substation_id) REFERENCES substations(id) ON DELETE SET NULL
+        )
+    ''')
+
+    # Isolation requests table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER NOT NULL,
+            start_datetime TEXT NOT NULL,
+            end_datetime TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Requested',
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(substation_id) REFERENCES substations(id) ON DELETE CASCADE
         )
     ''')
 
@@ -69,6 +124,11 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
     if 'last_maintenance' not in sub_columns:
         try:
             cursor.execute('ALTER TABLE substations ADD COLUMN last_maintenance TEXT DEFAULT ""')
+        except Exception:
+            pass
+    if 'monogram_pdf' not in sub_columns:
+        try:
+            cursor.execute('ALTER TABLE substations ADD COLUMN monogram_pdf TEXT DEFAULT ""')
         except Exception:
             pass
     
@@ -130,10 +190,31 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
         except Exception:
             pass
     
-    # Add bar column to elements table for organizing by transformer/bar
-    if 'bar' not in elem_columns:
+    # Add gate column to elements table for organizing by transformer/gate
+    if 'gate' not in elem_columns:
         try:
-            cursor.execute('ALTER TABLE elements ADD COLUMN bar TEXT DEFAULT ""')
+            if 'bar' in elem_columns:
+                cursor.execute('ALTER TABLE elements RENAME COLUMN bar TO gate')
+            else:
+                cursor.execute('ALTER TABLE elements ADD COLUMN gate TEXT DEFAULT ""')
+        except Exception:
+            try:
+                cursor.execute('ALTER TABLE elements ADD COLUMN gate TEXT DEFAULT ""')
+            except Exception:
+                pass
+
+    cursor.execute('PRAGMA table_info(elements)')
+    elem_columns = [column[1] for column in cursor.fetchall()]
+
+    if 'gate' in elem_columns and 'bar' in elem_columns:
+        try:
+            cursor.execute('UPDATE elements SET gate = bar WHERE (gate IS NULL OR gate = "") AND bar IS NOT NULL AND bar != ""')
+        except Exception:
+            pass
+
+    if 'gate' in elem_columns:
+        try:
+            cursor.execute('UPDATE elements SET gate = REPLACE(gate, "ΖΥΓΟΣ", "ΠΥΛΗ") WHERE gate LIKE "ΖΥΓΟΣ%"')
         except Exception:
             pass
     
@@ -144,12 +225,48 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
         except Exception:
             pass
     
-    # Add maintenance_type column to maintenance table
+    # Add operations_count to track circuit breaker operations
+    if 'operations_count' not in elem_columns:
+        try:
+            cursor.execute('ALTER TABLE elements ADD COLUMN operations_count INTEGER DEFAULT 0')
+        except Exception:
+            pass
+    
+    # Add maintenance_type and user columns to maintenance table
     cursor.execute('PRAGMA table_info(maintenance)')
     maint_columns = [column[1] for column in cursor.fetchall()]
+    if 'name' not in maint_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance ADD COLUMN name TEXT')
+        except Exception:
+            pass
     if 'maintenance_type' not in maint_columns:
         try:
             cursor.execute('ALTER TABLE maintenance ADD COLUMN maintenance_type TEXT DEFAULT "Επαναληπτική συντήρηση"')
+        except Exception:
+            pass
+    if 'user_name' not in maint_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance ADD COLUMN user_name TEXT DEFAULT ""')
+        except Exception:
+            pass
+    if 'responsible_id' not in maint_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance ADD COLUMN responsible_id INTEGER')
+        except Exception:
+            pass
+
+    # People table migrations
+    cursor.execute('PRAGMA table_info(people)')
+    people_columns = [column[1] for column in cursor.fetchall()]
+    if 'email' not in people_columns:
+        try:
+            cursor.execute('ALTER TABLE people ADD COLUMN email TEXT')
+        except Exception:
+            pass
+    if 'report_receiver' not in people_columns:
+        try:
+            cursor.execute('ALTER TABLE people ADD COLUMN report_receiver INTEGER DEFAULT 0')
         except Exception:
             pass
     
@@ -237,6 +354,80 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
     if 'insulation_open_fc_unit' not in maint_elem_columns:
         try:
             cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN insulation_open_fc_unit TEXT DEFAULT "GΩ"')
+        except Exception:
+            pass
+    
+    # Operations count at maintenance time
+    if 'operations_count' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN operations_count INTEGER')
+        except Exception:
+            pass
+    
+    # SF6 Gas Quality measurements (for SF6 breakers only)
+    # Phase A
+    if 'sf6_n2_fa' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN sf6_n2_fa REAL')
+        except Exception:
+            pass
+    if 'h2o_fa' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN h2o_fa REAL')
+        except Exception:
+            pass
+    if 'so2_fa' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN so2_fa REAL')
+        except Exception:
+            pass
+    # Phase B
+    if 'sf6_n2_fb' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN sf6_n2_fb REAL')
+        except Exception:
+            pass
+    if 'h2o_fb' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN h2o_fb REAL')
+        except Exception:
+            pass
+    if 'so2_fb' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN so2_fb REAL')
+        except Exception:
+            pass
+    # Phase C
+    if 'sf6_n2_fc' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN sf6_n2_fc REAL')
+        except Exception:
+            pass
+    if 'h2o_fc' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN h2o_fc REAL')
+        except Exception:
+            pass
+    if 'so2_fc' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN so2_fc REAL')
+        except Exception:
+            pass
+    
+    # Vacuum Check (VIDAR) measurements (for Vacuum breakers only)
+    if 'vidar_fa' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN vidar_fa REAL')
+        except Exception:
+            pass
+    if 'vidar_fb' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN vidar_fb REAL')
+        except Exception:
+            pass
+    if 'vidar_fc' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN vidar_fc REAL')
         except Exception:
             pass
     

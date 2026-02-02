@@ -45,7 +45,29 @@ Write-Host ""
 Write-Host "[3/5] Έναρξη PyInstaller build..." -ForegroundColor Yellow
 Write-Host "      (Αυτό μπορεί να διαρκέσει 5-10 λεπτά)" -ForegroundColor Gray
 
-& $VenvPython -m PyInstaller --onefile --windowed --name=SubstationManager --add-data="database.py;." --add-data="importers.py;." --add-data="popups.py;." --add-data="templates.py;." DBrun.py
+$DataFiles = @(
+    "database.py",
+    "importers.py",
+    "popups.py",
+    "templates.py",
+    "logo_deddie.png",
+    "deddie_logo.png",
+    "DejaVuSans.ttf",
+    "VERSION",
+    "elements_import_template.xlsx",
+    "επιθεωρήσεις_template.xlsx",
+    "substations.db"
+)
+
+$AddDataArgs = @()
+foreach ($FileName in $DataFiles) {
+    $FilePath = Join-Path $ProjectDir $FileName
+    if (Test-Path $FilePath) {
+        $AddDataArgs += "--add-data=$FilePath;."
+    }
+}
+
+& $VenvPython -m PyInstaller --onedir --windowed --noconfirm --name=SubstationManager @AddDataArgs DBrun.py
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
@@ -55,7 +77,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "[4/5] Επαλήθευση εκτελέσιμου..." -ForegroundColor Yellow
-$ExePath = Join-Path $DistDir "SubstationManager.exe"
+$ExePath = Join-Path $DistDir "SubstationManager\SubstationManager.exe"
 if (Test-Path $ExePath) {
     $FileInfo = Get-Item $ExePath
     $SizeMB = [math]::Round($FileInfo.Length / 1MB, 2)
@@ -64,6 +86,7 @@ if (Test-Path $ExePath) {
     Write-Host "      Τοποθεσία: $ExePath" -ForegroundColor Gray
 } else {
     Write-Host "      ΣΦΑΛΜΑ: Το εκτελέσιμο δεν βρέθηκε!" -ForegroundColor Red
+    Write-Host "      Ελέγξτε τον φάκελο: $DistDir\SubstationManager" -ForegroundColor Yellow
     exit 1
 }
 
@@ -87,6 +110,6 @@ Write-Host "Το εκτελέσιμο βρίσκεται στο:" -ForegroundCol
 Write-Host "  $ExePath" -ForegroundColor White
 Write-Host ""
 Write-Host "Για να το εκτελέσετε:" -ForegroundColor Cyan
-Write-Host "  1. Μεταβείτε στον φάκελο dist\" -ForegroundColor White
+Write-Host "  1. Μεταβείτε στον φάκελο dist\SubstationManager" -ForegroundColor White
 Write-Host "  2. Κάντε διπλό κλικ στο SubstationManager.exe" -ForegroundColor White
 Write-Host ""

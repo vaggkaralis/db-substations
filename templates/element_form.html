@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Στοιχείο | Υποσταθμοί</title>
+    <style>
+        :root { --bg:#f6f8fb; --card:#fff; --primary:#0f4a8a; --primary-dark:#0b3665; --text:#1c2b3a; --border:#e0e6ef; --shadow:0 10px 24px rgba(15,74,138,.08);} 
+        *{box-sizing:border-box;} body{margin:0;font-family:"Segoe UI","DejaVu Sans",sans-serif;background:var(--bg);color:var(--text);} 
+        header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:24px 20px;} 
+        .container{max-width:900px;margin:0 auto;padding:20px;} .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow);} 
+        label{display:block;margin-top:10px;font-weight:600;} input, select{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;} 
+        button{margin-top:14px;padding:8px 12px;border:none;border-radius:8px;background:var(--primary);color:#fff;} 
+        a{color:var(--primary);text-decoration:none;font-weight:600;}
+    </style>
+</head>
+<body>
+    <header><div class="container"><h1>{{ 'Επεξεργασία' if element else 'Νέο Στοιχείο' }}</h1></div></header>
+    <main class="container">
+        <a href="/">← Επιστροφή</a>
+        <div class="card">
+            <form method="post">
+                <label>Υποσταθμός</label>
+                <select name="substation_id" required>
+                    <option value="">Επιλέξτε</option>
+                    {% for s in substations %}
+                    <option value="{{ s.id }}" {% if selected_substation and selected_substation == s.id|string %}selected{% endif %}>{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+                <label>Τύπος</label>
+                <input name="element_type" value="{{ element.element_type if element else '' }}" />
+                <label>Όνομα</label>
+                <input name="name" required value="{{ element.name if element else '' }}" />
+                <label>S/N</label>
+                <input name="serial_number" value="{{ element.serial_number if element else '' }}" />
+                <label>Κατασκευαστής</label>
+                <input name="manufacturer" value="{{ element.manufacturer if element else '' }}" />
+                <label>Μοντέλο</label>
+                <input name="model" value="{{ element.model if element else '' }}" />
+                <label>Κατηγορία Διακόπτη</label>
+                <input name="breaker_category" value="{{ element.breaker_category if element else '' }}" />
+                <label>Κατάσταση</label>
+                <input name="operating_status" value="{{ element.operating_status if element else 'Ενεργή' }}" />
+                <label>Κύκλος Συντήρησης</label>
+                <input name="maintenance_cycle" value="{{ element.maintenance_cycle if element else '' }}" />
+                <label>Έτος Κατασκευής</label>
+                <input name="manufacture_year" value="{{ element.manufacture_year if element else '' }}" />
+                <label>Τάση</label>
+                <input name="voltage_level" value="{{ element.voltage_level if element else '' }}" />
+                <label>Πύλη</label>
+                <input name="gate" value="{{ element.gate if element else '' }}" />
+                <button type="submit">Αποθήκευση</button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>

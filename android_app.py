@@ -96,7 +96,7 @@ class SubstationAndroidApp(App):
         {'key': 'operating_status', 'label': 'Κατάσταση Λειτουργίας', 'type': 'spinner', 'values': OPERATING_STATUS},
         {'key': 'installation_space', 'label': 'Χώρος Εγκατάστασης', 'type': 'spinner', 'values': INSTALLATION_SPACE},
         {'key': 'maintenance_cycle', 'label': 'Κύκλος Συντήρησης (μήνες)', 'type': 'text', 'hint': 'π.χ. 12'},
-        {'key': 'bar', 'label': 'Ζυγός', 'type': 'text', 'hint': 'π.χ. ΖΥΓΟΣ 1'},
+        {'key': 'gate', 'label': 'Πύλη', 'type': 'text', 'hint': 'π.χ. ΠΥΛΗ 1'},
     ]
     
     API_BASE_URL = 'https://db-substations.onrender.com/api'  # Render Cloud API URL
@@ -135,6 +135,18 @@ class SubstationAndroidApp(App):
         try:
             Logger.info('APP: Setting window title')
             self.title = 'DB Substations'
+            # Ensure spinner dropdowns are fully opaque
+            from kivy.uix.spinner import SpinnerOption
+            primary = (0.05, 0.18, 0.36, 1)
+            text_on_primary = (1, 1, 1, 1)
+            Spinner.background_normal = ''
+            Spinner.background_down = ''
+            Spinner.background_color = primary
+            Spinner.color = text_on_primary
+            SpinnerOption.background_normal = ''
+            SpinnerOption.background_down = ''
+            SpinnerOption.background_color = primary
+            SpinnerOption.color = text_on_primary
             Logger.info('APP: Creating main_layout BoxLayout')
             main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
             Logger.info('APP: Main layout created successfully')
@@ -534,7 +546,7 @@ class SubstationAndroidApp(App):
                 'operating_status': get_field_value('operating_status'),
                 'installation_space': get_field_value('installation_space'),
                 'maintenance_cycle': get_field_value('maintenance_cycle'),
-                'bar': get_field_value('bar'),
+                'gate': get_field_value('gate'),
                 'is_main_switch': 0,  # Default to Line breaker
                 'element_model_id': None  # Will be added later with model selection
             }
@@ -562,47 +574,91 @@ class SubstationAndroidApp(App):
     
     def delete_element(self, element_id):
         """Delete an element"""
-        def on_success(req, result):
-            try:
-                data = self.parse_json_response(result)
-                if data.get('success'):
-                    self.show_substation_details(self.current_substation['id'])
-                else:
-                    self.show_error(data.get('error', 'Unknown error'))
-            except Exception as e:
-                self.show_error(f'Error: {str(e)}')
-        
-        def on_error(req, error):
-            self.show_error(f'Error: {str(error)}')
-        
-        UrlRequest(
-            f'{self.API_BASE_URL}/elements/{element_id}',
-            on_success=on_success,
-            on_error=on_error,
-            method='DELETE'
-        )
+        confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.7, 0.35))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        layout.add_widget(Label(text='Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το στοιχείο;'))
+
+        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+
+        def do_delete():
+            confirm_popup.dismiss()
+
+            def on_success(req, result):
+                try:
+                    data = self.parse_json_response(result)
+                    if data.get('success'):
+                        self.show_substation_details(self.current_substation['id'])
+                    else:
+                        self.show_error(data.get('error', 'Unknown error'))
+                except Exception as e:
+                    self.show_error(f'Error: {str(e)}')
+
+            def on_error(req, error):
+                self.show_error(f'Error: {str(error)}')
+
+            UrlRequest(
+                f'{self.API_BASE_URL}/elements/{element_id}',
+                on_success=on_success,
+                on_error=on_error,
+                method='DELETE'
+            )
+
+        yes_btn = Button(text='Ναι')
+        yes_btn.bind(on_press=lambda x: do_delete())
+        buttons_layout.add_widget(yes_btn)
+
+        no_btn = Button(text='Όχι')
+        no_btn.bind(on_press=confirm_popup.dismiss)
+        buttons_layout.add_widget(no_btn)
+
+        layout.add_widget(buttons_layout)
+        confirm_popup.content = layout
+        confirm_popup.open()
     
     def delete_substation(self, substation_id):
         """Delete a substation"""
-        def on_success(req, result):
-            try:
-                data = self.parse_json_response(result)
-                if data.get('success'):
-                    self.load_substations(None)
-                else:
-                    self.show_error(data.get('error', 'Unknown error'))
-            except Exception as e:
-                self.show_error(f'Error: {str(e)}')
-        
-        def on_error(req, error):
-            self.show_error(f'Error: {str(error)}')
-        
-        UrlRequest(
-            f'{self.API_BASE_URL}/substations/{substation_id}',
-            on_success=on_success,
-            on_error=on_error,
-            method='DELETE'
-        )
+        confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.7, 0.35))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        layout.add_widget(Label(text='Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτόν τον υποσταθμό και τα στοιχεία του;'))
+
+        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+
+        def do_delete():
+            confirm_popup.dismiss()
+
+            def on_success(req, result):
+                try:
+                    data = self.parse_json_response(result)
+                    if data.get('success'):
+                        self.load_substations(None)
+                    else:
+                        self.show_error(data.get('error', 'Unknown error'))
+                except Exception as e:
+                    self.show_error(f'Error: {str(e)}')
+
+            def on_error(req, error):
+                self.show_error(f'Error: {str(error)}')
+
+            UrlRequest(
+                f'{self.API_BASE_URL}/substations/{substation_id}',
+                on_success=on_success,
+                on_error=on_error,
+                method='DELETE'
+            )
+
+        yes_btn = Button(text='Ναι')
+        yes_btn.bind(on_press=lambda x: do_delete())
+        buttons_layout.add_widget(yes_btn)
+
+        no_btn = Button(text='Όχι')
+        no_btn.bind(on_press=confirm_popup.dismiss)
+        buttons_layout.add_widget(no_btn)
+
+        layout.add_widget(buttons_layout)
+        confirm_popup.content = layout
+        confirm_popup.open()
     
     def show_maintenance_menu(self, substation_id, substation):
         """Show maintenance recording interface"""

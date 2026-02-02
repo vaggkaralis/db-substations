@@ -2,7 +2,7 @@
 Flask API Server for DB Substations - shared backend for Windows and Android apps
 Production-ready with cloud deployment support
 """
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 from flask_cors import CORS
 import sqlite3
 import json
@@ -21,7 +21,7 @@ class Config:
     LOG_LEVEL = 'INFO'
     
     # Database path - override in environment
-    DATABASE = os.environ.get('DATABASE_PATH', 'database.db')
+    DATABASE = os.environ.get('DATABASE_PATH', 'substations.db')
     
     # CORS settings
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '*').split(',')
@@ -36,7 +36,7 @@ class ProductionConfig(Config):
     DEBUG = False
     LOG_LEVEL = 'INFO'
     # Make sure persistent database location
-    DATABASE = os.environ.get('DATABASE_PATH', '/data/database.db')
+    DATABASE = os.environ.get('DATABASE_PATH', '/data/substations.db')
 
 # Select config based on environment
 config_name = os.environ.get('FLASK_ENV', 'development')
@@ -67,10 +67,9 @@ def init_database():
         
         # Check if tables exist
         c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='substations'")
-        if c.fetchone():
+        tables_exist = bool(c.fetchone())
+        if tables_exist:
             logger.info("Database tables already exist")
-            conn.close()
-            return
         
         # Create element models master table
         c.execute("""
@@ -86,7 +85,7 @@ def init_database():
                 UNIQUE(element_category, model_name, manufacturer)
             )
         """)
-        
+
         # Create substations table
         c.execute("""
             CREATE TABLE IF NOT EXISTS substations (
@@ -99,7 +98,7 @@ def init_database():
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         # Create elements table
         c.execute("""
             CREATE TABLE IF NOT EXISTS elements (
@@ -121,7 +120,7 @@ def init_database():
                 UNIQUE(substation_id, name)
             )
         """)
-        
+
         # Create maintenance tracking tables
         c.execute("""
             CREATE TABLE IF NOT EXISTS maintenance (
@@ -132,7 +131,7 @@ def init_database():
                 FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE CASCADE
             )
         """)
-        
+
         c.execute("""
             CREATE TABLE IF NOT EXISTS maintenance_elements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,7 +142,15 @@ def init_database():
                 FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
             )
         """)
-        
+
+        # Ensure TEST substation exists (cloud seed)
+        c.execute("SELECT id FROM substations WHERE name=?", ('TEST',))
+        if not c.fetchone():
+            c.execute(
+                "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
+                ('TEST', '', '', 'ΤΜΘ')
+            )
+
         conn.commit()
         conn.close()
         logger.info("Database initialized successfully")
@@ -168,6 +175,696 @@ def get_db():
     except sqlite3.OperationalError as e:
         logger.error(f"Database connection error: {str(e)}")
         raise
+
+def _get_table_columns(conn, table_name):
+    cur = conn.cursor()
+    cur.execute(f"PRAGMA table_info({table_name})")
+    return {row[1] for row in cur.fetchall()}
+
+def _fetch_substations(conn):
+    c = conn.cursor()
+    c.execute("SELECT id, name FROM substations ORDER BY name")
+    return [dict(row) for row in c.fetchall()]
+
+# ==================== WEB UI ROUTES ====================
+
+@app.route('/')
+def web_index():
+    """Simple web UI for substations list."""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT id, name, location, adoption_date, division FROM substations ORDER BY name")
+        substations = []
+
+        for row in c.fetchall():
+            substation = dict(row)
+            c.execute("SELECT COUNT(*) as count FROM maintenance WHERE substation_id = ?", (row['id'],))
+            maint_result = c.fetchone()
+            substation['maintenance_count'] = maint_result['count'] if maint_result else 0
+            c.execute("SELECT MAX(date_time) as last_maintenance FROM maintenance WHERE substation_id = ?", (row['id'],))
+            last_result = c.fetchone()
+            substation['last_maintenance'] = last_result['last_maintenance'] if last_result else None
+            substations.append(substation)
+
+        conn.close()
+        return render_template('index.html', substations=substations)
+    except Exception as e:
+        logger.error(f"Web index error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/maintenance')
+def web_maintenance():
+    try:
+        conn = get_db()
+        maint_cols = _get_table_columns(conn, 'maintenance')
+
+        base_fields = [
+            'm.id',
+            'm.substation_id',
+            'm.date_time',
+            'm.overall_comments',
+            's.name as substation_name'
+        ]
+        if 'maintenance_type' in maint_cols:
+            base_fields.append('m.maintenance_type')
+        if 'user_name' in maint_cols:
+            base_fields.append('m.user_name')
+
+        query = f"""
+            SELECT {', '.join(base_fields)}
+            FROM maintenance m
+            JOIN substations s ON m.substation_id = s.id
+            ORDER BY m.date_time DESC
+        """
+
+        c = conn.cursor()
+        c.execute(query)
+        maintenance_rows = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return render_template('maintenance.html', maintenance=maintenance_rows)
+    except Exception as e:
+        logger.error(f"Web maintenance error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/inspections')
+def web_inspections():
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, substation_name, inspection_date, month_key, source_file, created_at
+            FROM inspections
+            ORDER BY inspection_date DESC
+        """)
+        inspections = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return render_template('inspections.html', inspections=inspections)
+    except Exception as e:
+        logger.error(f"Web inspections error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/isolation')
+def web_isolation():
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT ir.id, ir.substation_id, s.name as substation_name,
+                   ir.start_datetime, ir.end_datetime, ir.status, ir.notes,
+                   ir.created_at, ir.updated_at
+            FROM isolation_requests ir
+            JOIN substations s ON ir.substation_id = s.id
+            ORDER BY ir.created_at DESC
+        """)
+        requests_list = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return render_template('isolation.html', requests=requests_list)
+    except Exception as e:
+        logger.error(f"Web isolation error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/models')
+def web_models():
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, element_category, model_name, manufacturer,
+                   maintenance_cycle, installation_space, breaker_category
+            FROM element_models
+            ORDER BY element_category, model_name
+        """)
+        models = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return render_template('models.html', models=models)
+    except Exception as e:
+        logger.error(f"Web models error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/people')
+def web_people():
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, name, role, email, report_receiver, active
+            FROM people
+            ORDER BY active DESC, name
+        """)
+        people = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return render_template('people.html', people=people)
+    except Exception as e:
+        logger.error(f"Web people error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/import')
+def web_import():
+    return render_template('import.html')
+
+
+@app.route('/inspections/<int:inspection_id>')
+def web_inspection_detail(inspection_id):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, substation_id, substation_name, inspection_date,
+                   month_key, data_json, source_file, created_at
+            FROM inspections
+            WHERE id = ?
+        """, (inspection_id,))
+        inspection = c.fetchone()
+        if not inspection:
+            conn.close()
+            return "Inspection not found", 404
+
+        try:
+            data = json.loads(inspection['data_json'] or '{}')
+        except Exception:
+            data = {}
+
+        fields = data.get('fields', []) if isinstance(data, dict) else []
+        conn.close()
+        return render_template('inspection_detail.html', inspection=dict(inspection), fields=fields)
+    except Exception as e:
+        logger.error(f"Web inspection detail error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/maintenance/<int:maintenance_id>')
+def web_maintenance_detail(maintenance_id):
+    try:
+        conn = get_db()
+        maint_cols = _get_table_columns(conn, 'maintenance')
+
+        base_fields = [
+            'm.id',
+            'm.substation_id',
+            'm.date_time',
+            'm.overall_comments',
+            's.name as substation_name',
+            's.location as substation_location',
+            's.division as substation_division'
+        ]
+        if 'maintenance_type' in maint_cols:
+            base_fields.append('m.maintenance_type')
+        if 'user_name' in maint_cols:
+            base_fields.append('m.user_name')
+
+        query = f"""
+            SELECT {', '.join(base_fields)}
+            FROM maintenance m
+            JOIN substations s ON m.substation_id = s.id
+            WHERE m.id = ?
+        """
+
+        c = conn.cursor()
+        c.execute(query, (maintenance_id,))
+        maintenance = c.fetchone()
+        if not maintenance:
+            conn.close()
+            return "Maintenance not found", 404
+
+        c.execute("""
+            SELECT id, name, element_type
+            FROM elements
+            WHERE substation_id = ?
+            ORDER BY element_type, name
+        """, (maintenance['substation_id'],))
+        elements_for_add = [dict(row) for row in c.fetchall()]
+
+        c.execute("""
+            SELECT me.*, e.element_type, e.name, e.serial_number, e.manufacturer, e.model,
+                   e.breaker_category
+            FROM maintenance_elements me
+            JOIN elements e ON me.element_id = e.id
+            WHERE me.maintenance_id = ?
+            ORDER BY e.element_type, e.name
+        """, (maintenance_id,))
+        element_rows = [dict(row) for row in c.fetchall()]
+
+        measurement_cols = {
+            'insulation_closed_fa_ground', 'insulation_closed_fb_ground', 'insulation_closed_fc_ground',
+            'insulation_open_fa_fa', 'insulation_open_fb_fb', 'insulation_open_fc_fc',
+            'contact_resistance_fa_fa', 'contact_resistance_fb_fb', 'contact_resistance_fc_fc',
+            'operations_count',
+            'sf6_n2_fa', 'h2o_fa', 'so2_fa',
+            'sf6_n2_fb', 'h2o_fb', 'so2_fb',
+            'sf6_n2_fc', 'h2o_fc', 'so2_fc',
+            'vidar_fa', 'vidar_fb', 'vidar_fc'
+        }
+
+        for elem in element_rows:
+            elem['has_measurements'] = any(
+                (col in elem) and (elem[col] not in (None, ''))
+                for col in measurement_cols
+            )
+
+        conn.close()
+        return render_template(
+            'maintenance_detail.html',
+            maintenance=dict(maintenance),
+            elements=element_rows,
+            elements_for_add=elements_for_add
+        )
+    except Exception as e:
+        logger.error(f"Web maintenance detail error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+
+@app.route('/substations/<int:substation_id>')
+def web_substation_detail(substation_id):
+    """Web UI for substation details."""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("SELECT id, name, location, adoption_date, division FROM substations WHERE id = ?", (substation_id,))
+        substation = c.fetchone()
+        if not substation:
+            conn.close()
+            return "Substation not found", 404
+
+        c.execute("""
+            SELECT id, element_type, name, serial_number, maintenance_date, manufacturer, model,
+                   breaker_category, installation_space, operating_status, maintenance_cycle, manufacture_year
+            FROM elements
+            WHERE substation_id = ?
+            ORDER BY element_type, name
+        """, (substation_id,))
+        elements = [dict(row) for row in c.fetchall()]
+
+        c.execute("""
+            SELECT id, date_time, overall_comments
+            FROM maintenance
+            WHERE substation_id = ?
+            ORDER BY date_time DESC
+        """, (substation_id,))
+        maintenance = [dict(row) for row in c.fetchall()]
+
+        conn.close()
+        return render_template('substation.html', substation=dict(substation), elements=elements, maintenance=maintenance)
+    except Exception as e:
+        logger.error(f"Web substation error: {str(e)}", exc_info=True)
+        return f"Web UI error: {str(e)}", 500
+
+# ==================== WEB UI CRUD ====================
+
+@app.route('/substations/add', methods=['GET', 'POST'])
+def web_substation_add():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        location = request.form.get('location', '').strip()
+        adoption_date = request.form.get('adoption_date', '').strip()
+        division = request.form.get('division', 'ΤΜΘ').strip()
+        if not name:
+            return "Name required", 400
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
+                  (name, location, adoption_date, division))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_index'))
+    return render_template('substation_form.html', substation=None)
+
+
+@app.route('/substations/<int:substation_id>/edit', methods=['GET', 'POST'])
+def web_substation_edit(substation_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM substations WHERE id = ?", (substation_id,))
+    substation = c.fetchone()
+    if not substation:
+        conn.close()
+        return "Substation not found", 404
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        location = request.form.get('location', '').strip()
+        adoption_date = request.form.get('adoption_date', '').strip()
+        division = request.form.get('division', 'ΤΜΘ').strip()
+        if not name:
+            conn.close()
+            return "Name required", 400
+        c.execute("UPDATE substations SET name=?, location=?, adoption_date=?, division=? WHERE id=?",
+                  (name, location, adoption_date, division, substation_id))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_substation_detail', substation_id=substation_id))
+    conn.close()
+    return render_template('substation_form.html', substation=dict(substation))
+
+
+@app.route('/substations/<int:substation_id>/delete', methods=['POST'])
+def web_substation_delete(substation_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM substations WHERE id = ?", (substation_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_index'))
+
+
+@app.route('/elements/add', methods=['GET', 'POST'])
+def web_element_add():
+    conn = get_db()
+    substations = _fetch_substations(conn)
+    if request.method == 'POST':
+        substation_id = request.form.get('substation_id')
+        element_type = request.form.get('element_type', '').strip()
+        name = request.form.get('name', '').strip()
+        serial_number = request.form.get('serial_number', '').strip()
+        manufacturer = request.form.get('manufacturer', '').strip()
+        model = request.form.get('model', '').strip()
+        breaker_category = request.form.get('breaker_category', '').strip()
+        operating_status = request.form.get('operating_status', 'Ενεργή').strip()
+        maintenance_cycle = request.form.get('maintenance_cycle', '').strip()
+        manufacture_year = request.form.get('manufacture_year', '').strip()
+        voltage_level = request.form.get('voltage_level', '').strip()
+        gate = request.form.get('gate', '').strip()
+        if not substation_id or not name:
+            conn.close()
+            return "Substation and name required", 400
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO elements (
+                substation_id, element_type, name, serial_number, manufacturer, model,
+                breaker_category, operating_status, maintenance_cycle, manufacture_year,
+                voltage_level, gate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            substation_id, element_type, name, serial_number, manufacturer, model,
+            breaker_category, operating_status, maintenance_cycle or None, manufacture_year,
+            voltage_level, gate
+        ))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_substation_detail', substation_id=substation_id))
+    conn.close()
+    return render_template('element_form.html', element=None, substations=substations, selected_substation=request.args.get('substation_id'))
+
+
+@app.route('/elements/<int:element_id>/edit', methods=['GET', 'POST'])
+def web_element_edit(element_id):
+    conn = get_db()
+    substations = _fetch_substations(conn)
+    c = conn.cursor()
+    c.execute("SELECT * FROM elements WHERE id = ?", (element_id,))
+    element = c.fetchone()
+    if not element:
+        conn.close()
+        return "Element not found", 404
+    if request.method == 'POST':
+        substation_id = request.form.get('substation_id')
+        element_type = request.form.get('element_type', '').strip()
+        name = request.form.get('name', '').strip()
+        serial_number = request.form.get('serial_number', '').strip()
+        manufacturer = request.form.get('manufacturer', '').strip()
+        model = request.form.get('model', '').strip()
+        breaker_category = request.form.get('breaker_category', '').strip()
+        operating_status = request.form.get('operating_status', 'Ενεργή').strip()
+        maintenance_cycle = request.form.get('maintenance_cycle', '').strip()
+        manufacture_year = request.form.get('manufacture_year', '').strip()
+        voltage_level = request.form.get('voltage_level', '').strip()
+        gate = request.form.get('gate', '').strip()
+        if not substation_id or not name:
+            conn.close()
+            return "Substation and name required", 400
+        c.execute("""
+            UPDATE elements SET substation_id=?, element_type=?, name=?, serial_number=?,
+                manufacturer=?, model=?, breaker_category=?, operating_status=?,
+                maintenance_cycle=?, manufacture_year=?, voltage_level=?, gate=?
+            WHERE id=?
+        """, (
+            substation_id, element_type, name, serial_number, manufacturer, model,
+            breaker_category, operating_status, maintenance_cycle or None, manufacture_year,
+            voltage_level, gate, element_id
+        ))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_substation_detail', substation_id=substation_id))
+    conn.close()
+    return render_template('element_form.html', element=dict(element), substations=substations, selected_substation=str(element['substation_id']))
+
+
+@app.route('/elements/<int:element_id>/delete', methods=['POST'])
+def web_element_delete(element_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT substation_id FROM elements WHERE id = ?", (element_id,))
+    row = c.fetchone()
+    substation_id = row['substation_id'] if row else None
+    c.execute("DELETE FROM elements WHERE id = ?", (element_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_substation_detail', substation_id=substation_id))
+
+
+@app.route('/maintenance/add', methods=['GET', 'POST'])
+def web_maintenance_add():
+    conn = get_db()
+    substations = _fetch_substations(conn)
+    if request.method == 'POST':
+        substation_id = request.form.get('substation_id')
+        date_time = request.form.get('date_time', '').strip()
+        overall_comments = request.form.get('overall_comments', '').strip()
+        maintenance_type = request.form.get('maintenance_type', '').strip()
+        user_name = request.form.get('user_name', '').strip()
+        name = request.form.get('name', '').strip()
+        if not substation_id or not date_time:
+            conn.close()
+            return "Substation and date required", 400
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO maintenance (substation_id, date_time, overall_comments, maintenance_type, user_name, name)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (substation_id, date_time, overall_comments, maintenance_type, user_name, name))
+        conn.commit()
+        maintenance_id = c.lastrowid
+        conn.close()
+        return redirect(url_for('web_maintenance_detail', maintenance_id=maintenance_id))
+    conn.close()
+    return render_template('maintenance_form.html', substations=substations)
+
+
+@app.route('/maintenance/<int:maintenance_id>/add-element', methods=['POST'])
+def web_maintenance_add_element(maintenance_id):
+    conn = get_db()
+    c = conn.cursor()
+    element_id = request.form.get('element_id')
+    element_comments = request.form.get('element_comments', '').strip()
+    if not element_id:
+        conn.close()
+        return "Element required", 400
+    c.execute("INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+              (maintenance_id, element_id, element_comments))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_maintenance_detail', maintenance_id=maintenance_id))
+
+
+@app.route('/maintenance/<int:maintenance_id>/delete', methods=['POST'])
+def web_maintenance_delete(maintenance_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM maintenance WHERE id = ?", (maintenance_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_maintenance'))
+
+
+@app.route('/inspections/add', methods=['GET', 'POST'])
+def web_inspections_add():
+    if request.method == 'POST':
+        substation_name = request.form.get('substation_name', '').strip()
+        inspection_date = request.form.get('inspection_date', '').strip()
+        month_key = request.form.get('month_key', '').strip()
+        notes = request.form.get('notes', '').strip()
+        data_json = json.dumps({'fields': [{'label': 'Σχόλια', 'value': notes}]}, ensure_ascii=False)
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO inspections (substation_name, inspection_date, month_key, data_json, source_file, created_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        """, (substation_name, inspection_date, month_key, data_json, 'web-entry'))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_inspections'))
+    return render_template('inspection_form.html')
+
+
+@app.route('/inspections/<int:inspection_id>/delete', methods=['POST'])
+def web_inspections_delete(inspection_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM inspections WHERE id = ?", (inspection_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_inspections'))
+
+
+@app.route('/isolation/add', methods=['GET', 'POST'])
+def web_isolation_add():
+    conn = get_db()
+    substations = _fetch_substations(conn)
+    if request.method == 'POST':
+        substation_id = request.form.get('substation_id')
+        start_datetime = request.form.get('start_datetime', '').strip()
+        end_datetime = request.form.get('end_datetime', '').strip()
+        status = request.form.get('status', 'Requested').strip()
+        notes = request.form.get('notes', '').strip()
+        if not substation_id or not start_datetime or not end_datetime:
+            conn.close()
+            return "Fields required", 400
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO isolation_requests (substation_id, start_datetime, end_datetime, status, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        """, (substation_id, start_datetime, end_datetime, status, notes))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_isolation'))
+    conn.close()
+    return render_template('isolation_form.html', substations=substations)
+
+
+@app.route('/isolation/<int:request_id>/delete', methods=['POST'])
+def web_isolation_delete(request_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM isolation_requests WHERE id = ?", (request_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_isolation'))
+
+
+@app.route('/people/add', methods=['GET', 'POST'])
+def web_people_add():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        role = request.form.get('role', '').strip()
+        email = request.form.get('email', '').strip()
+        report_receiver = 1 if request.form.get('report_receiver') == 'on' else 0
+        active = 1 if request.form.get('active') == 'on' else 0
+        if not name or not role:
+            return "Name and role required", 400
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("INSERT INTO people (name, role, email, report_receiver, active) VALUES (?, ?, ?, ?, ?)",
+                  (name, role, email, report_receiver, active))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_people'))
+    return render_template('people_form.html', person=None)
+
+
+@app.route('/people/<int:person_id>/edit', methods=['GET', 'POST'])
+def web_people_edit(person_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM people WHERE id = ?", (person_id,))
+    person = c.fetchone()
+    if not person:
+        conn.close()
+        return "Person not found", 404
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        role = request.form.get('role', '').strip()
+        email = request.form.get('email', '').strip()
+        report_receiver = 1 if request.form.get('report_receiver') == 'on' else 0
+        active = 1 if request.form.get('active') == 'on' else 0
+        if not name or not role:
+            conn.close()
+            return "Name and role required", 400
+        c.execute("UPDATE people SET name=?, role=?, email=?, report_receiver=?, active=? WHERE id=?",
+                  (name, role, email, report_receiver, active, person_id))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_people'))
+    conn.close()
+    return render_template('people_form.html', person=dict(person))
+
+
+@app.route('/people/<int:person_id>/delete', methods=['POST'])
+def web_people_delete(person_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM people WHERE id = ?", (person_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_people'))
+
+
+@app.route('/models/add', methods=['GET', 'POST'])
+def web_models_add():
+    if request.method == 'POST':
+        element_category = request.form.get('element_category', '').strip()
+        model_name = request.form.get('model_name', '').strip()
+        manufacturer = request.form.get('manufacturer', '').strip()
+        maintenance_cycle = request.form.get('maintenance_cycle', '').strip()
+        installation_space = request.form.get('installation_space', '').strip()
+        breaker_category = request.form.get('breaker_category', '').strip()
+        if not element_category or not model_name:
+            return "Category and model required", 400
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (element_category, model_name, manufacturer, maintenance_cycle or None, installation_space, breaker_category))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_models'))
+    return render_template('model_form.html', model=None)
+
+
+@app.route('/models/<int:model_id>/edit', methods=['GET', 'POST'])
+def web_models_edit(model_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM element_models WHERE id = ?", (model_id,))
+    model = c.fetchone()
+    if not model:
+        conn.close()
+        return "Model not found", 404
+    if request.method == 'POST':
+        element_category = request.form.get('element_category', '').strip()
+        model_name = request.form.get('model_name', '').strip()
+        manufacturer = request.form.get('manufacturer', '').strip()
+        maintenance_cycle = request.form.get('maintenance_cycle', '').strip()
+        installation_space = request.form.get('installation_space', '').strip()
+        breaker_category = request.form.get('breaker_category', '').strip()
+        if not element_category or not model_name:
+            conn.close()
+            return "Category and model required", 400
+        c.execute("""
+            UPDATE element_models SET element_category=?, model_name=?, manufacturer=?,
+                maintenance_cycle=?, installation_space=?, breaker_category=?
+            WHERE id=?
+        """, (element_category, model_name, manufacturer, maintenance_cycle or None, installation_space, breaker_category, model_id))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('web_models'))
+    conn.close()
+    return render_template('model_form.html', model=dict(model))
+
+
+@app.route('/models/<int:model_id>/delete', methods=['POST'])
+def web_models_delete(model_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM element_models WHERE id = ?", (model_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('web_models'))
 
 # ==================== SUBSTATIONS ENDPOINTS ====================
 
@@ -428,14 +1125,14 @@ def get_elements():
             c.execute(
                 """SELECT id, substation_id, element_type, name, serial_number, maintenance_date, 
                    voltage_level, manufacturer, type, element_model_id, manufacture_year, model, 
-                   model_version, operating_status, installation_space, maintenance_cycle, bar, is_main_switch 
+                   model_version, operating_status, installation_space, maintenance_cycle, gate, is_main_switch 
                    FROM elements WHERE substation_id=? ORDER BY element_type, name""",
                 (substation_id,)
             )
         else:
             c.execute("""SELECT id, substation_id, element_type, name, serial_number, maintenance_date, 
                          voltage_level, manufacturer, type, element_model_id, manufacture_year, model, 
-                         model_version, operating_status, installation_space, maintenance_cycle, bar, is_main_switch 
+                         model_version, operating_status, installation_space, maintenance_cycle, gate, is_main_switch 
                          FROM elements ORDER BY element_type, name""")
         
         elements = [dict(row) for row in c.fetchall()]
@@ -465,7 +1162,7 @@ def add_element():
         operating_status = data.get('operating_status', 'Ενεργή').strip()
         installation_space = data.get('installation_space', 'Εσωτερικός').strip()
         maintenance_cycle = data.get('maintenance_cycle', 0)
-        bar = data.get('bar', '').strip()
+        gate = data.get('gate', '').strip()
         is_main_switch = data.get('is_main_switch', 0)
         
         if not substation_id or not name:
@@ -501,11 +1198,11 @@ def add_element():
         c.execute(
             """INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, 
                voltage_level, manufacturer, type, breaker_category, element_model_id, manufacture_year, model, model_version, 
-               operating_status, installation_space, maintenance_cycle, bar, is_main_switch) 
+                             operating_status, installation_space, maintenance_cycle, gate, is_main_switch) 
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, 
              manufacturer, element_type_field, breaker_category, element_model_id, manufacture_year, model, model_version, 
-             operating_status, installation_space, maintenance_cycle, bar, is_main_switch)
+                         operating_status, installation_space, maintenance_cycle, gate, is_main_switch)
         )
         conn.commit()
         element_id = c.lastrowid

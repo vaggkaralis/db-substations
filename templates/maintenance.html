@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Συντηρήσεις | Υποσταθμοί</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --primary: #0f4a8a;
+            --primary-dark: #0b3665;
+            --text: #1c2b3a;
+            --muted: #6a7a8c;
+            --border: #e0e6ef;
+            --shadow: 0 10px 24px rgba(15, 74, 138, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "DejaVu Sans", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 24px 20px;
+        }
+        header h1 {
+            margin: 0 0 6px;
+            font-size: 22px;
+        }
+        header p {
+            margin: 0;
+            opacity: 0.85;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .back {
+            display: inline-block;
+            margin-bottom: 16px;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .table-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        th { color: var(--muted); font-weight: 600; }
+        .btn {
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            font-size: 12px;
+        }
+        .btn:hover { background: var(--primary-dark); }
+        .muted { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Συντηρήσεις</h1>
+            <p>Ιστορικό συντηρήσεων υποσταθμών</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <a class="back" href="/">← Επιστροφή στο κεντρικό μενού</a>
+
+        <a class="btn" href="/maintenance/add">+ Νέα Συντήρηση</a>
+
+        <section class="table-card">
+            {% if maintenance %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Υποσταθμός</th>
+                        <th>Ημερομηνία</th>
+                        <th>Τύπος</th>
+                        <th>Χειριστής</th>
+                        <th>Σχόλια</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in maintenance %}
+                    <tr>
+                        <td>{{ m.substation_name }}</td>
+                        <td>{{ m.date_time }}</td>
+                        <td>{{ m.maintenance_type or '-' }}</td>
+                        <td>{{ m.user_name or '-' }}</td>
+                        <td class="muted">{{ m.overall_comments or '-' }}</td>
+                        <td>
+                            <a class="btn" href="/maintenance/{{ m.id }}">Προβολή</a>
+                            <form method="post" action="/maintenance/{{ m.id }}/delete" style="display:inline" onsubmit="return confirm('Διαγραφή συντήρησης;');">
+                                <button type="submit">Διαγραφή</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="muted">Δεν υπάρχουν καταχωρημένες συντηρήσεις.</div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

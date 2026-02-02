@@ -11,7 +11,7 @@ TEMPLATE_VERSION = 'v2.0'
 # Required columns for element import
 REQUIRED_COLUMNS = [
     'Substation Name', 'Element Type', 'Name', 'Serial Number',
-    'Voltage Level', 'Bar', 'Operating Status'
+    'Gate', 'Operating Status'
 ]
 
 # Valid values for specific columns
@@ -212,11 +212,20 @@ def import_elements_from_excel(
             name = row.get('Name', '')
             serial_number = row.get('Serial Number', '')
             maintenance_date = row.get('Maintenance Date', '')
-            voltage_level = row.get('Voltage Level', '')
+            
+            # Set voltage_level automatically based on element_type
+            element_type_str = str(element_type)
+            if 'ΥΤ' in element_type_str or '150/20' in element_type_str:
+                voltage_level = '150KV'
+            elif 'ΜΤ' in element_type_str or '20/0.4' in element_type_str:
+                voltage_level = '20KV'
+            else:
+                voltage_level = ''
+            
             manufacturer = row.get('Manufacturer', '')
             breaker_type = str(row.get('Τύπος Διακόπτη', '')).strip() if pd.notna(row.get('Τύπος Διακόπτη', '')) else ''
             breaker_role = str(row.get('Breaker Role', '')).strip() if pd.notna(row.get('Breaker Role', '')) else ''
-            bar = row.get('Bar', '') if pd.notna(row.get('Bar', '')) else ''
+            gate = row.get('Gate', '') if pd.notna(row.get('Gate', '')) else ''
             model_name = str(row.get('Model Name', '')).strip() if pd.notna(row.get('Model Name', '')) else ''
             model_manufacturer = str(row.get('Model Manufacturer', '')).strip() if pd.notna(row.get('Model Manufacturer', '')) else ''
             
@@ -229,7 +238,9 @@ def import_elements_from_excel(
                     operating_status = 'Ενεργή'
                 elif operating_status == 'Inactive':
                     operating_status = 'Ανενεργή'
-            # No longer default - it's required now!
+            # Default to Active if not provided
+            if not operating_status:
+                operating_status = 'Ενεργή'
 
             if sub_name and name:
                 cursor.execute('SELECT id FROM substations WHERE name=?', (str(sub_name),))
@@ -281,13 +292,13 @@ def import_elements_from_excel(
                     
                     if existing and decision_replace:
                         cursor.execute(
-                            'UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, bar=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?',
+                            'UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?',
                             (
                                 elem_type_str,
                                 str(maintenance_date) if pd.notna(maintenance_date) else '',
                                 str(voltage_level) if pd.notna(voltage_level) else '',
                                 str(manufacturer) if pd.notna(manufacturer) else '',
-                                str(bar) if bar else '',
+                                str(gate) if gate else '',
                                 is_main_switch,
                                 breaker_type if breaker_type else None,
                                 element_model_id,
@@ -300,7 +311,7 @@ def import_elements_from_excel(
                         skipped += 1
                     else:
                         cursor.execute(
-                            'INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, bar, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            'INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                             (
                                 sub_id,
                                 elem_type_str,
@@ -309,7 +320,7 @@ def import_elements_from_excel(
                                 str(maintenance_date) if pd.notna(maintenance_date) else '',
                                 str(voltage_level) if pd.notna(voltage_level) else '',
                                 str(manufacturer) if pd.notna(manufacturer) else '',
-                                str(bar) if bar else '',
+                                str(gate) if gate else '',
                                 is_main_switch,
                                 breaker_type if breaker_type else None,
                                 element_model_id,
@@ -408,11 +419,20 @@ def import_elements_from_csv(
             name = row.get('Name', '')
             serial_number = row.get('Serial Number', '')
             maintenance_date = row.get('Maintenance Date', '')
-            voltage_level = row.get('Voltage Level', '')
+            
+            # Set voltage_level automatically based on element_type
+            element_type_str = str(element_type)
+            if 'ΥΤ' in element_type_str or '150/20' in element_type_str:
+                voltage_level = '150KV'
+            elif 'ΜΤ' in element_type_str or '20/0.4' in element_type_str:
+                voltage_level = '20KV'
+            else:
+                voltage_level = ''
+            
             manufacturer = row.get('Manufacturer', '')
             breaker_type = str(row.get('Τύπος Διακόπτη', '')).strip() if pd.notna(row.get('Τύπος Διακόπτη', '')) else ''
             breaker_role = str(row.get('Breaker Role', '')).strip() if pd.notna(row.get('Breaker Role', '')) else ''
-            bar = row.get('Bar', '') if pd.notna(row.get('Bar', '')) else ''
+            gate = row.get('Gate', '') if pd.notna(row.get('Gate', '')) else ''
             model_name = str(row.get('Model Name', '')).strip() if pd.notna(row.get('Model Name', '')) else ''
             model_manufacturer = str(row.get('Model Manufacturer', '')).strip() if pd.notna(row.get('Model Manufacturer', '')) else ''
             
@@ -425,7 +445,9 @@ def import_elements_from_csv(
                     operating_status = 'Ενεργή'
                 elif operating_status == 'Inactive':
                     operating_status = 'Ανενεργή'
-            # No longer default - it's required now!
+            # Default to Active if not provided
+            if not operating_status:
+                operating_status = 'Ενεργή'
 
             if sub_name and name:
                 cursor.execute('SELECT id FROM substations WHERE name=?', (str(sub_name),))
@@ -498,13 +520,13 @@ def import_elements_from_csv(
                     
                     if existing and decision_replace:
                         cursor.execute(
-                            'UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, bar=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?',
+                            'UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?',
                             (
                                 elem_type_str,
                                 str(maintenance_date) if pd.notna(maintenance_date) else '',
                                 str(voltage_level) if pd.notna(voltage_level) else '',
                                 str(manufacturer) if pd.notna(manufacturer) else '',
-                                str(bar) if bar else '',
+                                str(gate) if gate else '',
                                 is_main_switch,
                                 breaker_type if breaker_type else None,
                                 element_model_id,
@@ -517,7 +539,7 @@ def import_elements_from_csv(
                         skipped += 1
                     else:
                         cursor.execute(
-                            'INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, bar, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            'INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                             (
                                 sub_id,
                                 elem_type_str,
@@ -526,7 +548,7 @@ def import_elements_from_csv(
                                 str(maintenance_date) if pd.notna(maintenance_date) else '',
                                 str(voltage_level) if pd.notna(voltage_level) else '',
                                 str(manufacturer) if pd.notna(manufacturer) else '',
-                                str(bar) if bar else '',
+                                str(gate) if gate else '',
                                 is_main_switch,
                                 breaker_type if breaker_type else None,
                                 element_model_id,

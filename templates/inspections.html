@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Επιθεωρήσεις | Υποσταθμοί</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --primary: #0f4a8a;
+            --primary-dark: #0b3665;
+            --text: #1c2b3a;
+            --muted: #6a7a8c;
+            --border: #e0e6ef;
+            --shadow: 0 10px 24px rgba(15, 74, 138, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "DejaVu Sans", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 24px 20px;
+        }
+        header h1 { margin: 0 0 6px; font-size: 22px; }
+        header p { margin: 0; opacity: 0.85; }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .back {
+            display: inline-block;
+            margin-bottom: 16px;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .table-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        th { color: var(--muted); font-weight: 600; }
+        .btn {
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            font-size: 12px;
+        }
+        .btn:hover { background: var(--primary-dark); }
+        .muted { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Επιθεωρήσεις</h1>
+            <p>Ιστορικό επιθεωρήσεων</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <a class="back" href="/">← Επιστροφή στο κεντρικό μενού</a>
+
+        <a class="btn" href="/inspections/add">+ Νέα Επιθεώρηση</a>
+
+        <section class="table-card">
+            {% if inspections %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Υποσταθμός</th>
+                        <th>Ημερομηνία</th>
+                        <th>Μήνας</th>
+                        <th>Πηγή</th>
+                        <th>Καταχώρηση</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for i in inspections %}
+                    <tr>
+                        <td>{{ i.substation_name or '-' }}</td>
+                        <td>{{ i.inspection_date }}</td>
+                        <td>{{ i.month_key }}</td>
+                        <td class="muted">{{ i.source_file or '-' }}</td>
+                        <td class="muted">{{ i.created_at }}</td>
+                        <td>
+                            <a class="btn" href="/inspections/{{ i.id }}">Προβολή</a>
+                            <form method="post" action="/inspections/{{ i.id }}/delete" style="display:inline" onsubmit="return confirm('Διαγραφή επιθεώρησης;');">
+                                <button type="submit">Διαγραφή</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="muted">Δεν υπάρχουν καταχωρημένες επιθεωρήσεις.</div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

@@ -11,9 +11,16 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.filechooser import FileChooserListView
+from kivy.uix.image import Image
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.uix.widget import Widget
+from kivy.properties import StringProperty, ListProperty
+from kivy.graphics import Color, Rectangle, Ellipse, Line
 from kivy.core.window import Window
+from kivy.core.image import Image as CoreImage
 import webbrowser
 import os
+import re
 from datetime import datetime
 import requests
 import json
@@ -31,7 +38,134 @@ from importers import (
 from popups import show_message_popup
 from templates import create_elements_template, create_substations_template
 from model_management import show_models_management
-from pdf_reports import generate_maintenance_report
+from pdf_reports import generate_maintenance_report, generate_inspection_report
+from import_wizard import ColumnMappingPopup, DataValidationPopup
+
+
+class IconWidget(Widget):
+    """Simple vector pictogram drawn on canvas."""
+    icon_type = StringProperty('database')
+    icon_color = ListProperty([1, 1, 1, 1])
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bind(pos=self._redraw, size=self._redraw, icon_type=self._redraw, icon_color=self._redraw)
+
+    def _redraw(self, *_args):
+        self.canvas.clear()
+        with self.canvas:
+            Color(*self.icon_color)
+            x, y = self.x, self.y
+            w, h = self.width, self.height
+            if w <= 0 or h <= 0:
+                return
+            pad = min(w, h) * 0.12
+
+            line_w = max(1.05, min(w, h) * 0.042)
+
+            if self.icon_type == 'database':
+                Line(ellipse=(x + pad, y + h * 0.58, w - 2 * pad, h * 0.35), width=line_w)
+                Line(rectangle=(x + pad, y + pad, w - 2 * pad, h * 0.58), width=line_w)
+                Line(ellipse=(x + pad, y + pad - h * 0.12, w - 2 * pad, h * 0.24), width=line_w)
+                Line(points=[x + pad, y + h * 0.58, x + w - pad, y + h * 0.58], width=line_w)
+            elif self.icon_type == 'import':
+                Line(rectangle=(x + pad, y + pad, w - 2 * pad, h - 2 * pad), width=line_w)
+                Line(points=[x + w * 0.5, y + h * 0.75, x + w * 0.5, y + h * 0.35], width=line_w)
+                Line(points=[x + w * 0.38, y + h * 0.48, x + w * 0.5, y + h * 0.35, x + w * 0.62, y + h * 0.48], width=line_w)
+            elif self.icon_type == 'models':
+                Line(rectangle=(x + pad * 1.2, y + pad * 1.2, w - 2.4 * pad, h * 0.28), width=line_w)
+                Line(rectangle=(x + pad, y + h * 0.38, w - 2 * pad, h * 0.28), width=line_w)
+                Line(rectangle=(x + pad * 1.2, y + h * 0.6, w - 2.4 * pad, h * 0.28), width=line_w)
+            elif self.icon_type == 'people':
+                Line(circle=(x + w * 0.5, y + h * 0.7, w * 0.18), width=line_w)
+                Line(rectangle=(x + w * 0.26, y + pad, w * 0.48, h * 0.35), width=line_w)
+            elif self.icon_type == 'maintenance':
+                Line(circle=(x + w * 0.35, y + h * 0.6, w * 0.15), width=line_w)
+                Line(points=[x + w * 0.5, y + h * 0.3, x + w * 0.82, y + h * 0.62], width=line_w)
+                Line(points=[x + w * 0.68, y + h * 0.5, x + w * 0.82, y + h * 0.62, x + w * 0.66, y + h * 0.66], width=line_w)
+            elif self.icon_type == 'inspection':
+                Line(circle=(x + w * 0.4, y + h * 0.55, w * 0.2), width=line_w)
+                Line(points=[x + w * 0.56, y + h * 0.38, x + w * 0.82, y + h * 0.12], width=line_w)
+            elif self.icon_type == 'isolation':
+                Line(rectangle=(x + w * 0.26, y + pad, w * 0.48, h * 0.45), width=line_w)
+                Line(points=[x + w * 0.32, y + h * 0.48, x + w * 0.32, y + h * 0.7, x + w * 0.68, y + h * 0.7, x + w * 0.68, y + h * 0.48], width=line_w)
+            elif self.icon_type == 'info':
+                Line(circle=(x + w * 0.5, y + h * 0.5, w * 0.3), width=line_w)
+                Line(points=[x + w * 0.5, y + h * 0.38, x + w * 0.5, y + h * 0.62], width=line_w)
+                Ellipse(pos=(x + w * 0.46, y + h * 0.68), size=(w * 0.08, h * 0.08))
+
+
+class IconButton(ButtonBehavior, BoxLayout):
+    """Button with a simple pictogram and text."""
+    text = StringProperty('')
+    icon_type = StringProperty('database')
+    bg_color = ListProperty([0.05, 0.18, 0.36, 1])
+    bg_color_down = ListProperty([0.03, 0.12, 0.25, 1])
+    text_color = ListProperty([1, 1, 1, 1])
+
+    def __init__(self, **kwargs):
+        theme = kwargs.pop('theme', None)
+        super().__init__(**kwargs)
+        if theme:
+            self.bg_color = list(theme.get('primary', self.bg_color))
+            self.bg_color_down = list(theme.get('primary_dark', self.bg_color_down))
+            self.text_color = list(theme.get('text_on_primary', self.text_color))
+
+        self.orientation = 'horizontal'
+        self.spacing = 10
+        self.padding = (12, 8)
+
+        self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.text_color, size_hint=(None, None))
+        self.icon.size = (23, 23)
+        self.icon.pos_hint = {'center_y': 0.5}
+        self.label = Label(text=self.text, color=self.text_color, halign='left', valign='middle')
+        self.label.font_size = '26sp'
+        self.label.bind(size=self._sync_text_size)
+
+        self.add_widget(self.icon)
+        self.add_widget(self.label)
+
+        with self.canvas.before:
+            self._bg_color_inst = Color(*self.bg_color)
+            self._bg_rect = Rectangle(pos=self.pos, size=self.size)
+
+        self.bind(pos=self._update_bg, size=self._update_bg)
+        self.bind(pos=self._update_icon_pos, size=self._update_icon_pos)
+        self.bind(size=self._update_icon_size)
+        self.bind(text=self._update_text)
+        self.bind(icon_type=self._update_icon)
+        self.bind(text_color=self._update_colors)
+
+    def _sync_text_size(self, _instance, _value):
+        self.label.text_size = (self.label.width, self.label.height)
+
+    def _update_icon_size(self, *_args):
+        icon_dim = max(22, int(self.height * 0.6))
+        icon_dim = int(icon_dim * 0.64)
+        self.icon.size = (icon_dim, icon_dim)
+
+    def _update_icon_pos(self, *_args):
+        self.icon.center_y = self.center_y
+
+    def _update_bg(self, *_args):
+        self._bg_rect.pos = self.pos
+        self._bg_rect.size = self.size
+
+    def _update_text(self, *_args):
+        self.label.text = self.text
+
+    def _update_icon(self, *_args):
+        self.icon.icon_type = self.icon_type
+
+    def _update_colors(self, *_args):
+        self.label.color = self.text_color
+        self.icon.icon_color = self.text_color
+
+    def on_press(self):
+        self._bg_color_inst.rgba = self.bg_color_down
+
+    def on_release(self):
+        self._bg_color_inst.rgba = self.bg_color
 
 class CloudSync:
     """Helper class to sync TEST substation changes to Render.com"""
@@ -56,9 +190,9 @@ class CloudSync:
         # Get element data
         c = conn.cursor()
         c.execute("""
-            SELECT element_type, name, serial_number, maintenance_date, manufacturer, 
-                   model, model_version, installation_space, operating_status, 
-                   maintenance_cycle, manufacture_year, bar, is_main_switch, 
+                 SELECT element_type, name, serial_number, maintenance_date, manufacturer, 
+                     model, model_version, installation_space, operating_status, 
+                     maintenance_cycle, manufacture_year, gate, is_main_switch, 
                    breaker_category, voltage_level
             FROM elements WHERE id=?
         """, (element_id,))
@@ -80,7 +214,7 @@ class CloudSync:
             'operating_status': elem[8] or 'Ενεργή',
             'maintenance_cycle': elem[9] or 0,
             'manufacture_year': elem[10] or '',
-            'bar': elem[11] or '',
+            'gate': elem[11] or '',
             'is_main_switch': elem[12] or 0,
             'breaker_category': elem[13] or '',
             'voltage_level': elem[14] or ''
@@ -110,9 +244,9 @@ class CloudSync:
         # Get element data
         c = conn.cursor()
         c.execute("""
-            SELECT name, element_type, serial_number, maintenance_date, manufacturer,
-                   model, model_version, installation_space, operating_status,
-                   maintenance_cycle, manufacture_year, bar, is_main_switch,
+                 SELECT name, element_type, serial_number, maintenance_date, manufacturer,
+                     model, model_version, installation_space, operating_status,
+                     maintenance_cycle, manufacture_year, gate, is_main_switch,
                    breaker_category, voltage_level
             FROM elements WHERE id=?
         """, (element_id,))
@@ -148,7 +282,7 @@ class CloudSync:
                             'operating_status': elem[8] or 'Ενεργή',
                             'maintenance_cycle': elem[9] or 0,
                             'manufacture_year': elem[10] or '',
-                            'bar': elem[11] or '',
+                            'gate': elem[11] or '',
                             'is_main_switch': elem[12] or 0,
                             'breaker_category': elem[13] or '',
                             'voltage_level': elem[14] or ''
@@ -218,10 +352,21 @@ class SubstationApp(App):
         'Αλεξικέραυνο',
         'Συστοιχία Συσσωρευτών'
     ]
-    BREAKER_CATEGORIES = ['Πτωχού Ελαίου', 'SF6', 'Κενού']
+    BREAKER_CATEGORIES = ['SF6', 'Κενού', 'Πτωχού Ελαίου']  # Circuit breaker categories
     BREAKER_TYPES = ['Κεντρικός', 'Γραμμής', 'Διασυνδετικός', 'Διακόπτης Πυκνωτών']  # Main, Line, Interconnection, or Capacitor breaker
     OPERATING_STATUS = ['Ενεργή', 'Ανενεργή']
     INSTALLATION_SPACE = ['Εσωτερικός', 'Εξωτερικός']
+    VOLTAGE_LEVELS = ['(Κενό)', '150/20KV', '20KV', '150KV', '20KV/400V']
+    THEME_FALLBACK = {
+        'primary': (0.05, 0.36, 0.64, 1),
+        'primary_dark': (0.03, 0.28, 0.5, 1),
+        'accent': (0.12, 0.52, 0.86, 1),
+        'background': (0.97, 0.98, 0.99, 1),
+        'popup_bg': (1, 1, 1, 1),
+        'input_bg': (1, 1, 1, 1),
+        'text': (0.12, 0.12, 0.12, 1),
+        'text_on_primary': (1, 1, 1, 1),
+    }
     # Central definition of element fields for easy future extension
     ELEMENT_FIELD_DEFS = [
         {'key': 'name', 'label': 'Όνομα Στοιχείου', 'type': 'text', 'hint': 'Όνομα Στοιχείου'},
@@ -238,32 +383,1437 @@ class SubstationApp(App):
     
     def build(self):
         self.title = 'Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ'
+        self._apply_theme()
         layout = BoxLayout(orientation='vertical')
-        self.show_btn = Button(text='Εμφάνιση βάσης υποσταθμών')
+        Window.bind(on_key_down=self._handle_tab_navigation)
+
+        self._add_logo_to_layout(layout, height=120, reserve=True)
+
+        self.show_btn = IconButton(text='Εμφάνιση βάσης υποσταθμών', icon_type='database', theme=self.theme)
         self.show_btn.bind(on_press=self.show_records)
-        self.import_btn = Button(text='Εισαγωγή υποσταθμών και στοιχείων από αρχείο')
+        self.import_btn = IconButton(text='Εισαγωγή υποσταθμών και στοιχείων από αρχείο', icon_type='import', theme=self.theme)
         self.import_btn.bind(on_press=self.show_import_menu)
-        self.maintenance_btn = Button(text='Καταχώρηση Συντήρησης')
-        self.maintenance_btn.bind(on_press=self.show_maintenance_menu)
-        self.models_btn = Button(text='Διαχείριση Τύπων Στοιχείων')
+        self.maintenance_btn = IconButton(text='Συντηρήσεις', icon_type='maintenance', theme=self.theme)
+        self.maintenance_btn.bind(on_press=self.show_maintenance_menu_popup)
+        self.inspection_btn = IconButton(text='Επιθεωρήσεις', icon_type='inspection', theme=self.theme)
+        self.inspection_btn.bind(on_press=self.show_inspection_menu_popup)
+        self.isolation_btn = IconButton(text='Αιτήσεις Απομόνωσης', icon_type='isolation', theme=self.theme)
+        self.isolation_btn.bind(on_press=self.show_isolation_requests)
+        self.models_btn = IconButton(text='Διαχείριση Τύπων Στοιχείων', icon_type='models', theme=self.theme)
         self.models_btn.bind(on_press=self.show_models_management)
-        self.delete_btn = Button(text='Διαγραφή όλων (ΠΡΟΣΟΧΗ!)', color=(1, 0, 0, 1))
-        self.delete_btn.bind(on_press=self.delete_all)
-        layout.add_widget(self.show_btn)
-        layout.add_widget(self.import_btn)
-        layout.add_widget(self.maintenance_btn)
-        layout.add_widget(self.models_btn)
-        layout.add_widget(self.delete_btn)
+        self.people_btn = IconButton(text='Διαχείριση Προσωπικού', icon_type='people', theme=self.theme)
+        self.people_btn.bind(on_press=self.show_people_management)
+        self.app_info_btn = IconButton(text='Πληροφορίες Εφαρμογής', icon_type='info', theme=self.theme)
+        self.app_info_btn.bind(on_press=self.show_app_info_popup)
+
+        buttons_layout = BoxLayout(orientation='horizontal', spacing=10, padding=10)
+        left_col = BoxLayout(orientation='vertical', spacing=10)
+        right_col = BoxLayout(orientation='vertical', spacing=10)
+
+        left_col.add_widget(self.show_btn)
+        left_col.add_widget(self.import_btn)
+        left_col.add_widget(self.models_btn)
+        left_col.add_widget(self.people_btn)
+
+        right_col.add_widget(self.maintenance_btn)
+        right_col.add_widget(self.inspection_btn)
+        right_col.add_widget(self.isolation_btn)
+        right_col.add_widget(self.app_info_btn)
+
+        buttons_layout.add_widget(left_col)
+        buttons_layout.add_widget(right_col)
+        layout.add_widget(buttons_layout)
         self.conn = init_db()
         return layout
-    
-    def get_available_bars(self, substation_id, is_interconnection=False):
-        """Get available bars (ΖΥΓΟΣ) based on existing transformers in the substation
+
+    def _apply_theme(self):
+        """Apply a logo-based theme to common UI widgets."""
+        theme = self._get_modern_theme()
+        self.theme = theme
+
+        Window.clearcolor = theme['background']
+
+        Button.background_normal = 'atlas://data/images/defaulttheme/button'
+        Button.background_down = 'atlas://data/images/defaulttheme/button_pressed'
+        Button.background_color = theme['primary']
+        Button.color = theme['text_on_primary']
+
+        Spinner.background_normal = ''
+        Spinner.background_down = ''
+        Spinner.background_color = theme['primary']
+        Spinner.color = theme['text_on_primary']
+
+        # Spinner dropdown options (opaque background)
+        from kivy.uix.spinner import SpinnerOption
+        SpinnerOption.background_normal = ''
+        SpinnerOption.background_down = ''
+        SpinnerOption.background_color = theme['primary']
+        SpinnerOption.color = theme['text_on_primary']
+
+        Label.color = theme['text']
+
+        TextInput.background_color = theme['input_bg']
+        TextInput.foreground_color = theme['text']
+        TextInput.cursor_color = theme['primary_dark']
+        TextInput.selection_color = theme['accent']
+
+        Popup.background = ''
+        Popup.background_color = theme['popup_bg']
+
+    def _add_logo_to_layout(self, layout, height=80, reserve=False):
+        """Add logo to the top of a layout if available."""
+        logo_path = os.path.join(os.path.dirname(__file__), 'logo_deddie.png')
+        fallback_path = os.path.join(os.path.dirname(__file__), 'deddie_logo.png')
+        if os.path.exists(logo_path) or os.path.exists(fallback_path):
+            logo = Image(
+                source=logo_path if os.path.exists(logo_path) else fallback_path,
+                size_hint_y=None,
+                height=height,
+                allow_stretch=True,
+                keep_ratio=True
+            )
+            layout.add_widget(logo)
+            return
+        if reserve:
+            layout.add_widget(Label(text='', size_hint_y=None, height=height))
+
+    def _get_modern_theme(self):
+        """Return a modern dark-blue palette."""
+        primary = (0.05, 0.18, 0.36, 1)
+        primary_dark = (0.03, 0.12, 0.25, 1)
+        accent = (0.12, 0.42, 0.85, 1)
+        background = (0.94, 0.96, 0.99, 1)
+        popup_bg = (0.98, 0.99, 1, 1)
+
+        return {
+            'primary': primary,
+            'primary_dark': primary_dark,
+            'accent': accent,
+            'background': background,
+            'popup_bg': popup_bg,
+            'input_bg': (1, 1, 1, 1),
+            'text': (0.12, 0.12, 0.12, 1),
+            'text_on_primary': (1, 1, 1, 1),
+        }
+
+    def _load_logo_theme(self):
+        """Extract a color theme from deddie_logo.png if available."""
+        logo_path = os.path.join(os.path.dirname(__file__), 'logo_deddie.png')
+        fallback_path = os.path.join(os.path.dirname(__file__), 'deddie_logo.png')
+        if not os.path.exists(logo_path) and not os.path.exists(fallback_path):
+            return dict(self.THEME_FALLBACK)
+
+        if not os.path.exists(logo_path):
+            logo_path = fallback_path
+
+        try:
+            image = CoreImage(logo_path)
+            texture = image.texture
+            if not texture or not texture.pixels:
+                return dict(self.THEME_FALLBACK)
+
+            pixels = texture.pixels
+            total_pixels = max(1, texture.size[0] * texture.size[1])
+            step = max(1, total_pixels // 5000)
+
+            r_sum = g_sum = b_sum = 0
+            count = 0
+            for i in range(0, len(pixels), 4 * step):
+                r, g, b, a = pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]
+                if a < 10:
+                    continue
+                if r > 245 and g > 245 and b > 245:
+                    continue
+                r_sum += r
+                g_sum += g
+                b_sum += b
+                count += 1
+
+            if count == 0:
+                return dict(self.THEME_FALLBACK)
+
+            primary = (r_sum / count / 255, g_sum / count / 255, b_sum / count / 255, 1)
+            primary_dark = self._adjust_color(primary, 0.8)
+            accent = self._adjust_color(primary, 1.15)
+            background = self._blend_color(primary, (1, 1, 1, 1), 0.92)
+            popup_bg = self._blend_color(primary, (1, 1, 1, 1), 0.96)
+
+            brightness = (primary[0] * 0.299) + (primary[1] * 0.587) + (primary[2] * 0.114)
+            text_on_primary = (0, 0, 0, 1) if brightness > 0.6 else (1, 1, 1, 1)
+
+            return {
+                'primary': primary,
+                'primary_dark': primary_dark,
+                'accent': accent,
+                'background': background,
+                'popup_bg': popup_bg,
+                'input_bg': (1, 1, 1, 1),
+                'text': (0.12, 0.12, 0.12, 1),
+                'text_on_primary': text_on_primary,
+            }
+        except Exception:
+            return dict(self.THEME_FALLBACK)
+
+    def _adjust_color(self, color, factor):
+        return (
+            min(max(color[0] * factor, 0), 1),
+            min(max(color[1] * factor, 0), 1),
+            min(max(color[2] * factor, 0), 1),
+            color[3] if len(color) > 3 else 1
+        )
+
+    def _blend_color(self, color, target, ratio):
+        return (
+            color[0] * (1 - ratio) + target[0] * ratio,
+            color[1] * (1 - ratio) + target[1] * ratio,
+            color[2] * (1 - ratio) + target[2] * ratio,
+            1
+        )
+
+    def _handle_tab_navigation(self, window, key, scancode, codepoint, modifiers):
+        """Use Tab/Shift+Tab to move focus between text inputs."""
+        if key != 9:  # Tab
+            return False
+
+        text_inputs = []
+        for widget in Window.children:
+            for child in widget.walk():
+                if isinstance(child, TextInput):
+                    child.write_tab = False
+                    text_inputs.append(child)
+
+        focused = next((ti for ti in text_inputs if ti.focus), None)
+        if focused:
+            next_widget = focused.get_focus_previous() if 'shift' in modifiers else focused.get_focus_next()
+            if next_widget:
+                focused.focus = False
+                next_widget.focus = True
+        return True
+
+    def show_maintenance_menu_popup(self, instance=None):
+        """Show maintenance main menu with entry + global history."""
+        menu_popup = Popup(title='Συντηρήσεις', size_hint=(0.6, 0.4))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        self._add_logo_to_layout(layout, height=70)
+
+        layout.add_widget(Label(text='Επιλέξτε ενέργεια:', size_hint_y=0.2))
+
+        add_btn = Button(text='Καταχώρηση Συντήρησης', size_hint_y=0.3)
+        add_btn.bind(on_press=lambda x: self.show_maintenance_menu(parent_popup=menu_popup))
+        layout.add_widget(add_btn)
+
+        history_btn = Button(text='Ιστορικό Συντηρήσεων', size_hint_y=0.3)
+        history_btn.bind(on_press=lambda x: (menu_popup.dismiss(), self.show_maintenance_history(None)))
+        layout.add_widget(history_btn)
+
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.2)
+        cancel_btn.bind(on_press=menu_popup.dismiss)
+        layout.add_widget(cancel_btn)
+
+        menu_popup.content = layout
+        menu_popup.open()
+
+    def _get_ui_font_kwargs(self):
+        """Return font kwargs for UI symbols if bundled font exists."""
+        font_path = os.path.join(os.path.dirname(__file__), 'DejaVuSans.ttf')
+        if os.path.exists(font_path):
+            return {'font_name': font_path}
+        return {}
+
+    def show_app_info_popup(self, instance=None):
+        """Show application information."""
+        version_path = os.path.join(os.path.dirname(__file__), 'VERSION')
+        version = '-'
+        try:
+            if os.path.exists(version_path):
+                with open(version_path, 'r', encoding='utf-8') as vf:
+                    version = vf.read().strip() or '-'
+        except Exception:
+            version = '-'
+
+        app_dir = os.path.dirname(__file__)
+        info_text = (
+            'Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\n'
+            f'Έκδοση: {version}\n\n'
+            '• Διαχείριση υποσταθμών και στοιχείων\n'
+            '• Συντηρήσεις και επιθεωρήσεις\n'
+            '• Αναφορές PDF\n\n'
+            f'Φάκελος εφαρμογής: {app_dir}'
+        )
+
+        popup = Popup(title='Πληροφορίες Εφαρμογής', size_hint=(0.7, 0.6))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        label = Label(text=info_text, size_hint_y=None)
+        label.bind(
+            width=lambda inst, val: setattr(inst, 'text_size', (val, None)),
+            texture_size=lambda inst, val: setattr(inst, 'height', val[1] + 10)
+        )
+
+        scroll = ScrollView(bar_width=10)
+        scroll.add_widget(label)
+        layout.add_widget(scroll)
+
+        close_btn = Button(text='Κλείσιμο', size_hint_y=None, height=40)
+        close_btn.bind(on_press=popup.dismiss)
+        layout.add_widget(close_btn)
+
+        popup.content = layout
+        popup.open()
+
+    def _format_maintenance_date(self, date_time_str):
+        """Format maintenance date to DD/MM/YYYY for naming."""
+        try:
+            dt = datetime.strptime(date_time_str, '%Y-%m-%d %H:%M')
+            return dt.strftime('%d/%m/%Y')
+        except Exception:
+            try:
+                dt = datetime.strptime(date_time_str, '%Y-%m-%d')
+                return dt.strftime('%d/%m/%Y')
+            except Exception:
+                return date_time_str
+
+    def _build_maintenance_name(self, substation_name, date_time_str):
+        formatted_date = self._format_maintenance_date(date_time_str)
+        return f'Υ/Σ {substation_name} - DATE {formatted_date}'
+
+    def _derive_voltage_level(self, element_type: str) -> str:
+        if element_type == 'Μετασχηματιστής 150/20KV':
+            return '150/20KV'
+        if element_type == 'Διακόπτης ΜΤ':
+            return '20KV'
+        if element_type == 'Διακόπτης ΥΤ':
+            return '150KV'
+        if element_type == 'Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)':
+            return '20KV/400V'
+        if element_type in ['Συστοιχία Συσσωρευτών', 'Μ/Σ Εγχύσεως']:
+            return '20KV'
+        return ''
+
+    def _get_maintenance_people(self, maintenance_id):
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT p.name, mp.role
+            FROM maintenance_people mp
+            JOIN people p ON mp.person_id = p.id
+            WHERE mp.maintenance_id = ?
+            ORDER BY mp.role, p.name
+        """, (maintenance_id,))
+        rows = c.fetchall()
+        responsible = None
+        crew = []
+        for name, role in rows:
+            if role == 'responsible' and responsible is None:
+                responsible = name
+            elif role == 'crew':
+                crew.append(name)
+        return responsible, crew
+
+    def show_people_management(self, instance=None):
+        """Manage people (roles) used in maintenance records."""
+        popup = Popup(title='Διαχείριση Προσωπικού', size_hint=(0.7, 0.8))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        form_layout = GridLayout(cols=2, size_hint_y=None, height=120, spacing=5)
+        form_layout.add_widget(Label(text='Όνομα:', size_hint_x=0.3))
+        name_input = TextInput(multiline=False, size_hint_x=0.7)
+        form_layout.add_widget(name_input)
+
+        form_layout.add_widget(Label(text='Ρόλος:', size_hint_x=0.3))
+        role_input = TextInput(multiline=False, size_hint_x=0.7)
+        form_layout.add_widget(role_input)
+
+        form_layout.add_widget(Label(text='Email:', size_hint_x=0.3))
+        email_input = TextInput(multiline=False, size_hint_x=0.7)
+        form_layout.add_widget(email_input)
+
+        main_layout.add_widget(form_layout)
+
+        receiver_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
+        receiver_checkbox = CheckBox(size_hint_x=0.1)
+        receiver_layout.add_widget(receiver_checkbox)
+        receiver_layout.add_widget(Label(text='Παραλήπτης email αναφοράς', size_hint_x=0.9))
+        main_layout.add_widget(receiver_layout)
+
+        add_btn = Button(text='Προσθήκη', size_hint_y=None, height=40)
+
+        list_scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
+        list_layout = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
+        list_layout.bind(minimum_height=list_layout.setter('height'))
+
+        def refresh_list():
+            list_layout.clear_widgets()
+            c = self.conn.cursor()
+            c.execute("SELECT id, name, role, email, report_receiver, active FROM people ORDER BY active DESC, name")
+            for person_id, name, role, email, report_receiver, active in c.fetchall():
+                row = BoxLayout(size_hint_y=None, height=35, spacing=5)
+                status = 'Ενεργός' if active else 'Ανενεργός'
+                email_text = email if email else '-'
+                receiver_text = 'Ναι' if report_receiver else 'Όχι'
+                row.add_widget(Label(text=f'{name} ({role}) | {email_text} | Παραλήπτης: {receiver_text} | {status}', size_hint_x=0.8))
+
+                edit_btn = Button(text='Επεξ.', size_hint_x=0.1)
+                delete_btn = Button(text='Διαγραφή', size_hint_x=0.1)
+
+                def make_delete(pid, pname):
+                    return lambda x: self._confirm_delete_person(pid, pname, refresh_list)
+
+                def make_edit(pid):
+                    return lambda x: self._show_edit_person_popup(pid, refresh_list)
+
+                row.add_widget(edit_btn)
+                row.add_widget(delete_btn)
+                edit_btn.bind(on_press=make_edit(person_id))
+                delete_btn.bind(on_press=make_delete(person_id, name))
+                list_layout.add_widget(row)
+
+        def add_person(instance):
+            name = name_input.text.strip()
+            role = role_input.text.strip()
+            email = email_input.text.strip()
+            if not name or not role:
+                show_message_popup('Σφάλμα', 'Το όνομα και ο ρόλος είναι υποχρεωτικά!')
+                return
+            c = self.conn.cursor()
+            c.execute("INSERT INTO people (name, role, email, report_receiver, active) VALUES (?, ?, ?, ?, 1)", (name, role, email, 1 if receiver_checkbox.active else 0))
+            self.conn.commit()
+            name_input.text = ''
+            role_input.text = ''
+            email_input.text = ''
+            receiver_checkbox.active = False
+            refresh_list()
+
+        add_btn.bind(on_press=add_person)
+        main_layout.add_widget(add_btn)
+
+        refresh_list()
+        list_scroll.add_widget(list_layout)
+        main_layout.add_widget(list_scroll)
+
+        close_btn = Button(text='Κλείσιμο', size_hint_y=None, height=40)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+
+        popup.content = main_layout
+        popup.open()
+
+    def _toggle_person_active(self, person_id, active, refresh_cb):
+        c = self.conn.cursor()
+        c.execute("UPDATE people SET active=? WHERE id=?", (active, person_id))
+        self.conn.commit()
+        if refresh_cb:
+            refresh_cb()
+
+    def _toggle_person_receiver(self, person_id, report_receiver, refresh_cb):
+        c = self.conn.cursor()
+        c.execute("UPDATE people SET report_receiver=? WHERE id=?", (report_receiver, person_id))
+        self.conn.commit()
+        if refresh_cb:
+            refresh_cb()
+
+    def _confirm_delete_person(self, person_id, person_name, refresh_cb):
+        """Confirm and delete person if not referenced in maintenance records."""
+        c = self.conn.cursor()
+        c.execute("SELECT COUNT(*) FROM maintenance_people WHERE person_id=?", (person_id,))
+        usage_count = c.fetchone()[0]
+        if usage_count > 0:
+            show_message_popup('Πληροφορία', 'Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.')
+            return
+
+        confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.6, 0.3))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        warning_label = Label(
+            text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
+            size_hint_y=0.5
+        )
+        layout.add_widget(warning_label)
+
+        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+
+        def confirm_delete():
+            confirm_popup.dismiss()
+            c.execute("DELETE FROM people WHERE id=?", (person_id,))
+            self.conn.commit()
+            if refresh_cb:
+                refresh_cb()
+
+        yes_btn = Button(text='ΝΑΙ', color=(1, 0, 0, 1))
+        yes_btn.bind(on_press=lambda x: confirm_delete())
+        buttons_layout.add_widget(yes_btn)
+
+        no_btn = Button(text='ΟΧΙ')
+        no_btn.bind(on_press=confirm_popup.dismiss)
+        buttons_layout.add_widget(no_btn)
+
+        layout.add_widget(buttons_layout)
+        confirm_popup.content = layout
+        confirm_popup.open()
+
+    def _show_edit_person_popup(self, person_id, refresh_cb):
+        """Edit person details."""
+        c = self.conn.cursor()
+        c.execute("SELECT name, role, email, report_receiver, active FROM people WHERE id=?", (person_id,))
+        row = c.fetchone()
+        if not row:
+            show_message_popup('Σφάλμα', 'Το άτομο δεν βρέθηκε!')
+            return
+
+        name, role, email, report_receiver, active = row
+
+        popup = Popup(title='Επεξεργασία Προσώπου', size_hint=(0.6, 0.5))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        form = GridLayout(cols=2, size_hint_y=None, height=140, spacing=5)
+        form.add_widget(Label(text='Όνομα:', size_hint_x=0.3))
+        name_input = TextInput(text=name or '', multiline=False, size_hint_x=0.7)
+        form.add_widget(name_input)
+
+        form.add_widget(Label(text='Ρόλος:', size_hint_x=0.3))
+        role_input = TextInput(text=role or '', multiline=False, size_hint_x=0.7)
+        form.add_widget(role_input)
+
+        form.add_widget(Label(text='Email:', size_hint_x=0.3))
+        email_input = TextInput(text=email or '', multiline=False, size_hint_x=0.7)
+        form.add_widget(email_input)
+
+        layout.add_widget(form)
+
+        receiver_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
+        receiver_checkbox = CheckBox(size_hint_x=0.1, active=bool(report_receiver))
+        receiver_layout.add_widget(receiver_checkbox)
+        receiver_layout.add_widget(Label(text='Παραλήπτης email αναφοράς', size_hint_x=0.9))
+        layout.add_widget(receiver_layout)
+
+        active_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
+        active_checkbox = CheckBox(size_hint_x=0.1, active=bool(active))
+        active_layout.add_widget(active_checkbox)
+        active_layout.add_widget(Label(text='Ενεργός', size_hint_x=0.9))
+        layout.add_widget(active_layout)
+
+        buttons_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
+
+        def save_changes():
+            new_name = name_input.text.strip()
+            new_role = role_input.text.strip()
+            new_email = email_input.text.strip()
+            if not new_name or not new_role:
+                show_message_popup('Σφάλμα', 'Το όνομα και ο ρόλος είναι υποχρεωτικά!')
+                return
+            c.execute(
+                "UPDATE people SET name=?, role=?, email=?, report_receiver=?, active=? WHERE id=?",
+                (new_name, new_role, new_email, 1 if receiver_checkbox.active else 0, 1 if active_checkbox.active else 0, person_id)
+            )
+            self.conn.commit()
+            popup.dismiss()
+            if refresh_cb:
+                refresh_cb()
+
+        save_btn = Button(text='Αποθήκευση')
+        save_btn.bind(on_press=lambda x: save_changes())
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+
+        buttons_layout.add_widget(save_btn)
+        buttons_layout.add_widget(cancel_btn)
+        layout.add_widget(buttons_layout)
+
+        popup.content = layout
+        popup.open()
+
+    def _element_type_report_label(self, element_type):
+        mapping = {
+            'Διακόπτης ΜΤ': 'διακόπτες Μέσης Τάσης',
+            'Διακόπτης ΥΤ': 'διακόπτες Υψηλής Τάσης',
+            'Μετασχηματιστής 150/20KV': 'μετασχηματιστές 150/20KV',
+            'Motor Drive': 'motor drives',
+            'Μ/Σ Εγχύσεως': 'Μ/Σ Εγχύσεως',
+            'Μ/Σ Έντασης': 'Μ/Σ Έντασης',
+            'Μ/Σ Τάσης': 'Μ/Σ Τάσης',
+            'Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)': 'Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)',
+            'Αποζεύκτης': 'αποζεύκτες',
+            'Ασφαλειοαποζεύκτης': 'ασφαλειοαποζεύκτες',
+            'Γειωτής': 'γειωτές',
+            'Συστοιχία Πυκνωτών': 'συστοιχίες πυκνωτών',
+            'Αντίσταση Κόμβου': 'αντιστάσεις κόμβου',
+            'Αλεξικέραυνο': 'αλεξικέραυνα',
+            'Συστοιχία Συσσωρευτών': 'συστοιχίες συσσωρευτών'
+        }
+        return mapping.get(element_type, element_type)
+
+    def send_maintenance_email_report(self, maintenance_id):
+        """Compose and open an email report for a maintenance instance."""
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT m.name, m.date_time, s.name
+            FROM maintenance m
+            JOIN substations s ON m.substation_id = s.id
+            WHERE m.id = ?
+        """, (maintenance_id,))
+        maint_row = c.fetchone()
+        if not maint_row:
+            show_message_popup('Σφάλμα', 'Δεν βρέθηκε η συντήρηση.')
+            return
+
+        maint_name, date_time, substation_name = maint_row
+        display_name = maint_name or self._build_maintenance_name(substation_name, date_time)
+
+        c.execute("""
+            SELECT e.element_type, e.name
+            FROM maintenance_elements me
+            JOIN elements e ON me.element_id = e.id
+            WHERE me.maintenance_id = ?
+            ORDER BY e.element_type, e.name
+        """, (maintenance_id,))
+        elements = c.fetchall()
+
+        if not elements:
+            show_message_popup('Πληροφορία', 'Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση.')
+            return
+
+        # Group by element type
+        grouped = {}
+        for elem_type, elem_name in elements:
+            grouped.setdefault(elem_type, []).append(elem_name)
+
+        responsible, crew = self._get_maintenance_people(maintenance_id)
+        crew_text = ', '.join(crew) if crew else '-'
+        resp_text = responsible if responsible else '-'
+
+        lines = []
+        lines.append(f'Αναφορά Συντήρησης: {display_name}')
+        lines.append(f'Υποσταθμός: {substation_name}')
+        lines.append(f'Ημερομηνία: {date_time}')
+        lines.append(f'Υπεύθυνος: {resp_text}')
+        lines.append(f'Ομάδα: {crew_text}')
+        lines.append('')
+
+        for elem_type, names in grouped.items():
+            label = self._element_type_report_label(elem_type)
+            lines.append(f'Συντηρήθηκαν οι παρακάτω {label}:')
+            for name in names:
+                lines.append(f' - {name}')
+            lines.append('')
+
+        body = '\n'.join(lines).strip()
+        subject = f'Αναφορά Συντήρησης - {display_name}'
+
+        c.execute("SELECT email FROM people WHERE active=1 AND report_receiver=1 AND email IS NOT NULL AND email != ''")
+        recipients = [row[0] for row in c.fetchall()]
+
+        if not recipients:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν παραλήπτες email. Προσθέστε παραλήπτες από τη Διαχείριση Προσωπικού.')
+            return
+
+        import urllib.parse
+        mailto = 'mailto:' + ','.join(recipients)
+        subject_encoded = urllib.parse.quote(subject or '', safe='')
+        body_encoded = urllib.parse.quote(body or '', safe='')
+        webbrowser.open(f'{mailto}?subject={subject_encoded}&body={body_encoded}')
+
+    def show_inspection_menu_popup(self, instance=None):
+        """Show inspections main menu with import + history."""
+        menu_popup = Popup(title='Επιθεωρήσεις', size_hint=(0.6, 0.4))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        self._add_logo_to_layout(layout, height=70)
+
+        layout.add_widget(Label(text='Επιλέξτε ενέργεια:', size_hint_y=0.2))
+
+        add_btn = Button(text='Καταχώρηση Επιθεώρησης', size_hint_y=0.3)
+        add_btn.bind(on_press=lambda x: (menu_popup.dismiss(), self.show_inspection_entry_popup(None)))
+        layout.add_widget(add_btn)
+
+        import_btn = Button(text='Εισαγωγή Επιθεώρησης από Αρχείο', size_hint_y=0.3)
+        import_btn.bind(on_press=lambda x: (menu_popup.dismiss(), self.show_import_inspections_dialog(None)))
+        layout.add_widget(import_btn)
+
+        history_btn = Button(text='Ιστορικό Επιθεωρήσεων', size_hint_y=0.3)
+        history_btn.bind(on_press=lambda x: (menu_popup.dismiss(), self.show_inspection_history(None)))
+        layout.add_widget(history_btn)
+
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.2)
+        cancel_btn.bind(on_press=menu_popup.dismiss)
+        layout.add_widget(cancel_btn)
+
+        menu_popup.content = layout
+        menu_popup.open()
+
+    def show_import_inspections_dialog(self, instance):
+        self._create_file_import_dialog(
+            'Εισαγωγή επιθεωρήσεων από αρχείο',
+            self.import_inspections_from_file
+        )
+
+    def _read_inspection_template_columns(self):
+        """Read inspection template columns if available."""
+        template_path = os.path.join(os.path.dirname(__file__), 'επιθεωρήσεις_template.xlsx')
+        if not os.path.exists(template_path):
+            return self._get_inspection_fallback_fields()
+
+        def is_valid_label(value):
+            text = str(value).strip()
+            if not text or text.lower() in {'nan', 'none'}:
+                return False
+            lower = text.lower()
+            if lower.startswith('unnamed'):
+                return False
+            if 'σελ' in lower or 'page' in lower:
+                return False
+            if 'version:' in lower or 'template_version' in lower:
+                return False
+            if not re.search(r'[A-Za-zΑ-Ωα-ω]', text):
+                return False
+            return True
+
+        try:
+            import pandas as pd
+            df_peek = pd.read_excel(template_path, nrows=1, header=None)
+            first_cell = str(df_peek.iloc[0, 0]) if len(df_peek) > 0 else ''
+            if 'Version:' in first_cell or 'TEMPLATE_VERSION:' in first_cell:
+                df = pd.read_excel(template_path, skiprows=1, nrows=0)
+            else:
+                df = pd.read_excel(template_path, nrows=0)
+            cols_raw = [c for c in list(df.columns) if str(c).strip()]
+            cols = [str(c).strip() for c in cols_raw if is_valid_label(c)]
+            if cols and (len(cols) >= 5 or len(cols) >= max(1, len(cols_raw) // 2)):
+                return cols
+        except Exception:
+            pass
+
+        # Fallback: read header row with openpyxl
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(template_path, read_only=True, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True, min_row=1, max_row=2))
+            if not rows:
+                return []
+            header_row = rows[0]
+            if header_row and isinstance(header_row[0], str) and ('Version:' in header_row[0] or 'TEMPLATE_VERSION:' in header_row[0]):
+                header_row = rows[1] if len(rows) > 1 else None
+            if not header_row:
+                return []
+            header_cols_raw = [c for c in header_row if c is not None and str(c).strip()]
+            header_cols = [str(c).strip() for c in header_cols_raw if is_valid_label(c)]
+            if header_cols and (len(header_cols) >= 5 or len(header_cols) >= max(1, len(header_cols_raw) // 2)):
+                return header_cols
+        except Exception:
+            pass
+
+        # Fallback: read form labels from layout (first non-empty in A-D)
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(template_path, read_only=True, data_only=True)
+            ws = wb.active
+            fields = []
+            for row in ws.iter_rows(values_only=True, min_row=1, max_row=200):
+                for cell in row:
+                    if not isinstance(cell, str):
+                        continue
+                    label = cell.strip()
+                    if not label:
+                        continue
+                    label_lower = label.lower()
+                    if 'πιν' in label_lower or 'παρατηρ' in label_lower:
+                        continue
+                    if not is_valid_label(label):
+                        continue
+                    if label not in fields:
+                        fields.append(label)
+            if fields:
+                return fields
+        except Exception:
+            pass
+
+        return self._get_inspection_fallback_fields()
+
+    def _get_inspection_fallback_fields(self):
+        """Fallback inspection fields based on the standard report template."""
+        return [
+            'Υποσταθμός',
+            'Αρ. Δελτίου',
+            'Μήνας',
+            'Ονομ. Επιθεωρητή',
+            'Περιοχή',
+            'Ημέρα',
+            'Έτος',
+            'Ημερομηνία',
+            {'type': 'section', 'title': '1. Έλεγχος Χώρων ΥΣ'},
+            'Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)',
+            'Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ',
+            'Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)',
+            'Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)',
+            'Έλεγχος μέσων πυρόσβεσης γενικά',
+            {'type': 'section', 'title': '2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV'},
+            'Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)',
+            'Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ',
+            'Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV',
+            'Έλεγχος λειτουργίας ανεμιστήρων Μ/Σ',
+            'Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)',
+            'Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)',
+            'Οπτικός έλεγχος τηκτών πυκνωτών',
+            'Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV',
+            'Λήψη φωτογραφίας όταν απαιτείται',
+            {'type': 'section', 'title': '3α. Υπαίθριες πύλες 20 kV'},
+            'Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)',
+            'Οπτικός έλεγχος των πυλών, A/Z και γενικά του ικριώματος για τυχόν φωλιές από πτηνά, σπασίματα, μονωτήρες, κλαδιά, σύρματα κλπ',
+            {'type': 'section', 'title': '3β. Πίνακες 20 kV'},
+            'Παρατηρήσεις (3β. Πίνακες 20 kV)',
+            'Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών',
+            'Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων',
+            {'type': 'section', 'title': '4. Κτίριο χειρισμών & Τ.Α.Σ.'},
+            'Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)',
+            'Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή',
+            'Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC',
+            'Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών',
+            {'type': 'section', 'title': '5. Αποζεύκτες Γραμμών'},
+            'Παρατηρήσεις (5. Αποζεύκτες Γραμμών)',
+            'Οπτικός έλεγχος των ΑΠ/Ζ και των "γεφυρών" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)',
+            {'type': 'section', 'title': '6. PC ΧΕΙΡΙΣΜΩΝ'},
+            'Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)',
+            'Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)',
+            'Τροφοδοσία υπολογιστή',
+            {'type': 'section', 'title': '7. Απόψεις'},
+            'Απόψεις - Προτάσεις'
+        ]
+
+    def _is_inspection_meta_column(self, col_name, keywords):
+        col_text = str(col_name).strip().lower()
+        return any(key in col_text for key in keywords)
+
+    def show_inspection_entry_popup(self, instance=None, preselected_substation_name=None, parent_popup=None):
+        """Manual inspection entry using template fields."""
+        if parent_popup:
+            parent_popup.dismiss()
+        c = self.conn.cursor()
+        c.execute("SELECT id, name FROM substations ORDER BY name")
+        substations = c.fetchall()
+
+        if not substations:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν υποσταθμοί!')
+            return
+
+        popup = Popup(title='Καταχώρηση Επιθεώρησης', size_hint=(0.9, 0.95))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
+        content_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        content_layout.bind(minimum_height=content_layout.setter('height'))
+
+        content_layout.add_widget(Label(text='Επιλογή Υποσταθμού:', size_hint_y=None, height=35))
+        substation_map = {s[1]: s[0] for s in substations}
+        initial_substation = preselected_substation_name if preselected_substation_name in substation_map else substations[0][1]
+        substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        substation_label = Label(text='Υποσταθμός:', size_hint_x=0.18)
+        substation_picker = BoxLayout(size_hint_x=0.42, spacing=5)
+        substation_input = TextInput(text=initial_substation, readonly=True, size_hint_x=0.7, multiline=False)
+        select_sub_btn = Button(text='Επιλογή', size_hint_x=0.3)
+        substation_picker.add_widget(substation_input)
+        substation_picker.add_widget(select_sub_btn)
+        form_number_label = Label(text='Αρ. Δελτίου:', size_hint_x=0.18)
+        form_number_input = TextInput(hint_text='Αρ. Δελτίου', size_hint_x=0.22, multiline=False)
+        substation_row.add_widget(substation_label)
+        substation_row.add_widget(substation_picker)
+        substation_row.add_widget(form_number_label)
+        substation_row.add_widget(form_number_input)
+        content_layout.add_widget(substation_row)
+
+        # People list for inspector
+        c.execute("SELECT name FROM people WHERE active=1 ORDER BY name")
+        people = [row[0] for row in c.fetchall()]
+        if not people:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.', callback=lambda: self.show_people_management(None))
+            return
+
+        row_two = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        date_label = Label(text='Ημερομηνία:', size_hint_x=0.18)
+        date_input = TextInput(
+            text=datetime.now().strftime('%Y-%m-%d'),
+            hint_text='YYYY-MM-DD',
+            size_hint_x=0.32,
+            height=40,
+            multiline=False
+        )
+        region_label = Label(text='Περιοχή:', size_hint_x=0.14)
+        region_input = TextInput(hint_text='Περιοχή', size_hint_x=0.16, multiline=False)
+        inspector_label = Label(text='Ονομ. Επιθεωρητή:', size_hint_x=0.12)
+        inspector_spinner = Spinner(text=people[0], values=people, size_hint_x=0.18, height=40)
+        row_two.add_widget(date_label)
+        row_two.add_widget(date_input)
+        row_two.add_widget(region_label)
+        row_two.add_widget(region_input)
+        row_two.add_widget(inspector_label)
+        row_two.add_widget(inspector_spinner)
+        content_layout.add_widget(row_two)
+
+        row_three = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        month_label = Label(text='Μήνας:', size_hint_x=0.18)
+        month_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
+        day_label = Label(text='Ημέρα:', size_hint_x=0.18)
+        day_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
+        year_label = Label(text='Έτος:', size_hint_x=0.18)
+        year_input = TextInput(readonly=True, size_hint_x=0.18, multiline=False)
+        row_three.add_widget(month_label)
+        row_three.add_widget(month_input)
+        row_three.add_widget(day_label)
+        row_three.add_widget(day_input)
+        row_three.add_widget(year_label)
+        row_three.add_widget(year_input)
+        content_layout.add_widget(row_three)
+
+        fields_inputs = []
+
+        greek_months = [
+            'Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος',
+            'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'
+        ]
+        greek_days = ['Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο', 'Κυριακή']
+
+        def update_date_meta(_instance=None, text=None):
+            parsed = self._parse_inspection_date(date_input.text.strip())
+            try:
+                dt = datetime.strptime(parsed, '%Y-%m-%d')
+                month_input.text = greek_months[dt.month - 1]
+                day_input.text = greek_days[dt.weekday()]
+                year_input.text = f'{dt.year}'
+            except Exception:
+                month_input.text = ''
+                day_input.text = ''
+                year_input.text = ''
+
+        def open_substation_selection(_instance=None):
+            self._show_substation_selection_window_with_callback(
+                popup,
+                substations,
+                lambda selected_name: setattr(substation_input, 'text', selected_name)
+            )
+
+        select_sub_btn.bind(on_press=open_substation_selection)
+        date_input.bind(text=update_date_meta)
+        update_date_meta()
+
+        # Chapter 2: Έλεγχος Χώρων ΥΣ
+        content_layout.add_widget(Label(text='[b]Έλεγχος Χώρων ΥΣ[/b]', markup=True, size_hint_y=None, height=35))
+
+        def add_inspection_row(label_text):
+            row = BoxLayout(size_hint_y=None, height=60, spacing=5)
+            label = Label(text=label_text, size_hint_x=0.7, size_hint_y=None)
+            label.bind(width=lambda inst, val: setattr(inst, 'text_size', (val, None)))
+
+            ti = TextInput(hint_text='Παρατηρήσεις', size_hint_x=0.3, size_hint_y=None, height=60, multiline=True)
+
+            def sync_row_height(_instance=None, _value=None):
+                row.height = max(label.texture_size[1] if label.texture_size else 0, ti.height, 60)
+                label.height = row.height
+
+            label.bind(texture_size=sync_row_height)
+            ti.bind(height=sync_row_height)
+            sync_row_height()
+
+            row.add_widget(label)
+            row.add_widget(ti)
+            content_layout.add_widget(row)
+            fields_inputs.append((label_text, ti))
+
+        add_inspection_row('Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ')
+        add_inspection_row('Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)')
+        add_inspection_row('Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)')
+        add_inspection_row('Έλεγχος μέσων πυρόσβεσης γενικά.')
+
+        # Chapter 3: Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV
+        content_layout.add_widget(Label(text='[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]', markup=True, size_hint_y=None, height=35))
+
+        add_inspection_row('Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ')
+        add_inspection_row('Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV')
+        add_inspection_row('Έλεγχος λειτουργίας ανεμιστήρων  Μ/Σ')
+        add_inspection_row('Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)')
+        add_inspection_row('Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)')
+        add_inspection_row('Οπτικός έλεγχος τηκτών πυκνωτών')
+        add_inspection_row('Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV')
+        add_inspection_row('Λήψη φωτογραφίας όταν απαιτείται')
+
+        # Chapter 3: Υπαίθριες πύλες 20 kV
+        content_layout.add_widget(Label(text='[b]Υπαίθριες πύλες 20 kV[/b]', markup=True, size_hint_y=None, height=35))
+        add_inspection_row('Οπτικός έλεγχος των πυλών, A/Z  και γενικά του ικριώματος για τυχόν φωλιές από πτηνα, σπασιματά, μονωτήρων, κλαδιά, σύρματα κλπ')
+
+        # Chapter 4: Υπαίθριες πύλες 20 kV
+        content_layout.add_widget(Label(text='[b]Υπαίθριες πύλες 20 kV[/b]', markup=True, size_hint_y=None, height=35))
+        add_inspection_row('Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών.')
+        add_inspection_row('Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων.')
+
+        # Chapter 5: Κτίριο χειρισμών & Τ.Α.Σ.
+        content_layout.add_widget(Label(text='[b]Κτίριο χειρισμών & Τ.Α.Σ.[/b]', markup=True, size_hint_y=None, height=35))
+        add_inspection_row('Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή')
+        add_inspection_row('Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC.')
+        add_inspection_row('Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών.')
+
+        # Chapter 6: Αποζευκτες Γραμμών
+        content_layout.add_widget(Label(text='[b]Αποζευκτες Γραμμών[/b]', markup=True, size_hint_y=None, height=35))
+        add_inspection_row('Οπτικός έλεγχος των ΑΠ/Ζ και των "γεφυρών" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)')
+
+        # Chapter 7: PC ΧΕΙΡΙΣΜΩΝ
+        content_layout.add_widget(Label(text='[b]PC ΧΕΙΡΙΣΜΩΝ[/b]', markup=True, size_hint_y=None, height=35))
+        add_inspection_row('Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις')
+        add_inspection_row('Τροφοδοσία υπολογιστή.')
+
+        # Chapter 8: Απόψεις
+        content_layout.add_widget(Label(text='[b]Απόψεις[/b]', markup=True, size_hint_y=None, height=35))
+        add_inspection_row('Απόψεις και τυχόν προτάσεις  για την καλύτερη λειτουργία τόσο του εξοπλισμού, όσο και του κτηρίου γενικά του Υ/Σ.')
+
+        scroll.add_widget(content_layout)
+        main_layout.add_widget(scroll)
+
+        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+
+        def save_inspection():
+            substation_name = substation_input.text
+            substation_id = substation_map.get(substation_name)
+            inspection_date = self._parse_inspection_date(date_input.text.strip()) or datetime.now().strftime('%Y-%m-%d')
+            month_key = self._derive_month_key(inspection_date)
+
+            fields = []
+            fields.append({'label': 'Υποσταθμός', 'value': substation_name})
+            fields.append({'label': 'Αρ. Δελτίου', 'value': self._format_inspection_value(form_number_input.text)})
+            fields.append({'label': 'Περιοχή', 'value': self._format_inspection_value(region_input.text)})
+            fields.append({'label': 'Ονομ. Επιθεωρητή', 'value': self._format_inspection_value(inspector_spinner.text)})
+            fields.append({'label': 'Μήνας', 'value': self._format_inspection_value(month_input.text)})
+            fields.append({'label': 'Ημέρα', 'value': self._format_inspection_value(day_input.text)})
+            fields.append({'label': 'Έτος', 'value': self._format_inspection_value(year_input.text)})
+            fields.append({'label': 'Ημερομηνία', 'value': self._format_inspection_value(inspection_date)})
+            for label, input_widget in fields_inputs:
+                fields.append({
+                    'label': label,
+                    'value': self._format_inspection_value(input_widget.text)
+                })
+
+            data_json = json.dumps({'fields': fields}, ensure_ascii=False)
+            created_at = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+            c.execute("""
+                INSERT INTO inspections (
+                    substation_id, substation_name, inspection_date,
+                    month_key, data_json, source_file, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                substation_id,
+                substation_name,
+                inspection_date,
+                month_key,
+                data_json,
+                'manual-entry',
+                created_at
+            ))
+            self.conn.commit()
+            popup.dismiss()
+            if parent_popup:
+                show_message_popup('Επιτυχία', 'Η επιθεώρηση καταχωρήθηκε!', callback=lambda: self.show_substation_inspection_history(substation_id, substation_name))
+            else:
+                show_message_popup('Επιτυχία', 'Η επιθεώρηση καταχωρήθηκε!', callback=lambda: self.show_inspection_history(None))
+
+        save_btn = Button(text='Αποθήκευση')
+        save_btn.bind(on_press=lambda x: save_inspection())
+        buttons_layout.add_widget(save_btn)
+
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons_layout.add_widget(cancel_btn)
+
+        main_layout.add_widget(buttons_layout)
+        popup.content = main_layout
+        popup.open()
+
+    def _detect_inspection_column(self, columns, keywords):
+        for col in columns:
+            col_text = str(col).strip().lower()
+            for key in keywords:
+                if key in col_text:
+                    return col
+        return None
+
+    def _format_inspection_value(self, value):
+        if value is None:
+            return ''
+        try:
+            import math
+            if isinstance(value, float) and math.isnan(value):
+                return ''
+        except Exception:
+            pass
+
+        if hasattr(value, 'to_pydatetime'):
+            try:
+                value = value.to_pydatetime()
+            except Exception:
+                pass
+
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d')
+
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+
+        return str(value).strip()
+
+    def _parse_inspection_date(self, value):
+        if value is None:
+            return ''
+        if hasattr(value, 'to_pydatetime'):
+            try:
+                value = value.to_pydatetime()
+            except Exception:
+                pass
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d')
+
+        text = str(value).strip()
+        if not text:
+            return ''
+
+        for fmt in (
+            '%Y-%m-%d', '%Y-%m-%d %H:%M',
+            '%d/%m/%Y', '%d/%m/%Y %H:%M',
+            '%d-%m-%Y', '%Y/%m/%d'
+        ):
+            try:
+                return datetime.strptime(text, fmt).strftime('%Y-%m-%d')
+            except Exception:
+                pass
+
+        return text
+
+    def _derive_month_key(self, date_str):
+        if not date_str:
+            return datetime.now().strftime('%Y-%m')
+
+        for fmt in (
+            '%Y-%m-%d', '%Y-%m-%d %H:%M',
+            '%d/%m/%Y', '%d/%m/%Y %H:%M',
+            '%d-%m-%Y', '%Y/%m/%d'
+        ):
+            try:
+                return datetime.strptime(date_str, fmt).strftime('%Y-%m')
+            except Exception:
+                pass
+
+        if len(date_str) >= 7 and date_str[4] == '-':
+            return date_str[:7]
+
+        return datetime.now().strftime('%Y-%m')
+
+    def import_inspections_from_file(self, file_path):
+        import pandas as pd
+
+        try:
+            if file_path.endswith('.xlsx'):
+                df = pd.read_excel(file_path)
+            elif file_path.endswith('.csv'):
+                df = pd.read_csv(file_path)
+            else:
+                show_message_popup('Σφάλμα', 'Μη υποστηριζόμενη μορφή αρχείου')
+                return
+        except Exception as e:
+            show_message_popup('Σφάλμα', f'Σφάλμα κατά την ανάγνωση αρχείου: {e}')
+            return
+
+        if df.empty:
+            show_message_popup('Σφάλμα', 'Το αρχείο δεν περιέχει δεδομένα.')
+            return
+
+        columns = list(df.columns)
+        date_col = self._detect_inspection_column(columns, ['ημερομην', 'ημ/ν', 'date'])
+        substation_col = self._detect_inspection_column(columns, ['υποσταθ', 'substation'])
+
+        inserted = 0
+        created_at = datetime.now().strftime('%Y-%m-%d %H:%M')
+        c = self.conn.cursor()
+
+        for _, row in df.iterrows():
+            if row.isna().all():
+                continue
+
+            date_value = row.get(date_col) if date_col else None
+            inspection_date = self._parse_inspection_date(date_value) or datetime.now().strftime('%Y-%m-%d')
+            month_key = self._derive_month_key(inspection_date)
+
+            substation_name = ''
+            if substation_col:
+                substation_name = self._format_inspection_value(row.get(substation_col))
+
+            substation_id = None
+            if substation_name:
+                c.execute("SELECT id FROM substations WHERE name=?", (substation_name,))
+                sub_row = c.fetchone()
+                substation_id = sub_row[0] if sub_row else None
+
+            fields = []
+            for col in columns:
+                value = row.get(col)
+                if pd.isna(value):
+                    value = ''
+                fields.append({
+                    'label': str(col),
+                    'value': self._format_inspection_value(value)
+                })
+
+            data_json = json.dumps({'fields': fields}, ensure_ascii=False)
+
+            c.execute("""
+                INSERT INTO inspections (
+                    substation_id, substation_name, inspection_date,
+                    month_key, data_json, source_file, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                substation_id,
+                substation_name,
+                inspection_date,
+                month_key,
+                data_json,
+                os.path.basename(file_path),
+                created_at
+            ))
+            inserted += 1
+
+        self.conn.commit()
+        show_message_popup('Εισαγωγή Επιθεωρήσεων', f'Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).', callback=lambda: self.show_inspection_history(None))
+
+    def show_inspection_history(self, instance=None):
+        """Show inspections list grouped by month."""
+        font_kwargs = self._get_ui_font_kwargs()
+        c = self.conn.cursor()
+        c.execute("SELECT DISTINCT month_key FROM inspections ORDER BY month_key DESC")
+        months = [row[0] for row in c.fetchall() if row[0]]
+
+        if not months:
+            show_message_popup('Πληροφορία', 'Δεν υπάρχουν καταχωρημένες επιθεωρήσεις')
+            return
+
+        popup = Popup(title='Ιστορικό Επιθεωρήσεων', size_hint=(0.95, 0.9))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        top_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
+        top_bar.add_widget(Label(text='Μήνας:', size_hint_x=0.2))
+        month_spinner = Spinner(text=months[0], values=months, size_hint_x=0.4)
+        top_bar.add_widget(month_spinner)
+
+        add_btn = Button(text='Καταχώρηση', size_hint_x=0.2)
+        add_btn.bind(on_press=lambda x: self.show_inspection_entry_popup(None))
+        top_bar.add_widget(add_btn)
+
+        import_btn = Button(text='Εισαγωγή από Αρχείο', size_hint_x=0.2)
+        import_btn.bind(on_press=lambda x: self.show_import_inspections_dialog(None))
+        top_bar.add_widget(import_btn)
+        main_layout.add_widget(top_bar)
+
+        scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
+        list_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        list_layout.bind(minimum_height=list_layout.setter('height'))
+
+        def load_month(month_key):
+            list_layout.clear_widgets()
+            c.execute("""
+                SELECT id, substation_name, inspection_date, data_json
+                FROM inspections
+                WHERE month_key = ?
+                ORDER BY inspection_date DESC
+            """, (month_key,))
+            rows = c.fetchall()
+
+            if not rows:
+                list_layout.add_widget(Label(text='Δεν υπάρχουν επιθεωρήσεις για τον μήνα αυτό.', size_hint_y=None, height=30))
+                return
+
+            for insp_id, substation_name, inspection_date, data_json in rows:
+                row_box = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                title_text = f'Υποσταθμός: {substation_name or "-"} | Ημ/νία: {inspection_date}'
+                row_box.add_widget(Label(text=title_text, size_hint_x=0.6))
+
+                buttons_box = BoxLayout(size_hint_x=0.4, spacing=5)
+                view_btn = Button(text='Εμφ.', size_hint_x=0.34, **font_kwargs)
+                pdf_btn = Button(text='PDF', size_hint_x=0.33, **font_kwargs)
+                email_btn = Button(text='Email', size_hint_x=0.33)
+
+                view_btn.bind(on_press=lambda x, iid=insp_id: self.show_inspection_details(iid))
+                pdf_btn.bind(on_press=lambda x, iid=insp_id, sname=substation_name: self.generate_inspection_pdf(iid, sname))
+                email_btn.bind(on_press=lambda x, iid=insp_id: self.send_inspection_email_report(iid))
+
+                buttons_box.add_widget(view_btn)
+                buttons_box.add_widget(pdf_btn)
+                buttons_box.add_widget(email_btn)
+                row_box.add_widget(buttons_box)
+                list_layout.add_widget(row_box)
+
+        month_spinner.bind(text=lambda spinner, text: load_month(text))
+        load_month(months[0])
+
+        scroll.add_widget(list_layout)
+        main_layout.add_widget(scroll)
+
+        close_btn = Button(text='Κλείσιμο', size_hint_y=0.1)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+
+        popup.content = main_layout
+        popup.open()
+
+    def generate_inspection_pdf(self, inspection_id, substation_name=None):
+        """Generate PDF inspection report."""
+        try:
+            pdf_path = generate_inspection_report(self.conn, inspection_id)
+
+            confirm_popup = Popup(title='PDF Δημιουργήθηκε', size_hint=(0.6, 0.4))
+            layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+            msg_label = Label(
+                text=f'Το αρχείο PDF για την επιθεώρηση\nδημιουργήθηκε επιτυχώς!'
+                     + (f'\nΥποσταθμός: {substation_name}' if substation_name else ''),
+                size_hint_y=0.5
+            )
+            layout.add_widget(msg_label)
+
+            path_label = Label(
+                text=f'Αποθηκεύτηκε στο:\n{pdf_path}',
+                size_hint_y=0.3,
+                font_size='10sp'
+            )
+            layout.add_widget(path_label)
+
+            buttons_layout = BoxLayout(size_hint_y=0.2, spacing=10)
+
+            def open_pdf():
+                import subprocess
+                import sys
+                if sys.platform == 'win32':
+                    os.startfile(pdf_path)
+                elif sys.platform == 'darwin':
+                    subprocess.call(['open', pdf_path])
+                else:
+                    subprocess.call(['xdg-open', pdf_path])
+                confirm_popup.dismiss()
+
+            open_btn = Button(text='Άνοιγμα PDF')
+            open_btn.bind(on_press=lambda x: open_pdf())
+            buttons_layout.add_widget(open_btn)
+
+            close_btn = Button(text='Κλείσιμο')
+            close_btn.bind(on_press=confirm_popup.dismiss)
+            buttons_layout.add_widget(close_btn)
+
+            layout.add_widget(buttons_layout)
+            confirm_popup.content = layout
+            confirm_popup.open()
+
+        except Exception as e:
+            show_message_popup('Σφάλμα', f'Αποτυχία δημιουργίας PDF:\n{str(e)}')
+
+    def send_inspection_email_report(self, inspection_id):
+        """Compose and open an email report for an inspection instance."""
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT substation_name, inspection_date, data_json
+            FROM inspections
+            WHERE id = ?
+        """, (inspection_id,))
+        row = c.fetchone()
+
+        if not row:
+            show_message_popup('Σφάλμα', 'Δεν βρέθηκε η επιθεώρηση.')
+            return
+
+        substation_name, inspection_date, data_json = row
+
+        try:
+            data = json.loads(data_json or '{}')
+        except Exception:
+            data = {}
+        fields = data.get('fields', [])
+
+        lines = []
+        lines.append('Αναφορά Επιθεώρησης')
+        lines.append(f'Υποσταθμός: {substation_name or "-"}')
+        lines.append(f'Ημερομηνία: {inspection_date}')
+        lines.append('')
+
+        def _format_summary_value(value, limit=200):
+            text = str(value or '').replace('\n', ' ').replace('\r', ' ').strip()
+            return text if len(text) <= limit else text[:limit].rstrip() + '...'
+
+        summary_lines = []
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            label = (field.get('label') or '').strip()
+            value = _format_summary_value(field.get('value'))
+            if not label or not value:
+                continue
+            summary_lines.append(f'- {label}: {value}')
+            if len(summary_lines) >= 10:
+                break
+
+        lines = []
+        lines.append('Σύνοψη Επιθεώρησης')
+        lines.append(f'Υποσταθμός: {substation_name or "-"}')
+        lines.append(f'Ημερομηνία: {inspection_date}')
+        lines.append('')
+        if summary_lines:
+            lines.extend(summary_lines)
+        else:
+            lines.append('Δεν υπάρχουν διαθέσιμα συνοπτικά στοιχεία.')
+
+        body = '\n'.join(lines).strip()
+        subject = f'Αναφορά Επιθεώρησης - {substation_name or "Υποσταθμός"} - {inspection_date}'
+
+        c.execute("SELECT email FROM people WHERE active=1 AND report_receiver=1 AND email IS NOT NULL AND email != ''")
+        recipients = [row[0] for row in c.fetchall()]
+
+        if not recipients:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν παραλήπτες email. Προσθέστε παραλήπτες από τη Διαχείριση Προσωπικού.')
+            return
+
+        try:
+            pdf_path = generate_inspection_report(self.conn, inspection_id)
+        except Exception as e:
+            show_message_popup('Σφάλμα', f'Αποτυχία δημιουργίας PDF:\n{str(e)}')
+            return
+
+        try:
+            from email.message import EmailMessage
+            msg = EmailMessage()
+            msg['Subject'] = subject
+            msg['To'] = ', '.join(recipients)
+            msg.set_content(body)
+
+            with open(pdf_path, 'rb') as pdf_file:
+                msg.add_attachment(
+                    pdf_file.read(),
+                    maintype='application',
+                    subtype='pdf',
+                    filename=os.path.basename(pdf_path)
+                )
+
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.eml') as tmp_eml:
+                tmp_eml.write(msg.as_bytes())
+                eml_path = tmp_eml.name
+
+            import subprocess
+            import sys
+            if sys.platform == 'win32':
+                os.startfile(eml_path)
+            elif sys.platform == 'darwin':
+                subprocess.call(['open', eml_path])
+            else:
+                subprocess.call(['xdg-open', eml_path])
+        except Exception as e:
+            show_message_popup('Σφάλμα', f'Αποτυχία δημιουργίας email με συνημμένο:\n{str(e)}')
+
+    def get_available_gates(self, substation_id, is_interconnection=False):
+        """Get available gates (ΠΥΛΗ) based on existing transformers in the substation
         
         Args:
             substation_id: The ID of the substation
-            is_interconnection: If True, returns interconnection bars (1-2, 2-3, etc.)
-                               If False, returns regular bars (1, 2, 3, etc.)
+            is_interconnection: If True, returns interconnection gates (1-2, 2-3, etc.)
+                               If False, returns regular gates (1, 2, 3, etc.)
         """
         c = self.conn.cursor()
         # Get all transformers for this substation, ordered by name
@@ -272,22 +1822,24 @@ class SubstationApp(App):
                     ORDER BY name""", (substation_id,))
         transformers = c.fetchall()
         
-        num_bars = len(transformers)
+        num_gates = len(transformers)
         
         if is_interconnection:
-            # Generate interconnection bars: ΖΥΓΟΣ 1-2, ΖΥΓΟΣ 2-3, etc.
-            bars = [f"ΖΥΓΟΣ {i}-{i+1}" for i in range(1, num_bars)]
+            # Generate interconnection gates: ΠΥΛΗ 1-2, ΠΥΛΗ 2-3, etc.
+            gates = [f"ΠΥΛΗ {i}-{i+1}" for i in range(1, num_gates)]
         else:
-            # Generate regular bars: ΖΥΓΟΣ 1, ΖΥΓΟΣ 2, etc.
-            bars = [f"ΖΥΓΟΣ {i+1}" for i in range(num_bars)]
+            # Generate regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, etc.
+            gates = [f"ΠΥΛΗ {i+1}" for i in range(num_gates)]
         
         # Always include option for unassigned
-        return ['(Μη καταχωρημένο)'] + bars
+        return ['(Μη καταχωρημένο)'] + gates
 
     def show_import_menu(self, instance):
         # Show menu for importing elements (substations will be auto-created)
         menu_popup = Popup(title='Εισαγωγή στοιχείων από αρχείο', size_hint=(0.6, 0.45))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        self._add_logo_to_layout(layout, height=70)
         
         layout.add_widget(Label(text='Εισάγετε στοιχεία από αρχείο Excel.\nΝέοι υποσταθμοί θα δημιουργηθούν αυτόματα.', size_hint_y=0.2))
         
@@ -324,6 +1876,8 @@ class SubstationApp(App):
         # Show intermediate menu for adding substation or element
         menu_popup = Popup(title='Προσθήκη υποσταθμών και στοιχείων', size_hint=(0.6, 0.4))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        self._add_logo_to_layout(layout, height=70)
         
         layout.add_widget(Label(text='Επιλέξτε τι θέλετε να προσθέσετε:', size_hint_y=0.3))
         
@@ -468,6 +2022,8 @@ class SubstationApp(App):
         # Create selection popup
         selection_popup = Popup(title='Επιλογή Προβολής', size_hint=(0.6, 0.4))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        self._add_logo_to_layout(layout, height=70)
         
         layout.add_widget(Label(text='Επιλέξτε τι θέλετε να δείτε:', size_hint_y=0.3))
         
@@ -537,6 +2093,47 @@ class SubstationApp(App):
         
         selection_popup.content = layout
         selection_popup.open()
+
+    def _show_substation_selection_window_with_callback(self, parent_popup, all_substations, on_select, title='Επιλογή Υποσταθμού'):
+        """Show a selection window and call on_select with the chosen substation name."""
+        selection_popup = Popup(title=title, size_hint=(0.9, 0.85))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
+        grid = GridLayout(cols=5, spacing=5, size_hint_y=None, padding=10)
+        grid.bind(minimum_height=grid.setter('height'))
+
+        total_positions = 70
+
+        def handle_select(sub_name):
+            selection_popup.dismiss()
+            if parent_popup:
+                parent_popup.open()
+            if on_select:
+                on_select(sub_name)
+
+        for i in range(total_positions):
+            if i < len(all_substations):
+                _sub_id, sub_name = all_substations[i]
+                sub_btn = Button(text=sub_name, size_hint_y=None, height=50)
+                sub_btn.bind(on_press=lambda x, name=sub_name: handle_select(name))
+                grid.add_widget(sub_btn)
+            else:
+                empty_btn = Button(text='', size_hint_y=None, height=50, disabled=True, background_color=(0.3, 0.3, 0.3, 0.5))
+                grid.add_widget(empty_btn)
+
+        scroll.add_widget(grid)
+        layout.add_widget(scroll)
+
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.08)
+        cancel_btn.bind(on_press=selection_popup.dismiss)
+        layout.add_widget(cancel_btn)
+
+        if parent_popup:
+            parent_popup.dismiss()
+
+        selection_popup.content = layout
+        selection_popup.open()
     
     def _show_all_substations(self, selection_popup):
         selection_popup.dismiss()
@@ -549,10 +2146,10 @@ class SubstationApp(App):
     def _display_substations(self, filter_name=None):
         c = self.conn.cursor()
         if filter_name:
-            c.execute("SELECT id, name, location, adoption_date, division FROM substations WHERE name=?", (filter_name,))
+            c.execute("SELECT id, name, location, adoption_date, division, monogram_pdf FROM substations WHERE name=?", (filter_name,))
             title = f'Υποσταθμός: {filter_name}'
         else:
-            c.execute("SELECT id, name, location, adoption_date, division FROM substations ORDER BY name")
+            c.execute("SELECT id, name, location, adoption_date, division, monogram_pdf FROM substations ORDER BY name")
             title = 'Εγγραφές Υποσταθμών'
         
         substations = c.fetchall()
@@ -569,7 +2166,7 @@ class SubstationApp(App):
         grid.bind(minimum_height=grid.setter('height'))
         
         if substations:
-            for sub_id, sub_name, location, adoption_date, division in substations:
+            for sub_id, sub_name, location, adoption_date, division, monogram_pdf in substations:
                 # Substation title in bigger letters
                 substation_title = Label(
                     text=f'[b][size=22]{sub_name}[/size][/b]',
@@ -581,13 +2178,14 @@ class SubstationApp(App):
                 
                 # Add header for each substation
                 header_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
-                header_layout.add_widget(Label(text='Τοποθεσία', bold=True, size_hint_x=0.2))
-                header_layout.add_widget(Label(text='Ανάληψη', bold=True, size_hint_x=0.12))
-                header_layout.add_widget(Label(text='Στοιχεία', bold=True, size_hint_x=0.08))
-                header_layout.add_widget(Label(text='Ζυγοί', bold=True, size_hint_x=0.08))
-                header_layout.add_widget(Label(text='Πυκνωτές', bold=True, size_hint_x=0.08))
-                header_layout.add_widget(Label(text='Συντηρήσεις', bold=True, size_hint_x=0.12))
-                header_layout.add_widget(Label(text='Τελευταία', bold=True, size_hint_x=0.12))
+                header_layout.add_widget(Label(text='Τοποθεσία', bold=True, size_hint_x=0.17))
+                header_layout.add_widget(Label(text='Ανάληψη', bold=True, size_hint_x=0.1))
+                header_layout.add_widget(Label(text='Στοιχεία', bold=True, size_hint_x=0.07))
+                header_layout.add_widget(Label(text='Πύλες', bold=True, size_hint_x=0.07))
+                header_layout.add_widget(Label(text='Πυκνωτές', bold=True, size_hint_x=0.07))
+                header_layout.add_widget(Label(text='Συντηρήσεις', bold=True, size_hint_x=0.1))
+                header_layout.add_widget(Label(text='Τελευταία', bold=True, size_hint_x=0.1))
+                header_layout.add_widget(Label(text='Μονογραμμικό', bold=True, size_hint_x=0.12))
                 header_layout.add_widget(Label(text='', size_hint_x=0.2))  # Space for buttons
                 grid.add_widget(header_layout)
                 
@@ -595,10 +2193,10 @@ class SubstationApp(App):
                 c.execute("SELECT COUNT(*) FROM elements WHERE substation_id=?", (sub_id,))
                 elem_count = c.fetchone()[0]
                 
-                # Count number of unique bars (excluding unassigned and interconnection bars)
-                # Interconnection bars contain a hyphen (e.g., "ΖΥΓΟΣ 1-2")
-                c.execute("SELECT COUNT(DISTINCT bar) FROM elements WHERE substation_id=? AND bar IS NOT NULL AND bar != '' AND bar NOT LIKE '%-%'", (sub_id,))
-                bar_count = c.fetchone()[0]
+                # Count number of unique gates (excluding unassigned and interconnection gates)
+                # Interconnection gates contain a hyphen (e.g., "ΠΥΛΗ 1-2")
+                c.execute("SELECT COUNT(DISTINCT gate) FROM elements WHERE substation_id=? AND gate IS NOT NULL AND gate != '' AND gate NOT LIKE '%-%'", (sub_id,))
+                gate_count = c.fetchone()[0]
                 
                 # Count active capacitor circuit breakers
                 c.execute("SELECT COUNT(*) FROM elements WHERE substation_id=? AND element_type='Διακόπτης ΜΤ' AND is_main_switch=3", (sub_id,))
@@ -619,7 +2217,7 @@ class SubstationApp(App):
                 if location:
                     location_btn = Button(
                         text='Google Maps Link', 
-                        size_hint_x=0.2,
+                        size_hint_x=0.17,
                         font_size='11sp',
                         padding=(5, 5)
                     )
@@ -628,30 +2226,45 @@ class SubstationApp(App):
                     location_btn.bind(on_press=lambda x, url=location: webbrowser.open(url))
                     sub_row_layout.add_widget(location_btn)
                 else:
-                    sub_row_layout.add_widget(Label(text='-', size_hint_x=0.2))
+                    sub_row_layout.add_widget(Label(text='-', size_hint_x=0.17))
                 
-                sub_row_layout.add_widget(Label(text=adoption_date or '-', size_hint_x=0.12))
-                sub_row_layout.add_widget(Label(text=str(elem_count), size_hint_x=0.08))
-                sub_row_layout.add_widget(Label(text=str(bar_count), size_hint_x=0.08))
-                sub_row_layout.add_widget(Label(text=str(capacitor_count), size_hint_x=0.08))
-                sub_row_layout.add_widget(Label(text=str(maint_count), size_hint_x=0.12))
-                sub_row_layout.add_widget(Label(text=last_maint_display, size_hint_x=0.12))
+                sub_row_layout.add_widget(Label(text=adoption_date or '-', size_hint_x=0.1))
+                sub_row_layout.add_widget(Label(text=str(elem_count), size_hint_x=0.07))
+                sub_row_layout.add_widget(Label(text=str(gate_count), size_hint_x=0.07))
+                sub_row_layout.add_widget(Label(text=str(capacitor_count), size_hint_x=0.07))
+                sub_row_layout.add_widget(Label(text=str(maint_count), size_hint_x=0.1))
+                sub_row_layout.add_widget(Label(text=last_maint_display, size_hint_x=0.1))
+
+                monogram_btn = Button(
+                    text='Άνοιγμα' if monogram_pdf else 'Προσθήκη',
+                    size_hint_x=0.12
+                )
+                if monogram_pdf and os.path.exists(monogram_pdf):
+                    monogram_btn.bind(on_press=lambda x, path=monogram_pdf: self._open_monogram_pdf(path))
+                else:
+                    monogram_btn.bind(on_press=lambda x, sid=sub_id, p=popup, f=filter_name: self._select_monogram_pdf(sid, p, f))
+                sub_row_layout.add_widget(monogram_btn)
+
                 sub_row_layout.add_widget(Label(text='', size_hint_x=0.2))  # Empty space to match header
                 grid.add_widget(sub_row_layout)
                 
                 # Edit, Delete, and Maintenance History buttons
                 buttons_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
                 
-                edit_btn = Button(text='Επεξεργασία', size_hint_x=0.33)
+                edit_btn = Button(text='Επεξεργασία', size_hint_x=0.25)
                 edit_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, p=popup: self.show_edit_substation_popup(sid, sname, loc, adate, div, p))
                 buttons_layout.add_widget(edit_btn)
                 
-                maint_hist_btn = Button(text='Ιστορικό Συντ.', size_hint_x=0.34)
+                maint_hist_btn = Button(text='Ιστορικό Συντ.', size_hint_x=0.25)
                 maint_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.show_substation_maintenance_history(sid, sname, p))
                 buttons_layout.add_widget(maint_hist_btn)
+
+                insp_hist_btn = Button(text='Ιστορικό Επιθ.', size_hint_x=0.25)
+                insp_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.show_substation_inspection_history(sid, sname, p))
+                buttons_layout.add_widget(insp_hist_btn)
                 
-                delete_sub_btn = Button(text='Διαγραφή', size_hint_x=0.33)
-                delete_sub_btn.bind(on_press=lambda x, sid=sub_id, p=popup: self.delete_substation(sid, p))
+                delete_sub_btn = Button(text='Διαγραφή', size_hint_x=0.25)
+                delete_sub_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.confirm_delete_substation(sid, sname, p))
                 buttons_layout.add_widget(delete_sub_btn)
                 
                 grid.add_widget(buttons_layout)
@@ -679,21 +2292,21 @@ class SubstationApp(App):
                 # Elements section (only active elements)
                 # Fetch model data from element_models table
                 c.execute("""
-                    SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
-                           e.manufacturer, e.manufacture_year, e.bar, e.is_main_switch,
+                          SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
+                              e.voltage_level, e.manufacturer, e.manufacture_year, e.gate, e.is_main_switch,
                            em.breaker_category, em.model_name, em.manufacturer as model_manufacturer, 
                            em.maintenance_cycle, em.installation_space
                     FROM elements e 
                     LEFT JOIN element_models em ON e.element_model_id = em.id 
                     WHERE e.substation_id=? AND (e.operating_status IS NULL OR e.operating_status='Ενεργή') 
-                    ORDER BY e.bar
+                          ORDER BY e.gate
                 """, (sub_id,))
                 elements = c.fetchall()
                 
                 if elements:
                     # Define sort priority for element types
                     def get_element_priority(elem):
-                        elem_id, elem_type, elem_name, serial_number, maintenance_date, manufacturer, manufacture_year, bar, is_main_switch, breaker_category, model_name, model_manufacturer, maintenance_cycle, installation_space = elem
+                        elem_id, elem_type, elem_name, serial_number, maintenance_date, voltage_level, manufacturer, manufacture_year, gate, is_main_switch, breaker_category, model_name, model_manufacturer, maintenance_cycle, installation_space = elem
                         
                         # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV line breakers, MV capacitor breakers, rest
                         if elem_type == 'Διακόπτης ΥΤ':
@@ -713,43 +2326,43 @@ class SubstationApp(App):
                         else:
                             return (8, elem_name)
                     
-                    # Group elements by bar
-                    bars_dict = {}
+                    # Group elements by gate
+                    gates_dict = {}
                     for elem in elements:
-                        elem_id, elem_type, elem_name, serial_number, maintenance_date, manufacturer, manufacture_year, bar, is_main_switch, breaker_category, model_name, model_manufacturer, maintenance_cycle, installation_space = elem
+                        elem_id, elem_type, elem_name, serial_number, maintenance_date, voltage_level, manufacturer, manufacture_year, gate, is_main_switch, breaker_category, model_name, model_manufacturer, maintenance_cycle, installation_space = elem
                         
-                        bar_key = bar if bar else '(Μη καταχωρημένο)'
-                        if bar_key not in bars_dict:
-                            bars_dict[bar_key] = []
-                        bars_dict[bar_key].append(elem)
+                        gate_key = gate if gate else '(Μη καταχωρημένο)'
+                        if gate_key not in gates_dict:
+                            gates_dict[gate_key] = []
+                        gates_dict[gate_key].append(elem)
                     
-                    # Sort elements within each bar according to priority
-                    for bar_key in bars_dict:
-                        bars_dict[bar_key].sort(key=get_element_priority)
+                    # Sort elements within each gate according to priority
+                    for gate_key in gates_dict:
+                        gates_dict[gate_key].sort(key=get_element_priority)
                     
-                    # Display elements grouped by bar
-                    # Show bars in order: ΖΥΓΟΣ 1, ΖΥΓΟΣ 2, etc., then unassigned
-                    sorted_bars = sorted([b for b in bars_dict.keys() if b.startswith('ΖΥΓΟΣ')])
-                    if '(Μη καταχωρημένο)' in bars_dict:
-                        sorted_bars.append('(Μη καταχωρημένο)')
+                    # Display elements grouped by gate
+                    # Show gates in order: ΠΥΛΗ 1, ΠΥΛΗ 2, etc., then unassigned
+                    sorted_gates = sorted([g for g in gates_dict.keys() if g.startswith('ΠΥΛΗ')])
+                    if '(Μη καταχωρημένο)' in gates_dict:
+                        sorted_gates.append('(Μη καταχωρημένο)')
                     
-                    for bar_name in sorted_bars:
-                        bar_elements = bars_dict[bar_name]
+                    for gate_name in sorted_gates:
+                        gate_elements = gates_dict[gate_name]
                         
-                        # Bar header with count
-                        element_count = len(bar_elements)
-                        bar_label = Label(
-                            text=f"   {bar_name} ({element_count} στοιχεία)",
+                        # Gate header with count
+                        element_count = len(gate_elements)
+                        gate_label = Label(
+                            text=f"   {gate_name} ({element_count} στοιχεία)",
                             size_hint_y=None,
                             height=35,
                             bold=True,
-                            color=(0.2, 0.6, 1, 1)  # Blue color for bar headers
+                            color=(0.2, 0.6, 1, 1)  # Blue color for gate headers
                         )
-                        grid.add_widget(bar_label)
+                        grid.add_widget(gate_label)
                         
-                        # Display elements in this bar
-                        for j, elem in enumerate(bar_elements, 1):
-                            elem_id, elem_type, elem_name, serial_number, maintenance_date, manufacturer, manufacture_year, bar, is_main_switch, breaker_category, model_name, model_manufacturer, maintenance_cycle, installation_space = elem
+                        # Display elements in this gate
+                        for j, elem in enumerate(gate_elements, 1):
+                            elem_id, elem_type, elem_name, serial_number, maintenance_date, voltage_level, manufacturer, manufacture_year, gate, is_main_switch, breaker_category, model_name, model_manufacturer, maintenance_cycle, installation_space = elem
                             
                             # Check if maintenance is overdue or missing
                             from datetime import datetime, timedelta
@@ -788,7 +2401,7 @@ class SubstationApp(App):
                             
                             breaker_info = f" | {breaker_category}" if breaker_category else ""
                             manufacture_info = f" | Έτος: {manufacture_year}" if manufacture_year else ""
-                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display}"
+                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display}"
                             
                             # Create a horizontal layout for element and buttons
                             elem_layout = BoxLayout(size_hint_y=None, spacing=5)
@@ -867,105 +2480,19 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
-    def delete_all(self, instance):
-        """Delete all data from the database with confirmation"""
-        # Create confirmation popup
-        confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.6, 0.3))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        
-        warning_label = Label(
-            text='Είστε σίγουροι ότι θέλετε να διαγράψετε\nΟΛΕΣ τις εγγραφές από τη βάση δεδομένων;',
-            size_hint_y=0.5
-        )
-        layout.add_widget(warning_label)
-        
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
-        
-        def confirm_delete():
-            confirm_popup.dismiss()
-            c = self.conn.cursor()
-            # Delete in correct order to respect foreign key constraints
-            c.execute("DELETE FROM maintenance_elements")
-            c.execute("DELETE FROM maintenance")
-            c.execute("DELETE FROM elements")
-            c.execute("DELETE FROM substations")
-            c.execute("DELETE FROM element_models")
-            self.conn.commit()
-            show_message_popup('Ολοκληρώθηκε', 'Όλες οι εγγραφές διαγράφηκαν!')
-        
-        yes_btn = Button(text='ΝΑΙ', color=(1, 0, 0, 1))
-        yes_btn.bind(on_press=lambda x: confirm_delete())
-        buttons_layout.add_widget(yes_btn)
-        
-        no_btn = Button(text='ΟΧΙ')
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-        
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
-    
     def create_substations_template(self, instance):
         success, message = create_substations_template(os.path.dirname(__file__))
         title = 'Template Υποσταθμών' if success else 'Σφάλμα'
         show_message_popup(title, message)
     
-    def create_elements_template(self, instance):
-        success, message = create_elements_template(os.path.dirname(__file__))
-        title = 'Template Στοιχείων' if success else 'Σφάλμα'
-        show_message_popup(title, message)
-    
-    def show_import_substations_dialog(self, instance):
-        popup = Popup(title='Εισαγωγή υποσταθμών από αρχείο', size_hint=(0.9, 0.9))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    def _create_file_import_dialog(self, title, import_callback):
+        """Generic file import dialog for substations and elements
         
-        # Path input
-        path_label = Label(text='Διαδρομή αρχείου:', size_hint_y=0.1)
-        layout.add_widget(path_label)
-        
-        path_input = TextInput(
-            hint_text='Παστάρε διαδρομή αρχείου',
-            size_hint_y=0.15,
-            multiline=False
-        )
-        layout.add_widget(path_input)
-        
-        # File chooser with default path
-        layout.add_widget(Label(text='Ή επιλέξτε από τη λίστα:', size_hint_y=0.1))
-        chooser = FileChooserListView(filters=['*.xlsx', '*.csv'], path=os.path.dirname(__file__))
-        layout.add_widget(chooser)
-        
-        # Buttons
-        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
-        
-        def import_file():
-            file_path = path_input.text.strip() if path_input.text.strip() else (chooser.selection[0] if chooser.selection else None)
-            
-            if not file_path:
-                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!')
-                return
-            
-            if not os.path.exists(file_path):
-                show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
-                return
-            
-            self.import_substations_from_file(file_path)
-            popup.dismiss()
-        
-        import_btn = Button(text='Εισαγωγή')
-        import_btn.bind(on_press=lambda x: import_file())
-        buttons_layout.add_widget(import_btn)
-        
-        cancel_btn = Button(text='Ακύρωση')
-        cancel_btn.bind(on_press=popup.dismiss)
-        buttons_layout.add_widget(cancel_btn)
-        
-        layout.add_widget(buttons_layout)
-        popup.content = layout
-        popup.open()
-    
-    def show_import_elements_dialog(self, instance):
-        popup = Popup(title='Εισαγωγή στοιχείων από αρχείο', size_hint=(0.9, 0.9))
+        Args:
+            title: Popup title
+            import_callback: Function to call with file_path when import is confirmed
+        """
+        popup = Popup(title=title, size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         # Path input
@@ -998,7 +2525,7 @@ class SubstationApp(App):
                 show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
                 return
             
-            self.import_elements_from_file(file_path)
+            import_callback(file_path)
             popup.dismiss()
         
         import_btn = Button(text='Εισαγωγή')
@@ -1012,6 +2539,95 @@ class SubstationApp(App):
         layout.add_widget(buttons_layout)
         popup.content = layout
         popup.open()
+
+    def _open_monogram_pdf(self, pdf_path):
+        if not pdf_path or not os.path.exists(pdf_path):
+            show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
+            return
+        try:
+            import subprocess
+            import sys
+            if sys.platform == 'win32':
+                os.startfile(pdf_path)
+            elif sys.platform == 'darwin':
+                subprocess.call(['open', pdf_path])
+            else:
+                subprocess.call(['xdg-open', pdf_path])
+        except Exception as e:
+            show_message_popup('Σφάλμα', f'Αποτυχία ανοίγματος PDF:\n{str(e)}')
+
+    def _select_monogram_pdf(self, substation_id, parent_popup=None, filter_name=None):
+        popup = Popup(title='Επιλογή Μονογραμμικού PDF', size_hint=(0.9, 0.9))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        path_label = Label(text='Διαδρομή αρχείου:', size_hint_y=0.1)
+        layout.add_widget(path_label)
+
+        path_input = TextInput(
+            hint_text='Διαδρομή αρχείου',
+            size_hint_y=0.12,
+            multiline=False
+        )
+        layout.add_widget(path_input)
+
+        layout.add_widget(Label(text='Ή επιλέξτε από τη λίστα:', size_hint_y=0.1))
+        chooser = FileChooserListView(filters=['*.pdf'], path=os.path.dirname(__file__))
+        layout.add_widget(chooser)
+
+        buttons_layout = BoxLayout(size_hint_y=0.12, spacing=10)
+
+        def save_file():
+            file_path = path_input.text.strip() if path_input.text.strip() else (chooser.selection[0] if chooser.selection else None)
+
+            if not file_path:
+                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!')
+                return
+
+            if not os.path.exists(file_path):
+                show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
+                return
+
+            if not file_path.lower().endswith('.pdf'):
+                show_message_popup('Σφάλμα', 'Παρακαλώ επιλέξτε αρχείο PDF!')
+                return
+
+            c = self.conn.cursor()
+            c.execute("UPDATE substations SET monogram_pdf=? WHERE id=?", (file_path, substation_id))
+            self.conn.commit()
+            popup.dismiss()
+
+            if parent_popup:
+                parent_popup.dismiss()
+            self._display_substations(filter_name)
+
+        save_btn = Button(text='Αποθήκευση')
+        save_btn.bind(on_press=lambda x: save_file())
+        buttons_layout.add_widget(save_btn)
+
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons_layout.add_widget(cancel_btn)
+
+        layout.add_widget(buttons_layout)
+        popup.content = layout
+        popup.open()
+    
+    def create_elements_template(self, instance):
+        success, message = create_elements_template(os.path.dirname(__file__))
+        title = 'Template Στοιχείων' if success else 'Σφάλμα'
+        show_message_popup(title, message)
+    
+    def show_import_substations_dialog(self, instance):
+        self._create_file_import_dialog(
+            'Εισαγωγή υποσταθμών από αρχείο',
+            self.import_substations_from_file
+        )
+    
+    def show_import_elements_dialog(self, instance):
+        self._create_file_import_dialog(
+            'Εισαγωγή στοιχείων από αρχείο',
+            self.import_elements_from_file
+        )
     
     def import_substations_from_file(self, file_path):
         def on_success(message):
@@ -1027,19 +2643,142 @@ class SubstationApp(App):
         else:
             on_error('Μη υποστηριζόμενη μορφή αρχείου')
     
+    def _read_elements_file(self, file_path):
+        """Read elements file, handling TEMPLATE_VERSION row if present
+        
+        Returns:
+            pd.DataFrame: The elements dataframe with proper headers
+            
+        Raises:
+            ValueError: If file format is not supported
+        """
+        import pandas as pd
+        
+        if file_path.endswith('.xlsx'):
+            # Peek at first row to check for version
+            df_peek = pd.read_excel(file_path, sheet_name='Elements', nrows=1, header=None)
+            first_cell = str(df_peek.iloc[0, 0]) if len(df_peek) > 0 else ''
+            
+            if 'Version:' in first_cell or 'TEMPLATE_VERSION:' in first_cell:
+                return pd.read_excel(file_path, sheet_name='Elements', skiprows=1)
+            else:
+                return pd.read_excel(file_path, sheet_name='Elements')
+                
+        elif file_path.endswith('.csv'):
+            # Peek at first row to check for version
+            df_peek = pd.read_csv(file_path, nrows=1, header=None)
+            first_cell = str(df_peek.iloc[0, 0]) if len(df_peek) > 0 else ''
+            
+            if 'Version:' in first_cell or 'TEMPLATE_VERSION:' in first_cell:
+                return pd.read_csv(file_path, skiprows=1)
+            else:
+                return pd.read_csv(file_path)
+        else:
+            raise ValueError('Μη υποστηριζόμενη μορφή αρχείου')
+    
+    def _load_models_for_element_type(self, element_category, breaker_category=None, selected_model_id=None):
+        """Load and filter models for a specific element category
+        
+        Args:
+            element_category: The element type (e.g., 'Διακόπτης ΜΤ')
+            breaker_category: Optional breaker category filter for circuit breakers
+            selected_model_id: Optional model ID to pre-select
+            
+        Returns:
+            tuple: (models_data dict, display_names list, selected_display_name)
+        """
+        c = self.conn.cursor()
+        c.execute("SELECT id, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models WHERE element_category=? ORDER BY model_name", (element_category,))
+        models = c.fetchall()
+        
+        models_data = {}
+        display_names = []
+        selected_display_name = None
+        
+        # Filter models for circuit breakers by breaker category
+        if element_category in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ'] and breaker_category:
+            filtered_models = [
+                m for m in models 
+                if (m[5] or 'Other').strip().lower() == breaker_category.lower()
+            ]
+        else:
+            filtered_models = models
+        
+        # Build display names and data dictionary
+        for m in filtered_models:
+            display_name = f"{m[1]} - {m[2] or 'N/A'}"
+            display_names.append(display_name)
+            models_data[display_name] = {
+                'id': m[0],
+                'model_name': m[1],
+                'manufacturer': m[2] or '',
+                'maintenance_cycle': m[3] or 0,
+                'installation_space': m[4] or '',
+                'breaker_category': m[5] or ''
+            }
+            if m[0] == selected_model_id:
+                selected_display_name = display_name
+        
+        return models_data, display_names, selected_display_name
+    
     def import_elements_from_file(self, file_path):
-        # Step 1: detect new substations and duplicates
+        """Import elements with validation wizard: Step 1 - Column Mapping, Step 2 - Data Validation"""
+        try:
+            df_elem = self._read_elements_file(file_path)
+            
+            # Show Step 1: Column Mapping Wizard
+            column_wizard = ColumnMappingPopup(
+                df_columns=list(df_elem.columns),
+                df=df_elem,
+                conn=self.conn,
+                on_continue=lambda mapping: self._on_column_mapping_complete(file_path, df_elem, mapping),
+                on_cancel=lambda: None  # Just close
+            )
+            column_wizard.show()
+
+        except Exception as e:
+            show_message_popup('Σφάλμα', f'Σφάλμα κατά τον έλεγχο: {e}')
+    
+    def _on_column_mapping_complete(self, file_path, df, column_mapping):
+        """Callback after column mapping is complete - show validation wizard"""
+        # Show Step 2: Data Validation Wizard
+        validation_wizard = DataValidationPopup(
+            df=df,
+            column_mapping=column_mapping,
+            conn=self.conn,
+            on_continue=lambda corrected_df, mapping: self._on_validation_complete(file_path, corrected_df, mapping),
+            on_cancel=lambda: None,  # Just close
+            on_back=lambda: self.import_elements_from_file(file_path)  # Go back to step 1
+        )
+        validation_wizard.show()
+    
+    def _on_validation_complete(self, file_path, df, column_mapping):
+        """Callback after validation is complete - proceed with traditional flow"""
+        # Rename columns to match expected names
+        reverse_mapping = {v: k for k, v in column_mapping.items()}
+        df_renamed = df.rename(columns=reverse_mapping)
+        
+        # Save the corrected dataframe back to temporary file
+        import tempfile
+        import pandas as pd
+        
+        # Create a temporary file with corrected data
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.xlsx', delete=False, encoding='utf-8') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Write corrected data
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            df_renamed.to_excel(writer, sheet_name='Elements', index=False)
+        
+        # Now proceed with traditional flow (check substations, models, duplicates)
+        self._check_substations_and_proceed(temp_path, original_file=file_path)
+
+    def _check_substations_and_proceed(self, file_path, original_file=None):
+        """Check for new substations after validation"""
         try:
             import pandas as pd
             cursor = self.conn.cursor()
-
-            if file_path.endswith('.xlsx'):
-                df_elem = pd.read_excel(file_path, sheet_name='Elements')
-            elif file_path.endswith('.csv'):
-                df_elem = pd.read_csv(file_path)
-            else:
-                show_message_popup('Σφάλμα', 'Μη υποστηριζόμενη μορφή αρχείου')
-                return
+            df_elem = self._read_elements_file(file_path)
 
             # Check for new substations
             new_substations = set()
@@ -1111,14 +2850,7 @@ class SubstationApp(App):
         try:
             import pandas as pd
             cursor = self.conn.cursor()
-
-            if file_path.endswith('.xlsx'):
-                df_elem = pd.read_excel(file_path, sheet_name='Elements')
-            elif file_path.endswith('.csv'):
-                df_elem = pd.read_csv(file_path)
-            else:
-                show_message_popup('Σφάλμα', 'Μη υποστηριζόμενη μορφή αρχείου')
-                return
+            df_elem = self._read_elements_file(file_path)
 
             # First check models
             models_to_check = {}  # Key: (element_type, model_name, manufacturer), Value: {cycle, space}
@@ -1290,14 +3022,7 @@ class SubstationApp(App):
         try:
             import pandas as pd
             cursor = self.conn.cursor()
-
-            if file_path.endswith('.xlsx'):
-                df_elem = pd.read_excel(file_path, sheet_name='Elements')
-            elif file_path.endswith('.csv'):
-                df_elem = pd.read_csv(file_path)
-            else:
-                show_message_popup('Σφάλμα', 'Μη υποστηριζόμενη μορφή αρχείου')
-                return
+            df_elem = self._read_elements_file(file_path)
 
             duplicates = []  # list of tuples (sub_name, name, serial)
             for _, row in df_elem.iterrows():
@@ -1484,14 +3209,14 @@ class SubstationApp(App):
         
         # Fetch element data
         c = self.conn.cursor()
-        c.execute("SELECT element_type, name, serial_number, maintenance_date, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, bar, is_main_switch FROM elements WHERE id=?", (element_id,))
+        c.execute("SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, is_main_switch, breaker_category FROM elements WHERE id=?", (element_id,))
         element = c.fetchone()
         
         if not element:
             show_message_popup('Σφάλμα', 'Το στοιχείο δεν βρέθηκε!')
             return
         
-        elem_type, name, serial_num, maint_date, manufacturer, model, model_version, install_space, op_status, maint_cycle, manuf_year, model_id, bar, is_main_switch = element
+        elem_type, name, serial_num, maint_date, voltage_level, manufacturer, model, model_version, install_space, op_status, maint_cycle, manuf_year, model_id, gate, is_main_switch, breaker_category = element
         
         popup = Popup(title=f'Επεξεργασία: {name}', size_hint=(0.9, 0.9))
         main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
@@ -1502,50 +3227,87 @@ class SubstationApp(App):
         
         # Element type (read-only)
         layout.add_widget(Label(text=f'Τύπος: {elem_type}', size_hint_y=None, height=30, bold=True))
+
+        # Voltage level (dropdown)
+        layout.add_widget(Label(text='Επίπεδο Τάσης:', size_hint_y=None, height=30))
+        current_voltage = voltage_level or self._derive_voltage_level(elem_type) or '(Κενό)'
+        voltage_options = list(self.VOLTAGE_LEVELS)
+        if current_voltage not in voltage_options:
+            voltage_options.append(current_voltage)
+        voltage_level_spinner = Spinner(
+            text=current_voltage,
+            values=voltage_options,
+            size_hint_y=None,
+            height=40
+        )
+        layout.add_widget(voltage_level_spinner)
         
         # Model selection
+        # Breaker category filter (only for circuit breakers)
+        breaker_category_label = Label(text='Κατηγορία Διακόπτη:', size_hint_y=None, height=30)
+        breaker_category_spinner = Spinner(
+            text=breaker_category or 'SF6',
+            values=self.BREAKER_CATEGORIES,
+            size_hint_y=None,
+            height=40
+        )
+        
+        if elem_type in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
+            layout.add_widget(breaker_category_label)
+            layout.add_widget(breaker_category_spinner)
+        
         layout.add_widget(Label(text='Μοντέλο:', size_hint_y=None, height=30))
         
-        # Load models for this category
-        c.execute("SELECT id, model_name, manufacturer FROM element_models WHERE element_category=? ORDER BY model_name", (elem_type,))
-        models = c.fetchall()
+        # Load all models for this element type
+        c.execute("SELECT id, model_name, manufacturer, breaker_category FROM element_models WHERE element_category=? ORDER BY model_name", (elem_type,))
+        all_models = c.fetchall()
         
         models_data = {}
-        model_values = []
-        selected_model_text = 'Επιλέξτε μοντέλο'
-        
-        if models:
-            for m in models:
-                key = f"{m[1]} - {m[2] or 'N/A'}"
-                model_values.append(key)
-                models_data[key] = {'id': m[0], 'model_name': m[1], 'manufacturer': m[2] or ''}
-                if m[0] == model_id:
-                    selected_model_text = key
-        
         model_spinner = Spinner(
-            text=selected_model_text,
-            values=model_values if model_values else ['Δεν υπάρχουν μοντέλα'],
+            text='Επιλέξτε μοντέλο',
+            values=['Επιλέξτε μοντέλο'],
             size_hint_y=None,
             height=40
         )
+        
+        def load_models_for_breaker_category(selected_category):
+            """Filter and load models based on selected breaker category"""
+            models_data_temp, display_names, selected_display_name = self._load_models_for_element_type(
+                elem_type, 
+                selected_category, 
+                model_id
+            )
+            models_data.clear()
+            models_data.update(models_data_temp)
+            
+            model_spinner.values = display_names if display_names else ['Δεν υπάρχουν μοντέλα']
+            model_spinner.text = selected_display_name if selected_display_name and selected_display_name in model_spinner.values else model_spinner.values[0]
+        
+        # Bind breaker category change to reload models
+        if elem_type in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
+            breaker_category_spinner.bind(text=lambda spinner, text: load_models_for_breaker_category(text))
+            load_models_for_breaker_category(breaker_category_spinner.text)
+        else:
+            load_models_for_breaker_category(None)
+        
         layout.add_widget(model_spinner)
         
-        # Bar selection
-        layout.add_widget(Label(text='Ζυγός (Bar):', size_hint_y=None, height=30))
+        # Gate selection
+        layout.add_widget(Label(text='Πύλη (Gate):', size_hint_y=None, height=30))
         # Determine if current element is an interconnection breaker (only MV breakers can be interconnecting)
         is_interconnection = (elem_type == 'Διακόπτης ΜΤ' and is_main_switch == 2)
-        available_bars = self.get_available_bars(substation_id, is_interconnection)
-        current_bar_text = bar if bar else '(Μη καταχωρημένο)'
-        # Ensure current bar is in the list
-        if current_bar_text not in available_bars:
-            available_bars.append(current_bar_text)
-        bar_spinner = Spinner(
-            text=current_bar_text,
-            values=available_bars,
+        available_gates = self.get_available_gates(substation_id, is_interconnection)
+        current_gate_text = gate if gate else '(Μη καταχωρημένο)'
+        # Ensure current gate is in the list
+        if current_gate_text not in available_gates:
+            available_gates.append(current_gate_text)
+        gate_spinner = Spinner(
+            text=current_gate_text,
+            values=available_gates,
             size_hint_y=None,
             height=40
         )
-        layout.add_widget(bar_spinner)
+        layout.add_widget(gate_spinner)
         
         # Breaker type selection (only for MV circuit breakers)
         breaker_type_label = Label(text='Τύπος Διακόπτη:', size_hint_y=None, height=30)
@@ -1564,13 +3326,13 @@ class SubstationApp(App):
             height=40
         )
         
-        # Handler to refresh bars when breaker type changes
+        # Handler to refresh gates when breaker type changes
         def on_breaker_type_change(spinner, text):
             is_interconnection = (text == 'Διασυνδετικός')
-            available_bars = self.get_available_bars(substation_id, is_interconnection)
-            bar_spinner.values = available_bars
-            if bar_spinner.text not in available_bars:
-                bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+            available_gates = self.get_available_gates(substation_id, is_interconnection)
+            gate_spinner.values = available_gates
+            if gate_spinner.text not in available_gates:
+                gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
         
         breaker_type_spinner.bind(text=on_breaker_type_change)
         
@@ -1645,8 +3407,13 @@ class SubstationApp(App):
             # Get model_id if selected
             new_model_id = models_data[model_spinner.text]['id'] if model_spinner.text in models_data else None
             
-            # Get bar value
-            bar_value = bar_spinner.text if bar_spinner.text != '(Μη καταχωρημένο)' else ''
+            # Get gate value
+            gate_value = gate_spinner.text if gate_spinner.text != '(Μη καταχωρημένο)' else ''
+            
+            # Get breaker category for circuit breakers
+            breaker_category_value = None
+            if elem_type in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']:
+                breaker_category_value = breaker_category_spinner.text
             
             # Update is_main_switch based on element type and breaker type selection
             if elem_type == 'Διακόπτης ΥΤ':
@@ -1663,26 +3430,30 @@ class SubstationApp(App):
                     new_is_main_switch = 0
             else:
                 new_is_main_switch = 0
-            
+
+            voltage_level_value = voltage_level_spinner.text if voltage_level_spinner.text != '(Κενό)' else ''
+
             c.execute("""UPDATE elements SET 
-                        name=?, serial_number=?, maintenance_date=?, manufacturer=?, model=?, model_version=?,
-                        installation_space=?, operating_status=?, 
-                        maintenance_cycle=?, manufacture_year=?, element_model_id=?, bar=?, is_main_switch=?
-                        WHERE id=?""",
-                     (name_val,
-                      field_inputs['serial_number'].text.strip(),
-                      field_inputs['maintenance_date'].text.strip(),
-                      field_inputs['manufacturer'].text.strip(),
-                      field_inputs['model'].text.strip(),
-                      field_inputs['model_version'].text.strip(),
-                      field_inputs['installation_space'].text,
-                      field_inputs['operating_status'].text,
-                      cycle_val,
-                      field_inputs['manufacture_year'].text.strip(),
-                      new_model_id,
-                      bar_value,
-                      new_is_main_switch,
-                      element_id))
+                            name=?, serial_number=?, maintenance_date=?, voltage_level=?, manufacturer=?, model=?, model_version=?,
+                            installation_space=?, operating_status=?, 
+                            maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, is_main_switch=?, breaker_category=?
+                            WHERE id=?""",
+                        (name_val,
+                         field_inputs['serial_number'].text.strip(),
+                         field_inputs['maintenance_date'].text.strip(),
+                         voltage_level_value,
+                         field_inputs['manufacturer'].text.strip(),
+                         field_inputs['model'].text.strip(),
+                         field_inputs['model_version'].text.strip(),
+                         field_inputs['installation_space'].text,
+                         field_inputs['operating_status'].text,
+                         cycle_val,
+                         field_inputs['manufacture_year'].text.strip(),
+                         new_model_id,
+                         gate_value,
+                         new_is_main_switch,
+                         breaker_category_value,
+                         element_id))
             self.conn.commit()
             popup.dismiss()
             parent_popup.dismiss()
@@ -1830,6 +3601,35 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
+    def confirm_delete_substation(self, substation_id, substation_name, parent_popup):
+        """Confirm before deleting a substation and its elements."""
+        confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.65, 0.35))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        warning_label = Label(
+            text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτον υποσταθμό "{substation_name}"\nκαι ΟΛΑ τα στοιχεία του;',
+            size_hint_y=0.6
+        )
+        layout.add_widget(warning_label)
+
+        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+
+        def confirm():
+            confirm_popup.dismiss()
+            self.delete_substation(substation_id, parent_popup)
+
+        yes_btn = Button(text='ΝΑΙ', color=(1, 0, 0, 1))
+        yes_btn.bind(on_press=lambda x: confirm())
+        buttons_layout.add_widget(yes_btn)
+
+        no_btn = Button(text='ΟΧΙ')
+        no_btn.bind(on_press=confirm_popup.dismiss)
+        buttons_layout.add_widget(no_btn)
+
+        layout.add_widget(buttons_layout)
+        confirm_popup.content = layout
+        confirm_popup.open()
+
     def delete_substation(self, substation_id, parent_popup):
         c = self.conn.cursor()
         # Delete all elements for this substation first
@@ -1907,6 +3707,13 @@ class SubstationApp(App):
         if not substations:
             show_message_popup('Σφάλμα', 'Δεν υπάρχουν υποσταθμοί!')
             return
+
+        # Get active people for responsible/crew selection
+        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY name")
+        people = c.fetchall()
+        if not people:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.', callback=lambda: self.show_people_management(None))
+            return
         
         # Store substations mapping for later use
         self.substations_map = {s[1]: s[0] for s in substations}
@@ -1940,30 +3747,41 @@ class SubstationApp(App):
             height=40
         )
         layout.add_widget(element_spinner)
-        
-        # Bar selection (auto-populated from transformers)
-        bar_label = Label(text='Ζυγός (Bar):', size_hint_y=None, height=30)
-        layout.add_widget(bar_label)
-        
-        # Get initial bars for the first substation
-        initial_bars = self.get_available_bars(self.substations_map[substation_names[0]])
-        bar_spinner = Spinner(
-            text=initial_bars[0] if initial_bars else '(Μη καταχωρημένο)',
-            values=initial_bars if initial_bars else ['(Μη καταχωρημένο)'],
+
+        # Voltage level selection
+        layout.add_widget(Label(text='Επίπεδο Τάσης:', size_hint_y=None, height=30))
+        initial_voltage = self._derive_voltage_level(element_spinner.text) or '(Κενό)'
+        voltage_level_spinner = Spinner(
+            text=initial_voltage,
+            values=self.VOLTAGE_LEVELS,
             size_hint_y=None,
             height=40
         )
-        layout.add_widget(bar_spinner)
+        layout.add_widget(voltage_level_spinner)
         
-        # Update bars when substation changes
+        # Gate selection (auto-populated from transformers)
+        gate_label = Label(text='Πύλη (Gate):', size_hint_y=None, height=30)
+        layout.add_widget(gate_label)
+        
+        # Get initial gates for the first substation
+        initial_gates = self.get_available_gates(self.substations_map[substation_names[0]])
+        gate_spinner = Spinner(
+            text=initial_gates[0] if initial_gates else '(Μη καταχωρημένο)',
+            values=initial_gates if initial_gates else ['(Μη καταχωρημένο)'],
+            size_hint_y=None,
+            height=40
+        )
+        layout.add_widget(gate_spinner)
+        
+        # Update gates when substation changes
         def on_substation_change(spinner, text):
             substation_id = self.substations_map[text]
             # Check if current element type is a breaker and breaker type is Διασυνδετικός
             is_interconnection = (element_spinner.text in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ'] and 
                                  breaker_type_spinner.text == 'Διασυνδετικός')
-            available_bars = self.get_available_bars(substation_id, is_interconnection)
-            bar_spinner.values = available_bars
-            bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+            available_gates = self.get_available_gates(substation_id, is_interconnection)
+            gate_spinner.values = available_gates
+            gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
         
         substation_spinner.bind(text=on_substation_change)
         
@@ -1976,16 +3794,26 @@ class SubstationApp(App):
             height=40
         )
         
-        # Update bars when breaker type changes
+        # Update gates when breaker type changes
         def on_breaker_type_change(spinner, text):
             substation_id = self.substations_map[substation_spinner.text]
             is_interconnection = (element_spinner.text in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ'] and 
                                  text == 'Διασυνδετικός')
-            available_bars = self.get_available_bars(substation_id, is_interconnection)
-            bar_spinner.values = available_bars
-            bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+            available_gates = self.get_available_gates(substation_id, is_interconnection)
+            gate_spinner.values = available_gates
+            gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
         
         breaker_type_spinner.bind(text=on_breaker_type_change)
+        
+        # Breaker category filter (only for circuit breakers)
+        breaker_category_label = Label(text='Κατηγορία Διακόπτη:', size_hint_y=None, height=30)
+        breaker_category_spinner = Spinner(
+            text='SF6',
+            values=self.BREAKER_CATEGORIES,
+            size_hint_y=None,
+            height=40
+        )
+        breaker_category_spinner.bind(text=on_breaker_category_change)
         
         # Model selection with "Add New" button
         model_header = BoxLayout(size_hint_y=None, height=30, spacing=5)
@@ -2005,62 +3833,72 @@ class SubstationApp(App):
         
         # Store model data
         models_data = {}
+        all_models_cache = {}
         
-        def load_models_for_category(category):
+        def load_models_for_category(category, selected_breaker_category=None):
             """Load models for selected element category"""
-            c = self.conn.cursor()
-            c.execute("SELECT id, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models WHERE element_category=? ORDER BY model_name", (category,))
-            models = c.fetchall()
-            
+            models_data_temp, display_names, _ = self._load_models_for_element_type(
+                category, 
+                selected_breaker_category
+            )
             models_data.clear()
-            if models:
-                # Build display names
-                display_names = []
-                for m in models:
-                    display_name = m[1]  # model_name
-                    display_name += f" - {m[2] or 'N/A'}"  # manufacturer
-                    display_names.append(display_name)
-                
+            models_data.update(models_data_temp)
+            
+            if display_names:
                 model_spinner.values = display_names
-                for i, m in enumerate(models):
-                    key = display_names[i]
-                    models_data[key] = {
-                        'id': m[0],
-                        'model_name': m[1],
-                        'manufacturer': m[2] or '',
-                        'maintenance_cycle': m[3] or 0,
-                        'installation_space': m[4] or '',
-                        'breaker_category': m[5] or ''
-                    }
-                model_spinner.text = model_spinner.values[0]
+                model_spinner.text = display_names[0]
             else:
                 model_spinner.values = ['Επιλέξτε μοντέλο']
                 model_spinner.text = 'Επιλέξτε μοντέλο'
         
+        def on_breaker_category_change(spinner, text):
+            """Reload models when breaker category changes"""
+            current_element_type = element_spinner.text
+            load_models_for_category(current_element_type, text)
+        
         # Function to load models when element type changes
         def on_element_type_change(spinner, text):
-            load_models_for_category(text)
+            # Show/hide breaker category filter for circuit breakers
+            if text in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']:
+                if breaker_category_label not in layout.children:
+                    idx = layout.children.index(model_header)
+                    layout.add_widget(breaker_category_spinner, index=idx+1)
+                    layout.add_widget(breaker_category_label, index=idx+2)
+                    # Bind the breaker category change event
+                    breaker_category_spinner.bind(text=on_breaker_category_change)
+                load_models_for_category(text, breaker_category_spinner.text)
+            else:
+                if breaker_category_label in layout.children:
+                    breaker_category_spinner.unbind(text=on_breaker_category_change)
+                    layout.remove_widget(breaker_category_label)
+                    layout.remove_widget(breaker_category_spinner)
+                load_models_for_category(text, None)
+            
             # Show breaker type selector for circuit breakers
             if text in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']:
                 if breaker_type_label not in layout.children:
                     idx = layout.children.index(model_spinner)
                     layout.add_widget(breaker_type_spinner, index=idx)
                     layout.add_widget(breaker_type_label, index=idx+1)
-                # Update bars based on breaker type
+                # Update gates based on breaker type
                 substation_id = self.substations_map[substation_spinner.text]
                 is_interconnection = (breaker_type_spinner.text == 'Διασυνδετικός')
-                available_bars = self.get_available_bars(substation_id, is_interconnection)
-                bar_spinner.values = available_bars
-                bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+                available_gates = self.get_available_gates(substation_id, is_interconnection)
+                gate_spinner.values = available_gates
+                gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
             else:
                 if breaker_type_label in layout.children:
                     layout.remove_widget(breaker_type_label)
                     layout.remove_widget(breaker_type_spinner)
-                # Reset to regular bars for non-breaker elements
+                # Reset to regular gates for non-breaker elements
                 substation_id = self.substations_map[substation_spinner.text]
-                available_bars = self.get_available_bars(substation_id, False)
-                bar_spinner.values = available_bars
-                bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+                available_gates = self.get_available_gates(substation_id, False)
+                gate_spinner.values = available_gates
+                gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
+
+            # Auto-select voltage level based on element type
+            derived_voltage = self._derive_voltage_level(text) or '(Κενό)'
+            voltage_level_spinner.text = derived_voltage
         
         element_spinner.bind(text=on_element_type_change)
         on_element_type_change(element_spinner, element_spinner.text)
@@ -2139,8 +3977,13 @@ class SubstationApp(App):
             else:
                 is_main_switch = 0
             
-            # Get bar assignment
-            bar_value = bar_spinner.text if bar_spinner.text != '(Μη καταχωρημένο)' else ''
+            # Get gate assignment
+            gate_value = gate_spinner.text if gate_spinner.text != '(Μη καταχωρημένο)' else ''
+            
+            # Get breaker category for circuit breakers
+            breaker_category_value = None
+            if element_type in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']:
+                breaker_category_value = breaker_category_spinner.text
             
             # Get model_id if selected
             model_id = None
@@ -2162,14 +4005,17 @@ class SubstationApp(App):
                 show_message_popup('Σφάλμα', f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!')
                 return
 
+            voltage_level_value = voltage_level_spinner.text if voltage_level_spinner.text != '(Κενό)' else ''
+
             c.execute(
-                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, bar, is_main_switch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     substation_id,
                     element_type,
                     values.get('name', ''),
                     values.get('serial_number', ''),
                     values.get('maintenance_date', ''),
+                    voltage_level_value,
                     values.get('manufacturer', ''),
                     values.get('model', ''),
                     values.get('model_version', ''),
@@ -2178,8 +4024,9 @@ class SubstationApp(App):
                     maintenance_cycle_int,
                     model_id,
                     values.get('manufacture_year', ''),
-                    bar_value,
+                    gate_value,
                     is_main_switch,
+                    breaker_category_value,
                 ),
             )
             new_element_id = c.lastrowid
@@ -2239,30 +4086,41 @@ class SubstationApp(App):
         )
         input_layout.add_widget(Label(text='Επιλέξτε Τύπο Στοιχείου:', size_hint_y=None, height=30))
         input_layout.add_widget(element_spinner)
-        
-        # Bar selection (auto-populated from transformers)
-        bar_label = Label(text='Ζυγός (Bar):', size_hint_y=None, height=30)
-        input_layout.add_widget(bar_label)
-        
-        # Get initial bars for the selected substation
-        initial_bars = self.get_available_bars(substation_id)
-        bar_spinner = Spinner(
-            text=initial_bars[0] if initial_bars else '(Μη καταχωρημένο)',
-            values=initial_bars if initial_bars else ['(Μη καταχωρημένο)'],
+
+        # Voltage level selection
+        input_layout.add_widget(Label(text='Επίπεδο Τάσης:', size_hint_y=None, height=30))
+        initial_voltage = self._derive_voltage_level(element_spinner.text) or '(Κενό)'
+        voltage_level_spinner = Spinner(
+            text=initial_voltage,
+            values=self.VOLTAGE_LEVELS,
             size_hint_y=None,
             height=40
         )
-        input_layout.add_widget(bar_spinner)
+        input_layout.add_widget(voltage_level_spinner)
         
-        # Update bars when substation changes
+        # Gate selection (auto-populated from transformers)
+        gate_label = Label(text='Πύλη (Gate):', size_hint_y=None, height=30)
+        input_layout.add_widget(gate_label)
+        
+        # Get initial gates for the selected substation
+        initial_gates = self.get_available_gates(substation_id)
+        gate_spinner = Spinner(
+            text=initial_gates[0] if initial_gates else '(Μη καταχωρημένο)',
+            values=initial_gates if initial_gates else ['(Μη καταχωρημένο)'],
+            size_hint_y=None,
+            height=40
+        )
+        input_layout.add_widget(gate_spinner)
+        
+        # Update gates when substation changes
         def on_substation_change(spinner, text):
             selected_substation_id = substation_map[text]
             # Check if current element type is a breaker and breaker type is Διασυνδετικός
             is_interconnection = (element_spinner.text in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ'] and 
                                  breaker_type_spinner.text == 'Διασυνδετικός')
-            available_bars = self.get_available_bars(selected_substation_id, is_interconnection)
-            bar_spinner.values = available_bars
-            bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+            available_gates = self.get_available_gates(selected_substation_id, is_interconnection)
+            gate_spinner.values = available_gates
+            gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
         
         substation_spinner.bind(text=on_substation_change)
         
@@ -2275,16 +4133,25 @@ class SubstationApp(App):
             height=40
         )
         
-        # Update bars when breaker type changes
+        # Update gates when breaker type changes
         def on_breaker_type_change(spinner, text):
             selected_substation_id = substation_map[substation_spinner.text]
             is_interconnection = (element_spinner.text in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ'] and 
                                  text == 'Διασυνδετικός')
-            available_bars = self.get_available_bars(selected_substation_id, is_interconnection)
-            bar_spinner.values = available_bars
-            bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+            available_gates = self.get_available_gates(selected_substation_id, is_interconnection)
+            gate_spinner.values = available_gates
+            gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
         
         breaker_type_spinner.bind(text=on_breaker_type_change)
+        
+        # Breaker category filter (only for circuit breakers)
+        breaker_category_label = Label(text='Κατηγορία Διακόπτη:', size_hint_y=None, height=30)
+        breaker_category_spinner = Spinner(
+            text='SF6',
+            values=self.BREAKER_CATEGORIES,
+            size_hint_y=None,
+            height=40
+        )
         
         # Model selection with "Add New" button
         model_header = BoxLayout(size_hint_y=None, height=30, spacing=5)
@@ -2304,61 +4171,111 @@ class SubstationApp(App):
         
         # Store model data
         models_data = {}
+        all_models_cache = {}
         
-        def load_models_for_category(category):
+        def on_breaker_category_change(spinner, text):
+            """Reload models when breaker category changes"""
+            current_element_type = element_spinner.text
+            load_models_for_category(current_element_type, text)
+        
+        def load_models_for_category(category, selected_breaker_category=None):
             """Load models for selected element category"""
             c = self.conn.cursor()
             c.execute("SELECT id, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models WHERE element_category=? ORDER BY model_name", (category,))
             models = c.fetchall()
+            all_models_cache[category] = models
             
             models_data.clear()
             if models:
-                # Build display names
-                display_names = []
-                for m in models:
-                    display_name = m[1]  # model_name
-                    display_name += f" - {m[2] or 'N/A'}"  # manufacturer
-                    display_names.append(display_name)
-                
-                model_spinner.values = display_names
-                for i, m in enumerate(models):
-                    key = display_names[i]
-                    models_data[key] = {
-                        'id': m[0],
-                        'model_name': m[1],
-                        'manufacturer': m[2] or '',
-                        'maintenance_cycle': m[3] or 0,
-                        'installation_space': m[4] or '',
-                        'breaker_category': m[5] or ''
-                    }
-                model_spinner.text = model_spinner.values[0]
+                # For circuit breakers, filter by selected breaker category
+                if category in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
+                    if selected_breaker_category:
+                        # Filter models by breaker category (case-insensitive, trimmed)
+                        filtered_models = []
+                        for m in models:
+                            model_category = (m[5] or 'Other').strip()
+                            if model_category.lower() == selected_breaker_category.lower():
+                                filtered_models.append(m)
+                    else:
+                        filtered_models = models
+                    
+                    display_names = []
+                    for m in filtered_models:
+                        display_name = f"{m[1]} - {m[2] or 'N/A'}"
+                        display_names.append(display_name)
+                        models_data[display_name] = {
+                            'id': m[0],
+                            'model_name': m[1],
+                            'manufacturer': m[2] or '',
+                            'maintenance_cycle': m[3] or 0,
+                            'installation_space': m[4] or '',
+                            'breaker_category': m[5] or ''
+                        }
+                    
+                    model_spinner.values = display_names if display_names else ['Δεν υπάρχουν μοντέλα']
+                    model_spinner.text = display_names[0] if display_names else 'Δεν υπάρχουν μοντέλα'
+                else:
+                    # For non-breaker elements, show all models
+                    display_names = []
+                    for m in models:
+                        display_name = f"{m[1]} - {m[2] or 'N/A'}"
+                        display_names.append(display_name)
+                        models_data[display_name] = {
+                            'id': m[0],
+                            'model_name': m[1],
+                            'manufacturer': m[2] or '',
+                            'maintenance_cycle': m[3] or 0,
+                            'installation_space': m[4] or '',
+                            'breaker_category': m[5] or ''
+                        }
+                    model_spinner.values = display_names
+                    model_spinner.text = display_names[0] if display_names else 'Επιλέξτε μοντέλο'
             else:
                 model_spinner.values = ['Επιλέξτε μοντέλο']
                 model_spinner.text = 'Επιλέξτε μοντέλο'
         
         # Function to load models when element type changes
         def on_element_type_change(spinner, text):
-            load_models_for_category(text)
+            # Show/hide breaker category filter for circuit breakers
+            if text in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']:
+                if breaker_category_label not in input_layout.children:
+                    idx = input_layout.children.index(model_header)
+                    input_layout.add_widget(breaker_category_spinner, index=idx+1)
+                    input_layout.add_widget(breaker_category_label, index=idx+2)
+                    # Bind the breaker category change event
+                    breaker_category_spinner.bind(text=on_breaker_category_change)
+                load_models_for_category(text, breaker_category_spinner.text)
+            else:
+                if breaker_category_label in input_layout.children:
+                    breaker_category_spinner.unbind(text=on_breaker_category_change)
+                    input_layout.remove_widget(breaker_category_label)
+                    input_layout.remove_widget(breaker_category_spinner)
+                load_models_for_category(text, None)
+            
             # Show/hide breaker type spinner based on element type (only for MV breakers)
             if text == 'Διακόπτης ΜΤ':
                 if breaker_type_label not in input_layout.children:
-                    input_layout.add_widget(breaker_type_spinner, index=input_layout.children.index(bar_spinner) + 2)
+                    input_layout.add_widget(breaker_type_spinner, index=input_layout.children.index(gate_spinner) + 2)
                     input_layout.add_widget(breaker_type_label, index=input_layout.children.index(breaker_type_spinner) + 1)
-                # Refresh bars based on current breaker type
+                # Refresh gates based on current breaker type
                 is_interconnection = (breaker_type_spinner.text == 'Διασυνδετικός')
-                available_bars = self.get_available_bars(substation_id, is_interconnection)
-                bar_spinner.values = available_bars
-                if bar_spinner.text not in available_bars:
-                    bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+                available_gates = self.get_available_gates(substation_id, is_interconnection)
+                gate_spinner.values = available_gates
+                if gate_spinner.text not in available_gates:
+                    gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
             else:
                 if breaker_type_label in input_layout.children:
                     input_layout.remove_widget(breaker_type_label)
                     input_layout.remove_widget(breaker_type_spinner)
-                # Reset to regular bars for non-MV breaker elements (HV breakers also use regular bars)
-                available_bars = self.get_available_bars(substation_id, False)
-                bar_spinner.values = available_bars
-                if bar_spinner.text not in available_bars:
-                    bar_spinner.text = available_bars[0] if available_bars else '(Μη καταχωρημένο)'
+                # Reset to regular gates for non-MV breaker elements (HV breakers also use regular gates)
+                available_gates = self.get_available_gates(substation_id, False)
+                gate_spinner.values = available_gates
+                if gate_spinner.text not in available_gates:
+                    gate_spinner.text = available_gates[0] if available_gates else '(Μη καταχωρημένο)'
+
+            # Auto-select voltage level based on element type
+            derived_voltage = self._derive_voltage_level(text) or '(Κενό)'
+            voltage_level_spinner.text = derived_voltage
         
         element_spinner.bind(text=on_element_type_change)
         on_element_type_change(element_spinner, element_spinner.text)
@@ -2452,8 +4369,13 @@ class SubstationApp(App):
             else:
                 is_main_switch = 0
             
-            # Get bar assignment
-            bar_value = bar_spinner.text if bar_spinner.text != '(Μη καταχωρημένο)' else ''
+            # Get gate assignment
+            gate_value = gate_spinner.text if gate_spinner.text != '(Μη καταχωρημένο)' else ''
+            
+            # Get breaker category for circuit breakers
+            breaker_category_value = None
+            if element_type in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']:
+                breaker_category_value = breaker_category_spinner.text
             
             # Validate maintenance_cycle is a number
             maintenance_cycle = values.get('maintenance_cycle', '0')
@@ -2476,14 +4398,17 @@ class SubstationApp(App):
             
             # Get model_id if a model is selected
             model_id = models_data[model_spinner.text]['id'] if model_spinner.text in models_data else None
-            
-            c.execute("INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, bar, is_main_switch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+
+            voltage_level_value = voltage_level_spinner.text if voltage_level_spinner.text != '(Κενό)' else ''
+
+            c.execute("INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
                      (
                         selected_substation_id,
                         element_type,
                         values.get('name', ''),
                         values.get('serial_number', ''),
                         values.get('maintenance_date', ''),
+                        voltage_level_value,
                         values.get('manufacturer', ''),
                         values.get('model', ''),
                         values.get('model_version', ''),
@@ -2492,8 +4417,9 @@ class SubstationApp(App):
                         maintenance_cycle_int,
                         model_id,
                         values.get('manufacture_year', ''),
-                        bar_value,
+                        gate_value,
                         is_main_switch,
+                        breaker_category_value,
                      ))
             new_element_id = c.lastrowid
             self.conn.commit()
@@ -2517,7 +4443,7 @@ class SubstationApp(App):
         popup.content = layout
         popup.open()
 
-    def show_maintenance_menu(self, instance=None, preselected_substation_name=None, parent_popup=None):
+    def show_maintenance_menu(self, instance=None, preselected_substation_name=None, parent_popup=None, maintenance_id=None, after_save_callback=None):
         """Show maintenance recording dialog
         
         Args:
@@ -2538,7 +4464,75 @@ class SubstationApp(App):
             show_message_popup('Σφάλμα', 'Δεν υπάρχουν υποσταθμοί!')
             return
         
-        popup = Popup(title='Καταχώρηση Συντήρησης', size_hint=(0.9, 0.95))
+        maintenance_record = None
+        maintenance_people = []
+        existing_elements_data = {}
+        responsible_person_id = None
+
+        if maintenance_id:
+            c.execute("""
+                SELECT substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id
+                FROM maintenance
+                WHERE id = ?
+            """, (maintenance_id,))
+            maintenance_record = c.fetchone()
+            if not maintenance_record:
+                show_message_popup('Σφάλμα', 'Η συντήρηση δεν βρέθηκε.')
+                return
+
+            maint_substation_id = maintenance_record[0]
+            c.execute("SELECT name FROM substations WHERE id=?", (maint_substation_id,))
+            sub_row = c.fetchone()
+            if sub_row:
+                preselected_substation_name = sub_row[0]
+
+            c.execute("SELECT person_id, role FROM maintenance_people WHERE maintenance_id=?", (maintenance_id,))
+            maintenance_people = c.fetchall()
+            responsible_person_id = maintenance_record[6]
+            if not responsible_person_id:
+                for pid, role in maintenance_people:
+                    if role == 'responsible':
+                        responsible_person_id = pid
+                        break
+
+            c.execute("""
+                SELECT element_id, element_comments,
+                       insulation_closed_fa_ground, insulation_closed_fa_unit,
+                       insulation_closed_fb_ground, insulation_closed_fb_unit,
+                       insulation_closed_fc_ground, insulation_closed_fc_unit,
+                       insulation_open_fa_fa, insulation_open_fa_unit,
+                       insulation_open_fb_fb, insulation_open_fb_unit,
+                       insulation_open_fc_fc, insulation_open_fc_unit,
+                       contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc,
+                       operations_count,
+                       sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
+                       vidar_fa, vidar_fb, vidar_fc
+                FROM maintenance_elements
+                WHERE maintenance_id = ?
+            """, (maintenance_id,))
+            for row in c.fetchall():
+                existing_elements_data[row[0]] = {
+                    'element_comments': row[1] or '',
+                    'ins_closed_fa': row[2], 'ins_closed_fa_unit': row[3] or 'GΩ',
+                    'ins_closed_fb': row[4], 'ins_closed_fb_unit': row[5] or 'GΩ',
+                    'ins_closed_fc': row[6], 'ins_closed_fc_unit': row[7] or 'GΩ',
+                    'ins_open_fa': row[8], 'ins_open_fa_unit': row[9] or 'GΩ',
+                    'ins_open_fb': row[10], 'ins_open_fb_unit': row[11] or 'GΩ',
+                    'ins_open_fc': row[12], 'ins_open_fc_unit': row[13] or 'GΩ',
+                    'cont_fa': row[14], 'cont_fb': row[15], 'cont_fc': row[16],
+                    'ops_count': row[17],
+                    'sf6': {
+                        'sf6_n2_fa': row[18], 'h2o_fa': row[19], 'so2_fa': row[20],
+                        'sf6_n2_fb': row[21], 'h2o_fb': row[22], 'so2_fb': row[23],
+                        'sf6_n2_fc': row[24], 'h2o_fc': row[25], 'so2_fc': row[26]
+                    },
+                    'vidar': {
+                        'vidar_fa': row[27], 'vidar_fb': row[28], 'vidar_fc': row[29]
+                    }
+                }
+
+        popup_title = 'Επεξεργασία Συντήρησης' if maintenance_id else 'Καταχώρηση Συντήρησης'
+        popup = Popup(title=popup_title, size_hint=(0.9, 0.95))
         
         # Create a scrollable container for all content
         scroll_view = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
@@ -2558,12 +4552,14 @@ class SubstationApp(App):
             size_hint_y=None,
             height=40
         )
+        if maintenance_id:
+            substation_spinner.disabled = True
         content_layout.add_widget(substation_spinner)
         
         # Maintenance Type
         content_layout.add_widget(Label(text='Τύπος Συντήρησης:', size_hint_y=None, height=35))
         maintenance_type_spinner = Spinner(
-            text='Επαναληπτική συντήρηση',
+            text=maintenance_record[4] if maintenance_record and maintenance_record[4] else 'Επαναληπτική συντήρηση',
             values=['Επαναληπτική συντήρηση', 'Βλάβη', 'Οπτικός έλεγχος'],
             size_hint_y=None,
             height=35
@@ -2574,7 +4570,7 @@ class SubstationApp(App):
         from datetime import datetime
         content_layout.add_widget(Label(text='Ημερομηνία & Ώρα:', size_hint_y=None, height=35))
         datetime_input = TextInput(
-            text=datetime.now().strftime('%Y-%m-%d %H:%M'),
+            text=maintenance_record[2] if maintenance_record and maintenance_record[2] else datetime.now().strftime('%Y-%m-%d %H:%M'),
             hint_text='YYYY-MM-DD HH:MM',
             size_hint_y=None,
             height=35,
@@ -2582,10 +4578,71 @@ class SubstationApp(App):
         )
         content_layout.add_widget(datetime_input)
         
+        # Responsible person (mandatory)
+        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY name")
+        people = c.fetchall()
+        if not people:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.', callback=lambda: self.show_people_management(None))
+            return
+
+        content_layout.add_widget(Label(text='Υπεύθυνος Συντήρησης (υποχρεωτικό):', size_hint_y=None, height=35))
+        people_map = {f"{p[1]} ({p[2]})": p[0] for p in people}
+        responsible_default_text = list(people_map.keys())[0] if people_map else ''
+        if responsible_person_id:
+            for label, pid in people_map.items():
+                if pid == responsible_person_id:
+                    responsible_default_text = label
+                    break
+
+        responsible_spinner = Spinner(
+            text=responsible_default_text,
+            values=list(people_map.keys()),
+            size_hint_y=None,
+            height=35
+        )
+        content_layout.add_widget(responsible_spinner)
+
+        # Crew selection (optional)
+        content_layout.add_widget(Label(text='Ομάδα Συντήρησης (προαιρετικό):', size_hint_y=None, height=35))
+
+        crew_actions = BoxLayout(size_hint_y=None, height=30, spacing=5)
+        select_all_btn = Button(text='Επιλογή Όλων', size_hint_x=0.5)
+        clear_all_btn = Button(text='Καμία', size_hint_x=0.5)
+        crew_actions.add_widget(select_all_btn)
+        crew_actions.add_widget(clear_all_btn)
+        content_layout.add_widget(crew_actions)
+
+        crew_container = GridLayout(cols=1, spacing=3, size_hint_y=None, padding=5)
+        crew_container.bind(minimum_height=crew_container.setter('height'))
+        crew_checks = {}
+        crew_ids = {pid for pid, role in maintenance_people if role == 'crew'}
+        for pid, name, role in people:
+            row = BoxLayout(size_hint_y=None, height=28, spacing=5)
+            cb = CheckBox(size_hint_x=0.1)
+            if pid in crew_ids:
+                cb.active = True
+            row.add_widget(cb)
+            row.add_widget(Label(text=f'{name} ({role})', size_hint_x=0.9))
+            crew_container.add_widget(row)
+            crew_checks[pid] = cb
+
+        crew_scroll = ScrollView(bar_width=8, scroll_type=['bars', 'content'], size_hint_y=None)
+        crew_scroll.height = min(220, max(60, len(people) * 30 + 10))
+        crew_scroll.add_widget(crew_container)
+        content_layout.add_widget(crew_scroll)
+
+        def set_all_crew(value):
+            for cb in crew_checks.values():
+                cb.active = value
+
+        select_all_btn.bind(on_press=lambda x: set_all_crew(True))
+        clear_all_btn.bind(on_press=lambda x: set_all_crew(False))
+        
         # Overall comments
         content_layout.add_widget(Label(text='Γενικά Σχόλια Συντήρησης:', size_hint_y=None, height=35))
         overall_comments = TextInput(
             hint_text='Γενικά σχόλια για την συντήρηση...',
+            text=maintenance_record[3] if maintenance_record and maintenance_record[3] else '',
             size_hint_y=None,
             height=60,
             multiline=True
@@ -2611,13 +4668,13 @@ class SubstationApp(App):
             substation_id = substation_map[substation_name]
             c = self.conn.cursor()
             c.execute("""
-                SELECT e.id, e.element_type, e.name, e.serial_number, e.bar, e.is_main_switch,
-                       e.breaker_category, e.manufacturer, e.model,
+                  SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.is_main_switch,
+                       e.breaker_category, e.manufacturer, e.model, e.operations_count,
                        em.manufacturer as model_manufacturer, em.model_name
                 FROM elements e
                 LEFT JOIN element_models em ON e.element_model_id = em.id
                 WHERE e.substation_id=?
-                ORDER BY e.bar
+                  ORDER BY e.gate
             """, (substation_id,))
             elements = c.fetchall()
             
@@ -2631,7 +4688,7 @@ class SubstationApp(App):
             
             # Define sort priority for element types
             def get_element_priority(elem):
-                elem_id, elem_type, elem_name, serial_number, bar, is_main_switch, breaker_category, manufacturer, model, model_manufacturer, model_name = elem
+                elem_id, elem_type, elem_name, serial_number, gate, is_main_switch, breaker_category, manufacturer, model, operations_count, model_manufacturer, model_name = elem
                 
                 # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
                 if elem_type == 'Διακόπτης ΥΤ':
@@ -2651,43 +4708,43 @@ class SubstationApp(App):
                 else:
                     return (8, elem_name)
             
-            # Group elements by bar
-            bars_dict = {}
+            # Group elements by gate
+            gates_dict = {}
             for elem in elements:
-                elem_id, elem_type, elem_name, serial_number, bar, is_main_switch, breaker_category, manufacturer, model, model_manufacturer, model_name = elem
+                elem_id, elem_type, elem_name, serial_number, gate, is_main_switch, breaker_category, manufacturer, model, operations_count, model_manufacturer, model_name = elem
                 
-                bar_key = bar if bar else '(Μη καταχωρημένο)'
-                if bar_key not in bars_dict:
-                    bars_dict[bar_key] = []
-                bars_dict[bar_key].append(elem)
+                gate_key = gate if gate else '(Μη καταχωρημένο)'
+                if gate_key not in gates_dict:
+                    gates_dict[gate_key] = []
+                gates_dict[gate_key].append(elem)
             
-            # Sort elements within each bar according to priority
-            for bar_key in bars_dict:
-                bars_dict[bar_key].sort(key=get_element_priority)
+            # Sort elements within each gate according to priority
+            for gate_key in gates_dict:
+                gates_dict[gate_key].sort(key=get_element_priority)
             
-            # Display elements grouped by bar
-            # Show bars in order: ΖΥΓΟΣ 1, ΖΥΓΟΣ 2, etc., then unassigned
-            sorted_bars = sorted([b for b in bars_dict.keys() if b.startswith('ΖΥΓΟΣ')])
-            if '(Μη καταχωρημένο)' in bars_dict:
-                sorted_bars.append('(Μη καταχωρημένο)')
+            # Display elements grouped by gate
+            # Show gates in order: ΠΥΛΗ 1, ΠΥΛΗ 2, etc., then unassigned
+            sorted_gates = sorted([g for g in gates_dict.keys() if g.startswith('ΠΥΛΗ')])
+            if '(Μη καταχωρημένο)' in gates_dict:
+                sorted_gates.append('(Μη καταχωρημένο)')
             
-            # Display elements grouped by bar
-            for bar_name in sorted_bars:
-                bar_elements = bars_dict[bar_name]
+            # Display elements grouped by gate
+            for gate_name in sorted_gates:
+                gate_elements = gates_dict[gate_name]
                 
-                # Bar header with count
-                element_count = len(bar_elements)
-                bar_label = Label(
-                    text=f'{bar_name} ({element_count} στοιχεία)',
+                # Gate header with count
+                element_count = len(gate_elements)
+                gate_label = Label(
+                    text=f'{gate_name} ({element_count} στοιχεία)',
                     size_hint_y=None,
                     height=35,
                     bold=True,
-                    color=(0.2, 0.6, 1, 1)  # Blue color for bar headers
+                    color=(0.2, 0.6, 1, 1)  # Blue color for gate headers
                 )
-                elements_container.add_widget(bar_label)
+                elements_container.add_widget(gate_label)
                 
-                # Display elements in this bar
-                for elem_id, elem_type, elem_name, serial_number, bar, is_main_switch, breaker_category, manufacturer, model, model_manufacturer, model_name in bar_elements:
+                # Display elements in this gate
+                for elem_id, elem_type, elem_name, serial_number, gate, is_main_switch, breaker_category, manufacturer, model, operations_count, model_manufacturer, model_name in gate_elements:
                     # Determine if this is a circuit breaker for showing measurement fields
                     is_breaker = (elem_type in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ'])
                     
@@ -2833,6 +4890,134 @@ class SubstationApp(App):
                         contact_layout.add_widget(cont_fc)
                         details_container.add_widget(contact_layout)
                         
+                        # Operations Counter
+                        details_container.add_widget(Label(
+                            text='ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ:',
+                            size_hint_y=None,
+                            height=25,
+                            bold=True
+                        ))
+                        
+                        ops_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                        ops_layout.add_widget(Label(text='Αριθμός Χειρισμών:', size_hint_x=0.3))
+                        ops_count_input = TextInput(
+                            text='',
+                            hint_text=f'Τελευταία τιμή: {operations_count}' if operations_count else '0',
+                            size_hint_x=0.2,
+                            multiline=False
+                        )
+                        ops_layout.add_widget(ops_count_input)
+                        
+                        # Calculate difference from last maintenance
+                        c.execute("""
+                            SELECT me.operations_count 
+                            FROM maintenance_elements me
+                            JOIN maintenance m ON me.maintenance_id = m.id
+                            WHERE me.element_id = ?
+                            ORDER BY m.date_time DESC
+                            LIMIT 1
+                        """, (elem_id,))
+                        last_ops = c.fetchone()
+                        ops_diff = ''
+                        if last_ops and last_ops[0] is not None:
+                            try:
+                                current = int(ops_count_input.text) if ops_count_input.text else 0
+                                diff = current - last_ops[0]
+                                ops_diff = f'(Διαφορά από τελευταία: +{diff})' if diff >= 0 else f'(Διαφορά από τελευταία: {diff})'
+                            except:
+                                pass
+                        
+                        ops_diff_label = Label(text=ops_diff, size_hint_x=0.5, font_size='10sp')
+                        ops_layout.add_widget(ops_diff_label)
+                        details_container.add_widget(ops_layout)
+                        
+                        # Type-specific measurements
+                        sf6_widgets = {}
+                        vidar_widgets = {}
+                        
+                        # SF6 Gas Quality (only for SF6 breakers)
+                        if breaker_category == 'SF6':
+                            details_container.add_widget(Label(
+                                text='ΠΟΙΟΤΗΤΑ ΑΕΡΙΟΥ SF6:',
+                                size_hint_y=None,
+                                height=25,
+                                bold=True
+                            ))
+                            
+                            # Header
+                            sf6_header = BoxLayout(size_hint_y=None, height=25, spacing=3)
+                            sf6_header.add_widget(Label(text='', size_hint_x=0.15))
+                            sf6_header.add_widget(Label(text='SF6/N2 (%)', size_hint_x=0.28, bold=True))
+                            sf6_header.add_widget(Label(text='H2O (°C atm)', size_hint_x=0.28, bold=True))
+                            sf6_header.add_widget(Label(text='SO2 (ppm)', size_hint_x=0.28, bold=True))
+                            details_container.add_widget(sf6_header)
+                            
+                            # Phase A
+                            sf6_fa_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            sf6_fa_layout.add_widget(Label(text='ΦΑ:', size_hint_x=0.15))
+                            sf6_n2_fa = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fa_layout.add_widget(sf6_n2_fa)
+                            h2o_fa = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fa_layout.add_widget(h2o_fa)
+                            so2_fa = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fa_layout.add_widget(so2_fa)
+                            details_container.add_widget(sf6_fa_layout)
+                            
+                            # Phase B
+                            sf6_fb_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            sf6_fb_layout.add_widget(Label(text='ΦΒ:', size_hint_x=0.15))
+                            sf6_n2_fb = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fb_layout.add_widget(sf6_n2_fb)
+                            h2o_fb = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fb_layout.add_widget(h2o_fb)
+                            so2_fb = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fb_layout.add_widget(so2_fb)
+                            details_container.add_widget(sf6_fb_layout)
+                            
+                            # Phase C
+                            sf6_fc_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            sf6_fc_layout.add_widget(Label(text='ΦΓ:', size_hint_x=0.15))
+                            sf6_n2_fc = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fc_layout.add_widget(sf6_n2_fc)
+                            h2o_fc = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fc_layout.add_widget(h2o_fc)
+                            so2_fc = TextInput(hint_text='0.0', size_hint_x=0.28, multiline=False)
+                            sf6_fc_layout.add_widget(so2_fc)
+                            details_container.add_widget(sf6_fc_layout)
+                            
+                            sf6_widgets = {
+                                'sf6_n2_fa': sf6_n2_fa, 'h2o_fa': h2o_fa, 'so2_fa': so2_fa,
+                                'sf6_n2_fb': sf6_n2_fb, 'h2o_fb': h2o_fb, 'so2_fb': so2_fb,
+                                'sf6_n2_fc': sf6_n2_fc, 'h2o_fc': h2o_fc, 'so2_fc': so2_fc
+                            }
+                        
+                        # Vacuum Check VIDAR (only for Vacuum breakers)
+                        if breaker_category == 'Vacuum':
+                            details_container.add_widget(Label(
+                                text='ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):',
+                                size_hint_y=None,
+                                height=25,
+                                bold=True
+                            ))
+                            
+                            vidar_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            vidar_layout.add_widget(Label(text='ΦΑ-ΦΑ:', size_hint_x=0.15))
+                            vidar_fa = TextInput(hint_text='0.0', size_hint_x=0.25, multiline=False)
+                            vidar_layout.add_widget(vidar_fa)
+                            vidar_layout.add_widget(Label(text='ΦΒ-ΦΒ:', size_hint_x=0.15))
+                            vidar_fb = TextInput(hint_text='0.0', size_hint_x=0.25, multiline=False)
+                            vidar_layout.add_widget(vidar_fb)
+                            vidar_layout.add_widget(Label(text='ΦΓ-ΦΓ:', size_hint_x=0.15))
+                            vidar_fc = TextInput(hint_text='0.0', size_hint_x=0.25, multiline=False)
+                            vidar_layout.add_widget(vidar_fc)
+                            details_container.add_widget(vidar_layout)
+                            
+                            vidar_widgets = {
+                                'vidar_fa': vidar_fa,
+                                'vidar_fb': vidar_fb,
+                                'vidar_fc': vidar_fc
+                            }
+                        
                         # Store measurement widgets
                         measurements = {
                             'ins_closed_fa': ins_closed_fa,
@@ -2849,7 +5034,10 @@ class SubstationApp(App):
                                 'ins_open_fc_unit': ins_open_fc_unit,
                                 'cont_fa': cont_fa,
                                 'cont_fb': cont_fb,
-                                'cont_fc': cont_fc
+                                'cont_fc': cont_fc,
+                                'ops_count': ops_count_input,
+                                'sf6': sf6_widgets,
+                                'vidar': vidar_widgets
                             }
                     
                     # Don't add details_container yet - will be added when checkbox is checked
@@ -2880,6 +5068,56 @@ class SubstationApp(App):
                         'measurements': measurements,
                         'elem_type': elem_type
                     }
+
+            if maintenance_id and existing_elements_data:
+                for elem_id, data in existing_elements_data.items():
+                    if elem_id not in element_widgets:
+                        continue
+                    widgets = element_widgets[elem_id]
+                    widgets['comments'].text = data.get('element_comments', '')
+                    widgets['checkbox'].active = True
+
+                    measurements = widgets['measurements']
+                    if measurements:
+                        if data.get('ins_closed_fa') is not None:
+                            measurements['ins_closed_fa'].text = str(data.get('ins_closed_fa'))
+                        measurements['ins_closed_fa_unit'].text = data.get('ins_closed_fa_unit', 'GΩ')
+                        if data.get('ins_closed_fb') is not None:
+                            measurements['ins_closed_fb'].text = str(data.get('ins_closed_fb'))
+                        measurements['ins_closed_fb_unit'].text = data.get('ins_closed_fb_unit', 'GΩ')
+                        if data.get('ins_closed_fc') is not None:
+                            measurements['ins_closed_fc'].text = str(data.get('ins_closed_fc'))
+                        measurements['ins_closed_fc_unit'].text = data.get('ins_closed_fc_unit', 'GΩ')
+
+                        if data.get('ins_open_fa') is not None:
+                            measurements['ins_open_fa'].text = str(data.get('ins_open_fa'))
+                        measurements['ins_open_fa_unit'].text = data.get('ins_open_fa_unit', 'GΩ')
+                        if data.get('ins_open_fb') is not None:
+                            measurements['ins_open_fb'].text = str(data.get('ins_open_fb'))
+                        measurements['ins_open_fb_unit'].text = data.get('ins_open_fb_unit', 'GΩ')
+                        if data.get('ins_open_fc') is not None:
+                            measurements['ins_open_fc'].text = str(data.get('ins_open_fc'))
+                        measurements['ins_open_fc_unit'].text = data.get('ins_open_fc_unit', 'GΩ')
+
+                        if data.get('cont_fa') is not None:
+                            measurements['cont_fa'].text = str(data.get('cont_fa'))
+                        if data.get('cont_fb') is not None:
+                            measurements['cont_fb'].text = str(data.get('cont_fb'))
+                        if data.get('cont_fc') is not None:
+                            measurements['cont_fc'].text = str(data.get('cont_fc'))
+
+                        if data.get('ops_count') is not None:
+                            measurements['ops_count'].text = str(data.get('ops_count'))
+
+                        if measurements.get('sf6'):
+                            for key, widget in measurements['sf6'].items():
+                                if data['sf6'].get(key) is not None:
+                                    widget.text = str(data['sf6'].get(key))
+
+                        if measurements.get('vidar'):
+                            for key, widget in measurements['vidar'].items():
+                                if data['vidar'].get(key) is not None:
+                                    widget.text = str(data['vidar'].get(key))
         
         # Load initial elements
         load_elements(substation_spinner.text)
@@ -2909,16 +5147,48 @@ class SubstationApp(App):
             if not datetime_input.text.strip():
                 show_message_popup('Σφάλμα', 'Η ημερομηνία είναι υποχρεωτική!')
                 return
+
+            if not responsible_spinner.text:
+                show_message_popup('Σφάλμα', 'Ο υπεύθυνος συντήρησης είναι υποχρεωτικός!')
+                return
             
-            # Insert maintenance record with type
+            # Insert/update maintenance record with type and user
             substation_id = substation_map[substation_spinner.text]
             maintenance_date = datetime_input.text.strip()
             maintenance_type = maintenance_type_spinner.text
-            c.execute(
-                "INSERT INTO maintenance (substation_id, date_time, overall_comments, maintenance_type) VALUES (?, ?, ?, ?)",
-                (substation_id, maintenance_date, overall_comments.text.strip(), maintenance_type)
-            )
-            maintenance_id = c.lastrowid
+            user_name = ''
+            maintenance_name = self._build_maintenance_name(substation_spinner.text, maintenance_date)
+            responsible_id = people_map.get(responsible_spinner.text)
+
+            if maintenance_id:
+                c.execute(
+                    """UPDATE maintenance
+                       SET substation_id=?, name=?, date_time=?, overall_comments=?, maintenance_type=?, user_name=?, responsible_id=?
+                       WHERE id=?""",
+                    (substation_id, maintenance_name, maintenance_date, overall_comments.text.strip(), maintenance_type, user_name, responsible_id, maintenance_id)
+                )
+                c.execute("DELETE FROM maintenance_people WHERE maintenance_id=?", (maintenance_id,))
+                c.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+            else:
+                c.execute(
+                    "INSERT INTO maintenance (substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (substation_id, maintenance_name, maintenance_date, overall_comments.text.strip(), maintenance_type, user_name, responsible_id)
+                )
+                maintenance_id = c.lastrowid
+
+            # Store responsible and crew in maintenance_people
+            if responsible_id:
+                c.execute(
+                    "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, ?)",
+                    (maintenance_id, responsible_id, 'responsible')
+                )
+
+            for pid, cb in crew_checks.items():
+                if cb.active and pid != responsible_id:
+                    c.execute(
+                        "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, ?)",
+                        (maintenance_id, pid, 'crew')
+                    )
             
             # Insert maintenance elements and update their maintenance_date
             for elem_id, widgets in selected_elements:
@@ -2933,6 +5203,25 @@ class SubstationApp(App):
                         except:
                             return None
                     
+                    # Parse operations count
+                    ops_count = None
+                    try:
+                        ops_count = int(measurements['ops_count'].text) if measurements['ops_count'].text.strip() else None
+                    except:
+                        pass
+                    
+                    # Parse SF6 measurements if present
+                    sf6_vals = {}
+                    if measurements['sf6']:
+                        for key, widget in measurements['sf6'].items():
+                            sf6_vals[key] = parse_float(widget.text)
+                    
+                    # Parse VIDAR measurements if present
+                    vidar_vals = {}
+                    if measurements['vidar']:
+                        for key, widget in measurements['vidar'].items():
+                            vidar_vals[key] = parse_float(widget.text)
+                    
                     c.execute(
                         """INSERT INTO maintenance_elements 
                         (maintenance_id, element_id, element_comments,
@@ -2942,8 +5231,11 @@ class SubstationApp(App):
                          insulation_open_fa_fa, insulation_open_fa_unit,
                          insulation_open_fb_fb, insulation_open_fb_unit,
                          insulation_open_fc_fc, insulation_open_fc_unit,
-                         contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc,
+                         operations_count,
+                         sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
+                         vidar_fa, vidar_fb, vidar_fc)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (maintenance_id, elem_id, widgets['comments'].text.strip(),
                          parse_float(measurements['ins_closed_fa'].text), measurements['ins_closed_fa_unit'].text,
                          parse_float(measurements['ins_closed_fb'].text), measurements['ins_closed_fb_unit'].text,
@@ -2953,8 +5245,17 @@ class SubstationApp(App):
                          parse_float(measurements['ins_open_fc'].text), measurements['ins_open_fc_unit'].text,
                          parse_float(measurements['cont_fa'].text),
                          parse_float(measurements['cont_fb'].text),
-                         parse_float(measurements['cont_fc'].text))
+                         parse_float(measurements['cont_fc'].text),
+                         ops_count,
+                         sf6_vals.get('sf6_n2_fa'), sf6_vals.get('h2o_fa'), sf6_vals.get('so2_fa'),
+                         sf6_vals.get('sf6_n2_fb'), sf6_vals.get('h2o_fb'), sf6_vals.get('so2_fb'),
+                         sf6_vals.get('sf6_n2_fc'), sf6_vals.get('h2o_fc'), sf6_vals.get('so2_fc'),
+                         vidar_vals.get('vidar_fa'), vidar_vals.get('vidar_fb'), vidar_vals.get('vidar_fc'))
                     )
+                    
+                    # Update element's operations_count
+                    if ops_count is not None:
+                        c.execute("UPDATE elements SET operations_count=? WHERE id=?", (ops_count, elem_id))
                 else:  # Other element types without measurements
                     c.execute(
                         "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
@@ -2975,7 +5276,11 @@ class SubstationApp(App):
             
             self.conn.commit()
             popup.dismiss()
-            show_message_popup('Επιτυχία', 'Η συντήρηση καταχωρήθηκε!')
+            success_msg = 'Η συντήρηση ενημερώθηκε!' if maintenance_record else 'Η συντήρηση καταχωρήθηκε!'
+            if after_save_callback:
+                show_message_popup('Επιτυχία', success_msg, callback=lambda: after_save_callback())
+            else:
+                show_message_popup('Επιτυχία', success_msg)
         
         save_btn = Button(text='Αποθήκευση')
         save_btn.bind(on_press=lambda x: save_maintenance())
@@ -3006,9 +5311,10 @@ class SubstationApp(App):
     
     def show_maintenance_history(self, instance):
         """Show maintenance history"""
+        font_kwargs = self._get_ui_font_kwargs()
         c = self.conn.cursor()
         c.execute('''
-            SELECT m.id, s.name, m.date_time, m.overall_comments
+            SELECT m.id, s.name, m.name, m.date_time, m.overall_comments
             FROM maintenance m
             JOIN substations s ON m.substation_id = s.id
             ORDER BY m.date_time DESC
@@ -3026,7 +5332,7 @@ class SubstationApp(App):
         grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
         grid.bind(minimum_height=grid.setter('height'))
         
-        for maint_id, sub_name, date_time, overall_comments in maintenance_records:
+        for maint_id, sub_name, maint_name, date_time, overall_comments in maintenance_records:
             # Maintenance card
             card = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=5)
             
@@ -3035,17 +5341,55 @@ class SubstationApp(App):
             
             # Header
             header = BoxLayout(size_hint_y=None, height=40, spacing=5)
+            display_name = maint_name or self._build_maintenance_name(sub_name, date_time)
             header.add_widget(Label(
-                text=f'Υποσταθμός: {sub_name}',
+                text=f'Συντήρηση: {display_name}',
                 bold=True,
-                size_hint_x=0.6
+                size_hint_x=0.45
             ))
             header.add_widget(Label(
                 text=f'Ημ/νία: {date_time}',
-                size_hint_x=0.4
+                size_hint_x=0.2
             ))
+            edit_btn = Button(
+                text='Επεξ.',
+                size_hint_x=0.11
+            )
+            email_btn = Button(
+                text='Email',
+                size_hint_x=0.12
+            )
+            delete_btn = Button(
+                text='Διαγραφή',
+                size_hint_x=0.12
+            )
+            def make_delete_handler(m_id, p):
+                return lambda x: self.confirm_delete_maintenance(m_id, p)
+            def make_email_handler(m_id):
+                return lambda x: self.send_maintenance_email_report(m_id)
+            def make_edit_handler(m_id, p):
+                return lambda x: self.show_maintenance_menu(None, None, p, m_id, lambda: self.show_maintenance_history(None))
+            delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
+            email_btn.bind(on_press=make_email_handler(maint_id))
+            edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
+            header.add_widget(edit_btn)
+            header.add_widget(delete_btn)
+            header.add_widget(email_btn)
             card.add_widget(header)
             card_height += 40
+
+            # Responsible and crew
+            responsible, crew = self._get_maintenance_people(maint_id)
+            if responsible or crew:
+                crew_text = ', '.join(crew) if crew else '-'
+                resp_text = responsible if responsible else '-'
+                people_label = Label(
+                    text=f'Υπεύθυνος: {resp_text} | Ομάδα: {crew_text}',
+                    size_hint_y=None,
+                    height=25
+                )
+                card.add_widget(people_label)
+                card_height += 25
             
             # Overall comments
             if overall_comments:
@@ -3086,44 +5430,48 @@ class SubstationApp(App):
                 
                 elem_label = Label(
                     text=elem_text,
-                    size_hint_x=0.7
+                    size_hint_x=0.6
                 )
                 elem_row.add_widget(elem_label)
                 
-                # Add PDF button for circuit breakers
-                if 'Διακόπτης' in elem_type and breaker_category in ['SF6', 'Oil', 'Vacuum']:
+                # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES)
+                buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
+
+                view_btn = Button(
+                    text='Εμφ.',
+                    size_hint_x=0.5,
+                    size_hint_y=None,
+                    height=35,
+                    **font_kwargs
+                )
+
+                def make_view_handler(m_id, e_id, e_name):
+                    return lambda x: self.show_maintenance_element_details(m_id, e_id, e_name)
+
+                view_btn.bind(on_press=make_view_handler(maint_id, elem_id, elem_name))
+                buttons_container.add_widget(view_btn)
+
+                if 'Διακόπτης' in elem_type and breaker_category in self.BREAKER_CATEGORIES:
                     pdf_btn = Button(
-                        text='📄 PDF',
-                        size_hint_x=0.3,
+                        text='PDF',
+                        size_hint_x=0.5,
                         size_hint_y=None,
-                        height=35
+                        height=35,
+                        **font_kwargs
                     )
-                    
+
                     def make_pdf_handler(m_id, e_id, e_name):
                         return lambda x: self.generate_pdf_report(m_id, e_id, e_name)
-                    
+
                     pdf_btn.bind(on_press=make_pdf_handler(maint_id, elem_id, elem_name))
-                    elem_row.add_widget(pdf_btn)
+                    buttons_container.add_widget(pdf_btn)
                 else:
-                    # Add spacer for non-breaker elements to maintain alignment
-                    elem_row.add_widget(Label(text='', size_hint_x=0.3))
+                    buttons_container.add_widget(Label(text='', size_hint_x=0.5))
+
+                elem_row.add_widget(buttons_container)
                 
                 card.add_widget(elem_row)
                 card_height += 40
-            
-            # Delete button
-            delete_btn = Button(
-                text='Διαγραφή Συντήρησης',
-                size_hint_y=None,
-                height=35
-            )
-            # Use a proper function to avoid lambda issues
-            def make_delete_handler(m_id, p):
-                return lambda x: self.delete_maintenance(m_id, p)
-            
-            delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
-            card.add_widget(delete_btn)
-            card_height += 35
             
             # Add spacing at bottom
             card_height += 10
@@ -3146,9 +5494,10 @@ class SubstationApp(App):
     
     def show_substation_maintenance_history(self, substation_id, substation_name, parent_display_popup=None):
         """Show maintenance history for a specific substation"""
+        font_kwargs = self._get_ui_font_kwargs()
         c = self.conn.cursor()
         c.execute('''
-            SELECT m.id, m.date_time, m.overall_comments
+            SELECT m.id, m.name, m.date_time, m.overall_comments
             FROM maintenance m
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
@@ -3175,7 +5524,7 @@ class SubstationApp(App):
             grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
             grid.bind(minimum_height=grid.setter('height'))
         
-        for maint_id, date_time, overall_comments in maintenance_records:
+        for maint_id, maint_name, date_time, overall_comments in maintenance_records:
             # Maintenance card
             card = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=5)
             
@@ -3184,13 +5533,51 @@ class SubstationApp(App):
             
             # Header
             header = BoxLayout(size_hint_y=None, height=40, spacing=5)
+            display_name = maint_name or self._build_maintenance_name(substation_name, date_time)
             header.add_widget(Label(
-                text=f'Ημερομηνία: {date_time}',
+                text=f'Συντήρηση: {display_name}',
                 bold=True,
-                size_hint_x=1.0
+                size_hint_x=0.6
             ))
+            edit_btn = Button(
+                text='Επεξ.',
+                size_hint_x=0.12
+            )
+            email_btn = Button(
+                text='Email',
+                size_hint_x=0.13
+            )
+            delete_btn = Button(
+                text='Διαγραφή',
+                size_hint_x=0.15
+            )
+            def make_delete_handler(m_id, p):
+                return lambda x: self.confirm_delete_maintenance_for_substation(m_id, p, substation_id, substation_name, parent_display_popup)
+            delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
+            def make_email_handler(m_id):
+                return lambda x: self.send_maintenance_email_report(m_id)
+            email_btn.bind(on_press=make_email_handler(maint_id))
+            def make_edit_handler(m_id, p):
+                return lambda x: self.show_maintenance_menu(None, substation_name, p, m_id, lambda: self.show_substation_maintenance_history(substation_id, substation_name, parent_display_popup))
+            edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
+            header.add_widget(edit_btn)
+            header.add_widget(email_btn)
+            header.add_widget(delete_btn)
             card.add_widget(header)
             card_height += 40
+
+            # Responsible and crew
+            responsible, crew = self._get_maintenance_people(maint_id)
+            if responsible or crew:
+                crew_text = ', '.join(crew) if crew else '-'
+                resp_text = responsible if responsible else '-'
+                people_label = Label(
+                    text=f'Υπεύθυνος: {resp_text} | Ομάδα: {crew_text}',
+                    size_hint_y=None,
+                    height=25
+                )
+                card.add_widget(people_label)
+                card_height += 25
             
             # Overall comments
             if overall_comments:
@@ -3231,44 +5618,48 @@ class SubstationApp(App):
                 
                 elem_label = Label(
                     text=elem_text,
-                    size_hint_x=0.7
+                    size_hint_x=0.6
                 )
                 elem_row.add_widget(elem_label)
                 
-                # Add PDF button for circuit breakers
-                if 'Διακόπτης' in elem_type and breaker_category in ['SF6', 'Oil', 'Vacuum']:
+                # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES)
+                buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
+
+                view_btn = Button(
+                    text='Εμφ.',
+                    size_hint_x=0.5,
+                    size_hint_y=None,
+                    height=35,
+                    **font_kwargs
+                )
+
+                def make_view_handler(m_id, e_id, e_name):
+                    return lambda x: self.show_maintenance_element_details(m_id, e_id, e_name)
+
+                view_btn.bind(on_press=make_view_handler(maint_id, elem_id, elem_name))
+                buttons_container.add_widget(view_btn)
+
+                if 'Διακόπτης' in elem_type and breaker_category in self.BREAKER_CATEGORIES:
                     pdf_btn = Button(
-                        text='📄 PDF',
-                        size_hint_x=0.3,
+                        text='PDF',
+                        size_hint_x=0.5,
                         size_hint_y=None,
-                        height=35
+                        height=35,
+                        **font_kwargs
                     )
-                    
+
                     def make_pdf_handler(m_id, e_id, e_name):
                         return lambda x: self.generate_pdf_report(m_id, e_id, e_name)
-                    
+
                     pdf_btn.bind(on_press=make_pdf_handler(maint_id, elem_id, elem_name))
-                    elem_row.add_widget(pdf_btn)
+                    buttons_container.add_widget(pdf_btn)
                 else:
-                    # Add spacer for non-breaker elements to maintain alignment
-                    elem_row.add_widget(Label(text='', size_hint_x=0.3))
+                    buttons_container.add_widget(Label(text='', size_hint_x=0.5))
+
+                elem_row.add_widget(buttons_container)
                 
                 card.add_widget(elem_row)
                 card_height += 40
-            
-            # Delete button
-            delete_btn = Button(
-                text='Διαγραφή Συντήρησης',
-                size_hint_y=None,
-                height=35
-            )
-            # Use a proper function to avoid lambda issues
-            def make_delete_handler(m_id, p):
-                return lambda x: self.delete_maintenance_for_substation(m_id, p, substation_id, substation_name, parent_display_popup)
-            
-            delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
-            card.add_widget(delete_btn)
-            card_height += 35
             
             # Add spacing at bottom
             card_height += 10
@@ -3286,6 +5677,391 @@ class SubstationApp(App):
         close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
         
+        popup.content = main_layout
+        popup.open()
+
+    def show_substation_inspection_history(self, substation_id, substation_name, parent_display_popup=None):
+        """Show inspection history for a specific substation."""
+        font_kwargs = self._get_ui_font_kwargs()
+        c = self.conn.cursor()
+        c.execute('''
+            SELECT id, inspection_date, data_json
+            FROM inspections
+            WHERE substation_id = ?
+            ORDER BY inspection_date DESC
+        ''', (substation_id,))
+        inspection_records = c.fetchall()
+
+        popup = Popup(title=f'Ιστορικό Επιθεωρήσεων: {substation_name}', size_hint=(0.95, 0.9))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        add_insp_btn = Button(text='+ Προσθήκη Νέας Επιθεώρησης', size_hint_y=0.1)
+        add_insp_btn.bind(on_press=lambda x: self.show_inspection_entry_popup(None, substation_name, popup))
+        main_layout.add_widget(add_insp_btn)
+
+        if not inspection_records:
+            no_records_label = Label(
+                text=f'Δεν υπάρχουν καταχωρημένες επιθεωρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
+                size_hint_y=0.7
+            )
+            main_layout.add_widget(no_records_label)
+        else:
+            scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
+            grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+            grid.bind(minimum_height=grid.setter('height'))
+
+            for insp_id, inspection_date, data_json in inspection_records:
+                card = BoxLayout(orientation='horizontal', size_hint_y=None, height=40, spacing=5)
+                card.add_widget(Label(
+                    text=f'Ημερομηνία: {inspection_date}',
+                    size_hint_x=0.6
+                ))
+
+                buttons_box = BoxLayout(size_hint_x=0.4, spacing=5)
+                view_btn = Button(text='Εμφ.', size_hint_x=0.34, **font_kwargs)
+                pdf_btn = Button(text='PDF', size_hint_x=0.33, **font_kwargs)
+                email_btn = Button(text='Email', size_hint_x=0.33)
+                view_btn.bind(on_press=lambda x, iid=insp_id: self.show_inspection_details(iid))
+                pdf_btn.bind(on_press=lambda x, iid=insp_id: self.generate_inspection_pdf(iid, substation_name))
+                email_btn.bind(on_press=lambda x, iid=insp_id: self.send_inspection_email_report(iid))
+                buttons_box.add_widget(view_btn)
+                buttons_box.add_widget(pdf_btn)
+                buttons_box.add_widget(email_btn)
+                card.add_widget(buttons_box)
+
+                grid.add_widget(card)
+
+            scroll.add_widget(grid)
+            main_layout.add_widget(scroll)
+
+        close_btn = Button(text='Κλείσιμο', size_hint_y=0.1)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+
+        popup.content = main_layout
+        popup.open()
+
+    def show_inspection_details(self, inspection_id):
+        """Display inspection details inside the app."""
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT substation_name, inspection_date, data_json
+            FROM inspections
+            WHERE id = ?
+        """, (inspection_id,))
+        row = c.fetchone()
+
+        if not row:
+            show_message_popup('Σφάλμα', 'Δεν βρέθηκε η επιθεώρηση.')
+            return
+
+        substation_name, inspection_date, data_json = row
+
+        try:
+            data = json.loads(data_json or '{}')
+        except Exception:
+            data = {}
+        fields = data.get('fields', [])
+
+        popup = Popup(title='Προβολή Επιθεώρησης', size_hint=(0.95, 0.9))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        header_text = f'Υποσταθμός: {substation_name or "-"} | Ημερομηνία: {inspection_date}'
+        main_layout.add_widget(Label(text=header_text, size_hint_y=None, height=30))
+
+        scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
+        content = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=10)
+        content.bind(minimum_height=content.setter('height'))
+
+        def make_wrapped_label(text, size_hint_x):
+            lbl = Label(text=text, size_hint_x=size_hint_x, size_hint_y=None)
+            lbl.bind(width=lambda inst, val: setattr(inst, 'text_size', (val, None)))
+            lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', max(30, val[1])))
+            return lbl
+
+        def build_inspection_sections():
+            fallback = self._get_inspection_fallback_fields()
+            sections = []
+            current_title = 'Στοιχεία Επιθεώρησης'
+            current_labels = []
+            for item in fallback:
+                if isinstance(item, dict) and item.get('type') == 'section':
+                    if current_labels:
+                        sections.append((current_title, list(current_labels)))
+                    current_title = item.get('title', '')
+                    current_labels = []
+                elif isinstance(item, str):
+                    current_labels.append(item)
+            if current_labels:
+                sections.append((current_title, list(current_labels)))
+            label_to_section = {}
+            for title, labels in sections:
+                for label in labels:
+                    label_to_section[label] = title
+            return sections, label_to_section
+
+        if not fields:
+            content.add_widget(Label(text='Δεν υπάρχουν διαθέσιμα δεδομένα επιθεώρησης.', size_hint_y=None, height=30))
+        else:
+            sections, label_to_section = build_inspection_sections()
+            section_items = {title: [] for title, _labels in sections}
+            other_items = []
+
+            for field in fields:
+                if not isinstance(field, dict):
+                    continue
+                label = field.get('label', '')
+                if label in label_to_section:
+                    section_items[label_to_section[label]].append(field)
+                else:
+                    other_items.append(field)
+
+            for title, _labels in sections:
+                items = section_items.get(title) or []
+                if not items:
+                    continue
+                section_title = Label(text=f'[b]{title}[/b]', markup=True, size_hint_y=None, height=26)
+                content.add_widget(section_title)
+                grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+                grid.bind(minimum_height=grid.setter('height'))
+                for field in items:
+                    label = field.get('label', '')
+                    value = field.get('value', '')
+                    grid.add_widget(make_wrapped_label(str(label), 0.35))
+                    grid.add_widget(make_wrapped_label(str(value), 0.65))
+                content.add_widget(grid)
+
+            if other_items:
+                section_title = Label(text='[b]Λοιπά[/b]', markup=True, size_hint_y=None, height=26)
+                content.add_widget(section_title)
+                grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+                grid.bind(minimum_height=grid.setter('height'))
+                for field in other_items:
+                    label = field.get('label', '')
+                    value = field.get('value', '')
+                    grid.add_widget(make_wrapped_label(str(label), 0.35))
+                    grid.add_widget(make_wrapped_label(str(value), 0.65))
+                content.add_widget(grid)
+
+        scroll.add_widget(content)
+        main_layout.add_widget(scroll)
+
+        close_btn = Button(text='Κλείσιμο', size_hint_y=None, height=40)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+
+        popup.content = main_layout
+        popup.open()
+
+    def show_maintenance_element_details(self, maintenance_id, element_id, element_name):
+        """Show stored comments/measurements for a maintenance element entry."""
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT m.name, m.date_time, m.overall_comments, m.maintenance_type, m.user_name,
+                   s.name as substation_name, s.location, s.division,
+                   e.element_type, e.name, e.serial_number, e.manufacturer, e.model,
+                   e.breaker_category, e.voltage_level, e.gate, e.manufacture_year,
+                   em.model_name, em.manufacturer as model_manufacturer
+            FROM maintenance m
+            JOIN substations s ON m.substation_id = s.id
+            JOIN elements e ON e.id = ?
+            LEFT JOIN element_models em ON e.element_model_id = em.id
+            WHERE m.id = ?
+            LIMIT 1
+        """, (element_id, maintenance_id))
+        header_row = c.fetchone()
+
+        c.execute("""
+            SELECT me.element_comments,
+                   me.insulation_closed_fa_ground, me.insulation_closed_fa_unit,
+                   me.insulation_closed_fb_ground, me.insulation_closed_fb_unit,
+                   me.insulation_closed_fc_ground, me.insulation_closed_fc_unit,
+                   me.insulation_open_fa_fa, me.insulation_open_fa_unit,
+                   me.insulation_open_fb_fb, me.insulation_open_fb_unit,
+                   me.insulation_open_fc_fc, me.insulation_open_fc_unit,
+                   me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
+                   me.operations_count,
+                   me.sf6_n2_fa, me.h2o_fa, me.so2_fa,
+                   me.sf6_n2_fb, me.h2o_fb, me.so2_fb,
+                   me.sf6_n2_fc, me.h2o_fc, me.so2_fc,
+                   me.vidar_fa, me.vidar_fb, me.vidar_fc,
+                   e.breaker_category
+            FROM maintenance_elements me
+            JOIN elements e ON me.element_id = e.id
+            WHERE me.maintenance_id = ? AND me.element_id = ?
+            LIMIT 1
+        """, (maintenance_id, element_id))
+        row = c.fetchone()
+
+        if not row:
+            show_message_popup('Πληροφορία', 'Δεν βρέθηκαν στοιχεία για το στοιχείο.')
+            return
+
+        (
+            element_comments,
+            ins_closed_fa, ins_closed_fa_unit,
+            ins_closed_fb, ins_closed_fb_unit,
+            ins_closed_fc, ins_closed_fc_unit,
+            ins_open_fa, ins_open_fa_unit,
+            ins_open_fb, ins_open_fb_unit,
+            ins_open_fc, ins_open_fc_unit,
+            cont_fa, cont_fb, cont_fc,
+            ops_count,
+            sf6_n2_fa, h2o_fa, so2_fa,
+            sf6_n2_fb, h2o_fb, so2_fb,
+            sf6_n2_fc, h2o_fc, so2_fc,
+            vidar_fa, vidar_fb, vidar_fc,
+            breaker_category
+        ) = row
+
+        def fmt(val, unit=None):
+            if val is None or val == '':
+                return '-'
+            return f"{val} {unit}" if unit else f"{val}"
+
+        def make_wrapped_label(text, bold=False, size_hint_x=1, font_size='14sp'):
+            lbl = Label(
+                text=f"[b]{text}[/b]" if bold else str(text),
+                markup=bold,
+                size_hint_x=size_hint_x,
+                size_hint_y=None,
+                font_size=font_size,
+                halign='left',
+                valign='top'
+            )
+            lbl.bind(
+                width=lambda inst, val: setattr(inst, 'text_size', (val, None)),
+                texture_size=lambda inst, val: setattr(inst, 'height', val[1] + 6)
+            )
+            return lbl
+
+        def add_kv_row(grid, label_text, value_text):
+            grid.add_widget(make_wrapped_label(label_text, bold=True, size_hint_x=0.38))
+            grid.add_widget(make_wrapped_label(value_text, bold=False, size_hint_x=0.62))
+
+        def add_section(title):
+            content.add_widget(make_wrapped_label(title, bold=True, font_size='15sp'))
+
+        has_measurements = any([
+            ins_closed_fa, ins_closed_fb, ins_closed_fc,
+            ins_open_fa, ins_open_fb, ins_open_fc,
+            cont_fa, cont_fb, cont_fc,
+            ops_count,
+            sf6_n2_fa, h2o_fa, so2_fa,
+            sf6_n2_fb, h2o_fb, so2_fb,
+            sf6_n2_fc, h2o_fc, so2_fc,
+            vidar_fa, vidar_fb, vidar_fc
+        ])
+
+        if not has_measurements and not element_comments:
+            show_message_popup('Πληροφορία', 'Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.')
+            return
+
+        popup = Popup(title=f'Μετρήσεις: {element_name}', size_hint=(0.9, 0.9))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
+        content = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=10)
+        content.bind(minimum_height=content.setter('height'))
+
+        if header_row:
+            (
+                maint_name, maint_date, maint_comments, maint_type, maint_user,
+                sub_name, sub_location, division,
+                elem_type, elem_name, serial_number, manufacturer, model,
+                breaker_cat, voltage_level, gate, manufacture_year,
+                model_name, model_manufacturer
+            ) = header_row
+
+            add_section('Στοιχεία Συντήρησης')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'Υποσταθμός', sub_name or '-')
+            add_kv_row(grid, 'Ημερομηνία', maint_date or '-')
+            add_kv_row(grid, 'Τύπος Συντήρησης', maint_type or '-')
+            add_kv_row(grid, 'Χειριστής', maint_user or '-')
+            add_kv_row(grid, 'Τομέας', division or '-')
+            add_kv_row(grid, 'Τοποθεσία', sub_location or '-')
+            content.add_widget(grid)
+
+            add_section('Στοιχεία Διακόπτη')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'Τύπος', elem_type or '-')
+            add_kv_row(grid, 'Όνομα', elem_name or '-')
+            add_kv_row(grid, 'S/N', serial_number or '-')
+            add_kv_row(grid, 'Κατασκευαστής', manufacturer or '-')
+            if model_name or model_manufacturer:
+                add_kv_row(grid, 'Μοντέλο (Βάση)', f"{model_name or '-'} / {model_manufacturer or '-'}")
+            add_kv_row(grid, 'Μοντέλο (Στοιχείο)', model or '-')
+            add_kv_row(grid, 'Κατηγορία Διακόπτη', breaker_cat or '-')
+            add_kv_row(grid, 'Τάση', voltage_level or '-')
+            add_kv_row(grid, 'Πύλη', gate or '-')
+            add_kv_row(grid, 'Έτος Κατασκευής', manufacture_year or '-')
+            content.add_widget(grid)
+
+            add_section('Σχόλια Συντήρησης')
+            content.add_widget(make_wrapped_label(maint_comments or '-', bold=False))
+
+        add_section('Σχόλια Στοιχείου')
+        content.add_widget(make_wrapped_label(element_comments or '-', bold=False))
+
+        if has_measurements:
+            add_section('Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'ΦΑ-Γη', fmt(ins_closed_fa, ins_closed_fa_unit))
+            add_kv_row(grid, 'ΦΒ-Γη', fmt(ins_closed_fb, ins_closed_fb_unit))
+            add_kv_row(grid, 'ΦΓ-Γη', fmt(ins_closed_fc, ins_closed_fc_unit))
+            content.add_widget(grid)
+
+            add_section('Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'ΦΑ-ΦΑ', fmt(ins_open_fa, ins_open_fa_unit))
+            add_kv_row(grid, 'ΦΒ-ΦΒ', fmt(ins_open_fb, ins_open_fb_unit))
+            add_kv_row(grid, 'ΦΓ-ΦΓ', fmt(ins_open_fc, ins_open_fc_unit))
+            content.add_widget(grid)
+
+            add_section('Αντίσταση Διέλευσης (μΩ)')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'ΦΑ-ΦΑ', fmt(cont_fa))
+            add_kv_row(grid, 'ΦΒ-ΦΒ', fmt(cont_fb))
+            add_kv_row(grid, 'ΦΓ-ΦΓ', fmt(cont_fc))
+            content.add_widget(grid)
+
+            add_section('Μετρητής Χειρισμών')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'Αριθμός Χειρισμών', fmt(ops_count))
+            content.add_widget(grid)
+
+        if has_measurements and breaker_category == 'SF6' and any([sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc]):
+            add_section('Ποιότητα Αερίου SF6')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'ΦΑ', f"SF6/N2 {fmt(sf6_n2_fa)} | H2O {fmt(h2o_fa)} | SO2 {fmt(so2_fa)}")
+            add_kv_row(grid, 'ΦΒ', f"SF6/N2 {fmt(sf6_n2_fb)} | H2O {fmt(h2o_fb)} | SO2 {fmt(so2_fb)}")
+            add_kv_row(grid, 'ΦΓ', f"SF6/N2 {fmt(sf6_n2_fc)} | H2O {fmt(h2o_fc)} | SO2 {fmt(so2_fc)}")
+            content.add_widget(grid)
+
+        if has_measurements and breaker_category == 'Vacuum' and any([vidar_fa, vidar_fb, vidar_fc]):
+            add_section('Έλεγχος Κενού (VIDAR)')
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter('height'))
+            add_kv_row(grid, 'ΦΑ-ΦΑ', fmt(vidar_fa))
+            add_kv_row(grid, 'ΦΒ-ΦΒ', fmt(vidar_fb))
+            add_kv_row(grid, 'ΦΓ-ΦΓ', fmt(vidar_fc))
+            content.add_widget(grid)
+
+        scroll.add_widget(content)
+        main_layout.add_widget(scroll)
+
+        close_btn = Button(text='Κλείσιμο', size_hint_y=None, height=40)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+
         popup.content = main_layout
         popup.open()
     
@@ -3345,6 +6121,35 @@ class SubstationApp(App):
         except Exception as e:
             show_message_popup('Σφάλμα', f'Αποτυχία δημιουργίας PDF:\n{str(e)}')
     
+    def confirm_delete_maintenance(self, maintenance_id, parent_popup):
+        """Confirm before deleting a maintenance record."""
+        confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.6, 0.3))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        warning_label = Label(
+            text='Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση;',
+            size_hint_y=0.6
+        )
+        layout.add_widget(warning_label)
+
+        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+
+        def confirm():
+            confirm_popup.dismiss()
+            self.delete_maintenance(maintenance_id, parent_popup)
+
+        yes_btn = Button(text='ΝΑΙ', color=(1, 0, 0, 1))
+        yes_btn.bind(on_press=lambda x: confirm())
+        buttons_layout.add_widget(yes_btn)
+
+        no_btn = Button(text='ΟΧΙ')
+        no_btn.bind(on_press=confirm_popup.dismiss)
+        buttons_layout.add_widget(no_btn)
+
+        layout.add_widget(buttons_layout)
+        confirm_popup.content = layout
+        confirm_popup.open()
+
     def delete_maintenance(self, maintenance_id, parent_popup):
         """Delete a maintenance record and update related last maintenance dates"""
         c = self.conn.cursor()
@@ -3400,6 +6205,35 @@ class SubstationApp(App):
         
         show_message_popup('Ολοκληρώθηκε', 'Η συντήρηση διαγράφηκε!', callback=on_close)
     
+    def confirm_delete_maintenance_for_substation(self, maintenance_id, parent_popup, substation_id, substation_name, parent_display_popup=None):
+        """Confirm before deleting a maintenance record for a substation."""
+        confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.6, 0.3))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        warning_label = Label(
+            text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτη συντήρηση του υποσταθμού "{substation_name}";',
+            size_hint_y=0.6
+        )
+        layout.add_widget(warning_label)
+
+        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+
+        def confirm():
+            confirm_popup.dismiss()
+            self.delete_maintenance_for_substation(maintenance_id, parent_popup, substation_id, substation_name, parent_display_popup)
+
+        yes_btn = Button(text='ΝΑΙ', color=(1, 0, 0, 1))
+        yes_btn.bind(on_press=lambda x: confirm())
+        buttons_layout.add_widget(yes_btn)
+
+        no_btn = Button(text='ΟΧΙ')
+        no_btn.bind(on_press=confirm_popup.dismiss)
+        buttons_layout.add_widget(no_btn)
+
+        layout.add_widget(buttons_layout)
+        confirm_popup.content = layout
+        confirm_popup.open()
+
     def delete_maintenance_for_substation(self, maintenance_id, parent_popup, substation_id, substation_name, parent_display_popup=None):
         """Delete a maintenance record, update last maintenance dates, and refresh substation-specific view"""
         c = self.conn.cursor()
@@ -3444,6 +6278,555 @@ class SubstationApp(App):
         parent_popup.dismiss()
         if parent_display_popup:
             parent_display_popup.dismiss()
+    
+    def show_isolation_requests(self, instance=None):
+        """Show isolation requests in calendar view"""
+        from datetime import datetime, timedelta
+        from calendar import monthrange
+
+        font_kwargs = self._get_ui_font_kwargs()
+        
+        popup = Popup(title='Αιτήσεις Απομόνωσης', size_hint=(0.95, 0.95))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # Current month/year state
+        current_date = datetime.now()
+        current_month = [current_date.month]
+        current_year = [current_date.year]
+        
+        # Top controls
+        controls_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+        
+        prev_btn = Button(text='◀ Προηγούμενος', **font_kwargs)
+        next_btn = Button(text='Επόμενος ▶', **font_kwargs)
+        today_btn = Button(text='Σήμερα', **font_kwargs)
+        add_btn = Button(text='+ Νέα Αίτηση', **font_kwargs)
+        
+        controls_layout.add_widget(prev_btn)
+        controls_layout.add_widget(today_btn)
+        controls_layout.add_widget(next_btn)
+        controls_layout.add_widget(add_btn)
+        
+        main_layout.add_widget(controls_layout)
+        
+        # Month/Year header
+        header_label = Label(
+            text='',
+            size_hint_y=0.08,
+            font_size='20sp',
+            bold=True
+        )
+        main_layout.add_widget(header_label)
+        
+        # Calendar container (will be recreated on month change)
+        calendar_container = BoxLayout(orientation='vertical')
+        main_layout.add_widget(calendar_container)
+        
+        # Legend
+        legend_layout = BoxLayout(size_hint_y=0.08, spacing=10, padding=[10, 5])
+        legend_layout.add_widget(Label(text='', size_hint_x=0.3, **font_kwargs))
+        legend_layout.add_widget(Label(text='● Αιτήθηκε', size_hint_x=0.2, color=(1, 0.85, 0, 1), **font_kwargs))
+        legend_layout.add_widget(Label(text='● Εγκρίθηκε', size_hint_x=0.2, color=(0.2, 0.8, 0.2, 1), **font_kwargs))
+        legend_layout.add_widget(Label(text='● Ακυρώθηκε', size_hint_x=0.2, color=(0.9, 0.2, 0.2, 1), **font_kwargs))
+        legend_layout.add_widget(Label(text='', size_hint_x=0.1, **font_kwargs))
+        main_layout.add_widget(legend_layout)
+        
+        def load_calendar():
+            """Load calendar for current month/year"""
+            calendar_container.clear_widgets()
+            
+            month = current_month[0]
+            year = current_year[0]
+            
+            # Update header
+            month_names = ['', 'Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος',
+                          'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος']
+            header_label.text = f'{month_names[month]} {year}'
+            
+            # Get all isolation requests for this month
+            c = self.conn.cursor()
+            first_day = f'{year}-{month:02d}-01 00:00'
+            last_day_num = monthrange(year, month)[1]
+            last_day = f'{year}-{month:02d}-{last_day_num} 23:59'
+            
+            c.execute("""
+                SELECT ir.id, ir.substation_id, s.name, ir.start_datetime, ir.end_datetime, 
+                       ir.status, ir.notes
+                FROM isolation_requests ir
+                JOIN substations s ON ir.substation_id = s.id
+                WHERE (ir.start_datetime <= ? AND ir.end_datetime >= ?)
+                   OR (ir.start_datetime >= ? AND ir.start_datetime <= ?)
+                ORDER BY ir.start_datetime
+            """, (last_day, first_day, first_day, last_day))
+            requests = c.fetchall()
+            
+            # Group requests by day
+            requests_by_day = {}
+            for req_id, sub_id, sub_name, start_dt, end_dt, status, notes in requests:
+                try:
+                    start = datetime.strptime(start_dt, '%Y-%m-%d %H:%M')
+                    end = datetime.strptime(end_dt, '%Y-%m-%d %H:%M')
+                    
+                    # Add to all days in range within this month
+                    current = start
+                    while current <= end:
+                        if current.year == year and current.month == month:
+                            day = current.day
+                            if day not in requests_by_day:
+                                requests_by_day[day] = []
+                            # Avoid duplicates
+                            if not any(r[0] == req_id for r in requests_by_day[day]):
+                                requests_by_day[day].append((req_id, sub_id, sub_name, start_dt, end_dt, status, notes))
+                        current += timedelta(days=1)
+                except Exception:
+                    pass
+            
+            # Create calendar grid
+            calendar_grid = GridLayout(cols=7, spacing=2)
+            
+            # Day headers
+            day_names = ['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ']
+            for day_name in day_names:
+                calendar_grid.add_widget(Label(
+                    text=day_name,
+                    size_hint_y=None,
+                    height=30,
+                    bold=True
+                ))
+            
+            # Get first day of month (0=Monday, 6=Sunday)
+            first_weekday = datetime(year, month, 1).weekday()
+            days_in_month = monthrange(year, month)[1]
+            
+            # Add empty cells for days before month starts
+            for _ in range(first_weekday):
+                calendar_grid.add_widget(Label(text=''))
+            
+            # Add days of month
+            for day in range(1, days_in_month + 1):
+                day_box = BoxLayout(orientation='vertical', size_hint_y=None, height=100)
+                
+                # Day number
+                day_label = Label(
+                    text=str(day),
+                    size_hint_y=0.3,
+                    bold=True
+                )
+                day_box.add_widget(day_label)
+                
+                # Requests for this day
+                if day in requests_by_day:
+                    scroll = ScrollView(size_hint_y=0.7)
+                    requests_layout = GridLayout(cols=1, size_hint_y=None, spacing=2, padding=2)
+                    requests_layout.bind(minimum_height=requests_layout.setter('height'))
+                    
+                    for req_id, sub_id, sub_name, start_dt, end_dt, status, notes in requests_by_day[day]:
+                        # Color based on status
+                        if status == 'Accepted':
+                            color = (0.2, 0.8, 0.2, 1)  # Green
+                            symbol = '●'
+                        elif status == 'Cancelled':
+                            color = (0.8, 0.2, 0.2, 1)  # Red
+                            symbol = '●'
+                        else:  # Requested
+                            color = (0.8, 0.8, 0.2, 1)  # Yellow
+                            symbol = '●'
+                        
+                        req_btn = Button(
+                            text=f'{symbol} {sub_name[:15]}',
+                            size_hint_y=None,
+                            height=30,
+                            background_color=color,
+                            **font_kwargs
+                        )
+                        
+                        def make_request_handler(r_id):
+                            return lambda x: self.show_isolation_request_details(r_id, popup)
+                        
+                        req_btn.bind(on_press=make_request_handler(req_id))
+                        requests_layout.add_widget(req_btn)
+                    
+                    scroll.add_widget(requests_layout)
+                    day_box.add_widget(scroll)
+                else:
+                    day_box.add_widget(Label(text='', size_hint_y=0.7))
+                
+                calendar_grid.add_widget(day_box)
+            
+            calendar_container.add_widget(calendar_grid)
+        
+        def go_prev_month(instance):
+            if current_month[0] == 1:
+                current_month[0] = 12
+                current_year[0] -= 1
+            else:
+                current_month[0] -= 1
+            load_calendar()
+        
+        def go_next_month(instance):
+            if current_month[0] == 12:
+                current_month[0] = 1
+                current_year[0] += 1
+            else:
+                current_month[0] += 1
+            load_calendar()
+        
+        def go_today(instance):
+            today = datetime.now()
+            current_month[0] = today.month
+            current_year[0] = today.year
+            load_calendar()
+        
+        def add_request(instance):
+            self.show_add_isolation_request(popup)
+        
+        prev_btn.bind(on_press=go_prev_month)
+        next_btn.bind(on_press=go_next_month)
+        today_btn.bind(on_press=go_today)
+        add_btn.bind(on_press=add_request)
+        
+        # Load initial calendar
+        load_calendar()
+        
+        # Close button
+        close_btn = Button(text='Κλείσιμο', size_hint_y=0.08)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+        
+        popup.content = main_layout
+        popup.open()
+    
+    def show_add_isolation_request(self, parent_popup):
+        """Show dialog to add new isolation request"""
+        from datetime import datetime, timedelta
+        
+        # Get list of substations
+        c = self.conn.cursor()
+        c.execute("SELECT id, name FROM substations ORDER BY name")
+        substations = c.fetchall()
+        
+        if not substations:
+            show_message_popup('Σφάλμα', 'Δεν υπάρχουν υποσταθμοί!')
+            return
+        
+        popup = Popup(title='Νέα Αίτηση Απομόνωσης', size_hint=(0.7, 0.75))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # Substation selection
+        layout.add_widget(Label(text='Υποσταθμός:', size_hint_y=None, height=30))
+        substation_map = {s[1]: s[0] for s in substations}
+        substation_spinner = Spinner(
+            text=substations[0][1],
+            values=[s[1] for s in substations],
+            size_hint_y=None,
+            height=40
+        )
+        layout.add_widget(substation_spinner)
+        
+        # Start datetime
+        layout.add_widget(Label(text='Ημ/νία & Ώρα Έναρξης:', size_hint_y=None, height=30))
+        start_input = TextInput(
+            text=datetime.now().strftime('%Y-%m-%d %H:%M'),
+            hint_text='YYYY-MM-DD HH:MM',
+            size_hint_y=None,
+            height=35,
+            multiline=False
+        )
+        layout.add_widget(start_input)
+        
+        # Quick presets for start
+        start_presets = BoxLayout(size_hint_y=None, height=35, spacing=5)
+        
+        def set_start_today_morning():
+            start_input.text = datetime.now().strftime('%Y-%m-%d 08:00')
+        
+        def set_start_today_evening():
+            start_input.text = datetime.now().strftime('%Y-%m-%d 18:00')
+        
+        today_morning_btn = Button(text='Σήμερα 08:00')
+        today_morning_btn.bind(on_press=lambda x: set_start_today_morning())
+        start_presets.add_widget(today_morning_btn)
+        
+        today_evening_btn = Button(text='Σήμερα 18:00')
+        today_evening_btn.bind(on_press=lambda x: set_start_today_evening())
+        start_presets.add_widget(today_evening_btn)
+        
+        layout.add_widget(start_presets)
+        
+        # End datetime
+        layout.add_widget(Label(text='Ημ/νία & Ώρα Λήξης:', size_hint_y=None, height=30))
+        end_input = TextInput(
+            text=(datetime.now() + timedelta(hours=4)).strftime('%Y-%m-%d %H:%M'),
+            hint_text='YYYY-MM-DD HH:MM',
+            size_hint_y=None,
+            height=35,
+            multiline=False
+        )
+        layout.add_widget(end_input)
+        
+        # Quick duration presets
+        duration_presets = BoxLayout(size_hint_y=None, height=35, spacing=5)
+        
+        def set_duration_hours(hours):
+            try:
+                start = datetime.strptime(start_input.text, '%Y-%m-%d %H:%M')
+                end = start + timedelta(hours=hours)
+                end_input.text = end.strftime('%Y-%m-%d %H:%M')
+            except:
+                pass
+        
+        dur_2h_btn = Button(text='2 ώρες')
+        dur_2h_btn.bind(on_press=lambda x: set_duration_hours(2))
+        duration_presets.add_widget(dur_2h_btn)
+        
+        dur_4h_btn = Button(text='4 ώρες')
+        dur_4h_btn.bind(on_press=lambda x: set_duration_hours(4))
+        duration_presets.add_widget(dur_4h_btn)
+        
+        dur_1day_btn = Button(text='1 ημέρα')
+        dur_1day_btn.bind(on_press=lambda x: set_duration_hours(24))
+        duration_presets.add_widget(dur_1day_btn)
+        
+        layout.add_widget(duration_presets)
+        
+        # Status
+        layout.add_widget(Label(text='Κατάσταση:', size_hint_y=None, height=30))
+        status_spinner = Spinner(
+            text='Requested',
+            values=['Requested', 'Accepted', 'Cancelled'],
+            size_hint_y=None,
+            height=40
+        )
+        layout.add_widget(status_spinner)
+        
+        # Notes
+        layout.add_widget(Label(text='Σημειώσεις:', size_hint_y=None, height=30))
+        notes_input = TextInput(
+            hint_text='Πρόσθετες πληροφορίες...',
+            size_hint_y=None,
+            height=80,
+            multiline=True
+        )
+        layout.add_widget(notes_input)
+        
+        # Buttons
+        buttons_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        
+        def save_request():
+            substation_id = substation_map[substation_spinner.text]
+            start_dt = start_input.text.strip()
+            end_dt = end_input.text.strip()
+            status = status_spinner.text
+            notes = notes_input.text.strip()
+            
+            # Validate dates
+            try:
+                start = datetime.strptime(start_dt, '%Y-%m-%d %H:%M')
+                end = datetime.strptime(end_dt, '%Y-%m-%d %H:%M')
+                
+                if end <= start:
+                    show_message_popup('Σφάλμα', 'Η ημερομηνία λήξης πρέπει να είναι μετά την έναρξη!')
+                    return
+            except ValueError:
+                show_message_popup('Σφάλμα', 'Μη έγκυρη μορφή ημερομηνίας! Χρησιμοποιήστε: YYYY-MM-DD HH:MM')
+                return
+            
+            # Insert request
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            c = self.conn.cursor()
+            c.execute("""
+                INSERT INTO isolation_requests 
+                (substation_id, start_datetime, end_datetime, status, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (substation_id, start_dt, end_dt, status, notes, now, now))
+            self.conn.commit()
+            
+            popup.dismiss()
+            parent_popup.dismiss()
+            show_message_popup('Επιτυχία', 'Η αίτηση απομόνωσης καταχωρήθηκε!', 
+                             callback=lambda: self.show_isolation_requests(None))
+        
+        save_btn = Button(text='Αποθήκευση')
+        save_btn.bind(on_press=lambda x: save_request())
+        buttons_layout.add_widget(save_btn)
+        
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons_layout.add_widget(cancel_btn)
+        
+        layout.add_widget(buttons_layout)
+        popup.content = layout
+        popup.open()
+    
+    def show_isolation_request_details(self, request_id, parent_popup):
+        """Show details of an isolation request with edit/delete options"""
+        from datetime import datetime
+        
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT ir.id, ir.substation_id, s.name, ir.start_datetime, ir.end_datetime,
+                   ir.status, ir.notes, ir.created_at, ir.updated_at
+            FROM isolation_requests ir
+            JOIN substations s ON ir.substation_id = s.id
+            WHERE ir.id = ?
+        """, (request_id,))
+        request = c.fetchone()
+        
+        if not request:
+            show_message_popup('Σφάλμα', 'Η αίτηση δεν βρέθηκε!')
+            return
+        
+        req_id, sub_id, sub_name, start_dt, end_dt, status, notes, created_at, updated_at = request
+        
+        popup = Popup(title=f'Αίτηση Απομόνωσης - {sub_name}', size_hint=(0.7, 0.8))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        scroll = ScrollView()
+        details_layout = BoxLayout(orientation='vertical', size_hint_y=None, spacing=10, padding=5)
+        details_layout.bind(minimum_height=details_layout.setter('height'))
+        
+        # Substation
+        details_layout.add_widget(Label(text='Υποσταθμός:', size_hint_y=None, height=30, bold=True))
+        substation_label = Label(text=sub_name, size_hint_y=None, height=30)
+        details_layout.add_widget(substation_label)
+        
+        # Start datetime
+        details_layout.add_widget(Label(text='Έναρξη:', size_hint_y=None, height=30, bold=True))
+        start_input = TextInput(
+            text=start_dt,
+            size_hint_y=None,
+            height=35,
+            multiline=False
+        )
+        details_layout.add_widget(start_input)
+        
+        # End datetime
+        details_layout.add_widget(Label(text='Λήξη:', size_hint_y=None, height=30, bold=True))
+        end_input = TextInput(
+            text=end_dt,
+            size_hint_y=None,
+            height=35,
+            multiline=False
+        )
+        details_layout.add_widget(end_input)
+        
+        # Status
+        details_layout.add_widget(Label(text='Κατάσταση:', size_hint_y=None, height=30, bold=True))
+        status_spinner = Spinner(
+            text=status,
+            values=['Requested', 'Accepted', 'Cancelled'],
+            size_hint_y=None,
+            height=40
+        )
+        details_layout.add_widget(status_spinner)
+        
+        # Notes
+        details_layout.add_widget(Label(text='Σημειώσεις:', size_hint_y=None, height=30, bold=True))
+        notes_input = TextInput(
+            text=notes or '',
+            size_hint_y=None,
+            height=80,
+            multiline=True
+        )
+        details_layout.add_widget(notes_input)
+        
+        # Metadata
+        details_layout.add_widget(Label(
+            text=f'Δημιουργήθηκε: {created_at}',
+            size_hint_y=None,
+            height=25,
+            font_size='11sp'
+        ))
+        details_layout.add_widget(Label(
+            text=f'Τελευταία ενημέρωση: {updated_at}',
+            size_hint_y=None,
+            height=25,
+            font_size='11sp'
+        ))
+        
+        scroll.add_widget(details_layout)
+        layout.add_widget(scroll)
+        
+        # Buttons
+        buttons_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        
+        def update_request():
+            start_new = start_input.text.strip()
+            end_new = end_input.text.strip()
+            status_new = status_spinner.text
+            notes_new = notes_input.text.strip()
+            
+            # Validate dates
+            try:
+                start = datetime.strptime(start_new, '%Y-%m-%d %H:%M')
+                end = datetime.strptime(end_new, '%Y-%m-%d %H:%M')
+                
+                if end <= start:
+                    show_message_popup('Σφάλμα', 'Η ημερομηνία λήξης πρέπει να είναι μετά την έναρξη!')
+                    return
+            except ValueError:
+                show_message_popup('Σφάλμα', 'Μη έγκυρη μορφή ημερομηνίας!')
+                return
+            
+            # Update request
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            c.execute("""
+                UPDATE isolation_requests
+                SET start_datetime=?, end_datetime=?, status=?, notes=?, updated_at=?
+                WHERE id=?
+            """, (start_new, end_new, status_new, notes_new, now, req_id))
+            self.conn.commit()
+            
+            popup.dismiss()
+            parent_popup.dismiss()
+            show_message_popup('Επιτυχία', 'Η αίτηση ενημερώθηκε!',
+                             callback=lambda: self.show_isolation_requests(None))
+        
+        def delete_request():
+            # Confirmation
+            confirm_popup = Popup(title='Επιβεβαίωση', size_hint=(0.5, 0.3))
+            confirm_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            
+            confirm_layout.add_widget(Label(text='Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτήν την αίτηση απομόνωσης;'))
+            
+            confirm_buttons = BoxLayout(size_hint_y=0.3, spacing=10)
+            
+            def do_delete():
+                c.execute("DELETE FROM isolation_requests WHERE id=?", (req_id,))
+                self.conn.commit()
+                confirm_popup.dismiss()
+                popup.dismiss()
+                parent_popup.dismiss()
+                show_message_popup('Επιτυχία', 'Η αίτηση διαγράφηκε!',
+                                 callback=lambda: self.show_isolation_requests(None))
+            
+            yes_btn = Button(text='Ναι')
+            yes_btn.bind(on_press=lambda x: do_delete())
+            confirm_buttons.add_widget(yes_btn)
+            
+            no_btn = Button(text='Όχι')
+            no_btn.bind(on_press=confirm_popup.dismiss)
+            confirm_buttons.add_widget(no_btn)
+            
+            confirm_layout.add_widget(confirm_buttons)
+            confirm_popup.content = confirm_layout
+            confirm_popup.open()
+        
+        update_btn = Button(text='Ενημέρωση')
+        update_btn.bind(on_press=lambda x: update_request())
+        buttons_layout.add_widget(update_btn)
+        
+        delete_btn = Button(text='Διαγραφή', background_color=(0.8, 0.2, 0.2, 1))
+        delete_btn.bind(on_press=lambda x: delete_request())
+        buttons_layout.add_widget(delete_btn)
+        
+        close_btn = Button(text='Κλείσιμο')
+        close_btn.bind(on_press=popup.dismiss)
+        buttons_layout.add_widget(close_btn)
+        
+        layout.add_widget(buttons_layout)
+        popup.content = layout
+        popup.open()
     
     def show_models_management(self, instance):
         """Show model management interface"""

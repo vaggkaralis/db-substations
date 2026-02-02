@@ -65,7 +65,7 @@ def show_models_management(app_instance):
                 if category_name in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
                     # Group by breaker category
                     breaker_groups = OrderedDict()
-                    breaker_order = ['SF6', 'Κενού', 'Πτωχού Ελαίου']
+                    breaker_order = app_instance.BREAKER_CATEGORIES
                     
                     # Initialize ordered groups
                     for breaker_type in breaker_order:
@@ -440,6 +440,10 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
 def delete_model(app_instance, model_id, parent_popup):
     """Delete a model"""
+    from kivy.uix.popup import Popup
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
     from popups import show_message_popup
     
     c = app_instance.conn.cursor()
@@ -452,10 +456,35 @@ def delete_model(app_instance, model_id, parent_popup):
         show_message_popup('Σφάλμα', f'Το μοντέλο χρησιμοποιείται σε {count} στοιχεία και δεν μπορεί να διαγραφεί!')
         return
     
-    c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
-    app_instance.conn.commit()
-    parent_popup.dismiss()
-    show_message_popup('Ολοκληρώθηκε', 'Το μοντέλο διαγράφηκε!', callback=lambda: show_models_management(app_instance))
+    confirm_popup = Popup(title='Επιβεβαίωση Διαγραφής', size_hint=(0.6, 0.3))
+    layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+    warning_label = Label(
+        text='Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το μοντέλο;',
+        size_hint_y=0.6
+    )
+    layout.add_widget(warning_label)
+
+    buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+
+    def confirm():
+        confirm_popup.dismiss()
+        c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
+        app_instance.conn.commit()
+        parent_popup.dismiss()
+        show_message_popup('Ολοκληρώθηκε', 'Το μοντέλο διαγράφηκε!', callback=lambda: show_models_management(app_instance))
+
+    yes_btn = Button(text='ΝΑΙ', color=(1, 0, 0, 1))
+    yes_btn.bind(on_press=lambda x: confirm())
+    buttons_layout.add_widget(yes_btn)
+
+    no_btn = Button(text='ΟΧΙ')
+    no_btn.bind(on_press=confirm_popup.dismiss)
+    buttons_layout.add_widget(no_btn)
+
+    layout.add_widget(buttons_layout)
+    confirm_popup.content = layout
+    confirm_popup.open()
 
 
 def jump_to_substation(app_instance, substation_name, current_popup):

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Νέα Συντήρηση | Υποσταθμοί</title>
+    <style>
+        :root { --bg:#f6f8fb; --card:#fff; --primary:#0f4a8a; --primary-dark:#0b3665; --text:#1c2b3a; --border:#e0e6ef; --shadow:0 10px 24px rgba(15,74,138,.08);} 
+        *{box-sizing:border-box;} body{margin:0;font-family:"Segoe UI","DejaVu Sans",sans-serif;background:var(--bg);color:var(--text);} 
+        header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:24px 20px;} 
+        .container{max-width:900px;margin:0 auto;padding:20px;} .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow);} 
+        label{display:block;margin-top:10px;font-weight:600;} input, select, textarea{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;} 
+        button{margin-top:14px;padding:8px 12px;border:none;border-radius:8px;background:var(--primary);color:#fff;} 
+        a{color:var(--primary);text-decoration:none;font-weight:600;}
+    </style>
+</head>
+<body>
+    <header><div class="container"><h1>Νέα Συντήρηση</h1></div></header>
+    <main class="container">
+        <a href="/maintenance">← Επιστροφή</a>
+        <div class="card">
+            <form method="post">
+                <label>Υποσταθμός</label>
+                <select name="substation_id" required>
+                    <option value="">Επιλέξτε</option>
+                    {% for s in substations %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+                <label>Ημερομηνία (YYYY-MM-DD HH:MM)</label>
+                <input name="date_time" required />
+                <label>Τύπος Συντήρησης</label>
+                <input name="maintenance_type" />
+                <label>Χειριστής</label>
+                <input name="user_name" />
+                <label>Όνομα Συντήρησης</label>
+                <input name="name" />
+                <label>Σχόλια</label>
+                <textarea name="overall_comments" rows="4"></textarea>
+                <button type="submit">Αποθήκευση</button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>

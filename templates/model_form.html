@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Μοντέλο | Υποσταθμοί</title>
+    <style>
+        :root { --bg:#f6f8fb; --card:#fff; --primary:#0f4a8a; --primary-dark:#0b3665; --text:#1c2b3a; --border:#e0e6ef; --shadow:0 10px 24px rgba(15,74,138,.08);} 
+        *{box-sizing:border-box;} body{margin:0;font-family:"Segoe UI","DejaVu Sans",sans-serif;background:var(--bg);color:var(--text);} 
+        header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:24px 20px;} 
+        .container{max-width:900px;margin:0 auto;padding:20px;} .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow);} 
+        label{display:block;margin-top:10px;font-weight:600;} input{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;} 
+        button{margin-top:14px;padding:8px 12px;border:none;border-radius:8px;background:var(--primary);color:#fff;} 
+        a{color:var(--primary);text-decoration:none;font-weight:600;}
+    </style>
+</head>
+<body>
+    <header><div class="container"><h1>{{ 'Επεξεργασία' if model else 'Νέο Μοντέλο' }}</h1></div></header>
+    <main class="container">
+        <a href="/models">← Επιστροφή</a>
+        <div class="card">
+            <form method="post">
+                <label>Κατηγορία</label>
+                <input name="element_category" required value="{{ model.element_category if model else '' }}" />
+                <label>Μοντέλο</label>
+                <input name="model_name" required value="{{ model.model_name if model else '' }}" />
+                <label>Κατασκευαστής</label>
+                <input name="manufacturer" value="{{ model.manufacturer if model else '' }}" />
+                <label>Κύκλος Συντήρησης</label>
+                <input name="maintenance_cycle" value="{{ model.maintenance_cycle if model else '' }}" />
+                <label>Χώρος Εγκατάστασης</label>
+                <input name="installation_space" value="{{ model.installation_space if model else '' }}" />
+                <label>Κατηγορία Διακόπτη</label>
+                <input name="breaker_category" value="{{ model.breaker_category if model else '' }}" />
+                <button type="submit">Αποθήκευση</button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>

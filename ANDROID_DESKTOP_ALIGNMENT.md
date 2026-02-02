@@ -30,7 +30,7 @@ Desktop has many fields Android lacks:
 - `operating_status` - 'Ενεργή' or 'Ανενεργή'
 - `installation_space` - 'Εσωτερικός' or 'Εξωτερικός'
 - `maintenance_cycle` - Months between maintenance
-- `bar` - Bar assignment (ΖΥΓΟΣ 1, ΖΥΓΟΣ 2, etc.)
+- `gate` - Gate assignment (ΠΥΛΗ 1, ΠΥΛΗ 2, etc.)
 - `is_main_switch` - Breaker type (0=Line, 1=Main, 2=Interconnection, 3=Capacitor)
 
 **3. Voltage Levels** ⚡
@@ -53,13 +53,13 @@ Desktop has many fields Android lacks:
 - **Desktop:**
   - Breaker categories (SF6, Oil, Vacuum)
   - Breaker types (Main, Line, Interconnection, Capacitor)
-  - Bar assignments
+  - Gate assignments
   - `is_main_switch` field to distinguish types
 - **Android:** Treats all breakers the same
 
-**6. Bar Management** 🏗️
-- **Desktop:** Automatic bar detection from transformers
-- **Android:** No bar concept
+**6. Gate Management** 🏗️
+- **Desktop:** Automatic gate detection from transformers
+- **Android:** No gate concept
 
 **7. Division Field** 🏢
 - **Desktop:** Substation has `division` field (e.g., 'ΤΜΘ')
@@ -95,7 +95,7 @@ Update API server to support all desktop fields:
 - operating_status
 - installation_space
 - maintenance_cycle
-- bar
+- gate
 - is_main_switch
 ```
 
@@ -126,7 +126,7 @@ Update API endpoints:
 
 #### **Step 2.4: Breaker Features**
 - Add breaker type selector (Main/Line/Interconnection/Capacitor)
-- Add bar assignment field
+- Add gate assignment field
 - Add breaker category (SF6/Oil/Vacuum)
 - **Estimated:** 2-3 hours
 
@@ -149,7 +149,7 @@ GET  /maintenance/<substation>  - Maintenance history
 POST /maintenance               - Record maintenance
 DELETE /maintenance/<id>        - Delete maintenance record
 
-GET  /bars/<substation>         - Get available bars
+GET  /gates/<substation>         - Get available gates
 ```
 
 ---
@@ -176,7 +176,7 @@ GET  /bars/<substation>         - Get available bars
 | `operating_status` | TEXT | ✅ | ❌ | Med |
 | `installation_space` | TEXT | ✅ | ❌ | Med |
 | `maintenance_cycle` | INTEGER | ✅ | ❌ | Med |
-| `bar` | TEXT | ✅ | ❌ | Med |
+| `gate` | TEXT | ✅ | ❌ | Med |
 | `is_main_switch` | INTEGER | ✅ | ❌ | Med |
 
 ### **Substations Table**

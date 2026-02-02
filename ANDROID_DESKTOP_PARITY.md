@@ -13,10 +13,10 @@ Major refactor completed to align Android app with desktop app architecture. All
 
 #### Updated Endpoints:
 - **GET /api/elements**: Now returns 17 fields (was 9)
-  - Added: `element_model_id`, `manufacture_year`, `model`, `model_version`, `operating_status`, `installation_space`, `maintenance_cycle`, `bar`, `is_main_switch`
+   - Added: `element_model_id`, `manufacture_year`, `model`, `model_version`, `operating_status`, `installation_space`, `maintenance_cycle`, `gate`, `is_main_switch`
   
 - **POST /api/elements**: Now accepts 17 fields (was 12)
-  - Added: `voltage_level`, `element_model_id`, `model_version`, `bar`, `is_main_switch`
+   - Added: `voltage_level`, `element_model_id`, `model_version`, `gate`, `is_main_switch`
   - Added validation for `is_main_switch` (integer 0-3)
   - Renamed `type` parameter to `element_type_field` to avoid Python keyword conflict
 
@@ -36,7 +36,7 @@ Added 7 new fields to element creation form:
 4. **Operating Status** - Spinner with values: 'Ενεργή', 'Ανενεργή'
 5. **Installation Space** - Spinner with values: 'Εσωτερικός', 'Εξωτερικός'
 6. **Maintenance Cycle** - Text input for maintenance cycle in months
-7. **Bar (Ζυγός)** - Text input for bar assignment
+7. **Gate (Πύλη)** - Text input for gate assignment
 
 #### UI Improvements:
 - **Element Display**: Enhanced to show 3 lines of information:
@@ -99,7 +99,7 @@ Both Android and desktop now support 15 element types:
 | operating_status | TEXT | ✅ | ✅ | ✅ |
 | installation_space | TEXT | ✅ | ✅ | ✅ |
 | maintenance_cycle | INTEGER | ✅ | ✅ | ✅ |
-| bar | TEXT | ✅ | ✅ | ✅ |
+| gate | TEXT | ✅ | ✅ | ✅ |
 | is_main_switch | INTEGER | ✅ | ✅ | ✅ |
 
 **Legend:** ✅ = Fully supported
@@ -117,8 +117,8 @@ Both Android and desktop now support 15 element types:
    - Maps to `is_main_switch` values (0/1/2/3)
    - Show only for breaker element types
 
-3. **Bar Auto-Population**
-   - Desktop automatically populates bars from transformers
+3. **Gate Auto-Population**
+   - Desktop automatically populates gates from transformers
    - Android currently requires manual entry
 
 4. **Maintenance Tracking**
@@ -153,7 +153,7 @@ curl -X POST https://db-substations.onrender.com/api/elements \
     "operating_status": "Ενεργή",
     "installation_space": "Εξωτερικός",
     "maintenance_cycle": 12,
-    "bar": "ΖΥΓΟΣ 1",
+   "gate": "ΠΥΛΗ 1",
     "is_main_switch": 1
   }'
 ```
@@ -207,8 +207,8 @@ curl -X POST https://db-substations.onrender.com/api/elements \
    - Show only when element_type contains "Διακόπτης"
    - Update `is_main_switch` based on selection
 
-4. **Bar Management** (3-4 hours)
-   - Fetch available bars from elements
+4. **Gate Management** (3-4 hours)
+   - Fetch available gates from elements
    - Show as dropdown instead of text input
    - Auto-populate from transformers (complex logic)
 
@@ -230,7 +230,7 @@ curl -X POST https://db-substations.onrender.com/api/elements \
 - Model selection dropdown
 - Breaker type selection
 - Maintenance tracking UI
-- Bar auto-population
+- Gate auto-population
 
 ## Compatibility
 

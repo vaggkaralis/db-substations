@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title }} | Υποσταθμοί</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --primary: #0f4a8a;
+            --primary-dark: #0b3665;
+            --text: #1c2b3a;
+            --muted: #6a7a8c;
+            --border: #e0e6ef;
+            --shadow: 0 10px 24px rgba(15, 74, 138, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "DejaVu Sans", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 24px 20px;
+        }
+        header h1 {
+            margin: 0 0 6px;
+            font-size: 22px;
+        }
+        header p {
+            margin: 0;
+            opacity: 0.85;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: var(--shadow);
+        }
+        a { color: var(--primary); text-decoration: none; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>{{ title }}</h1>
+            <p>Σελίδα υπό ανάπτυξη</p>
+        </div>
+    </header>
+    <main class="container">
+        <div class="card">
+            <p>Η σελίδα θα προστεθεί στο web app σύντομα.</p>
+            <p><a href="/">← Επιστροφή στο κεντρικό μενού</a></p>
+        </div>
+    </main>
+</body>
+</html>

@@ -10,8 +10,12 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.utils import ImageReader
 import os
+import unicodedata
+import json
 from datetime import datetime
 
 
@@ -20,18 +24,116 @@ class MaintenanceReportGenerator:
     
     def __init__(self, conn):
         self.conn = conn
+        print("\n" + "="*80)
+        print("PDF REPORT GENERATOR INITIALIZATION")
+        print("="*80)
         self.setup_fonts()
+        print("="*80 + "\n")
     
     def setup_fonts(self):
         """Setup fonts for Greek text support"""
-        # Try to use system fonts that support Greek
-        # ReportLab will fall back to default if not found
-        pass
+        # Register fonts with full Greek polytonic (accented) character support
+        try:
+            import platform
+            system = platform.system()
+            
+            # First, try bundled DejaVu Sans (known to work correctly with ReportLab)
+            bundled_font = os.path.join(os.path.dirname(__file__), 'DejaVuSans.ttf')
+            
+            if system == 'Windows':
+                # Windows fonts - prioritize bundled font, then system fonts
+                font_paths = [
+                    bundled_font,                              # Bundled DejaVu Sans (best for ReportLab)
+                    'C:\\Windows\\Fonts\\segoeui.ttf',         # Segoe UI
+                    'C:\\Windows\\Fonts\\tahoma.ttf',          # Tahoma
+                    'C:\\Windows\\Fonts\\verdana.ttf',         # Verdana
+                ]
+            elif system == 'Darwin':  # macOS
+                font_paths = [
+                    bundled_font,
+                    '/Library/Fonts/Arial Unicode.ttf',
+                    '/System/Library/Fonts/Helvetica.ttc',
+                ]
+            else:  # Linux
+                font_paths = [
+                    bundled_font,
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+                ]
+            
+            # Try to register the first available font
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    try:
+                        # Register font WITHOUT asciiReadable to preserve Unicode characters
+                        pdfmetrics.registerFont(TTFont('GreekFont', font_path))
+                        
+                        # Also register font family for bold/italic support
+                        try:
+                            registerFontFamily('GreekFont', normal='GreekFont')
+                        except:
+                            pass
+                        
+                        self.greek_font = 'GreekFont'
+                        font_name = 'DejaVu Sans (bundled)' if font_path == bundled_font else os.path.basename(font_path)
+                        print(f"✅ Using font for Greek text: {font_name}")
+                        print(f"   Path: {font_path}")
+                        return
+                    except Exception as e:
+                        print(f"❌ Failed to register {font_path}: {e}")
+                        continue
+            
+            # If no font found, use Helvetica (limited Greek support)
+            print("WARNING: No suitable Greek font found, using Helvetica (limited support)")
+            self.greek_font = 'Helvetica'
+            
+        except Exception as e:
+            # Fallback to Helvetica
+            print(f"Error setting up fonts: {e}")
+            self.greek_font = 'Helvetica'
+    
+    def normalize_text(self, text):
+        """
+        Normalize Greek text to NFC (precomposed) form.
+        This converts decomposed characters (letter + combining accent) 
+        to precomposed characters (single character with accent).
+        Required for proper rendering of Greek accented characters in PDFs.
+        """
+        if text is None:
+            return ''
+        if isinstance(text, (int, float)):
+            text = str(text)
+        # Normalize to NFC (precomposed) form
+        normalized = unicodedata.normalize('NFC', text)
+        # Debug output for first few calls
+        if hasattr(self, '_debug_count'):
+            self._debug_count += 1
+        else:
+            self._debug_count = 1
+        if self._debug_count <= 3 and len(normalized) > 5:
+            print(f"DEBUG normalize_text: '{text[:30]}' -> '{normalized[:30]}'")
+        return normalized
+    
+    def normalize_table_data(self, data):
+        """Normalize all text in a table data structure"""
+        normalized = []
+        for row in data:
+            normalized_row = []
+            for cell in row:
+                if isinstance(cell, str):
+                    normalized_row.append(self.normalize_text(cell))
+                else:
+                    normalized_row.append(cell)
+            normalized.append(normalized_row)
+        return normalized
     
     def get_breaker_category_display(self, breaker_category):
         """Get display name for breaker category"""
         category_map = {
             'SF6': 'ΑΕΡΙΟΥ (SF6)',
+            'Πτωχού Ελαίου': 'ΛΑΔΙΟΥ',
+            'Κενού': 'ΚΕΝΟΥ',
+            # Legacy English names (for backward compatibility)
             'Oil': 'ΛΑΔΙΟΥ',
             'Vacuum': 'ΚΕΝΟΥ'
         }
@@ -53,7 +155,7 @@ class MaintenanceReportGenerator:
         
         # Get maintenance record
         c.execute("""
-            SELECT m.id, m.substation_id, m.date_time, m.overall_comments, m.maintenance_type,
+            SELECT m.id, m.substation_id, m.date_time, m.overall_comments, m.maintenance_type, m.user_name,
                    s.name as substation_name, s.location, s.division
             FROM maintenance m
             JOIN substations s ON m.substation_id = s.id
@@ -64,12 +166,12 @@ class MaintenanceReportGenerator:
         if not maintenance:
             raise ValueError(f"Maintenance record {maintenance_id} not found")
         
-        maint_id, sub_id, date_time, overall_comments, maint_type, sub_name, sub_location, division = maintenance
+        maint_id, sub_id, date_time, overall_comments, maint_type, user_name, sub_name, sub_location, division = maintenance
         
         # Get element details
         c.execute("""
-            SELECT e.id, e.element_type, e.name, e.serial_number, e.manufacturer, e.model,
-                   e.breaker_category, e.voltage_level, e.bar, e.manufacture_year,
+                 SELECT e.id, e.element_type, e.name, e.serial_number, e.manufacturer, e.model,
+                     e.breaker_category, e.voltage_level, e.gate, e.manufacture_year,
                    em.manufacturer as model_manufacturer, em.model_name
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
@@ -81,7 +183,7 @@ class MaintenanceReportGenerator:
             raise ValueError(f"Element {element_id} not found")
         
         elem_id, elem_type, elem_name, serial_num, manufacturer, model, breaker_category, \
-        voltage_level, bar, manufacture_year, model_manufacturer, model_name = element
+        voltage_level, gate, manufacture_year, model_manufacturer, model_name = element
         
         # Get maintenance measurements for this element
         c.execute("""
@@ -92,7 +194,10 @@ class MaintenanceReportGenerator:
                    insulation_open_fa_fa, insulation_open_fa_unit,
                    insulation_open_fb_fb, insulation_open_fb_unit,
                    insulation_open_fc_fc, insulation_open_fc_unit,
-                   contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc
+                   contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc,
+                   operations_count,
+                   sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
+                   vidar_fa, vidar_fb, vidar_fc
             FROM maintenance_elements
             WHERE maintenance_id = ? AND element_id = ?
         """, (maintenance_id, element_id))
@@ -114,9 +219,9 @@ class MaintenanceReportGenerator:
         # Generate the PDF based on breaker category
         if breaker_category == 'SF6':
             self._generate_sf6_report(output_path, maintenance, element, measurements)
-        elif breaker_category == 'Oil':
+        elif breaker_category in ['Oil', 'Πτωχού Ελαίου']:
             self._generate_oil_report(output_path, maintenance, element, measurements)
-        elif breaker_category == 'Vacuum':
+        elif breaker_category in ['Vacuum', 'Κενού']:
             self._generate_vacuum_report(output_path, maintenance, element, measurements)
         else:
             raise ValueError(f"Unknown breaker category: {breaker_category}")
@@ -135,12 +240,8 @@ class MaintenanceReportGenerator:
             textColor=colors.HexColor('#000080'),
             spaceAfter=20,
             alignment=TA_CENTER,
-            fontName='Helvetica-Bold'
+            fontName=self.greek_font
         )
-        
-        # Add header
-        title = Paragraph(f'ΔΕΛΤΙΟ ΣΥΝΤΗΡΗΣΗΣ ΔΙΑΚΟΠΤΗ {breaker_type}', title_style)
-        story.append(title)
         
         subtitle_style = ParagraphStyle(
             'CustomSubtitle',
@@ -148,18 +249,56 @@ class MaintenanceReportGenerator:
             fontSize=14,
             spaceAfter=20,
             alignment=TA_CENTER,
-            fontName='Helvetica-Bold'
+            fontName=self.greek_font
         )
-        
-        subtitle = Paragraph(f'Υποσταθμός: {substation_name}', subtitle_style)
-        story.append(subtitle)
+
+        title = Paragraph(self.normalize_text(f'ΔΕΛΤΙΟ ΣΥΝΤΗΡΗΣΗΣ ΔΙΑΚΟΠΤΗ {breaker_type}'), title_style)
+        subtitle = Paragraph(self.normalize_text(f'Υποσταθμός: {substation_name}'), subtitle_style)
+
+        logo = self._get_logo_flowable(max_width=28 * mm, max_height=20 * mm)
+        if logo:
+            logo.hAlign = 'RIGHT'
+            header_table = Table(
+                [[ [title, subtitle], logo ]],
+                colWidths=[140 * mm, 40 * mm]
+            )
+            header_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(header_table)
+        else:
+            story.append(title)
+            story.append(subtitle)
+
         story.append(Spacer(1, 12))
+
+    def _get_logo_flowable(self, max_width=28 * mm, max_height=20 * mm):
+        """Return a scaled logo Image flowable if available."""
+        logo_path = os.path.join(os.path.dirname(__file__), 'logo_deddie.png')
+        fallback_path = os.path.join(os.path.dirname(__file__), 'deddie_logo.png')
+        if not os.path.exists(logo_path) and not os.path.exists(fallback_path):
+            return None
+
+        if not os.path.exists(logo_path):
+            logo_path = fallback_path
+        try:
+            reader = ImageReader(logo_path)
+            img_width, img_height = reader.getSize()
+            scale = min(max_width / img_width, max_height / img_height)
+            return Image(logo_path, width=img_width * scale, height=img_height * scale)
+        except Exception:
+            return None
     
     def _create_info_table(self, element_data, maintenance_data):
         """Create general information table"""
-        maint_id, sub_id, date_time, overall_comments, maint_type, sub_name, sub_location, division = maintenance_data
+        maint_id, sub_id, date_time, overall_comments, maint_type, user_name, sub_name, sub_location, division = maintenance_data
         elem_id, elem_type, elem_name, serial_num, manufacturer, model, breaker_category, \
-        voltage_level, bar, manufacture_year, model_manufacturer, model_name = element_data
+        voltage_level, gate, manufacture_year, model_manufacturer, model_name = element_data
         
         # Use model data if available, otherwise element data
         display_manufacturer = model_manufacturer if model_manufacturer else manufacturer
@@ -172,7 +311,7 @@ class MaintenanceReportGenerator:
             ['Κατασκευαστής:', display_manufacturer or '-'],
             ['Μοντέλο:', display_model or '-'],
             ['Τάση (kV):', voltage_level or '-'],
-            ['Ζυγός:', bar or '-'],
+            ['Πύλη:', gate or '-'],
             ['Έτος Κατασκευής:', manufacture_year or '-'],
             ['', ''],
             ['ΣΤΟΙΧΕΙΑ ΣΥΝΤΗΡΗΣΗΣ', ''],
@@ -181,6 +320,9 @@ class MaintenanceReportGenerator:
             ['Τομέας:', division or '-'],
         ]
         
+        # Normalize all text for proper Greek character rendering
+        data = self.normalize_table_data(data)
+        
         table = Table(data, colWidths=[80*mm, 100*mm])
         table.setStyle(TableStyle([
             # Header rows
@@ -188,14 +330,14 @@ class MaintenanceReportGenerator:
             ('BACKGROUND', (0, 9), (-1, 9), colors.HexColor('#4472C4')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('TEXTCOLOR', (0, 9), (-1, 9), colors.whitesmoke),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTNAME', (0, 9), (-1, 9), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 0), (-1, 0), self.greek_font),
+            ('FONTNAME', (0, 9), (-1, 9), self.greek_font),
             ('FONTSIZE', (0, 0), (-1, 0), 12),
             ('FONTSIZE', (0, 9), (-1, 9), 12),
             
             # All cells
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 0), (-1, -1), self.greek_font),  # Apply Greek font to ALL cells
             ('FONTSIZE', (0, 1), (-1, -1), 10),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -207,18 +349,48 @@ class MaintenanceReportGenerator:
         
         return table
     
-    def _create_measurements_table(self, measurements):
+    def _create_measurements_table(self, measurements, breaker_category):
         """Create measurements table for insulation and contact resistance"""
         elem_comments, ins_closed_fa, ins_closed_fa_unit, ins_closed_fb, ins_closed_fb_unit, \
         ins_closed_fc, ins_closed_fc_unit, ins_open_fa, ins_open_fa_unit, ins_open_fb, \
-        ins_open_fb_unit, ins_open_fc, ins_open_fc_unit, cont_fa, cont_fb, cont_fc = measurements
+        ins_open_fb_unit, ins_open_fc, ins_open_fc_unit, cont_fa, cont_fb, cont_fc, ops_count, \
+        sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc, \
+        vidar_fa, vidar_fb, vidar_fc = measurements
         
         # Helper to format value with unit
-        def format_value(value, unit):
+        def format_value(value, unit=''):
             if value is None or value == '':
                 return '-'
-            return f"{value} {unit}"
+            return f"{value} {unit}" if unit else f"{value}"
         
+        tables = []
+        
+        # Operations Counter
+        if ops_count is not None:
+            ops_data = [
+                ['ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ', ''],
+                ['Αριθμός Χειρισμών:', str(ops_count)]
+            ]
+            ops_data = self.normalize_table_data(ops_data)
+            ops_table = Table(ops_data, colWidths=[90*mm, 90*mm])
+            ops_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, 0), self.greek_font),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('FONTNAME', (0, 0), (-1, -1), self.greek_font),  # Apply Greek font to ALL cells
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            tables.append(ops_table)
+        
+        # Insulation and Contact Resistance
         data = [
             ['ΜΕΤΡΗΣΕΙΣ ΜΟΝΩΣΕΩΝ', '', '', ''],
             ['Θέση', 'Φάση Α', 'Φάση Β', 'Φάση Γ'],
@@ -239,6 +411,7 @@ class MaintenanceReportGenerator:
              format_value(cont_fc, 'μΩ') if cont_fc else '-'],
         ]
         
+        data = self.normalize_table_data(data)
         table = Table(data, colWidths=[60*mm, 40*mm, 40*mm, 40*mm])
         table.setStyle(TableStyle([
             # Headers
@@ -246,8 +419,8 @@ class MaintenanceReportGenerator:
             ('BACKGROUND', (0, 5), (-1, 5), colors.HexColor('#FFC000')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('TEXTCOLOR', (0, 5), (-1, 5), colors.black),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTNAME', (0, 5), (-1, 5), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 0), (-1, 0), self.greek_font),
+            ('FONTNAME', (0, 5), (-1, 5), self.greek_font),
             ('FONTSIZE', (0, 0), (-1, 0), 11),
             ('FONTSIZE', (0, 5), (-1, 5), 11),
             ('SPAN', (0, 0), (-1, 0)),
@@ -256,11 +429,12 @@ class MaintenanceReportGenerator:
             # Subheaders
             ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#A9D08E')),
             ('BACKGROUND', (0, 6), (-1, 6), colors.HexColor('#FFE699')),
-            ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
-            ('FONTNAME', (0, 6), (-1, 6), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (-1, 1), self.greek_font),
+            ('FONTNAME', (0, 6), (-1, 6), self.greek_font),
             
-            # All cells
+            # All cells - MUST set font for all cells
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), self.greek_font),  # Apply Greek font to ALL cells
             ('FONTSIZE', (0, 1), (-1, -1), 10),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -269,8 +443,71 @@ class MaintenanceReportGenerator:
             ('TOPPADDING', (0, 0), (-1, -1), 4),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
+        tables.append(table)
         
-        return table
+        # SF6 Gas Quality (only for SF6 breakers)
+        if breaker_category == 'SF6' and (sf6_n2_fa or h2o_fa or so2_fa):
+            sf6_data = [
+                ['ΠΟΙΟΤΗΤΑ ΑΕΡΙΟΥ SF6', '', '', ''],
+                ['', 'SF6/N2 (%)', 'H2O (°C atm)', 'SO2 (ppm)'],
+                ['ΦΑ', format_value(sf6_n2_fa), format_value(h2o_fa), format_value(so2_fa)],
+                ['ΦΒ', format_value(sf6_n2_fb), format_value(h2o_fb), format_value(so2_fb)],
+                ['ΦΓ', format_value(sf6_n2_fc), format_value(h2o_fc), format_value(so2_fc)],
+            ]
+            
+            sf6_data = self.normalize_table_data(sf6_data)
+            sf6_table = Table(sf6_data, colWidths=[40*mm, 45*mm, 45*mm, 45*mm])
+            sf6_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#9966FF')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, 0), self.greek_font),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('SPAN', (0, 0), (-1, 0)),
+                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#CC99FF')),
+                ('FONTNAME', (0, 1), (-1, 1), self.greek_font),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('FONTNAME', (0, 0), (-1, -1), self.greek_font),  # Apply Greek font to ALL cells
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            tables.append(sf6_table)
+        
+        # Vacuum Check VIDAR (only for Vacuum breakers)
+        if breaker_category == 'Vacuum' and (vidar_fa or vidar_fb or vidar_fc):
+            vidar_data = [
+                ['ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR)', '', '', ''],
+                ['', 'ΦΑ-ΦΑ', 'ΦΒ-ΦΒ', 'ΦΓ-ΦΓ'],
+                ['Τιμή', format_value(vidar_fa), format_value(vidar_fb), format_value(vidar_fc)],
+            ]
+            
+            vidar_data = self.normalize_table_data(vidar_data)
+            vidar_table = Table(vidar_data, colWidths=[40*mm, 45*mm, 45*mm, 45*mm])
+            vidar_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF6666')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, 0), self.greek_font),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('SPAN', (0, 0), (-1, 0)),
+                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#FF9999')),
+                ('FONTNAME', (0, 1), (-1, 1), self.greek_font),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('FONTNAME', (0, 0), (-1, -1), self.greek_font),  # Apply Greek font to ALL cells
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            tables.append(vidar_table)
+        
+        return tables
     
     def _create_comments_section(self, overall_comments, element_comments):
         """Create comments section"""
@@ -281,20 +518,21 @@ class MaintenanceReportGenerator:
             parent=styles['Normal'],
             fontSize=10,
             spaceAfter=10,
-            alignment=TA_LEFT
+            alignment=TA_LEFT,
+            fontName=self.greek_font
         )
         
         story_items = []
         
         if element_comments:
             story_items.append(Spacer(1, 12))
-            story_items.append(Paragraph('<b>ΣΧΟΛΙΑ ΣΤΟΙΧΕΙΟΥ:</b>', comment_style))
-            story_items.append(Paragraph(element_comments, comment_style))
+            story_items.append(Paragraph(self.normalize_text('<b>ΣΧΟΛΙΑ ΣΤΟΙΧΕΙΟΥ:</b>'), comment_style))
+            story_items.append(Paragraph(self.normalize_text(element_comments), comment_style))
         
         if overall_comments:
             story_items.append(Spacer(1, 12))
-            story_items.append(Paragraph('<b>ΓΕΝΙΚΑ ΣΧΟΛΙΑ ΣΥΝΤΗΡΗΣΗΣ:</b>', comment_style))
-            story_items.append(Paragraph(overall_comments, comment_style))
+            story_items.append(Paragraph(self.normalize_text('<b>ΓΕΝΙΚΑ ΣΧΟΛΙΑ ΣΥΝΤΗΡΗΣΗΣ:</b>'), comment_style))
+            story_items.append(Paragraph(self.normalize_text(overall_comments), comment_style))
         
         return story_items
     
@@ -307,16 +545,18 @@ class MaintenanceReportGenerator:
         story = []
         
         # Header
-        self._create_header(story, 'ΑΕΡΙΟΥ (SF6)', maintenance_data[5])  # substation_name
+        self._create_header(story, 'ΑΕΡΙΟΥ (SF6)', maintenance_data[6])  # substation_name
         
         # Information table
         info_table = self._create_info_table(element_data, maintenance_data)
         story.append(info_table)
         story.append(Spacer(1, 15))
         
-        # Measurements table
-        measurements_table = self._create_measurements_table(measurements)
-        story.append(measurements_table)
+        # Measurements tables (returns list of tables)
+        measurements_tables = self._create_measurements_table(measurements, 'SF6')
+        for table in measurements_tables:
+            story.append(table)
+            story.append(Spacer(1, 10))
         
         # Comments
         comments = self._create_comments_section(maintenance_data[3], measurements[0])
@@ -330,9 +570,10 @@ class MaintenanceReportGenerator:
             parent=styles['Normal'],
             fontSize=8,
             textColor=colors.grey,
-            alignment=TA_CENTER
+            alignment=TA_CENTER,
+            fontName=self.greek_font
         )
-        footer = Paragraph(f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}', footer_style)
+        footer = Paragraph(self.normalize_text(f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'), footer_style)
         story.append(footer)
         
         # Build PDF
@@ -347,16 +588,18 @@ class MaintenanceReportGenerator:
         story = []
         
         # Header
-        self._create_header(story, 'ΛΑΔΙΟΥ', maintenance_data[5])  # substation_name
+        self._create_header(story, 'ΛΑΔΙΟΥ', maintenance_data[6])  # substation_name
         
         # Information table
         info_table = self._create_info_table(element_data, maintenance_data)
         story.append(info_table)
         story.append(Spacer(1, 15))
         
-        # Measurements table
-        measurements_table = self._create_measurements_table(measurements)
-        story.append(measurements_table)
+        # Measurements tables (returns list of tables)
+        measurements_tables = self._create_measurements_table(measurements, 'Oil')
+        for table in measurements_tables:
+            story.append(table)
+            story.append(Spacer(1, 10))
         
         # Comments
         comments = self._create_comments_section(maintenance_data[3], measurements[0])
@@ -370,9 +613,10 @@ class MaintenanceReportGenerator:
             parent=styles['Normal'],
             fontSize=8,
             textColor=colors.grey,
-            alignment=TA_CENTER
+            alignment=TA_CENTER,
+            fontName=self.greek_font
         )
-        footer = Paragraph(f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}', footer_style)
+        footer = Paragraph(self.normalize_text(f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'), footer_style)
         story.append(footer)
         
         # Build PDF
@@ -387,16 +631,18 @@ class MaintenanceReportGenerator:
         story = []
         
         # Header
-        self._create_header(story, 'ΚΕΝΟΥ', maintenance_data[5])  # substation_name
+        self._create_header(story, 'ΚΕΝΟΥ', maintenance_data[6])  # substation_name
         
         # Information table
         info_table = self._create_info_table(element_data, maintenance_data)
         story.append(info_table)
         story.append(Spacer(1, 15))
         
-        # Measurements table
-        measurements_table = self._create_measurements_table(measurements)
-        story.append(measurements_table)
+        # Measurements tables (returns list of tables)
+        measurements_tables = self._create_measurements_table(measurements, 'Vacuum')
+        for table in measurements_tables:
+            story.append(table)
+            story.append(Spacer(1, 10))
         
         # Comments
         comments = self._create_comments_section(maintenance_data[3], measurements[0])
@@ -410,9 +656,10 @@ class MaintenanceReportGenerator:
             parent=styles['Normal'],
             fontSize=8,
             textColor=colors.grey,
-            alignment=TA_CENTER
+            alignment=TA_CENTER,
+            fontName=self.greek_font
         )
-        footer = Paragraph(f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}', footer_style)
+        footer = Paragraph(self.normalize_text(f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'), footer_style)
         story.append(footer)
         
         # Build PDF
@@ -434,3 +681,347 @@ def generate_maintenance_report(conn, maintenance_id, element_id, output_path=No
     """
     generator = MaintenanceReportGenerator(conn)
     return generator.generate_maintenance_report(maintenance_id, element_id, output_path)
+
+
+class InspectionReportGenerator:
+    """Generate inspection reports from stored inspection data"""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.setup_fonts()
+
+    def setup_fonts(self):
+        """Setup fonts for Greek text support"""
+        try:
+            import platform
+            system = platform.system()
+
+            bundled_font = os.path.join(os.path.dirname(__file__), 'DejaVuSans.ttf')
+
+            if system == 'Windows':
+                font_paths = [
+                    bundled_font,
+                    'C:\\Windows\\Fonts\\segoeui.ttf',
+                    'C:\\Windows\\Fonts\\tahoma.ttf',
+                    'C:\\Windows\\Fonts\\verdana.ttf',
+                ]
+            elif system == 'Darwin':
+                font_paths = [
+                    bundled_font,
+                    '/Library/Fonts/Arial Unicode.ttf',
+                    '/System/Library/Fonts/Helvetica.ttc',
+                ]
+            else:
+                font_paths = [
+                    bundled_font,
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+                ]
+
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    try:
+                        pdfmetrics.registerFont(TTFont('GreekFontInspection', font_path))
+                        try:
+                            registerFontFamily('GreekFontInspection', normal='GreekFontInspection')
+                        except Exception:
+                            pass
+                        self.greek_font = 'GreekFontInspection'
+                        return
+                    except Exception:
+                        continue
+
+            self.greek_font = 'Helvetica'
+        except Exception:
+            self.greek_font = 'Helvetica'
+
+    def normalize_text(self, text):
+        if text is None:
+            return ''
+        if isinstance(text, (int, float)):
+            text = str(text)
+        return unicodedata.normalize('NFC', text)
+
+    def normalize_table_data(self, data):
+        normalized = []
+        for row in data:
+            normalized_row = []
+            for cell in row:
+                if isinstance(cell, str):
+                    normalized_row.append(self.normalize_text(cell))
+                else:
+                    normalized_row.append(cell)
+            normalized.append(normalized_row)
+        return normalized
+
+    def _get_logo_flowable(self, max_width=28 * mm, max_height=20 * mm):
+        """Return a scaled logo Image flowable if available."""
+        logo_path = os.path.join(os.path.dirname(__file__), 'logo_deddie.png')
+        fallback_path = os.path.join(os.path.dirname(__file__), 'deddie_logo.png')
+        if not os.path.exists(logo_path) and not os.path.exists(fallback_path):
+            return None
+
+        if not os.path.exists(logo_path):
+            logo_path = fallback_path
+        try:
+            reader = ImageReader(logo_path)
+            img_width, img_height = reader.getSize()
+            scale = min(max_width / img_width, max_height / img_height)
+            return Image(logo_path, width=img_width * scale, height=img_height * scale)
+        except Exception:
+            return None
+
+    def generate_inspection_report(self, inspection_id, output_path=None):
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT substation_name, inspection_date, data_json
+            FROM inspections
+            WHERE id = ?
+        """, (inspection_id,))
+        row = c.fetchone()
+
+        if not row:
+            raise ValueError(f"Inspection record {inspection_id} not found")
+
+        substation_name, inspection_date, data_json = row
+
+        try:
+            data = json.loads(data_json or '{}')
+        except Exception:
+            data = {}
+
+        fields = data.get('fields', [])
+
+        if output_path is None:
+            reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
+            os.makedirs(reports_dir, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            safe_name = (substation_name or 'Inspection').replace('/', '-').replace('\\', '-')
+            output_path = os.path.join(reports_dir, f'Inspection_{safe_name}_{timestamp}.pdf')
+
+        doc = SimpleDocTemplate(
+            output_path,
+            pagesize=A4,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm
+        )
+
+        styles = getSampleStyleSheet()
+        story = []
+
+        title_style = ParagraphStyle(
+            'InspectionTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            textColor=colors.HexColor('#000080'),
+            spaceAfter=10,
+            alignment=TA_CENTER,
+            fontName=self.greek_font
+        )
+
+        subtitle_style = ParagraphStyle(
+            'InspectionSubtitle',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=12,
+            alignment=TA_CENTER,
+            fontName=self.greek_font
+        )
+
+        title = Paragraph(self.normalize_text('ΑΝΑΦΟΡΑ ΕΠΙΘΕΩΡΗΣΗΣ ΥΠΟΣΤΑΘΜΟΥ'), title_style)
+
+        subtitle_text = f'Υποσταθμός: {substation_name or "-"} | Ημερομηνία: {inspection_date}'
+        subtitle = Paragraph(self.normalize_text(subtitle_text), subtitle_style)
+
+        logo = self._get_logo_flowable(max_width=28 * mm, max_height=20 * mm)
+        if logo:
+            logo.hAlign = 'RIGHT'
+            header_table = Table(
+                [[ [title, subtitle], logo ]],
+                colWidths=[140 * mm, 40 * mm]
+            )
+            header_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(header_table)
+        else:
+            story.append(title)
+            story.append(subtitle)
+
+        story.append(Spacer(1, 10))
+
+        if not fields:
+            story.append(Paragraph(self.normalize_text('Δεν υπάρχουν διαθέσιμα δεδομένα επιθεώρησης.'), styles['Normal']))
+        else:
+            cell_style = ParagraphStyle(
+                'InspectionCell',
+                parent=styles['Normal'],
+                fontSize=9,
+                leading=11,
+                fontName=self.greek_font
+            )
+            header_style = ParagraphStyle(
+                'InspectionHeader',
+                parent=styles['Normal'],
+                fontSize=9,
+                leading=11,
+                fontName=self.greek_font,
+                textColor=colors.black
+            )
+            section_title_style = ParagraphStyle(
+                'InspectionSectionTitle',
+                parent=styles['Heading3'],
+                fontSize=11,
+                leading=13,
+                fontName=self.greek_font,
+                textColor=colors.HexColor('#000080'),
+                spaceBefore=8,
+                spaceAfter=4
+            )
+
+            def get_fallback_sections():
+                return [
+                    'Υποσταθμός',
+                    'Αρ. Δελτίου',
+                    'Μήνας',
+                    'Ονομ. Επιθεωρητή',
+                    'Περιοχή',
+                    'Ημέρα',
+                    'Έτος',
+                    'Ημερομηνία',
+                    {'type': 'section', 'title': '1. Έλεγχος Χώρων ΥΣ'},
+                    'Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)',
+                    'Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ',
+                    'Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)',
+                    'Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)',
+                    'Έλεγχος μέσων πυρόσβεσης γενικά',
+                    {'type': 'section', 'title': '2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV'},
+                    'Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)',
+                    'Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ',
+                    'Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV',
+                    'Έλεγχος λειτουργίας ανεμιστήρων Μ/Σ',
+                    'Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)',
+                    'Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)',
+                    'Οπτικός έλεγχος τηκτών πυκνωτών',
+                    'Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV',
+                    'Λήψη φωτογραφίας όταν απαιτείται',
+                    {'type': 'section', 'title': '3α. Υπαίθριες πύλες 20 kV'},
+                    'Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)',
+                    'Οπτικός έλεγχος των πυλών, A/Z και γενικά του ικριώματος για τυχόν φωλιές από πτηνά, σπασίματα, μονωτήρες, κλαδιά, σύρματα κλπ',
+                    {'type': 'section', 'title': '3β. Πίνακες 20 kV'},
+                    'Παρατηρήσεις (3β. Πίνακες 20 kV)',
+                    'Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών',
+                    'Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων',
+                    {'type': 'section', 'title': '4. Κτίριο χειρισμών & Τ.Α.Σ.'},
+                    'Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)',
+                    'Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή',
+                    'Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC',
+                    'Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών',
+                    {'type': 'section', 'title': '5. Αποζεύκτες Γραμμών'},
+                    'Παρατηρήσεις (5. Αποζεύκτες Γραμμών)',
+                    'Οπτικός έλεγχος των ΑΠ/Ζ και των "γεφυρών" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)',
+                    {'type': 'section', 'title': '6. PC ΧΕΙΡΙΣΜΩΝ'},
+                    'Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)',
+                    'Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)',
+                    'Τροφοδοσία υπολογιστή',
+                    {'type': 'section', 'title': '7. Απόψεις'},
+                    'Απόψεις - Προτάσεις'
+                ]
+
+            def build_sections():
+                fallback = get_fallback_sections()
+                sections = []
+                current_title = 'Στοιχεία Επιθεώρησης'
+                current_labels = []
+                for item in fallback:
+                    if isinstance(item, dict) and item.get('type') == 'section':
+                        if current_labels:
+                            sections.append((current_title, list(current_labels)))
+                        current_title = item.get('title', '')
+                        current_labels = []
+                    elif isinstance(item, str):
+                        current_labels.append(item)
+                if current_labels:
+                    sections.append((current_title, list(current_labels)))
+                label_to_section = {}
+                for title, labels in sections:
+                    for label in labels:
+                        label_to_section[label] = title
+                return sections, label_to_section
+
+            sections, label_to_section = build_sections()
+            section_items = {title: [] for title, _labels in sections}
+            other_items = []
+
+            for field in fields:
+                if not isinstance(field, dict):
+                    continue
+                label = field.get('label', '')
+                if label in label_to_section:
+                    section_items[label_to_section[label]].append(field)
+                else:
+                    other_items.append(field)
+
+            def add_section_table(title, items):
+                story.append(Paragraph(self.normalize_text(title), section_title_style))
+                table_data = [[
+                    Paragraph(self.normalize_text('Πεδίο'), header_style),
+                    Paragraph(self.normalize_text('Τιμή'), header_style)
+                ]]
+                for field in items:
+                    label = field.get('label', '') if isinstance(field, dict) else ''
+                    value = field.get('value', '') if isinstance(field, dict) else ''
+                    label_text = self.normalize_text(str(label))
+                    value_text = self.normalize_text(str(value)).replace('\n', '<br/>')
+                    table_data.append([
+                        Paragraph(label_text, cell_style),
+                        Paragraph(value_text, cell_style)
+                    ])
+                table = Table(table_data, colWidths=[55 * mm, 125 * mm])
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9e2f3')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                    ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                    ('TOPPADDING', (0, 0), (-1, -1), 3),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ]))
+                story.append(table)
+
+            for title, _labels in sections:
+                items = section_items.get(title) or []
+                if items:
+                    add_section_table(title, items)
+
+            if other_items:
+                add_section_table('Λοιπά', other_items)
+
+        story.append(Spacer(1, 12))
+        footer_style = ParagraphStyle(
+            'InspectionFooter',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=colors.grey,
+            alignment=TA_CENTER,
+            fontName=self.greek_font
+        )
+        footer = Paragraph(self.normalize_text(f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'), footer_style)
+        story.append(footer)
+
+        doc.build(story)
+        return output_path
+
+
+def generate_inspection_report(conn, inspection_id, output_path=None):
+    """Convenience function to generate an inspection report PDF."""
+    generator = InspectionReportGenerator(conn)
+    return generator.generate_inspection_report(inspection_id, output_path)

@@ -67,7 +67,7 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
         ws.cell(row=1, column=1).font = Font(italic=True, color='999999')
         ws.row_dimensions[1].height = 15
 
-        headers = ['Substation Name', 'Element Type', 'Name', 'Serial Number', 'Maintenance Date', 'Voltage Level', 'Manufacturer', 'Τύπος Διακόπτη', 'Breaker Role', 'Operating Status', 'Bar', 'Model Name', 'Model Manufacturer', 'Model Maintenance Cycle', 'Model Installation Space']
+        headers = ['Substation Name', 'Element Type', 'Name', 'Serial Number', 'Maintenance Date', 'Manufacturer', 'Τύπος Διακόπτη', 'Breaker Role', 'Operating Status', 'Gate', 'Model Name', 'Model Manufacturer', 'Model Maintenance Cycle', 'Model Installation Space']
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=2, column=col, value=header)
             cell.font = Font(bold=True, color='FFFFFF')
@@ -78,20 +78,19 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
         ws.column_dimensions['C'].width = 20
         ws.column_dimensions['D'].width = 15
         ws.column_dimensions['E'].width = 15
-        ws.column_dimensions['F'].width = 15
-        ws.column_dimensions['G'].width = 20
-        ws.column_dimensions['H'].width = 15
-        ws.column_dimensions['I'].width = 20  # Breaker Role
-        ws.column_dimensions['J'].width = 15  # Operating Status
-        ws.column_dimensions['K'].width = 15  # Bar
+        ws.column_dimensions['F'].width = 20
+        ws.column_dimensions['G'].width = 15
+        ws.column_dimensions['H'].width = 20  # Breaker Role
+        ws.column_dimensions['I'].width = 15  # Operating Status
+        ws.column_dimensions['J'].width = 15  # Gate
+        ws.column_dimensions['K'].width = 20
         ws.column_dimensions['L'].width = 20
         ws.column_dimensions['M'].width = 20
-        ws.column_dimensions['N'].width = 20
-        ws.column_dimensions['O'].width = 25
+        ws.column_dimensions['N'].width = 25
 
         examples = [
-            ('Υποσταθμός Α', 'Διακόπτης ΜΤ', 'Main Breaker', 'SN-001', '2025-01-20', '20 KV', 'ABB', 'SF6', 'Κεντρικός', 'Ενεργή', 'ΖΥΓΟΣ 1', 'SF6-400', 'ABB', 12, 'Εσωτερικού'),
-            ('Υποσταθμός Α', 'Μετασχηματιστής 150/20KV', 'Transformer 1', 'SN-002', '2025-01-18', '20/150 KV', 'Siemens', '', '', 'Ενεργή', 'ΖΥΓΟΣ 1', 'GEAFOL', 'Siemens', 24, 'Εξωτερικού'),
+            ('Υποσταθμός Α', 'Διακόπτης ΜΤ', 'Main Breaker', 'SN-001', '2025-01-20', 'ABB', 'SF6', 'Κεντρικός', 'Ενεργή', 'ΠΥΛΗ 1', 'SF6-400', 'ABB', 12, 'Εσωτερικού'),
+            ('Υποσταθμός Α', 'Μετασχηματιστής 150/20KV', 'Transformer 1', 'SN-002', '2025-01-18', 'Siemens', '', '', 'Ενεργή', 'ΠΥΛΗ 1', 'GEAFOL', 'Siemens', 24, 'Εξωτερικού'),
         ]
         for idx, row_data in enumerate(examples, 3):  # Start at row 3 (after version and headers)
             for col, value in enumerate(row_data, 1):

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Τύποι Στοιχείων | Υποσταθμοί</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --primary: #0f4a8a;
+            --primary-dark: #0b3665;
+            --text: #1c2b3a;
+            --muted: #6a7a8c;
+            --border: #e0e6ef;
+            --shadow: 0 10px 24px rgba(15, 74, 138, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: "Segoe UI", "DejaVu Sans", sans-serif; background: var(--bg); color: var(--text); }
+        header { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 24px 20px; }
+        header h1 { margin: 0 0 6px; font-size: 22px; }
+        header p { margin: 0; opacity: 0.85; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        .back { display: inline-block; margin-bottom: 16px; color: var(--primary); text-decoration: none; font-weight: 600; }
+        .table-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 600; }
+        .muted { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Διαχείριση Τύπων Στοιχείων</h1>
+            <p>Λίστα μοντέλων στοιχείων</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <a class="back" href="/">← Επιστροφή στο κεντρικό μενού</a>
+
+        <a class="back" href="/models/add">+ Νέο Μοντέλο</a>
+
+        <section class="table-card">
+            {% if models %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Κατηγορία</th>
+                        <th>Μοντέλο</th>
+                        <th>Κατασκευαστής</th>
+                        <th>Κύκλος</th>
+                        <th>Χώρος</th>
+                        <th>Κατηγορία Διακόπτη</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in models %}
+                    <tr>
+                        <td>{{ m.element_category }}</td>
+                        <td>{{ m.model_name }}</td>
+                        <td>{{ m.manufacturer or '-' }}</td>
+                        <td>{{ m.maintenance_cycle or '-' }}</td>
+                        <td>{{ m.installation_space or '-' }}</td>
+                        <td class="muted">{{ m.breaker_category or '-' }}</td>
+                        <td>
+                            <a href="/models/{{ m.id }}/edit">Επεξ.</a>
+                            <form method="post" action="/models/{{ m.id }}/delete" style="display:inline" onsubmit="return confirm('Διαγραφή μοντέλου;');">
+                                <button type="submit">Διαγραφή</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="muted">Δεν υπάρχουν καταχωρημένα μοντέλα.</div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

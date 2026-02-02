@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Συντήρηση | Υποσταθμοί</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --primary: #0f4a8a;
+            --primary-dark: #0b3665;
+            --text: #1c2b3a;
+            --muted: #6a7a8c;
+            --border: #e0e6ef;
+            --shadow: 0 10px 24px rgba(15, 74, 138, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "DejaVu Sans", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 24px 20px;
+        }
+        header h1 {
+            margin: 0 0 6px;
+            font-size: 22px;
+        }
+        header p {
+            margin: 0;
+            opacity: 0.85;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .back {
+            display: inline-block;
+            margin-bottom: 16px;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .section {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+            margin-bottom: 18px;
+        }
+        .section h2 {
+            margin: 0 0 12px;
+            font-size: 18px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            font-size: 14px;
+        }
+        .info-grid div {
+            background: #f2f5fa;
+            padding: 8px 10px;
+            border-radius: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        th { color: var(--muted); font-weight: 600; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #e8f0ff;
+            color: var(--primary);
+            font-size: 12px;
+        }
+        .muted { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Συντήρηση</h1>
+            <p>{{ maintenance.substation_name }} • {{ maintenance.date_time }}</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <a class="back" href="/maintenance">← Επιστροφή στις συντηρήσεις</a>
+
+        <form method="post" action="/maintenance/{{ maintenance.id }}/delete" onsubmit="return confirm('Διαγραφή συντήρησης;');">
+            <button type="submit">Διαγραφή Συντήρησης</button>
+        </form>
+
+        <section class="section">
+            <h2>Στοιχεία Συντήρησης</h2>
+            <div class="info-grid">
+                <div><strong>Υποσταθμός:</strong> {{ maintenance.substation_name }}</div>
+                <div><strong>Ημερομηνία:</strong> {{ maintenance.date_time }}</div>
+                <div><strong>Τύπος:</strong> {{ maintenance.maintenance_type or '-' }}</div>
+                <div><strong>Χειριστής:</strong> {{ maintenance.user_name or '-' }}</div>
+                <div><strong>Τομέας:</strong> {{ maintenance.substation_division or '-' }}</div>
+                <div><strong>Τοποθεσία:</strong> {{ maintenance.substation_location or '-' }}</div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Σχόλια</h2>
+            <div class="muted">{{ maintenance.overall_comments or '-' }}</div>
+        </section>
+
+        <section class="section">
+            <h2>Στοιχεία</h2>
+            <form method="post" action="/maintenance/{{ maintenance.id }}/add-element">
+                <div class="info-grid">
+                    <div>
+                        <label>Στοιχείο</label>
+                        <select name="element_id" required>
+                            <option value="">Επιλέξτε</option>
+                            {% for e in elements_for_add %}
+                            <option value="{{ e.id }}">{{ e.element_type }} - {{ e.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Σχόλια</label>
+                        <input type="text" name="element_comments" />
+                    </div>
+                    <div>
+                        <button type="submit">+ Προσθήκη Στοιχείου</button>
+                    </div>
+                </div>
+            </form>
+            {% if elements %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Τύπος</th>
+                        <th>Όνομα</th>
+                        <th>S/N</th>
+                        <th>Κατασκευαστής</th>
+                        <th>Μοντέλο</th>
+                        <th>Κατηγορία</th>
+                        <th>Μετρήσεις</th>
+                        <th>Σχόλια</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in elements %}
+                    <tr>
+                        <td>{{ e.element_type }}</td>
+                        <td>{{ e.name }}</td>
+                        <td>{{ e.serial_number or '-' }}</td>
+                        <td>{{ e.manufacturer or '-' }}</td>
+                        <td>{{ e.model or '-' }}</td>
+                        <td>{{ e.breaker_category or '-' }}</td>
+                        <td>{% if e.has_measurements %}<span class="badge">Ναι</span>{% else %}-{% endif %}</td>
+                        <td class="muted">{{ e.element_comments or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="muted">Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση.</div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

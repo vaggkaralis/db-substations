@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Επιθεώρηση | Υποσταθμοί</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --primary: #0f4a8a;
+            --primary-dark: #0b3665;
+            --text: #1c2b3a;
+            --muted: #6a7a8c;
+            --border: #e0e6ef;
+            --shadow: 0 10px 24px rgba(15, 74, 138, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: "Segoe UI", "DejaVu Sans", sans-serif; background: var(--bg); color: var(--text); }
+        header { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 24px 20px; }
+        header h1 { margin: 0 0 6px; font-size: 22px; }
+        header p { margin: 0; opacity: 0.85; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        .back { display: inline-block; margin-bottom: 16px; color: var(--primary); text-decoration: none; font-weight: 600; }
+        .section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 18px; }
+        .section h2 { margin: 0 0 12px; font-size: 18px; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; font-size: 14px; }
+        .info-grid div { background: #f2f5fa; padding: 8px 10px; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 600; }
+        .muted { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Επιθεώρηση</h1>
+            <p>{{ inspection.substation_name or '-' }} • {{ inspection.inspection_date }}</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <a class="back" href="/inspections">← Επιστροφή στις επιθεωρήσεις</a>
+
+        <section class="section">
+            <h2>Στοιχεία Επιθεώρησης</h2>
+            <div class="info-grid">
+                <div><strong>Υποσταθμός:</strong> {{ inspection.substation_name or '-' }}</div>
+                <div><strong>Ημερομηνία:</strong> {{ inspection.inspection_date }}</div>
+                <div><strong>Μήνας:</strong> {{ inspection.month_key }}</div>
+                <div><strong>Πηγή:</strong> {{ inspection.source_file or '-' }}</div>
+                <div><strong>Καταχώρηση:</strong> {{ inspection.created_at }}</div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Πεδία Επιθεώρησης</h2>
+            {% if fields %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Πεδίο</th>
+                        <th>Τιμή</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for field in fields %}
+                    {% if field is mapping %}
+                    <tr>
+                        <td>{{ field.label or '-' }}</td>
+                        <td class="muted">{{ field.value or '-' }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="muted">Δεν υπάρχουν πεδία για αυτή την επιθεώρηση.</div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

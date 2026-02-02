@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Υποσταθμοί ΔΕΔΔΗΕ</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --primary: #0f4a8a;
+            --primary-dark: #0b3665;
+            --text: #1c2b3a;
+            --muted: #6a7a8c;
+            --border: #e0e6ef;
+            --shadow: 0 10px 24px rgba(15, 74, 138, 0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "DejaVu Sans", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 28px 20px;
+        }
+        header h1 {
+            margin: 0 0 6px;
+            font-size: 24px;
+        }
+        header p {
+            margin: 0;
+            opacity: 0.85;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .menu-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .menu-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background: var(--primary);
+            color: white;
+            padding: 14px 12px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            box-shadow: var(--shadow);
+        }
+        .menu-btn:hover { background: var(--primary-dark); }
+
+        .search {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 18px;
+        }
+        .search input {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 15px;
+        }
+        .stats {
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 16px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .card h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .meta {
+            font-size: 13px;
+            color: var(--muted);
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+        .btn {
+            margin-top: 8px;
+            padding: 9px 12px;
+            border: none;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            text-align: center;
+            font-size: 14px;
+        }
+        .btn:hover { background: var(--primary-dark); }
+        .empty {
+            padding: 30px;
+            text-align: center;
+            background: var(--card);
+            border-radius: 12px;
+            border: 1px dashed var(--border);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Υποσταθμοί ΔΕΔΔΗΕ</h1>
+            <p>Web εφαρμογή για προβολή υποσταθμών και στοιχείων</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="menu-grid">
+            <a class="menu-btn" href="/">Εμφάνιση βάσης υποσταθμών</a>
+            <a class="menu-btn" href="/import">Εισαγωγή υποσταθμών και στοιχείων από αρχείο</a>
+            <a class="menu-btn" href="/maintenance">Συντηρήσεις</a>
+            <a class="menu-btn" href="/inspections">Επιθεωρήσεις</a>
+            <a class="menu-btn" href="/isolation">Αιτήσεις Απομόνωσης</a>
+            <a class="menu-btn" href="/models">Διαχείριση Τύπων Στοιχείων</a>
+            <a class="menu-btn" href="/people">Διαχείριση Προσωπικού</a>
+        </div>
+
+        <div class="search">
+            <a class="menu-btn" href="/substations/add">+ Προσθήκη Υποσταθμού</a>
+        </div>
+
+        <div class="search">
+            <input id="searchInput" type="search" placeholder="Αναζήτηση υποσταθμού..." />
+            <div class="stats">Σύνολο: {{ substations|length }}</div>
+        </div>
+
+        {% if substations %}
+        <div class="grid" id="cards">
+            {% for s in substations %}
+            <div class="card" data-name="{{ s.name|lower }}">
+                <h3>{{ s.name }}</h3>
+                <div class="meta">Τομέας: {{ s.division or '-' }}</div>
+                <div class="row"><span>Συντηρήσεις</span><strong>{{ s.maintenance_count }}</strong></div>
+                <div class="row"><span>Τελευταία</span><strong>{{ s.last_maintenance or '-' }}</strong></div>
+                <a class="btn" href="/substations/{{ s.id }}">Προβολή</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">Δεν υπάρχουν υποσταθμοί στη βάση.</div>
+        {% endif %}
+    </main>
+
+    <script>
+        const input = document.getElementById('searchInput');
+        const cards = document.getElementById('cards');
+        if (input && cards) {
+            input.addEventListener('input', () => {
+                const term = input.value.trim().toLowerCase();
+                [...cards.children].forEach(card => {
+                    const name = card.dataset.name || '';
+                    card.style.display = name.includes(term) ? '' : 'none';
+                });
+            });
+        }
+    </script>
+</body>
+</html>
