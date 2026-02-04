@@ -27,7 +27,6 @@ import subprocess
 import sys
 import unicodedata
 from datetime import datetime
-import requests
 import json
 
 # Maximize window on startup
@@ -207,172 +206,6 @@ class IconButton(ButtonBehavior, BoxLayout):
     def on_release(self):
         self._bg_color_inst.rgba = self.bg_color
 
-class CloudSync:
-    """Helper class to sync TEST substation changes to Render.com"""
-    API_BASE_URL = 'https://db-substations.onrender.com/api'
-    TEST_SUBSTATION_NAME = 'TEST'
-    
-    @classmethod
-    def get_test_substation_id(cls, conn):
-        """Get the local ID of TEST substation"""
-        c = conn.cursor()
-        c.execute("SELECT id FROM substations WHERE name=?", (cls.TEST_SUBSTATION_NAME,))
-        result = c.fetchone()
-        return result[0] if result else None
-    
-    @classmethod
-    def sync_element_add(cls, conn, element_id, substation_id):
-        """Sync newly added element to cloud if it's in TEST substation"""
-        test_id = cls.get_test_substation_id(conn)
-        if test_id is None or substation_id != test_id:
-            return  # Not TEST substation, skip sync
-        
-        # Get element data
-        c = conn.cursor()
-        c.execute("""
-                 SELECT element_type, name, serial_number, maintenance_date, manufacturer, 
-                     model, model_version, installation_space, operating_status, 
-                     maintenance_cycle, manufacture_year, gate, is_main_switch, 
-                   breaker_category, voltage_level
-            FROM elements WHERE id=?
-        """, (element_id,))
-        elem = c.fetchone()
-        if not elem:
-            return
-        
-        # Prepare payload
-        payload = {
-            'substation_id': 1,  # Cloud TEST substation ID
-            'element_type': elem[0],
-            'name': elem[1],
-            'serial_number': elem[2] or '',
-            'maintenance_date': elem[3] or '',
-            'manufacturer': elem[4] or '',
-            'model': elem[5] or '',
-            'model_version': elem[6] or '',
-            'installation_space': elem[7] or 'Εσωτερικός',
-            'operating_status': elem[8] or 'Ενεργή',
-            'maintenance_cycle': elem[9] or 0,
-            'manufacture_year': elem[10] or '',
-            'gate': elem[11] or '',
-            'is_main_switch': elem[12] or 0,
-            'breaker_category': elem[13] or '',
-            'voltage_level': elem[14] or ''
-        }
-        
-        try:
-            response = requests.post(
-                f'{cls.API_BASE_URL}/elements',
-                json=payload,
-                headers={'Content-Type': 'application/json'},
-                timeout=30
-            )
-            if response.status_code == 201:
-                print(f"✓ Synced new element '{elem[1]}' to cloud")
-            else:
-                print(f"✗ Failed to sync element: {response.text}")
-        except Exception as e:
-            print(f"✗ Sync error: {str(e)}")
-    
-    @classmethod
-    def sync_element_update(cls, conn, element_id, substation_id):
-        """Sync element updates to cloud if it's in TEST substation"""
-        test_id = cls.get_test_substation_id(conn)
-        if test_id is None or substation_id != test_id:
-            return
-        
-        # Get element data
-        c = conn.cursor()
-        c.execute("""
-                 SELECT name, element_type, serial_number, maintenance_date, manufacturer,
-                     model, model_version, installation_space, operating_status,
-                     maintenance_cycle, manufacture_year, gate, is_main_switch,
-                   breaker_category, voltage_level
-            FROM elements WHERE id=?
-        """, (element_id,))
-        elem = c.fetchone()
-        if not elem:
-            return
-        
-        # Find cloud element by name (since IDs differ)
-        try:
-            # Get cloud element ID by name
-            response = requests.get(
-                f'{cls.API_BASE_URL}/elements?substation_id=1',
-                timeout=30
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    cloud_elements = data.get('data', [])
-                    cloud_elem = next((e for e in cloud_elements if e['name'] == elem[0]), None)
-                    
-                    if cloud_elem:
-                        # Update existing element
-                        cloud_id = cloud_elem['id']
-                        payload = {
-                            'element_type': elem[1],
-                            'name': elem[0],
-                            'serial_number': elem[2] or '',
-                            'maintenance_date': elem[3] or '',
-                            'manufacturer': elem[4] or '',
-                            'model': elem[5] or '',
-                            'model_version': elem[6] or '',
-                            'installation_space': elem[7] or 'Εσωτερικός',
-                            'operating_status': elem[8] or 'Ενεργή',
-                            'maintenance_cycle': elem[9] or 0,
-                            'manufacture_year': elem[10] or '',
-                            'gate': elem[11] or '',
-                            'is_main_switch': elem[12] or 0,
-                            'breaker_category': elem[13] or '',
-                            'voltage_level': elem[14] or ''
-                        }
-                        
-                        update_response = requests.put(
-                            f'{cls.API_BASE_URL}/elements/{cloud_id}',
-                            json=payload,
-                            headers={'Content-Type': 'application/json'},
-                            timeout=30
-                        )
-                        if update_response.status_code == 200:
-                            print(f"✓ Synced updated element '{elem[0]}' to cloud")
-                        else:
-                            print(f"✗ Failed to sync element update: {update_response.text}")
-        except Exception as e:
-            print(f"✗ Sync error: {str(e)}")
-    
-    @classmethod
-    def sync_element_delete(cls, conn, element_name, substation_id):
-        """Sync element deletion to cloud if it's in TEST substation"""
-        test_id = cls.get_test_substation_id(conn)
-        if test_id is None or substation_id != test_id:
-            return
-        
-        try:
-            # Get cloud element ID by name
-            response = requests.get(
-                f'{cls.API_BASE_URL}/elements?substation_id=1',
-                timeout=30
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    cloud_elements = data.get('data', [])
-                    cloud_elem = next((e for e in cloud_elements if e['name'] == element_name), None)
-                    
-                    if cloud_elem:
-                        cloud_id = cloud_elem['id']
-                        delete_response = requests.delete(
-                            f'{cls.API_BASE_URL}/elements/{cloud_id}',
-                            timeout=30
-                        )
-                        if delete_response.status_code == 200:
-                            print(f"✓ Synced deleted element '{element_name}' to cloud")
-                        else:
-                            print(f"✗ Failed to sync element deletion: {delete_response.text}")
-        except Exception as e:
-            print(f"✗ Sync error: {str(e)}")
-
 class SubstationApp(App):
     # Define element types as a class variable
     ELEMENT_TYPES = [
@@ -460,7 +293,7 @@ class SubstationApp(App):
 
         self.show_btn = IconButton(text='Εμφάνιση βάσης υποσταθμών', icon_type='database', theme=self.theme)
         self.show_btn.bind(on_press=self.show_records)
-        self.import_btn = IconButton(text='Εισαγωγή υποσταθμών και στοιχείων από αρχείο', icon_type='import', theme=self.theme)
+        self.import_btn = IconButton(text='Εισαγωγή από αρχείο', icon_type='import', theme=self.theme)
         self.import_btn.bind(on_press=self.show_import_menu)
         self.maintenance_btn = IconButton(text='Συντηρήσεις', icon_type='maintenance', theme=self.theme)
         self.maintenance_btn.bind(on_press=self.show_maintenance_menu_popup)
@@ -2758,32 +2591,37 @@ class SubstationApp(App):
         return ['(Μη καταχωρημένο)'] + gates
 
     def show_import_menu(self, instance):
-        # Show menu for importing elements (substations will be auto-created)
-        menu_popup = Popup(title='Εισαγωγή στοιχείων από αρχείο', size_hint=(0.6, 0.45))
+        # Show menu for import options
+        menu_popup = Popup(title='Εισαγωγή από αρχείο', size_hint=(0.6, 0.55))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
 
         self._add_logo_to_layout(layout, height=70)
-        
-        layout.add_widget(Label(text='Εισάγετε στοιχεία από αρχείο Excel.\nΝέοι υποσταθμοί θα δημιουργηθούν αυτόματα.', size_hint_y=0.2))
-        
+
+        layout.add_widget(Label(text='Επιλέξτε τι θέλετε να εισάγετε:', size_hint_y=0.2))
+
         # Import elements button
-        import_elements_btn = Button(text='Εισαγωγή Στοιχείων από Αρχείο', size_hint_y=0.3)
+        import_elements_btn = Button(text='Εισαγωγή Στοιχείων από Αρχείο', size_hint_y=0.2)
         import_elements_btn.bind(on_press=lambda x: self._show_import_elements_from_menu(menu_popup))
         layout.add_widget(import_elements_btn)
-        
+
+        # Import Android changes button
+        import_android_btn = Button(text='Εισαγωγή αλλαγών από Android', size_hint_y=0.2)
+        import_android_btn.bind(on_press=lambda x: self._show_import_android_changes_from_menu(menu_popup))
+        layout.add_widget(import_android_btn)
+
         # Separator
         layout.add_widget(Label(text='Ή δημιουργήστε πρότυπο εισαγωγής:', size_hint_y=0.15))
-        
+
         # Template button
-        template_elements_btn = Button(text='Δημιουργία Template Εισαγωγής', size_hint_y=0.3)
+        template_elements_btn = Button(text='Δημιουργία Template Εισαγωγής', size_hint_y=0.2)
         template_elements_btn.bind(on_press=self.create_elements_template)
         layout.add_widget(template_elements_btn)
-        
+
         # Cancel button
-        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.2)
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=0.15)
         cancel_btn.bind(on_press=menu_popup.dismiss)
         layout.add_widget(cancel_btn)
-        
+
         menu_popup.content = layout
         menu_popup.open()
     
@@ -2794,6 +2632,10 @@ class SubstationApp(App):
     def _show_import_elements_from_menu(self, menu_popup):
         menu_popup.dismiss()
         self.show_import_elements_dialog(None)
+
+    def _show_import_android_changes_from_menu(self, menu_popup):
+        menu_popup.dismiss()
+        self.show_import_android_changes_dialog(None)
 
     def show_add_menu(self, instance):
         # Show intermediate menu for adding substation or element
@@ -3664,6 +3506,61 @@ class SubstationApp(App):
             'Εισαγωγή στοιχείων από αρχείο',
             self.import_elements_from_file
         )
+
+    def show_import_android_changes_dialog(self, instance):
+        self._create_android_changes_import_dialog(
+            'Εισαγωγή αλλαγών από Android',
+            self.import_android_changes_from_file
+        )
+
+    def _create_android_changes_import_dialog(self, title, import_callback):
+        popup = Popup(title=title, size_hint=(0.9, 0.9))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        path_label = Label(text='Διαδρομή αρχείου change log (.jsonl):', size_hint_y=0.1)
+        layout.add_widget(path_label)
+
+        path_input = TextInput(
+            hint_text='Διαδρομή αρχείου',
+            size_hint_y=0.15,
+            multiline=False
+        )
+        layout.add_widget(path_input)
+
+        layout.add_widget(Label(text='Ή επιλέξτε από τη λίστα:', size_hint_y=0.1))
+        chooser = FileChooserListView(filters=['*.jsonl', '*.json'], path=os.path.dirname(__file__))
+        layout.add_widget(chooser)
+
+        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+
+        def import_file():
+            file_path = path_input.text.strip() if path_input.text.strip() else (chooser.selection[0] if chooser.selection else None)
+
+            if not file_path:
+                show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!')
+                return
+
+            if not os.path.exists(file_path):
+                show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
+                return
+
+            import_callback(file_path)
+            popup.dismiss()
+
+        import_btn = Button(text='Εισαγωγή')
+        import_btn.bind(on_press=lambda x: import_file())
+        buttons_layout.add_widget(import_btn)
+
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons_layout.add_widget(cancel_btn)
+
+        layout.add_widget(buttons_layout)
+        popup.content = layout
+        popup.open()
+
+    def import_android_changes_from_file(self, file_path):
+        show_message_popup('Εισαγωγή αλλαγών από Android', f'Λήφθηκε αρχείο:\n{file_path}\n\n(Η εφαρμογή αλλαγών θα υλοποιηθεί στο επόμενο βήμα)')
     
     def import_substations_from_file(self, file_path):
         def on_success(message):
@@ -5087,9 +4984,6 @@ class SubstationApp(App):
             new_element_id = c.lastrowid
             self.conn.commit()
             
-            # Sync to cloud if TEST substation
-            CloudSync.sync_element_add(self.conn, new_element_id, substation_id)
-            
             popup.dismiss()
             show_message_popup('Επιτυχία', f'Στοιχείο προστέθηκε στον {substation_name}!', callback=lambda: self._display_substations(substation_name))
         
@@ -5483,9 +5377,6 @@ class SubstationApp(App):
                      ))
             new_element_id = c.lastrowid
             self.conn.commit()
-            
-            # Sync to cloud if TEST substation
-            CloudSync.sync_element_add(self.conn, new_element_id, selected_substation_id)
             
             popup.dismiss()
             parent_popup.dismiss()

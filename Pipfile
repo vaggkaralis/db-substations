@@ -12,6 +12,7 @@ kivy = "==2.0.0"
 pandas = ">=1.3.0"
 openpyxl = ">=3.6.0"
 requests = ">=2.26.0"
+pywin32 = ">=305"
 firebase-admin = ">=6.0.0"
 gunicorn = "==20.1.0"
 

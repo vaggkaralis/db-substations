@@ -1,17 +1,9 @@
-# Core API dependencies (for cloud deployment)
-flask>=2.0.0
-flask-cors>=3.0.0
-gunicorn>=20.1.0
-
-# Desktop app dependencies (comment out for cloud deployment)
+# Desktop app dependencies
 # kivy==2.0.0
 # pandas>=1.3.0
 openpyxl>=3.1.0
-# requests>=2.26.0
-requests>=2.26.0
 pywin32>=305; platform_system == "Windows"
 # reportlab>=4.0.0
-psycopg2-binary>=2.9.9
 
 # Android Build Tools (install on build machine only)
 # buildozer>=1.4.0

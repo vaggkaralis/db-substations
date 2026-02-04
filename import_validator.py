@@ -55,7 +55,8 @@ BREAKER_ROLE_MAPPINGS = {
 BREAKER_CATEGORY_MAPPINGS = {
     'SF6': ['SF6', 'SF 6', 'Hexafluoride'],
     'Κενού': ['Κενού', 'Vacuum', 'VAC'],
-    'Πτωχού Ελαίου': ['Πτωχού Ελαίου', 'Oil', 'Minimum Oil', 'Low Oil'],
+    'Πτωχού Ελαίου': ['Πτωχού Ελαίου', 'Minimum Oil', 'Low Oil'],
+    'Ελαίου': ['Ελαίου', 'Oil'],
 }
 
 
@@ -368,16 +369,46 @@ def analyze_import_data(df, column_mapping: Dict, conn) -> Dict:
         breaker_cat = get_value(row, 'Τύπος Διακόπτη')
         if breaker_cat and elem_type and 'Διακόπτης' in str(elem_type):
             canonical, confidence, alternatives = validate_breaker_category(breaker_cat)
-            if canonical and confidence < 0.95:
+            allowed_by_type = {
+                'Διακόπτης ΥΤ': ['SF6', 'Κενού', 'Ελαίου'],
+                'Διακόπτης ΜΤ': ['SF6', 'Κενού', 'Πτωχού Ελαίου', 'Ελαίου']
+            }
+            allowed_categories = allowed_by_type.get(str(elem_type), list(BREAKER_CATEGORY_MAPPINGS.keys()))
+
+            if not canonical:
                 issues.append({
                     'row': row_num,
                     'column': 'Τύπος Διακόπτη',
                     'value': breaker_cat,
-                    'issue_type': 'fuzzy_match',
-                    'suggested_value': canonical,
-                    'confidence': confidence,
-                    'alternatives': alternatives
+                    'issue_type': 'invalid_value',
+                    'suggested_value': None,
+                    'confidence': 0.0,
+                    'alternatives': allowed_categories
                 })
+                row_valid = False
+            else:
+                if canonical not in allowed_categories:
+                    suggested = 'Ελαίου' if (canonical == 'Πτωχού Ελαίου' and str(elem_type) == 'Διακόπτης ΥΤ') else None
+                    issues.append({
+                        'row': row_num,
+                        'column': 'Τύπος Διακόπτη',
+                        'value': breaker_cat,
+                        'issue_type': 'invalid_value',
+                        'suggested_value': suggested,
+                        'confidence': confidence,
+                        'alternatives': allowed_categories
+                    })
+                    row_valid = False
+                elif confidence < 0.95:
+                    issues.append({
+                        'row': row_num,
+                        'column': 'Τύπος Διακόπτη',
+                        'value': breaker_cat,
+                        'issue_type': 'fuzzy_match',
+                        'suggested_value': canonical,
+                        'confidence': confidence,
+                        'alternatives': alternatives
+                    })
         
         if row_valid:
             valid_rows += 1

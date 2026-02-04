@@ -20,11 +20,17 @@ SET breaker_category = 'Κενού'
 WHERE breaker_category = 'Vacuum'
   AND element_type IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
 
--- Convert "Oil" to "Πτωχού Ελαίου"
+-- Convert "Oil" to "Ελαίου"
 UPDATE elements
-SET breaker_category = 'Πτωχού Ελαίου'
+SET breaker_category = 'Ελαίου'
 WHERE breaker_category = 'Oil'
   AND element_type IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
+
+-- Convert "Πτωχού Ελαίου" to "Ελαίου" for HV breakers only
+UPDATE elements
+SET breaker_category = 'Ελαίου'
+WHERE breaker_category = 'Πτωχού Ελαίου'
+  AND element_type = 'Διακόπτης ΥΤ';
 
 -- "SF6" remains the same (already correct)
 
@@ -40,9 +46,14 @@ WHERE breaker_category = 'Vacuum'
   AND element_category IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
 
 UPDATE element_models
-SET breaker_category = 'Πτωχού Ελαίου'
+SET breaker_category = 'Ελαίου'
 WHERE breaker_category = 'Oil'
   AND element_category IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
+
+UPDATE element_models
+SET breaker_category = 'Ελαίου'
+WHERE breaker_category = 'Πτωχού Ελαίου'
+  AND element_category = 'Διακόπτης ΥΤ';
 
 -- Step 4: Verify results after migration
 SELECT 'Elements Table - After Migration' as table_name;
@@ -60,9 +71,10 @@ GROUP BY breaker_category;
 -- Step 5: Find breakers with NULL or invalid categories (needs manual review)
 SELECT id, name, element_type, breaker_category, substation_id
 FROM elements
-WHERE element_type IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ')
-  AND (breaker_category IS NULL 
-       OR breaker_category NOT IN ('SF6', 'Κενού', 'Πτωχού Ελαίου'));
+WHERE (
+    (element_type = 'Διακόπτης ΥΤ' AND (breaker_category IS NULL OR breaker_category NOT IN ('SF6', 'Κενού', 'Ελαίου')))
+  OR (element_type = 'Διακόπτης ΜΤ' AND (breaker_category IS NULL OR breaker_category NOT IN ('SF6', 'Κενού', 'Πτωχού Ελαίου', 'Ελαίου')))
+);
 
 -- ============================================================
 -- ROLLBACK SCRIPT (if needed - SAVE THIS!)
@@ -76,7 +88,7 @@ WHERE breaker_category = 'Κενού'
 
 UPDATE elements
 SET breaker_category = 'Oil'
-WHERE breaker_category = 'Πτωχού Ελαίου'
+WHERE breaker_category = 'Ελαίου'
   AND element_type IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
 
 UPDATE element_models
@@ -86,6 +98,6 @@ WHERE breaker_category = 'Κενού'
 
 UPDATE element_models
 SET breaker_category = 'Oil'
-WHERE breaker_category = 'Πτωχού Ελαίου'
+WHERE breaker_category = 'Ελαίου'
   AND element_category IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
 */

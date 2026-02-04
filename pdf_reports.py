@@ -11,7 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase.pdfmetrics import registerFontFamily
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.utils import ImageReader
 import os
 import unicodedata
@@ -132,6 +132,7 @@ class MaintenanceReportGenerator:
         category_map = {
             'SF6': 'ΑΕΡΙΟΥ (SF6)',
             'Πτωχού Ελαίου': 'ΛΑΔΙΟΥ',
+            'Ελαίου': 'ΛΑΔΙΟΥ',
             'Κενού': 'ΚΕΝΟΥ',
             # Legacy English names (for backward compatibility)
             'Oil': 'ΛΑΔΙΟΥ',
@@ -184,6 +185,8 @@ class MaintenanceReportGenerator:
         
         elem_id, elem_type, elem_name, serial_num, manufacturer, model, breaker_category, \
         voltage_level, gate, manufacture_year, model_manufacturer, model_name = element
+
+        # Removed coercion to 'Ελαίου'
         
         # Get maintenance measurements for this element
         c.execute("""
@@ -219,7 +222,7 @@ class MaintenanceReportGenerator:
         # Generate the PDF based on breaker category
         if breaker_category == 'SF6':
             self._generate_sf6_report(output_path, maintenance, element, measurements)
-        elif breaker_category in ['Oil', 'Πτωχού Ελαίου']:
+        elif breaker_category in ['Oil', 'Πτωχού Ελαίου', 'Ελαίου']:
             self._generate_oil_report(output_path, maintenance, element, measurements)
         elif breaker_category in ['Vacuum', 'Κενού']:
             self._generate_vacuum_report(output_path, maintenance, element, measurements)
@@ -1025,3 +1028,155 @@ def generate_inspection_report(conn, inspection_id, output_path=None):
     """Convenience function to generate an inspection report PDF."""
     generator = InspectionReportGenerator(conn)
     return generator.generate_inspection_report(inspection_id, output_path)
+
+
+class SF6LeakReportGenerator:
+    """Generate annual SF6 leakage reports."""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.greek_font = 'Helvetica'
+        self.setup_fonts()
+
+    def setup_fonts(self):
+        """Setup fonts for Greek text support."""
+        try:
+            import platform
+            system = platform.system()
+            font_paths = []
+            if system == 'Windows':
+                font_paths = [
+                    os.path.join(os.path.dirname(__file__), 'DejaVuSans.ttf'),
+                    'C:\\Windows\\Fonts\\DejaVuSans.ttf',
+                    'C:\\Windows\\Fonts\\arial.ttf'
+                ]
+            elif system == 'Darwin':
+                font_paths = [
+                    '/Library/Fonts/Arial Unicode.ttf',
+                    '/Library/Fonts/Arial.ttf'
+                ]
+            else:
+                font_paths = [
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'
+                ]
+
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    pdfmetrics.registerFont(TTFont('GreekFont', font_path))
+                    registerFontFamily('GreekFont', normal='GreekFont', bold='GreekFont')
+                    self.greek_font = 'GreekFont'
+                    return
+        except Exception:
+            self.greek_font = 'Helvetica'
+
+    def _normalize_text(self, text):
+        if text is None:
+            return ''
+        if isinstance(text, (int, float)):
+            text = str(text)
+        return unicodedata.normalize('NFC', str(text))
+
+    def generate_report(self, year, output_path=None):
+        c = self.conn.cursor()
+        year_prefix = f"{year}%"
+
+        c.execute(
+            """
+            SELECT m.date_time, s.name, e.name, me.sf6_leakage_kg
+            FROM maintenance_elements me
+            JOIN maintenance m ON me.maintenance_id = m.id
+            JOIN elements e ON me.element_id = e.id
+            JOIN substations s ON m.substation_id = s.id
+            WHERE e.breaker_category = 'SF6'
+              AND m.date_time LIKE ?
+                            AND me.sf6_leakage_kg IS NOT NULL
+                            AND me.sf6_leakage_kg > 0
+            ORDER BY m.date_time ASC
+            """,
+            (year_prefix,)
+        )
+        rows = c.fetchall()
+
+        total_leakage = sum([r[3] or 0 for r in rows])
+
+        c.execute(
+            """
+            SELECT SUM(COALESCE(em.sf6_capacity_kg, 0))
+            FROM elements e
+            LEFT JOIN element_models em ON e.element_model_id = em.id
+            WHERE e.operating_status = 'Ενεργή'
+              AND e.breaker_category = 'SF6'
+              AND e.element_type IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')
+            """
+        )
+        installed_sf6 = c.fetchone()[0] or 0.0
+        percentage = (total_leakage / installed_sf6 * 100) if installed_sf6 else 0.0
+
+        if output_path is None:
+            reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
+            os.makedirs(reports_dir, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_path = os.path.join(reports_dir, f'SF6_Leakages_{year}_{timestamp}.pdf')
+
+        doc = SimpleDocTemplate(output_path, pagesize=A4)
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            'SF6Title',
+            parent=styles['Heading1'],
+            fontName=self.greek_font,
+            alignment=TA_CENTER,
+            fontSize=16,
+            spaceAfter=12
+        )
+        normal_style = ParagraphStyle(
+            'SF6Normal',
+            parent=styles['Normal'],
+            fontName=self.greek_font,
+            fontSize=11,
+            spaceAfter=6
+        )
+
+        story = [
+            Paragraph(self._normalize_text(f'Αναφορά Διαρροών SF6 - {year}'), title_style),
+            Paragraph(self._normalize_text(f'Σύνολο διαρροών: {total_leakage:.2f} kg'), normal_style),
+            Paragraph(self._normalize_text(f'Εγκατεστημένο SF6 (ενεργά): {installed_sf6:.2f} kg'), normal_style),
+            Paragraph(self._normalize_text(f'Ποσοστό διαρροών: {percentage:.2f}%'), normal_style),
+            Spacer(1, 12)
+        ]
+
+        table_data = [[
+            self._normalize_text('Ημερομηνία'),
+            self._normalize_text('Υποσταθμός'),
+            self._normalize_text('Στοιχείο'),
+            self._normalize_text('Διαρροή (kg)')
+        ]]
+
+        for date_time, sub_name, elem_name, leakage in rows:
+            table_data.append([
+                self._normalize_text(date_time or '-'),
+                self._normalize_text(sub_name or '-'),
+                self._normalize_text(elem_name or '-'),
+                self._normalize_text(f"{leakage:.2f}" if leakage is not None else '-')
+            ])
+
+        table = Table(table_data, repeatRows=1)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('FONTNAME', (0, 0), (-1, -1), self.greek_font),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+
+        story.append(table)
+        doc.build(story)
+        return output_path
+
+
+def generate_sf6_leak_report(conn, year, output_path=None):
+    """Convenience function to generate SF6 leak report PDF."""
+    generator = SF6LeakReportGenerator(conn)
+    return generator.generate_report(year, output_path)

@@ -2,6 +2,8 @@
 Model Management UI Functions for Element Models
 """
 
+import os
+
 def show_models_management(app_instance):
     """Show model management interface"""
     from kivy.uix.popup import Popup
@@ -10,10 +12,11 @@ def show_models_management(app_instance):
     from kivy.uix.label import Label
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.spinner import Spinner
     from popups import show_message_popup
     
     c = app_instance.conn.cursor()
-    c.execute("SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models ORDER BY element_category, model_name")
+    c.execute("SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, manual_pdf FROM element_models ORDER BY element_category, model_name")
     models = c.fetchall()
     
     popup = Popup(title='Διαχείριση Τύπων Στοιχείων', size_hint=(0.95, 0.9))
@@ -23,149 +26,185 @@ def show_models_management(app_instance):
     add_btn = Button(text='+ Προσθήκη Νέου Μοντέλου', size_hint_y=0.1)
     add_btn.bind(on_press=lambda x: show_add_model_popup(app_instance, popup))
     main_layout.add_widget(add_btn)
+
+    # Filter by element type
+    available_categories = [row[1] for row in models]
+    ordered_categories = []
+    for cat in app_instance.ELEMENT_TYPES:
+        if cat in available_categories and cat not in ordered_categories:
+            ordered_categories.append(cat)
+    for cat in available_categories:
+        if cat not in ordered_categories:
+            ordered_categories.append(cat)
+    filter_values = ['(Όλα)'] + ordered_categories
+
+    filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
+    filter_bar.add_widget(Label(text='Φίλτρο Τύπου:', size_hint_x=0.25))
+    filter_spinner = Spinner(text='(Όλα)', values=filter_values, size_hint_x=0.75)
+    filter_bar.add_widget(filter_spinner)
+    main_layout.add_widget(filter_bar)
     
     # Models list
     scroll = ScrollView(bar_width=10, scroll_type=['bars', 'content'])
     grid = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
     grid.bind(minimum_height=grid.setter('height'))
     
-    if models:
-        # Categorize models by element type - use dynamic categorization
-        from collections import OrderedDict
-        categories = OrderedDict()
-        
-        # Define priority order for common categories
-        priority_categories = ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ', 'Μετασχηματιστής 150/20KV', 'Motor Drive']
-        
-        # Initialize priority categories
-        for cat in priority_categories:
-            categories[cat] = []
-        
-        # Group models by their actual category
-        for model in models:
-            model_id, category, model_name, manufacturer, cycle, space, breaker_cat = model
-            if category not in categories:
-                categories[category] = []
-            categories[category].append(model)
-        
-        # Display categories with models
-        for category_name, category_models in categories.items():
-            if category_models:
-                # Category header
-                category_label = Label(
-                    text=f'[b][size=20]{category_name}[/size][/b] ({len(category_models)})',
-                    size_hint_y=None,
-                    height=40,
-                    bold=True,
-                    markup=True
-                )
-                grid.add_widget(category_label)
-                
-                # For MV and HV breakers, group by breaker category (SF6, Κενού, etc.)
-                if category_name in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
-                    # Group by breaker category
-                    breaker_groups = OrderedDict()
-                    breaker_order = app_instance.BREAKER_CATEGORIES
-                    
-                    # Initialize ordered groups
-                    for breaker_type in breaker_order:
-                        breaker_groups[breaker_type] = []
-                    breaker_groups['Άλλο'] = []  # For uncategorized
-                    
-                    # Sort models into breaker groups
-                    for model in category_models:
-                        model_id, category, model_name, manufacturer, cycle, space, breaker_cat = model
-                        if breaker_cat and breaker_cat in breaker_groups:
-                            breaker_groups[breaker_cat].append(model)
-                        else:
-                            breaker_groups['Άλλο'].append(model)
-                    
-                    # Display each breaker type group
-                    for breaker_type, breaker_models in breaker_groups.items():
-                        if breaker_models:
-                            # Breaker type subheader
-                            breaker_header = Label(
-                                text=f'  [b]{breaker_type}[/b] ({len(breaker_models)})',
-                                size_hint_y=None,
-                                height=35,
-                                markup=True,
-                                color=(0.3, 0.7, 1, 1)
-                            )
-                            grid.add_widget(breaker_header)
-                            
-                            # Display models in this breaker group
-                            for model_id, category, model_name, manufacturer, cycle, space, breaker_cat in breaker_models:
-                                model_box = BoxLayout(size_hint_y=None, height=80, spacing=5, orientation='vertical')
-                                
-                                # Header
-                                header = BoxLayout(size_hint_y=None, height=30, spacing=5)
-                                header.add_widget(Label(text=f'    {model_name}', bold=True, size_hint_x=0.55))
-                                
-                                # Buttons
-                                btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
-                                
-                                list_btn = Button(text='Λίστα', size_hint_x=0.33)
-                                list_btn.bind(on_press=lambda x, mid=model_id, mname=model_name: show_model_usages(app_instance, mid, mname))
-                                btn_box.add_widget(list_btn)
-                                
-                                edit_btn = Button(text='Επεξ.', size_hint_x=0.33)
-                                edit_btn.bind(on_press=lambda x, mid=model_id: show_edit_model_popup(app_instance, mid, popup))
-                                btn_box.add_widget(edit_btn)
-                                
-                                delete_btn = Button(text='Διαγρ.', size_hint_x=0.34)
-                                delete_btn.bind(on_press=lambda x, mid=model_id: delete_model(app_instance, mid, popup))
-                                btn_box.add_widget(delete_btn)
-                                
-                                header.add_widget(btn_box)
-                                model_box.add_widget(header)
-                                
-                                # Details
-                                details_text = f'    Κατασκευαστής: {manufacturer or "-"} | Κύκλος: {cycle} έτη | Χώρος: {space or "-"}'
-                                details = Label(text=details_text, size_hint_y=None, height=30)
-                                model_box.add_widget(details)
-                                
-                                grid.add_widget(model_box)
-                else:
-                    # Display models in this category normally (not grouped by breaker type)
-                    for model_id, category, model_name, manufacturer, cycle, space, breaker_cat in category_models:
-                        model_box = BoxLayout(size_hint_y=None, height=80, spacing=5, orientation='vertical')
-                        
-                        # Header
-                        header = BoxLayout(size_hint_y=None, height=30, spacing=5)
-                        header.add_widget(Label(text=f'{model_name}', bold=True, size_hint_x=0.55))
-                        
-                        # Buttons
-                        btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
-                        
-                        list_btn = Button(text='Λίστα', size_hint_x=0.33)
-                        list_btn.bind(on_press=lambda x, mid=model_id, mname=model_name: show_model_usages(app_instance, mid, mname))
-                        btn_box.add_widget(list_btn)
-                        
-                        edit_btn = Button(text='Επεξ.', size_hint_x=0.33)
-                        edit_btn.bind(on_press=lambda x, mid=model_id: show_edit_model_popup(app_instance, mid, popup))
-                        btn_box.add_widget(edit_btn)
-                        
-                        delete_btn = Button(text='Διαγρ.', size_hint_x=0.34)
-                        delete_btn.bind(on_press=lambda x, mid=model_id: delete_model(app_instance, mid, popup))
-                        btn_box.add_widget(delete_btn)
-                        
-                        header.add_widget(btn_box)
-                        model_box.add_widget(header)
-                        
-                        # Details
-                        details_text = f'Κατασκευαστής: {manufacturer or "-"} | Κύκλος: {cycle} έτη | Χώρος: {space or "-"}'
-                        if breaker_cat:
-                            details_text += f' | Κατηγορία: {breaker_cat}'
-                        details = Label(text=details_text, size_hint_y=None, height=30)
-                        model_box.add_widget(details)
-                        
-                        grid.add_widget(model_box)
-                
-                # Add spacing between categories
-                spacing_widget = Label(text='', size_hint_y=None, height=20)
-                grid.add_widget(spacing_widget)
-    else:
-        grid.add_widget(Label(text='Δεν υπάρχουν καταχωρημένα μοντέλα', size_hint_y=None, height=40))
+    def render_models(selected_category):
+        grid.clear_widgets()
+        filtered_models = models
+        if selected_category and selected_category != '(Όλα)':
+            filtered_models = [m for m in models if m[1] == selected_category]
+
+        if filtered_models:
+            # Categorize models by element type - use dynamic categorization
+            from collections import OrderedDict
+            categories = OrderedDict()
+
+            # Define priority order for common categories
+            priority_categories = ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ', 'Μετασχηματιστής 150/20KV', 'Motor Drive']
+
+            # Initialize priority categories
+            for cat in priority_categories:
+                categories[cat] = []
+
+            # Group models by their actual category
+            for model in filtered_models:
+                model_id, category, model_name, manufacturer, cycle, space, breaker_cat, manual_pdf = model
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(model)
+
+            # Display categories with models
+            for category_name, category_models in categories.items():
+                if category_models:
+                    # Category header
+                    category_label = Label(
+                        text=f'[b][size=20]{category_name}[/size][/b] ({len(category_models)})',
+                        size_hint_y=None,
+                        height=40,
+                        bold=True,
+                        markup=True
+                    )
+                    grid.add_widget(category_label)
+
+                    # For MV and HV breakers, group by breaker category (SF6, Κενού, etc.)
+                    if category_name in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
+                        # Group by breaker category
+                        breaker_groups = OrderedDict()
+                        breaker_order = app_instance._get_breaker_categories_for_element_type(category_name)
+
+                        # Initialize ordered groups
+                        for breaker_type in breaker_order:
+                            breaker_groups[breaker_type] = []
+                        breaker_groups['Άλλο'] = []  # For uncategorized
+
+                        # Sort models into breaker groups
+                        for model in category_models:
+                            model_id, category, model_name, manufacturer, cycle, space, breaker_cat, manual_pdf = model
+                            if breaker_cat and breaker_cat in breaker_groups:
+                                breaker_groups[breaker_cat].append(model)
+                            else:
+                                breaker_groups['Άλλο'].append(model)
+
+                        # Display each breaker type group
+                        for breaker_type, breaker_models in breaker_groups.items():
+                            if breaker_models:
+                                # Breaker type subheader
+                                breaker_header = Label(
+                                    text=f'  [b]{breaker_type}[/b] ({len(breaker_models)})',
+                                    size_hint_y=None,
+                                    height=35,
+                                    markup=True,
+                                    color=(0.3, 0.7, 1, 1)
+                                )
+                                grid.add_widget(breaker_header)
+
+                                # Display models in this breaker group
+                                for model_id, category, model_name, manufacturer, cycle, space, breaker_cat, manual_pdf in breaker_models:
+                                    model_box = BoxLayout(size_hint_y=None, height=80, spacing=5, orientation='vertical')
+
+                                    # Header
+                                    header = BoxLayout(size_hint_y=None, height=30, spacing=5)
+                                    header.add_widget(Label(text=f'    {model_name}', bold=True, size_hint_x=0.55))
+
+                                    # Buttons
+                                    btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
+
+                                    list_btn = Button(text='Λίστα', size_hint_x=0.25)
+                                    list_btn.bind(on_press=lambda x, mid=model_id, mname=model_name: show_model_usages(app_instance, mid, mname))
+                                    btn_box.add_widget(list_btn)
+
+                                    manual_label = 'Manual' if manual_pdf and os.path.exists(manual_pdf) else 'Προσθήκη Manual'
+                                    manual_btn = Button(text=manual_label, size_hint_x=0.25)
+                                    manual_btn.bind(on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: _handle_manual_pdf(app_instance, mid, path, p))
+                                    btn_box.add_widget(manual_btn)
+
+                                    edit_btn = Button(text='Επεξ.', size_hint_x=0.25)
+                                    edit_btn.bind(on_press=lambda x, mid=model_id: show_edit_model_popup(app_instance, mid, popup))
+                                    btn_box.add_widget(edit_btn)
+
+                                    delete_btn = Button(text='Διαγρ.', size_hint_x=0.25)
+                                    delete_btn.bind(on_press=lambda x, mid=model_id: delete_model(app_instance, mid, popup))
+                                    btn_box.add_widget(delete_btn)
+
+                                    header.add_widget(btn_box)
+                                    model_box.add_widget(header)
+
+                                    # Details
+                                    details_text = f'    Κατασκευαστής: {manufacturer or "-"} | Κύκλος: {cycle} έτη | Χώρος: {space or "-"}'
+                                    details = Label(text=details_text, size_hint_y=None, height=30)
+                                    model_box.add_widget(details)
+
+                                    grid.add_widget(model_box)
+                    else:
+                        # Display models in this category normally (not grouped by breaker type)
+                        for model_id, category, model_name, manufacturer, cycle, space, breaker_cat, manual_pdf in category_models:
+                            model_box = BoxLayout(size_hint_y=None, height=80, spacing=5, orientation='vertical')
+
+                            # Header
+                            header = BoxLayout(size_hint_y=None, height=30, spacing=5)
+                            header.add_widget(Label(text=f'{model_name}', bold=True, size_hint_x=0.55))
+
+                            # Buttons
+                            btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
+
+                            list_btn = Button(text='Λίστα', size_hint_x=0.25)
+                            list_btn.bind(on_press=lambda x, mid=model_id, mname=model_name: show_model_usages(app_instance, mid, mname))
+                            btn_box.add_widget(list_btn)
+
+                            manual_label = 'Manual' if manual_pdf and os.path.exists(manual_pdf) else 'Προσθήκη Manual'
+                            manual_btn = Button(text=manual_label, size_hint_x=0.25)
+                            manual_btn.bind(on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: _handle_manual_pdf(app_instance, mid, path, p))
+                            btn_box.add_widget(manual_btn)
+
+                            edit_btn = Button(text='Επεξ.', size_hint_x=0.25)
+                            edit_btn.bind(on_press=lambda x, mid=model_id: show_edit_model_popup(app_instance, mid, popup))
+                            btn_box.add_widget(edit_btn)
+
+                            delete_btn = Button(text='Διαγρ.', size_hint_x=0.25)
+                            delete_btn.bind(on_press=lambda x, mid=model_id: delete_model(app_instance, mid, popup))
+                            btn_box.add_widget(delete_btn)
+
+                            header.add_widget(btn_box)
+                            model_box.add_widget(header)
+
+                            # Details
+                            details_text = f'Κατασκευαστής: {manufacturer or "-"} | Κύκλος: {cycle} έτη | Χώρος: {space or "-"}'
+                            if breaker_cat:
+                                details_text += f' | Κατηγορία: {breaker_cat}'
+                            details = Label(text=details_text, size_hint_y=None, height=30)
+                            model_box.add_widget(details)
+
+                            grid.add_widget(model_box)
+
+                    # Add spacing between categories
+                    spacing_widget = Label(text='', size_hint_y=None, height=20)
+                    grid.add_widget(spacing_widget)
+        else:
+            grid.add_widget(Label(text='Δεν υπάρχουν καταχωρημένα μοντέλα', size_hint_y=None, height=40))
+
+    render_models(filter_spinner.text)
+    filter_spinner.bind(text=lambda _spinner, text: render_models(text))
     
     scroll.add_widget(grid)
     main_layout.add_widget(scroll)
@@ -221,13 +260,18 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     
     # Breaker category (conditional - placed early for better UX)
     breaker_label = Label(text='Κατηγορία Διακόπτη:', size_hint_y=None, height=30)
+    initial_breaker_categories = app_instance._get_breaker_categories_for_element_type(category_spinner.text)
     breaker_spinner = Spinner(
-        text=app_instance.BREAKER_CATEGORIES[0],
-        values=app_instance.BREAKER_CATEGORIES,
+        text=initial_breaker_categories[0] if initial_breaker_categories else 'SF6',
+        values=initial_breaker_categories,
         size_hint_y=None,
         height=40
     )
     
+    # SF6 capacity (kg) - only for SF6 breaker models
+    sf6_capacity_label = Label(text='Χωρητικότητα SF6 (kg):', size_hint_y=None, height=30)
+    sf6_capacity_input = TextInput(hint_text='kg', size_hint_y=None, height=40, multiline=False)
+
     # Manufacturer
     layout.add_widget(Label(text='Κατασκευαστής:', size_hint_y=None, height=30))
     manufacturer_input = TextInput(hint_text='Κατασκευαστής', size_hint_y=None, height=40, multiline=False)
@@ -253,15 +297,35 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         if breaker_label in layout.children:
             layout.remove_widget(breaker_label)
             layout.remove_widget(breaker_spinner)
+        if sf6_capacity_label in layout.children:
+            layout.remove_widget(sf6_capacity_label)
+            layout.remove_widget(sf6_capacity_input)
         
         # Add them back only if circuit breaker is selected
         if text in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
+            breaker_categories = app_instance._get_breaker_categories_for_element_type(text)
+            breaker_spinner.values = breaker_categories
+            if breaker_spinner.text not in breaker_categories:
+                breaker_spinner.text = breaker_categories[0] if breaker_categories else 'SF6'
             # Insert after model_name_input (which means before manufacturer in the visual order)
             idx = layout.children.index(model_name_input)
             layout.add_widget(breaker_spinner, index=idx)
             layout.add_widget(breaker_label, index=idx+1)
+            if breaker_spinner.text == 'SF6':
+                layout.add_widget(sf6_capacity_input, index=idx)
+                layout.add_widget(sf6_capacity_label, index=idx+1)
+
+    def on_breaker_category_change(_spinner, _text):
+        if sf6_capacity_label in layout.children:
+            layout.remove_widget(sf6_capacity_label)
+            layout.remove_widget(sf6_capacity_input)
+        if category_spinner.text in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ'] and breaker_spinner.text == 'SF6':
+            idx = layout.children.index(model_name_input)
+            layout.add_widget(sf6_capacity_input, index=idx)
+            layout.add_widget(sf6_capacity_label, index=idx+1)
     
     category_spinner.bind(text=on_category_change)
+    breaker_spinner.bind(text=on_breaker_category_change)
     on_category_change(category_spinner, category_spinner.text)
     
     scroll.add_widget(layout)
@@ -282,12 +346,23 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             return
         
         breaker_cat = breaker_spinner.text if category_spinner.text in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ'] else ''
+
+        sf6_capacity_val = None
+        if breaker_cat == 'SF6':
+            if not sf6_capacity_input.text.strip():
+                show_message_popup('Σφάλμα', 'Η χωρητικότητα SF6 (kg) είναι υποχρεωτική για μοντέλα SF6!')
+                return
+            try:
+                sf6_capacity_val = float(sf6_capacity_input.text.strip())
+            except ValueError:
+                show_message_popup('Σφάλμα', 'Η χωρητικότητα SF6 πρέπει να είναι αριθμός!')
+                return
         
         c = app_instance.conn.cursor()
         try:
             c.execute(
-                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category) VALUES (?, ?, ?, ?, ?, ?)",
-                (category_spinner.text, model_name_input.text.strip(), manufacturer_input.text.strip(), cycle, space_spinner.text, breaker_cat)
+                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (category_spinner.text, model_name_input.text.strip(), manufacturer_input.text.strip(), cycle, space_spinner.text, breaker_cat, sf6_capacity_val)
             )
             app_instance.conn.commit()
             popup.dismiss()
@@ -328,14 +403,14 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     from popups import show_message_popup
     
     c = app_instance.conn.cursor()
-    c.execute("SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models WHERE id=?", (model_id,))
+    c.execute("SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg FROM element_models WHERE id=?", (model_id,))
     model = c.fetchone()
     
     if not model:
         show_message_popup('Σφάλμα', 'Το μοντέλο δεν βρέθηκε!')
         return
     
-    category, model_name, manufacturer, cycle, space, breaker_cat = model
+    category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity = model
     
     popup = Popup(title=f'Επεξεργασία: {model_name}', size_hint=(0.8, 0.8))
     main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
@@ -375,15 +450,23 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     # Breaker category (if applicable)
     if category in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ']:
         layout.add_widget(Label(text='Κατηγορία Διακόπτη:', size_hint_y=None, height=30))
+        breaker_categories = app_instance._get_breaker_categories_for_element_type(category)
         breaker_spinner = Spinner(
-            text=breaker_cat or app_instance.BREAKER_CATEGORIES[0],
-            values=app_instance.BREAKER_CATEGORIES,
+            text=breaker_cat if breaker_cat in breaker_categories else (breaker_categories[0] if breaker_categories else 'SF6'),
+            values=breaker_categories,
             size_hint_y=None,
             height=40
         )
         layout.add_widget(breaker_spinner)
     else:
         breaker_spinner = None
+
+    # SF6 capacity (kg) - only for SF6 breaker models
+    sf6_capacity_input = None
+    if category in ['Διακόπτης ΜΤ', 'Διακόπτης ΥΤ'] and breaker_cat == 'SF6':
+        layout.add_widget(Label(text='Χωρητικότητα SF6 (kg):', size_hint_y=None, height=30))
+        sf6_capacity_input = TextInput(text=str(sf6_capacity) if sf6_capacity is not None else '', size_hint_y=None, height=40, multiline=False)
+        layout.add_widget(sf6_capacity_input)
     
     scroll.add_widget(layout)
     main_layout.add_widget(scroll)
@@ -403,13 +486,24 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             return
         
         breaker_cat_val = breaker_spinner.text if breaker_spinner else ''
+
+        sf6_capacity_val = None
+        if breaker_cat_val == 'SF6':
+            if not sf6_capacity_input or not sf6_capacity_input.text.strip():
+                show_message_popup('Σφάλμα', 'Η χωρητικότητα SF6 (kg) είναι υποχρεωτική για μοντέλα SF6!')
+                return
+            try:
+                sf6_capacity_val = float(sf6_capacity_input.text.strip())
+            except ValueError:
+                show_message_popup('Σφάλμα', 'Η χωρητικότητα SF6 πρέπει να είναι αριθμός!')
+                return
         
         c = app_instance.conn.cursor()
         
         # Update the model
         c.execute(
-            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=? WHERE id=?",
-            (model_name_input.text.strip(), manufacturer_input.text.strip(), cycle_val, space_spinner.text, breaker_cat_val, model_id)
+            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=? WHERE id=?",
+            (model_name_input.text.strip(), manufacturer_input.text.strip(), cycle_val, space_spinner.text, breaker_cat_val, sf6_capacity_val, model_id)
         )
         
         # Update all linked elements with the new model name
@@ -435,6 +529,97 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     
     main_layout.add_widget(buttons_layout)
     popup.content = main_layout
+    popup.open()
+
+
+def _handle_manual_pdf(app_instance, model_id, manual_pdf, parent_popup=None):
+    from popups import show_message_popup
+    if manual_pdf and os.path.exists(manual_pdf):
+        _open_manual_pdf(manual_pdf)
+    else:
+        _select_manual_pdf(app_instance, model_id, parent_popup)
+
+
+def _open_manual_pdf(pdf_path):
+    from popups import show_message_popup
+    if not pdf_path or not os.path.exists(pdf_path):
+        show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
+        return
+    try:
+        import subprocess
+        import sys
+        if sys.platform == 'win32':
+            os.startfile(pdf_path)
+        elif sys.platform == 'darwin':
+            subprocess.call(['open', pdf_path])
+        else:
+            subprocess.call(['xdg-open', pdf_path])
+    except Exception as exc:
+        show_message_popup('Σφάλμα', f'Αποτυχία ανοίγματος PDF:\n{str(exc)}')
+
+
+def _select_manual_pdf(app_instance, model_id, parent_popup=None):
+    from kivy.uix.popup import Popup
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.textinput import TextInput
+    from kivy.uix.filechooser import FileChooserListView
+    from popups import show_message_popup
+
+    popup = Popup(title='Επιλογή Manual PDF', size_hint=(0.9, 0.9))
+    layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+    path_label = Label(text='Διαδρομή αρχείου:', size_hint_y=0.1)
+    layout.add_widget(path_label)
+
+    path_input = TextInput(
+        hint_text='Διαδρομή αρχείου',
+        size_hint_y=0.12,
+        multiline=False
+    )
+    layout.add_widget(path_input)
+
+    layout.add_widget(Label(text='Ή επιλέξτε από τη λίστα:', size_hint_y=0.1))
+    chooser = FileChooserListView(filters=['*.pdf'], path=os.path.dirname(__file__))
+    layout.add_widget(chooser)
+
+    buttons_layout = BoxLayout(size_hint_y=0.12, spacing=10)
+
+    def save_file():
+        file_path = path_input.text.strip() if path_input.text.strip() else (chooser.selection[0] if chooser.selection else None)
+
+        if not file_path:
+            show_message_popup('Σφάλμα', 'Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!')
+            return
+
+        if not os.path.exists(file_path):
+            show_message_popup('Σφάλμα', 'Το αρχείο δεν βρέθηκε!')
+            return
+
+        if not file_path.lower().endswith('.pdf'):
+            show_message_popup('Σφάλμα', 'Παρακαλώ επιλέξτε αρχείο PDF!')
+            return
+
+        c = app_instance.conn.cursor()
+        c.execute("UPDATE element_models SET manual_pdf=? WHERE id=?", (file_path, model_id))
+        app_instance.conn.commit()
+        popup.dismiss()
+
+        if parent_popup:
+            parent_popup.dismiss()
+        show_models_management(app_instance)
+
+    save_btn = Button(text='Αποθήκευση')
+    save_btn.bind(on_press=lambda x: save_file())
+    buttons_layout.add_widget(save_btn)
+
+    cancel_btn = Button(text='Ακύρωση')
+    cancel_btn.bind(on_press=popup.dismiss)
+    buttons_layout.add_widget(cancel_btn)
+
+    layout.add_widget(buttons_layout)
+    popup.content = layout
     popup.open()
 
 

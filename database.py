@@ -19,6 +19,8 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
             maintenance_cycle INTEGER DEFAULT 0,
             installation_space TEXT,
             breaker_category TEXT,
+            sf6_capacity_kg REAL,
+            manual_pdf TEXT,
             UNIQUE(element_category, model_name, manufacturer)
         )
     ''')
@@ -46,6 +48,7 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
             maintenance_id INTEGER NOT NULL,
             element_id INTEGER NOT NULL,
             element_comments TEXT,
+            sf6_leak_methodology TEXT,
             FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
             FOREIGN KEY(element_id) REFERENCES elements(id) ON DELETE CASCADE
         )
@@ -273,6 +276,19 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
     # Add measurement fields to maintenance_elements table for circuit breakers
     cursor.execute('PRAGMA table_info(maintenance_elements)')
     maint_elem_columns = [column[1] for column in cursor.fetchall()]
+
+    # SF6 leakage measurement (kg)
+    if 'sf6_leakage_kg' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN sf6_leakage_kg REAL')
+        except Exception:
+            pass
+
+    if 'sf6_leak_methodology' not in maint_elem_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN sf6_leak_methodology TEXT')
+        except Exception:
+            pass
     
     # Insulation resistance measurements - Switch closed (to ground)
     if 'insulation_closed_fa_ground' not in maint_elem_columns:
@@ -434,9 +450,19 @@ def init_db(db_path: str = 'substations.db') -> sqlite3.Connection:
     # Add model_version column to element_models table
     cursor.execute('PRAGMA table_info(element_models)')
     model_columns = [column[1] for column in cursor.fetchall()]
+    if 'sf6_capacity_kg' not in model_columns:
+        try:
+            cursor.execute('ALTER TABLE element_models ADD COLUMN sf6_capacity_kg REAL')
+        except Exception:
+            pass
     if 'model_version' not in model_columns:
         try:
             cursor.execute('ALTER TABLE element_models ADD COLUMN model_version TEXT DEFAULT ""')
+        except Exception:
+            pass
+    if 'manual_pdf' not in model_columns:
+        try:
+            cursor.execute('ALTER TABLE element_models ADD COLUMN manual_pdf TEXT')
         except Exception:
             pass
 
