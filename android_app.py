@@ -431,18 +431,75 @@ class SubstationAndroidApp(App):
                 if loading_label.parent:
                     grid.remove_widget(loading_label)
                 grid.add_widget(Label(text=f'Error: {str(e)}', size_hint_y=None, height=40))
+
+        def fallback_load_all():
+            def on_success_all(_req, result):
+                try:
+                    data = self.parse_json_response(result)
+                    if data.get('success'):
+                        all_elements = data.get('data', [])
+                        filtered = [e for e in all_elements if e.get('substation_id') == substation_id]
+                        if loading_label.parent:
+                            grid.remove_widget(loading_label)
+                        if not filtered:
+                            grid.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
+                        else:
+                            for elem in filtered:
+                                elem_layout = BoxLayout(size_hint_y=None, spacing=5, orientation='vertical')
+                                elem_layout.bind(minimum_height=elem_layout.setter('height'))
+
+                                elem_text = f"{elem['element_type']}: {elem['name']}"
+                                elem_text += f"\nS/N: {elem.get('serial_number', '-')} | Τάση: {elem.get('voltage_level', '-')}"
+                                model_info = f"Μοντέλο: {elem.get('model', '-')}" if elem.get('model') else ""
+                                year_info = f"Έτος: {elem.get('manufacture_year', '-')}" if elem.get('manufacture_year') else ""
+                                status = elem.get('operating_status', '-')
+                                elem_text += f"\n{model_info} {year_info} | Κατάσταση: {status}"
+
+                                label = Label(text=elem_text, size_hint=(1, None))
+                                label.bind(
+                                    width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                                    texture_size=lambda instance, value: (
+                                        setattr(instance, 'height', max(75, value[1] + 10)),
+                                        setattr(elem_layout, 'height', max(75, value[1] + 10))
+                                    )
+                                )
+                                elem_layout.add_widget(label)
+                                grid.add_widget(elem_layout)
+                    else:
+                        if loading_label.parent:
+                            grid.remove_widget(loading_label)
+                        grid.add_widget(Label(text='Αποτυχία φόρτωσης στοιχείων', size_hint_y=None, height=60))
+                except Exception as e:
+                    if loading_label.parent:
+                        grid.remove_widget(loading_label)
+                    grid.add_widget(Label(text=f'Error: {str(e)}', size_hint_y=None, height=60))
+
+            def on_error_all(_req, _error):
+                if loading_label.parent:
+                    grid.remove_widget(loading_label)
+                grid.add_widget(Label(text='Αποτυχία φόρτωσης στοιχείων', size_hint_y=None, height=60))
+
+            UrlRequest(
+                f'{self.API_BASE_URL}/elements',
+                on_success=on_success_all,
+                on_error=on_error_all,
+                timeout=60,
+                req_headers={'Cache-Control': 'no-cache'}
+            )
         
         def on_error(req, error):
             if loading_label.parent:
                 grid.remove_widget(loading_label)
             status = getattr(req, 'resp_status', None)
             grid.add_widget(Label(text=f'Error loading elements: {str(error)}' + (f' (HTTP {status})' if status else ''), size_hint_y=None, height=60))
+            fallback_load_all()
 
         def on_failure(req, result):
             if loading_label.parent:
                 grid.remove_widget(loading_label)
             status = getattr(req, 'resp_status', None)
             grid.add_widget(Label(text='Αποτυχία φόρτωσης στοιχείων' + (f' (HTTP {status})' if status else ''), size_hint_y=None, height=60))
+            fallback_load_all()
         
         UrlRequest(
             f'{self.API_BASE_URL}/elements?substation_id={substation_id}',
@@ -546,7 +603,7 @@ class SubstationAndroidApp(App):
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
             size_hint_y=None,
-            height=46
+            height=56
         )
         layout.add_widget(element_spinner)
         
@@ -559,7 +616,7 @@ class SubstationAndroidApp(App):
                     text=field['values'][0],
                     values=field['values'],
                     size_hint_y=None,
-                    height=46
+                    height=56
                 )
                 field_inputs[field['key']] = spinner
                 layout.add_widget(spinner)
@@ -567,9 +624,9 @@ class SubstationAndroidApp(App):
                 ti = TextInput(
                     hint_text=field.get('hint', ''),
                     size_hint_y=None,
-                    height=50,
+                    height=60,
                     multiline=False,
-                    padding=[10, 10, 10, 10]
+                    padding=[12, 12, 12, 12]
                 )
                 field_inputs[field['key']] = ti
                 layout.add_widget(ti)
@@ -764,7 +821,7 @@ class SubstationAndroidApp(App):
             text='Επαναληπτική συντήρηση',
             values=['Επαναληπτική συντήρηση', 'Βλάβη', 'Οπτικός έλεγχος'],
             size_hint_y=None,
-            height=46
+            height=56
         )
         content_layout.add_widget(maint_type_spinner)
         
@@ -774,9 +831,9 @@ class SubstationAndroidApp(App):
             text=datetime.now().strftime('%Y-%m-%d %H:%M'),
             hint_text='YYYY-MM-DD HH:MM',
             size_hint_y=None,
-            height=50,
+            height=60,
             multiline=False,
-            padding=[10, 10, 10, 10]
+            padding=[12, 12, 12, 12]
         )
         content_layout.add_widget(datetime_input)
         
@@ -785,9 +842,9 @@ class SubstationAndroidApp(App):
         overall_comments = TextInput(
             hint_text='Γενικά σχόλια για την συντήρηση...',
             size_hint_y=None,
-            height=90,
+            height=120,
             multiline=True,
-            padding=[10, 10, 10, 10]
+            padding=[12, 12, 12, 12]
         )
         content_layout.add_widget(overall_comments)
         
@@ -807,6 +864,154 @@ class SubstationAndroidApp(App):
             retry_btn.opacity = 0
             if loading_label.parent is None:
                 content_layout.add_widget(loading_label)
+
+            def fallback_load_all():
+                def on_success_all(_req, result):
+                    try:
+                        data = self.parse_json_response(result)
+                        if data.get('success'):
+                            all_elements = data.get('data', [])
+                            filtered = [e for e in all_elements if e.get('substation_id') == substation_id]
+                            if loading_label.parent:
+                                content_layout.remove_widget(loading_label)
+                            if not filtered:
+                                content_layout.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
+                            else:
+                                for elem in filtered:
+                                    # Element container
+                                    elem_box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5, padding=5)
+                                    elem_box.bind(minimum_height=elem_box.setter('height'))
+
+                                    elem_type_display = elem['element_type']
+                                    if elem.get('breaker_category'):
+                                        elem_type_display += f" ({elem['breaker_category']})"
+
+                                    elem_text = f"{elem['name']} - {elem_type_display}\n"
+                                    elem_text += f"S/N: {elem.get('serial_number', '-')}"
+
+                                    mfr = elem.get('manufacturer', '-')
+                                    mdl = elem.get('model', '-')
+                                    if mfr != '-' or mdl != '-':
+                                        elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
+
+                                    checkbox_layout = BoxLayout(size_hint_y=None, spacing=8)
+                                    checkbox_layout.height = 60
+                                    checkbox = CheckBox(size_hint=(None, None), size=(36, 36))
+                                    checkbox_layout.add_widget(checkbox)
+
+                                    elem_label = Label(
+                                        text=elem_text,
+                                        size_hint_x=1,
+                                        size_hint_y=None,
+                                        halign='left',
+                                        valign='top'
+                                    )
+                                    elem_label.bind(
+                                        width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                                        texture_size=lambda instance, value: (
+                                            setattr(instance, 'height', max(60, value[1] + 10)),
+                                            setattr(checkbox_layout, 'height', max(60, value[1] + 10))
+                                        )
+                                    )
+                                    checkbox_layout.add_widget(elem_label)
+                                    elem_box.add_widget(checkbox_layout)
+
+                                    details_container = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5)
+                                    details_container.bind(minimum_height=details_container.setter('height'))
+
+                                    elem_comments = TextInput(
+                                        hint_text='Σχόλια για αυτό το στοιχείο...',
+                                        size_hint_y=None,
+                                        height=50,
+                                        multiline=False,
+                                        padding=[10, 10, 10, 10]
+                                    )
+                                    details_container.add_widget(elem_comments)
+
+                                    measurements = {}
+                                    is_breaker = elem['element_type'] in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']
+
+                                    if is_breaker:
+                                        details_container.add_widget(wrapped_label('Μονώσεις (Κλειστό):'))
+                                        for phase in ['fa', 'fb', 'fc']:
+                                            phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
+                                            phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                            phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
+                                            value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
+                                            phase_layout.add_widget(value_input)
+                                            unit_spinner = Spinner(text='GΩ', values=['GΩ', 'MΩ', 'kΩ'], size_hint_x=0.25)
+                                            phase_layout.add_widget(unit_spinner)
+                                            details_container.add_widget(phase_layout)
+                                            measurements[f'ins_closed_{phase}'] = value_input
+                                            measurements[f'ins_closed_{phase}_unit'] = unit_spinner
+
+                                        details_container.add_widget(wrapped_label('Μονώσεις (Ανοιχτό):'))
+                                        for phase in ['fa', 'fb', 'fc']:
+                                            phase_label = {'fa': 'Φάση A-A', 'fb': 'Φάση B-B', 'fc': 'Φάση C-C'}[phase]
+                                            phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                            phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
+                                            value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
+                                            phase_layout.add_widget(value_input)
+                                            unit_spinner = Spinner(text='GΩ', values=['GΩ', 'MΩ', 'kΩ'], size_hint_x=0.25)
+                                            phase_layout.add_widget(unit_spinner)
+                                            details_container.add_widget(phase_layout)
+                                            measurements[f'ins_open_{phase}'] = value_input
+                                            measurements[f'ins_open_{phase}_unit'] = unit_spinner
+
+                                        details_container.add_widget(wrapped_label('Αντίσταση Επαφών (μΩ):'))
+                                        for phase in ['fa', 'fb', 'fc']:
+                                            phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
+                                            phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                            phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.3))
+                                            value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False, padding=[8, 8, 8, 8])
+                                            phase_layout.add_widget(value_input)
+                                            details_container.add_widget(phase_layout)
+                                            measurements[f'cont_{phase}'] = value_input
+
+                                    def toggle_details(cb, value, eb=elem_box, dc=details_container):
+                                        if value:
+                                            if dc not in eb.children:
+                                                eb.add_widget(dc)
+                                        else:
+                                            if dc in eb.children:
+                                                eb.remove_widget(dc)
+
+                                    checkbox.bind(active=toggle_details)
+                                    content_layout.add_widget(elem_box)
+
+                                    element_widgets[elem['id']] = {
+                                        'checkbox': checkbox,
+                                        'comments': elem_comments,
+                                        'measurements': measurements,
+                                        'elem_type': elem['element_type']
+                                    }
+                        else:
+                            if loading_label.parent:
+                                content_layout.remove_widget(loading_label)
+                            retry_btn.disabled = False
+                            retry_btn.opacity = 1
+                            self.show_error('Αποτυχία φόρτωσης στοιχείων')
+                    except Exception as e:
+                        if loading_label.parent:
+                            content_layout.remove_widget(loading_label)
+                        retry_btn.disabled = False
+                        retry_btn.opacity = 1
+                        self.show_error(f'Error loading elements: {str(e)}')
+
+                def on_error_all(_req, _error):
+                    if loading_label.parent:
+                        content_layout.remove_widget(loading_label)
+                    retry_btn.disabled = False
+                    retry_btn.opacity = 1
+                    self.show_error('Αποτυχία φόρτωσης στοιχείων')
+
+                UrlRequest(
+                    f'{self.API_BASE_URL}/elements',
+                    on_success=on_success_all,
+                    on_error=on_error_all,
+                    timeout=60,
+                    req_headers={'Cache-Control': 'no-cache'}
+                )
 
             def on_success(req, result):
                 try:
@@ -970,6 +1175,7 @@ class SubstationAndroidApp(App):
                 retry_btn.opacity = 1
                 status = getattr(req, 'resp_status', None)
                 self.show_error(f'Error: {str(error)}' + (f' (HTTP {status})' if status else ''))
+                fallback_load_all()
 
             def on_failure(req, result):
                 if loading_label.parent:
@@ -978,6 +1184,7 @@ class SubstationAndroidApp(App):
                 retry_btn.opacity = 1
                 status = getattr(req, 'resp_status', None)
                 self.show_error('Αποτυχία φόρτωσης στοιχείων' + (f' (HTTP {status})' if status else ''))
+                fallback_load_all()
             
             UrlRequest(
                 f'{self.API_BASE_URL}/elements?substation_id={substation_id}',
@@ -1110,9 +1317,9 @@ class SubstationAndroidApp(App):
             text=datetime.now().strftime('%Y-%m-%d'),
             hint_text='YYYY-MM-DD',
             size_hint_y=None,
-            height=50,
+            height=60,
             multiline=False,
-            padding=[10, 10, 10, 10]
+            padding=[12, 12, 12, 12]
         )
         layout.add_widget(date_input)
 
@@ -1130,7 +1337,7 @@ class SubstationAndroidApp(App):
                 width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
                 texture_size=lambda instance, value: (
                     setattr(instance, 'height', value[1] + 10),
-                    setattr(row, 'height', max(value[1] + 10, 80))
+                    setattr(row, 'height', max(value[1] + 10, 100))
                 )
             )
 
@@ -1138,9 +1345,9 @@ class SubstationAndroidApp(App):
                 hint_text='Παρατηρήσεις',
                 size_hint_x=0.38,
                 size_hint_y=None,
-                height=80,
+                height=90,
                 multiline=True,
-                padding=[10, 10, 10, 10]
+                padding=[12, 12, 12, 12]
             )
             ti.bind(height=lambda _instance, _value: setattr(row, 'height', max(row.height, ti.height)))
 
