@@ -715,6 +715,8 @@ class SubstationAndroidApp(App):
         
         # Elements section
         content_layout.add_widget(Label(text='Στοιχεία που συντηρήθηκαν:', size_hint_y=None, height=40, bold=True))
+        loading_label = Label(text='Φόρτωση στοιχείων...', size_hint_y=None, height=40)
+        content_layout.add_widget(loading_label)
         
         # Store element widgets
         element_widgets = {}
@@ -725,6 +727,8 @@ class SubstationAndroidApp(App):
                 try:
                     data = self.parse_json_response(result)
                     if data.get('success'):
+                        if loading_label.parent:
+                            content_layout.remove_widget(loading_label)
                         elements = data.get('data', [])
                         if not elements:
                             content_layout.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
@@ -749,16 +753,17 @@ class SubstationAndroidApp(App):
                                     elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
                                 
                                 # Checkbox and name
-                                checkbox_layout = BoxLayout(size_hint_y=None, spacing=5)
-                                checkbox = CheckBox(size_hint_x=0.15)
+                                checkbox_layout = BoxLayout(size_hint_y=None, spacing=8)
+                                checkbox_layout.height = 60
+                                checkbox = CheckBox(size_hint=(None, None), size=(36, 36))
                                 checkbox_layout.add_widget(checkbox)
                                 
                                 elem_label = Label(
                                     text=elem_text,
-                                    size_hint_x=0.85,
+                                    size_hint_x=1,
                                     size_hint_y=None,
                                     halign='left',
-                                    valign='middle'
+                                    valign='top'
                                 )
                                 elem_label.bind(
                                     width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
@@ -866,9 +871,13 @@ class SubstationAndroidApp(App):
                                     'elem_type': elem['element_type']
                                 }
                 except Exception as e:
+                    if loading_label.parent:
+                        content_layout.remove_widget(loading_label)
                     self.show_error(f'Error loading elements: {str(e)}')
             
             def on_error(req, error):
+                if loading_label.parent:
+                    content_layout.remove_widget(loading_label)
                 self.show_error(f'Error: {str(error)}')
             
             UrlRequest(
@@ -878,7 +887,7 @@ class SubstationAndroidApp(App):
                 timeout=60
             )
         
-        load_elements()
+        Clock.schedule_once(lambda *_args: load_elements(), 0)
         
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
@@ -994,8 +1003,12 @@ class SubstationAndroidApp(App):
         """Add a new inspection entry"""
         from datetime import datetime
 
-        popup = Popup(title=f'Νέα Επιθεώρηση - {substation["name"]}', size_hint=(0.95, 0.8))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        popup = Popup(title=f'Νέα Επιθεώρηση - {substation["name"]}', size_hint=(0.95, 0.85))
+        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        scroll = ScrollView(bar_width=10, size_hint=(1, 0.8))
+        layout = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=10)
+        layout.bind(minimum_height=layout.setter('height'))
 
         layout.add_widget(Label(text='Ημερομηνία Επιθεώρησης:', size_hint_y=None, height=30))
         date_input = TextInput(
@@ -1011,10 +1024,13 @@ class SubstationAndroidApp(App):
         notes_input = TextInput(
             hint_text='Σχόλια επιθεώρησης...',
             size_hint_y=None,
-            height=120,
+            height=140,
             multiline=True
         )
         layout.add_widget(notes_input)
+
+        scroll.add_widget(layout)
+        main_layout.add_widget(scroll)
 
         button_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
 
@@ -1068,8 +1084,8 @@ class SubstationAndroidApp(App):
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
-        layout.add_widget(button_layout)
-        popup.content = layout
+        main_layout.add_widget(button_layout)
+        popup.content = main_layout
         popup.open()
 
     def show_error(self, message):
