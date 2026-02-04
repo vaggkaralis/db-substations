@@ -3,6 +3,9 @@ Android Kivy App for DB Substations - connects to Flask API backend
 """
 import sys
 import traceback
+import os
+import sqlite3
+from datetime import datetime
 
 # Set up logging FIRST before any other imports
 from kivy.logger import Logger
@@ -34,6 +37,13 @@ try:
     
     import threading
     Logger.info('APP: Threading import successful')
+
+    try:
+        from plyer import filechooser
+        Logger.info('APP: Plyer filechooser available')
+    except Exception as e:
+        filechooser = None
+        Logger.warning(f'APP: Plyer filechooser not available: {str(e)}')
     
     # Test SSL/HTTPS dependencies
     try:
@@ -154,6 +164,142 @@ class SubstationAndroidApp(App):
             return json.loads(result)
         else:
             raise ValueError(f"Unexpected result type: {type(result)}")
+
+    def _ensure_change_log_path(self):
+        if not self.change_log_path:
+            try:
+                base_dir = self.user_data_dir
+            except Exception:
+                base_dir = os.getcwd()
+            self.change_log_path = os.path.join(base_dir, 'change_log.jsonl')
+
+    def _append_change_log(self, operation, table, payload):
+        try:
+            self._ensure_change_log_path()
+            record = {
+                'ts': datetime.now().isoformat(timespec='seconds'),
+                'operation': operation,
+                'table': table,
+                'payload': payload
+            }
+            with open(self.change_log_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(record, ensure_ascii=False) + '\n')
+        except Exception as e:
+            Logger.warning(f'APP: Failed to write change log: {str(e)}')
+
+    def _get_local_conn(self):
+        if not self.local_db_path:
+            raise RuntimeError('Local DB path not set')
+        conn = sqlite3.connect(self.local_db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _local_table_columns(self, conn, table_name):
+        cur = conn.cursor()
+        cur.execute(f'PRAGMA table_info({table_name})')
+        return {row[1] for row in cur.fetchall()}
+
+    def _local_fetch_substations(self):
+        conn = self._get_local_conn()
+        cur = conn.cursor()
+        cur.execute('SELECT id, name, location, adoption_date, division FROM substations ORDER BY name')
+        substations = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return substations
+
+    def _local_fetch_elements(self, substation_id):
+        conn = self._get_local_conn()
+        cur = conn.cursor()
+        columns = self._local_table_columns(conn, 'elements')
+        desired = [
+            'id', 'substation_id', 'element_type', 'name', 'serial_number', 'maintenance_date',
+            'voltage_level', 'manufacturer', 'type', 'element_model_id', 'manufacture_year',
+            'model', 'model_version', 'operating_status', 'installation_space', 'maintenance_cycle',
+            'gate', 'is_main_switch', 'breaker_category'
+        ]
+        select_parts = []
+        for col in desired:
+            if col in columns:
+                select_parts.append(col)
+            elif col == 'gate' and 'bar' in columns:
+                select_parts.append('bar AS gate')
+            else:
+                select_parts.append(f"NULL AS {col}")
+        query = f"SELECT {', '.join(select_parts)} FROM elements WHERE substation_id = ? ORDER BY name"
+        cur.execute(query, (substation_id,))
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+
+    def _local_insert(self, table, data):
+        conn = self._get_local_conn()
+        cur = conn.cursor()
+        columns = self._local_table_columns(conn, table)
+        filtered = {k: v for k, v in data.items() if k in columns}
+        cols = list(filtered.keys())
+        vals = [filtered[c] for c in cols]
+        placeholders = ', '.join(['?'] * len(cols))
+        cur.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders})", vals)
+        conn.commit()
+        new_id = cur.lastrowid
+        conn.close()
+        return new_id
+
+    def _local_delete(self, table, row_id):
+        conn = self._get_local_conn()
+        cur = conn.cursor()
+        cur.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
+        conn.commit()
+        conn.close()
+
+    def open_local_db_picker(self):
+        if filechooser:
+            filechooser.open_file(on_selection=self._on_local_db_selected)
+        else:
+            self._prompt_local_db_path()
+
+    def _on_local_db_selected(self, selection):
+        if selection and len(selection) > 0:
+            self.use_local_mode(selection[0])
+
+    def _prompt_local_db_path(self):
+        popup = Popup(title='Άνοιγμα Τοπικής Βάσης', size_hint=(0.9, 0.4))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        layout.add_widget(Label(text='Δώσε πλήρες path του αρχείου .db'))
+        path_input = TextInput(hint_text='/storage/emulated/0/Download/substations.db', multiline=False)
+        layout.add_widget(path_input)
+
+        buttons = BoxLayout(size_hint_y=0.3, spacing=10)
+        open_btn = Button(text='Άνοιγμα')
+        open_btn.bind(on_press=lambda _x: (popup.dismiss(), self.use_local_mode(path_input.text.strip())))
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons.add_widget(open_btn)
+        buttons.add_widget(cancel_btn)
+        layout.add_widget(buttons)
+        popup.content = layout
+        popup.open()
+
+    def use_local_mode(self, db_path):
+        if not db_path:
+            self.show_error('Δεν επιλέχθηκε αρχείο βάσης')
+            return
+        if not os.path.exists(db_path):
+            self.show_error('Το αρχείο βάσης δεν βρέθηκε')
+            return
+        self.local_db_path = db_path
+        self.data_mode = 'local'
+        self._ensure_change_log_path()
+        if hasattr(self, 'mode_label'):
+            self.mode_label.text = 'Πηγή: Τοπική Βάση'
+        self.show_error(f'Τοπική βάση ενεργή. Change log: {self.change_log_path}')
+        self.load_substations(None)
+
+    def use_cloud_mode(self):
+        self.data_mode = 'api'
+        if hasattr(self, 'mode_label'):
+            self.mode_label.text = 'Πηγή: Cloud'
+        self.load_substations(None)
     
     def __init__(self, **kwargs):
         Logger.info('APP: Initializing SubstationAndroidApp')
@@ -162,6 +308,9 @@ class SubstationAndroidApp(App):
             self.substations = []
             self.elements = {}
             self.current_substation = None
+            self.data_mode = 'api'
+            self.local_db_path = None
+            self.change_log_path = None
             Logger.info('APP: SubstationAndroidApp initialized successfully')
         except Exception as e:
             Logger.critical(f'APP: Error in __init__: {str(e)}')
@@ -199,6 +348,21 @@ class SubstationAndroidApp(App):
             )
             main_layout.add_widget(header)
             Logger.info('APP: Header added')
+
+            # Data source controls
+            mode_layout = BoxLayout(size_hint_y=0.08, spacing=10)
+            self.mode_label = Label(text='Πηγή: Cloud', size_hint_x=0.5)
+
+            local_btn = Button(text='Τοπική Βάση', size_hint_x=0.25)
+            local_btn.bind(on_press=lambda _x: self.open_local_db_picker())
+
+            cloud_btn = Button(text='Cloud', size_hint_x=0.25)
+            cloud_btn.bind(on_press=lambda _x: self.use_cloud_mode())
+
+            mode_layout.add_widget(self.mode_label)
+            mode_layout.add_widget(local_btn)
+            mode_layout.add_widget(cloud_btn)
+            main_layout.add_widget(mode_layout)
             
             # Main content area
             self.content_layout = BoxLayout(orientation='vertical', size_hint_y=0.8)
@@ -271,6 +435,17 @@ class SubstationAndroidApp(App):
                 Logger.error(f'APP: Request: {req}')
                 self.show_error(f'Connection error: {str(error)}')
             
+            if self.data_mode == 'local':
+                try:
+                    self.substations = self._local_fetch_substations()
+                    Logger.info(f'APP: Loaded {len(self.substations)} local substations')
+                    self.root.ids = {}
+                    self.display_substations()
+                except Exception as e:
+                    Logger.error(f'APP: Local DB error: {str(e)}')
+                    self.show_error(f'Local DB error: {str(e)}')
+                return
+
             # Non-blocking request
             url = f'{self.API_BASE_URL}/substations'
             Logger.info(f'APP: Making request to: {url}')
@@ -390,6 +565,41 @@ class SubstationAndroidApp(App):
         grid.clear_widgets()
         loading_label = Label(text='Φόρτωση στοιχείων...', size_hint_y=None, height=40)
         grid.add_widget(loading_label)
+
+        if self.data_mode == 'local':
+            try:
+                elements = self._local_fetch_elements(substation_id)
+                if loading_label.parent:
+                    grid.remove_widget(loading_label)
+                if not elements:
+                    grid.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
+                    return
+                for elem in elements:
+                    elem_layout = BoxLayout(size_hint_y=None, spacing=5, orientation='vertical')
+                    elem_layout.bind(minimum_height=elem_layout.setter('height'))
+
+                    elem_text = f"{elem['element_type']}: {elem['name']}"
+                    elem_text += f"\nS/N: {elem.get('serial_number', '-')} | Τάση: {elem.get('voltage_level', '-')}"
+                    model_info = f"Μοντέλο: {elem.get('model', '-')}" if elem.get('model') else ""
+                    year_info = f"Έτος: {elem.get('manufacture_year', '-')}" if elem.get('manufacture_year') else ""
+                    status = elem.get('operating_status', '-')
+                    elem_text += f"\n{model_info} {year_info} | Κατάσταση: {status}"
+
+                    label = Label(text=elem_text, size_hint=(1, None))
+                    label.bind(
+                        width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                        texture_size=lambda instance, value: (
+                            setattr(instance, 'height', max(75, value[1] + 10)),
+                            setattr(elem_layout, 'height', max(75, value[1] + 10))
+                        )
+                    )
+                    elem_layout.add_widget(label)
+                    grid.add_widget(elem_layout)
+            except Exception as e:
+                if loading_label.parent:
+                    grid.remove_widget(loading_label)
+                grid.add_widget(Label(text=f'Error: {str(e)}', size_hint_y=None, height=40))
+            return
 
         def on_success(req, result):
             try:
@@ -537,6 +747,22 @@ class SubstationAndroidApp(App):
             if not name_input.text.strip():
                 self.show_error('Το όνομα είναι υποχρεωτικό')
                 return
+
+            if self.data_mode == 'local':
+                try:
+                    payload = {
+                        'name': name_input.text.strip(),
+                        'location': location_input.text.strip(),
+                        'adoption_date': date_input.text.strip(),
+                        'division': 'ΤΜΘ'
+                    }
+                    new_id = self._local_insert('substations', payload)
+                    self._append_change_log('insert', 'substations', {**payload, 'id': new_id})
+                    popup.dismiss()
+                    self.load_substations(None)
+                except Exception as e:
+                    self.show_error(f'Local DB error: {str(e)}')
+                return
             
             def on_success(req, result):
                 try:
@@ -672,7 +898,7 @@ class SubstationAndroidApp(App):
                 'voltage_level': get_field_value('voltage_level'),
                 'manufacturer': get_field_value('manufacturer'),
                 'type': get_field_value('type'),
-                'breaker_category': '',  # Will be set from model selection later
+                'breaker_category': '',
                 'manufacture_year': get_field_value('manufacture_year'),
                 'model': get_field_value('model'),
                 'model_version': get_field_value('model_version'),
@@ -680,9 +906,19 @@ class SubstationAndroidApp(App):
                 'installation_space': get_field_value('installation_space'),
                 'maintenance_cycle': get_field_value('maintenance_cycle'),
                 'gate': get_field_value('gate'),
-                'is_main_switch': 0,  # Default to Line breaker
-                'element_model_id': None  # Will be added later with model selection
+                'is_main_switch': 0,
+                'element_model_id': None
             }
+
+            if self.data_mode == 'local':
+                try:
+                    new_id = self._local_insert('elements', payload)
+                    self._append_change_log('insert', 'elements', {**payload, 'id': new_id})
+                    popup.dismiss()
+                    self.show_substation_details(substation_id)
+                except Exception as e:
+                    self.show_error(f'Local DB error: {str(e)}')
+                return
             
             UrlRequest(
                 f'{self.API_BASE_URL}/elements',
@@ -716,6 +952,15 @@ class SubstationAndroidApp(App):
 
         def do_delete():
             confirm_popup.dismiss()
+
+            if self.data_mode == 'local':
+                try:
+                    self._local_delete('elements', element_id)
+                    self._append_change_log('delete', 'elements', {'id': element_id})
+                    self.show_substation_details(self.current_substation['id'])
+                except Exception as e:
+                    self.show_error(f'Local DB error: {str(e)}')
+                return
 
             def on_success(req, result):
                 try:
@@ -760,6 +1005,21 @@ class SubstationAndroidApp(App):
 
         def do_delete():
             confirm_popup.dismiss()
+
+            if self.data_mode == 'local':
+                try:
+                    # Delete elements first
+                    conn = self._get_local_conn()
+                    cur = conn.cursor()
+                    cur.execute('DELETE FROM elements WHERE substation_id = ?', (substation_id,))
+                    cur.execute('DELETE FROM substations WHERE id = ?', (substation_id,))
+                    conn.commit()
+                    conn.close()
+                    self._append_change_log('delete', 'substations', {'id': substation_id})
+                    self.load_substations(None)
+                except Exception as e:
+                    self.show_error(f'Local DB error: {str(e)}')
+                return
 
             def on_success(req, result):
                 try:
@@ -864,6 +1124,127 @@ class SubstationAndroidApp(App):
             retry_btn.opacity = 0
             if loading_label.parent is None:
                 content_layout.add_widget(loading_label)
+
+            if self.data_mode == 'local':
+                try:
+                    elements = self._local_fetch_elements(substation_id)
+                    if loading_label.parent:
+                        content_layout.remove_widget(loading_label)
+                    if not elements:
+                        content_layout.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
+                        return
+                    for elem in elements:
+                        # Element container
+                        elem_box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5, padding=5)
+                        elem_box.bind(minimum_height=elem_box.setter('height'))
+
+                        elem_type_display = elem['element_type']
+                        if elem.get('breaker_category'):
+                            elem_type_display += f" ({elem['breaker_category']})"
+
+                        elem_text = f"{elem['name']} - {elem_type_display}\n"
+                        elem_text += f"S/N: {elem.get('serial_number', '-')}"
+
+                        mfr = elem.get('manufacturer', '-')
+                        mdl = elem.get('model', '-')
+                        if mfr != '-' or mdl != '-':
+                            elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
+
+                        checkbox_layout = BoxLayout(size_hint_y=None, spacing=10, padding=[0, 4, 0, 4])
+                        checkbox_layout.bind(minimum_height=checkbox_layout.setter('height'))
+                        checkbox = CheckBox(size_hint=(None, None), size=(44, 44))
+                        checkbox_layout.add_widget(checkbox)
+
+                        elem_label = Label(
+                            text=elem_text,
+                            size_hint_x=1,
+                            size_hint_y=None,
+                            halign='left',
+                            valign='top'
+                        )
+                        elem_label.bind(
+                            width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                            texture_size=lambda instance, value: setattr(instance, 'height', max(80, value[1] + 16))
+                        )
+                        checkbox_layout.add_widget(elem_label)
+                        elem_box.add_widget(checkbox_layout)
+
+                        details_container = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5)
+                        details_container.bind(minimum_height=details_container.setter('height'))
+
+                        elem_comments = TextInput(
+                            hint_text='Σχόλια για αυτό το στοιχείο...',
+                            size_hint_y=None,
+                            height=56,
+                            multiline=False,
+                            padding=[12, 12, 12, 12]
+                        )
+                        details_container.add_widget(elem_comments)
+
+                        measurements = {}
+                        is_breaker = elem['element_type'] in ['Διακόπτης ΥΤ', 'Διακόπτης ΜΤ']
+
+                        if is_breaker:
+                            details_container.add_widget(wrapped_label('Μονώσεις (Κλειστό):'))
+                            for phase in ['fa', 'fb', 'fc']:
+                                phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
+                                phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                                phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
+                                value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, height=50, padding=[10, 10, 10, 10])
+                                phase_layout.add_widget(value_input)
+                                unit_spinner = Spinner(text='GΩ', values=['GΩ', 'MΩ', 'kΩ'], size_hint_x=0.25)
+                                phase_layout.add_widget(unit_spinner)
+                                details_container.add_widget(phase_layout)
+                                measurements[f'ins_closed_{phase}'] = value_input
+                                measurements[f'ins_closed_{phase}_unit'] = unit_spinner
+
+                            details_container.add_widget(wrapped_label('Μονώσεις (Ανοιχτό):'))
+                            for phase in ['fa', 'fb', 'fc']:
+                                phase_label = {'fa': 'Φάση A-A', 'fb': 'Φάση B-B', 'fc': 'Φάση C-C'}[phase]
+                                phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                                phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
+                                value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, height=50, padding=[10, 10, 10, 10])
+                                phase_layout.add_widget(value_input)
+                                unit_spinner = Spinner(text='GΩ', values=['GΩ', 'MΩ', 'kΩ'], size_hint_x=0.25)
+                                phase_layout.add_widget(unit_spinner)
+                                details_container.add_widget(phase_layout)
+                                measurements[f'ins_open_{phase}'] = value_input
+                                measurements[f'ins_open_{phase}_unit'] = unit_spinner
+
+                            details_container.add_widget(wrapped_label('Αντίσταση Επαφών (μΩ):'))
+                            for phase in ['fa', 'fb', 'fc']:
+                                phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
+                                phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                                phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.3))
+                                value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False, height=50, padding=[10, 10, 10, 10])
+                                phase_layout.add_widget(value_input)
+                                details_container.add_widget(phase_layout)
+                                measurements[f'cont_{phase}'] = value_input
+
+                        def toggle_details(cb, value, eb=elem_box, dc=details_container):
+                            if value:
+                                if dc not in eb.children:
+                                    eb.add_widget(dc)
+                            else:
+                                if dc in eb.children:
+                                    eb.remove_widget(dc)
+
+                        checkbox.bind(active=toggle_details)
+                        content_layout.add_widget(elem_box)
+
+                        element_widgets[elem['id']] = {
+                            'checkbox': checkbox,
+                            'comments': elem_comments,
+                            'measurements': measurements,
+                            'elem_type': elem['element_type']
+                        }
+                except Exception as e:
+                    if loading_label.parent:
+                        content_layout.remove_widget(loading_label)
+                    retry_btn.disabled = False
+                    retry_btn.opacity = 1
+                    self.show_error(f'Error loading elements: {str(e)}')
+                return
 
             def fallback_load_all():
                 def on_success_all(_req, result):
@@ -1243,6 +1624,37 @@ class SubstationAndroidApp(App):
                 'maintenance_type': maint_type_spinner.text,
                 'elements': maintenance_elements
             }
+
+            if self.data_mode == 'local':
+                try:
+                    maintenance_id = self._local_insert('maintenance', {
+                        'substation_id': substation_id,
+                        'date_time': datetime_input.text.strip(),
+                        'overall_comments': overall_comments.text.strip(),
+                        'maintenance_type': maint_type_spinner.text
+                    })
+                    for elem in maintenance_elements:
+                        self._local_insert('maintenance_elements', {
+                            'maintenance_id': maintenance_id,
+                            'element_id': elem['element_id'],
+                            'element_comments': elem.get('element_comments', '')
+                        })
+                    self._append_change_log('insert', 'maintenance', {
+                        'id': maintenance_id,
+                        **payload
+                    })
+                    popup.dismiss()
+                    success_popup = Popup(title='Επιτυχία', size_hint=(0.8, 0.4))
+                    success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                    success_layout.add_widget(Label(text='Η συντήρηση καταχωρήθηκε!'))
+                    ok_btn = Button(text='OK', size_hint_y=0.3)
+                    ok_btn.bind(on_press=success_popup.dismiss)
+                    success_layout.add_widget(ok_btn)
+                    success_popup.content = success_layout
+                    success_popup.open()
+                except Exception as e:
+                    self.show_error(f'Local DB error: {str(e)}')
+                return
             
             def on_success(req, result):
                 try:
@@ -1368,6 +1780,31 @@ class SubstationAndroidApp(App):
                 'inspection_date': date_input.text.strip(),
                 'data_json': json.dumps({'fields': fields_payload}, ensure_ascii=False)
             }
+
+            if self.data_mode == 'local':
+                try:
+                    inspection_id = self._local_insert('inspections', {
+                        'substation_id': substation_id,
+                        'substation_name': substation.get('name'),
+                        'inspection_date': date_input.text.strip(),
+                        'month_key': date_input.text.strip()[:7],
+                        'data_json': payload['data_json'],
+                        'source_file': 'android-local',
+                        'created_at': datetime.now().strftime('%Y-%m-%d')
+                    })
+                    self._append_change_log('insert', 'inspections', {**payload, 'id': inspection_id})
+                    popup.dismiss()
+                    success_popup = Popup(title='Επιτυχία', size_hint=(0.8, 0.4))
+                    success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                    success_layout.add_widget(Label(text='Η επιθεώρηση καταχωρήθηκε!'))
+                    ok_btn = Button(text='OK', size_hint_y=0.3)
+                    ok_btn.bind(on_press=success_popup.dismiss)
+                    success_layout.add_widget(ok_btn)
+                    success_popup.content = success_layout
+                    success_popup.open()
+                except Exception as e:
+                    self.show_error(f'Local DB error: {str(e)}')
+                return
 
             def on_success(req, result):
                 try:
