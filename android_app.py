@@ -329,6 +329,10 @@ class SubstationAndroidApp(App):
         maint_btn = Button(text='Συντήρηση')
         maint_btn.bind(on_press=lambda x: self.show_maintenance_menu(substation_id, substation))
         button_layout.add_widget(maint_btn)
+
+        add_elem_btn = Button(text='+ Στοιχείο')
+        add_elem_btn.bind(on_press=lambda x: self.show_add_element_popup(substation_id))
+        button_layout.add_widget(add_elem_btn)
         
         back_btn = Button(text='Πίσω')
         back_btn.bind(on_press=lambda x: self.load_substations(None))
@@ -741,13 +745,23 @@ class SubstationAndroidApp(App):
                                     elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
                                 
                                 # Checkbox and name
-                                checkbox_layout = BoxLayout(size_hint_y=None, height=60, spacing=5)
+                                checkbox_layout = BoxLayout(size_hint_y=None, spacing=5)
                                 checkbox = CheckBox(size_hint_x=0.15)
                                 checkbox_layout.add_widget(checkbox)
                                 
                                 elem_label = Label(
                                     text=elem_text,
-                                    size_hint_x=0.85
+                                    size_hint_x=0.85,
+                                    size_hint_y=None,
+                                    halign='left',
+                                    valign='middle'
+                                )
+                                elem_label.bind(
+                                    width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                                    texture_size=lambda instance, value: (
+                                        setattr(instance, 'height', max(60, value[1] + 10)),
+                                        setattr(checkbox_layout, 'height', max(60, value[1] + 10))
+                                    )
                                 )
                                 checkbox_layout.add_widget(elem_label)
                                 elem_box.add_widget(checkbox_layout)
