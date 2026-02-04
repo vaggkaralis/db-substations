@@ -1211,15 +1211,39 @@ def add_element():
             conn.close()
             return jsonify({'success': False, 'error': f'Element with name "{name}" already exists in this substation'}), 400
         
-        c.execute(
-            """INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, 
-               voltage_level, manufacturer, type, breaker_category, element_model_id, manufacture_year, model, model_version, 
-                             operating_status, installation_space, maintenance_cycle, gate, is_main_switch) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, 
-             manufacturer, element_type_field, breaker_category, element_model_id, manufacture_year, model, model_version, 
-                         operating_status, installation_space, maintenance_cycle, gate, is_main_switch)
-        )
+        c.execute("PRAGMA table_info(elements)")
+        columns = {col[1] for col in c.fetchall()}
+
+        col_values = {
+            'substation_id': substation_id,
+            'element_type': element_type,
+            'name': name,
+            'serial_number': serial_number,
+            'maintenance_date': maintenance_date,
+            'voltage_level': voltage_level,
+            'manufacturer': manufacturer,
+            'type': element_type_field,
+            'breaker_category': breaker_category,
+            'element_model_id': element_model_id,
+            'manufacture_year': manufacture_year,
+            'model': model,
+            'model_version': model_version,
+            'operating_status': operating_status,
+            'installation_space': installation_space,
+            'maintenance_cycle': maintenance_cycle,
+            'gate': gate,
+            'is_main_switch': is_main_switch,
+        }
+
+        if 'gate' not in columns and 'bar' in columns:
+            col_values['bar'] = gate
+
+        insert_cols = [col for col in col_values.keys() if col in columns]
+        insert_vals = [col_values[col] for col in insert_cols]
+
+        placeholders = ', '.join(['?'] * len(insert_cols))
+        insert_sql = f"INSERT INTO elements ({', '.join(insert_cols)}) VALUES ({placeholders})"
+        c.execute(insert_sql, insert_vals)
         conn.commit()
         element_id = c.lastrowid
         conn.close()
