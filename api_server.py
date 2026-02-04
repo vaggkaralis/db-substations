@@ -9,6 +9,12 @@ import json
 import os
 import logging
 from datetime import datetime
+try:
+    import psycopg2
+    from psycopg2.extras import DictCursor
+except Exception:
+    psycopg2 = None
+    DictCursor = None
 
 app = Flask(__name__)
 CORS(app)
@@ -49,30 +55,187 @@ else:
 logging.basicConfig(level=app.config['LOG_LEVEL'])
 logger = logging.getLogger(__name__)
 
-# Database path from config
-DATABASE = app.config['DATABASE']
+# Database selection (SQLite vs PostgreSQL)
+DATABASE_URL = os.environ.get('DATABASE_URL')
+DB_BACKEND = 'postgres' if DATABASE_URL else 'sqlite'
+
+# Database path from config (SQLite) or URL (PostgreSQL)
+DATABASE = DATABASE_URL if DB_BACKEND == 'postgres' else app.config['DATABASE']
+
+
+def _convert_qmark_sql(query: str) -> str:
+    """Convert SQLite-style '?' placeholders to psycopg2 '%s' placeholders."""
+    if DB_BACKEND != 'postgres':
+        return query
+    query = query.replace("datetime('now')", 'CURRENT_TIMESTAMP')
+    out = []
+    in_single = False
+    in_double = False
+    for ch in query:
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        if ch == '?' and not in_single and not in_double:
+            out.append('%s')
+        else:
+            out.append(ch)
+    return ''.join(out)
+
+
+class QmarkDictCursor(DictCursor):
+    """Cursor that accepts SQLite-style '?' placeholders."""
+    def execute(self, query, vars=None):
+        return super().execute(_convert_qmark_sql(query), vars)
+
+    def executemany(self, query, vars_list):
+        return super().executemany(_convert_qmark_sql(query), vars_list)
 
 # Initialize database on module load (important for gunicorn)
-def init_database():
-    """Initialize database if it doesn't exist"""
-    try:
-        # Ensure database directory exists FIRST
-        db_dir = os.path.dirname(DATABASE)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
-        
-        conn = sqlite3.connect(DATABASE)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        
-        # Check if tables exist
-        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='substations'")
-        tables_exist = bool(c.fetchone())
-        if tables_exist:
-            logger.info("Database tables already exist")
-        
-        # Create element models master table
-        c.execute("""
+def _table_exists(conn, table_name):
+    cur = conn.cursor()
+    if DB_BACKEND == 'postgres':
+        cur.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = ?
+            """,
+            (table_name,)
+        )
+    else:
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return bool(cur.fetchone())
+
+
+def _apply_schema(conn):
+    c = conn.cursor()
+
+    if DB_BACKEND == 'postgres':
+        schema = [
+            """
+            CREATE TABLE IF NOT EXISTS element_models (
+                id SERIAL PRIMARY KEY,
+                element_category TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                manufacturer TEXT,
+                maintenance_cycle INTEGER DEFAULT 0,
+                installation_space TEXT,
+                breaker_category TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(element_category, model_name, manufacturer)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS substations (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                location TEXT,
+                adoption_date TEXT,
+                division TEXT DEFAULT 'ΤΜΘ',
+                last_maintenance TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS elements (
+                id SERIAL PRIMARY KEY,
+                substation_id INTEGER NOT NULL,
+                element_type TEXT,
+                name TEXT NOT NULL,
+                serial_number TEXT,
+                maintenance_date TEXT,
+                voltage_level TEXT,
+                manufacturer TEXT,
+                type TEXT,
+                model TEXT,
+                model_version TEXT,
+                element_model_id INTEGER,
+                operating_status TEXT DEFAULT 'Ενεργή',
+                installation_space TEXT,
+                maintenance_cycle INTEGER DEFAULT 0,
+                gate TEXT,
+                breaker_category TEXT,
+                manufacture_year TEXT,
+                is_main_switch BOOLEAN DEFAULT FALSE,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (substation_id) REFERENCES substations(id),
+                UNIQUE(substation_id, name)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS maintenance (
+                id SERIAL PRIMARY KEY,
+                substation_id INTEGER NOT NULL,
+                name TEXT,
+                date_time TEXT NOT NULL,
+                overall_comments TEXT,
+                maintenance_type TEXT,
+                user_name TEXT,
+                FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS maintenance_elements (
+                id SERIAL PRIMARY KEY,
+                maintenance_id INTEGER NOT NULL,
+                element_id INTEGER NOT NULL,
+                element_comments TEXT,
+                sf6_leak_methodology TEXT,
+                FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+                FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                email TEXT,
+                report_receiver INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS maintenance_people (
+                id SERIAL PRIMARY KEY,
+                maintenance_id INTEGER NOT NULL,
+                person_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+                FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS inspections (
+                id SERIAL PRIMARY KEY,
+                substation_id INTEGER,
+                substation_name TEXT,
+                inspection_date TEXT NOT NULL,
+                month_key TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                source_file TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE SET NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS isolation_requests (
+                id SERIAL PRIMARY KEY,
+                substation_id INTEGER NOT NULL,
+                start_datetime TEXT NOT NULL,
+                end_datetime TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Requested',
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE CASCADE
+            )
+            """
+        ]
+    else:
+        schema = [
+            """
             CREATE TABLE IF NOT EXISTS element_models (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 element_category TEXT NOT NULL,
@@ -84,10 +247,8 @@ def init_database():
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(element_category, model_name, manufacturer)
             )
-        """)
-
-        # Create substations table
-        c.execute("""
+            """,
+            """
             CREATE TABLE IF NOT EXISTS substations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
@@ -97,10 +258,8 @@ def init_database():
                 last_maintenance TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
-        """)
-
-        # Create elements table
-        c.execute("""
+            """,
+            """
             CREATE TABLE IF NOT EXISTS elements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 substation_id INTEGER NOT NULL,
@@ -108,42 +267,112 @@ def init_database():
                 name TEXT NOT NULL,
                 serial_number TEXT,
                 maintenance_date TEXT,
+                voltage_level TEXT,
                 manufacturer TEXT,
+                type TEXT,
                 model TEXT,
-                breaker_category TEXT,
-                installation_space TEXT,
+                model_version TEXT,
+                element_model_id INTEGER,
                 operating_status TEXT DEFAULT 'Ενεργή',
+                installation_space TEXT,
                 maintenance_cycle INTEGER DEFAULT 0,
+                gate TEXT,
+                breaker_category TEXT,
                 manufacture_year TEXT,
+                is_main_switch INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (substation_id) REFERENCES substations(id),
                 UNIQUE(substation_id, name)
             )
-        """)
-
-        # Create maintenance tracking tables
-        c.execute("""
+            """,
+            """
             CREATE TABLE IF NOT EXISTS maintenance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 substation_id INTEGER NOT NULL,
+                name TEXT,
                 date_time TEXT NOT NULL,
                 overall_comments TEXT,
+                maintenance_type TEXT,
+                user_name TEXT,
                 FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE CASCADE
             )
-        """)
-
-        c.execute("""
+            """,
+            """
             CREATE TABLE IF NOT EXISTS maintenance_elements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 maintenance_id INTEGER NOT NULL,
                 element_id INTEGER NOT NULL,
                 element_comments TEXT,
+                sf6_leak_methodology TEXT,
                 FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
                 FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
             )
-        """)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                email TEXT,
+                report_receiver INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS maintenance_people (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                maintenance_id INTEGER NOT NULL,
+                person_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+                FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS inspections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                substation_id INTEGER,
+                substation_name TEXT,
+                inspection_date TEXT NOT NULL,
+                month_key TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                source_file TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE SET NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS isolation_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                substation_id INTEGER NOT NULL,
+                start_datetime TEXT NOT NULL,
+                end_datetime TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Requested',
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (substation_id) REFERENCES substations(id) ON DELETE CASCADE
+            )
+            """
+        ]
+
+    for stmt in schema:
+        c.execute(stmt)
+
+
+def init_database():
+    """Initialize database if it doesn't exist"""
+    try:
+        conn = get_db()
+        if not _table_exists(conn, 'substations'):
+            logger.info("Database tables not found, creating schema")
+        else:
+            logger.info("Database tables already exist")
+
+        _apply_schema(conn)
 
         # Ensure TEST substation exists (cloud seed)
+        c = conn.cursor()
         c.execute("SELECT id FROM substations WHERE name=?", ('TEST',))
         if not c.fetchone():
             c.execute(
@@ -164,22 +393,63 @@ init_database()
 def get_db():
     """Get database connection with error handling"""
     try:
-        # Ensure database directory exists
+        if DB_BACKEND == 'postgres':
+            if psycopg2 is None:
+                raise RuntimeError('psycopg2 is required for PostgreSQL connections')
+            connect_kwargs = {}
+            if DATABASE and 'sslmode=' not in DATABASE:
+                connect_kwargs['sslmode'] = 'require'
+            conn = psycopg2.connect(DATABASE, cursor_factory=QmarkDictCursor, **connect_kwargs)
+            return conn
+
+        # SQLite path
         db_dir = os.path.dirname(DATABASE)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
-        
+
         conn = sqlite3.connect(DATABASE)
         conn.row_factory = sqlite3.Row
         return conn
-    except sqlite3.OperationalError as e:
+    except Exception as e:
         logger.error(f"Database connection error: {str(e)}")
         raise
 
 def _get_table_columns(conn, table_name):
     cur = conn.cursor()
+    if DB_BACKEND == 'postgres':
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = ?
+            """,
+            (table_name,)
+        )
+        rows = cur.fetchall()
+        columns = set()
+        for row in rows:
+            if isinstance(row, dict):
+                columns.add(row.get('column_name'))
+            else:
+                columns.add(row[0])
+        return columns
+
     cur.execute(f"PRAGMA table_info({table_name})")
     return {row[1] for row in cur.fetchall()}
+
+
+def _insert_and_get_id(cursor, sql, params):
+    if DB_BACKEND == 'postgres':
+        sql = sql.strip().rstrip(';')
+        if 'RETURNING' not in sql.upper():
+            sql = f"{sql} RETURNING id"
+        cursor.execute(sql, params)
+        row = cursor.fetchone()
+        if isinstance(row, dict):
+            return row.get('id')
+        return row[0]
+    cursor.execute(sql, params)
+    return cursor.lastrowid
 
 def _fetch_substations(conn):
     c = conn.cursor()
@@ -644,12 +914,15 @@ def web_maintenance_add():
             conn.close()
             return "Substation and date required", 400
         c = conn.cursor()
-        c.execute("""
+        maintenance_id = _insert_and_get_id(
+            c,
+            """
             INSERT INTO maintenance (substation_id, date_time, overall_comments, maintenance_type, user_name, name)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (substation_id, date_time, overall_comments, maintenance_type, user_name, name))
+            """,
+            (substation_id, date_time, overall_comments, maintenance_type, user_name, name)
+        )
         conn.commit()
-        maintenance_id = c.lastrowid
         conn.close()
         return redirect(url_for('web_maintenance_detail', maintenance_id=maintenance_id))
     conn.close()
@@ -921,12 +1194,12 @@ def add_substation():
             conn.close()
             return jsonify({'success': False, 'error': 'Substation already exists'}), 400
         
-        c.execute(
+        substation_id = _insert_and_get_id(
+            c,
             "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
             (name, location, adoption_date, division)
         )
         conn.commit()
-        substation_id = c.lastrowid
         conn.close()
         
         return jsonify({
@@ -1033,19 +1306,20 @@ def create_element_model():
             return jsonify({'success': False, 'error': 'Model already exists'}), 400
         
         # Insert new model
-        c.execute("""INSERT INTO element_models 
+        model_id = _insert_and_get_id(
+            c,
+            """INSERT INTO element_models 
                      (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category) 
                      VALUES (?, ?, ?, ?, ?, ?)""",
-                  (
-                      data['element_category'],
-                      data['model_name'],
-                      data['manufacturer'],
-                      data.get('maintenance_cycle', 0),
-                      data.get('installation_space', ''),
-                      data.get('breaker_category', '')
-                  ))
-        
-        model_id = c.lastrowid
+            (
+                data['element_category'],
+                data['model_name'],
+                data['manufacturer'],
+                data.get('maintenance_cycle', 0),
+                data.get('installation_space', ''),
+                data.get('breaker_category', '')
+            )
+        )
         conn.commit()
         conn.close()
         
@@ -1122,8 +1396,7 @@ def get_elements():
         conn = get_db()
         c = conn.cursor()
         
-        c.execute("PRAGMA table_info(elements)")
-        columns = {col[1] for col in c.fetchall()}
+        columns = _get_table_columns(conn, 'elements')
 
         desired = [
             'id', 'substation_id', 'element_type', 'name', 'serial_number', 'maintenance_date',
@@ -1211,8 +1484,7 @@ def add_element():
             conn.close()
             return jsonify({'success': False, 'error': f'Element with name "{name}" already exists in this substation'}), 400
         
-        c.execute("PRAGMA table_info(elements)")
-        columns = {col[1] for col in c.fetchall()}
+        columns = _get_table_columns(conn, 'elements')
 
         col_values = {
             'substation_id': substation_id,
@@ -1243,9 +1515,8 @@ def add_element():
 
         placeholders = ', '.join(['?'] * len(insert_cols))
         insert_sql = f"INSERT INTO elements ({', '.join(insert_cols)}) VALUES ({placeholders})"
-        c.execute(insert_sql, insert_vals)
+        element_id = _insert_and_get_id(c, insert_sql, insert_vals)
         conn.commit()
-        element_id = c.lastrowid
         conn.close()
         
         return jsonify({
@@ -1342,16 +1613,18 @@ def create_maintenance():
         c = conn.cursor()
         
         # Insert maintenance record
-        c.execute('''
+        maintenance_id = _insert_and_get_id(
+            c,
+            '''
             INSERT INTO maintenance (substation_id, date_time, overall_comments)
             VALUES (?, ?, ?)
-        ''', (
-            data['substation_id'],
-            data['date_time'],
-            data.get('overall_comments', '')
-        ))
-        
-        maintenance_id = c.lastrowid
+            ''',
+            (
+                data['substation_id'],
+                data['date_time'],
+                data.get('overall_comments', '')
+            )
+        )
         
         # Insert maintenance elements
         for element in data['elements']:
@@ -1488,14 +1761,14 @@ def add_inspection():
         if data_json is None:
             data_json = json.dumps({'fields': [{'label': 'Σχόλια', 'value': notes}]}, ensure_ascii=False)
 
-        c.execute(
+        inspection_id = _insert_and_get_id(
+            c,
             """INSERT INTO inspections (substation_id, substation_name, inspection_date, month_key,
                       data_json, source_file, created_at)
                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
             (substation_id, substation_name, inspection_date, month_key, data_json, 'api-entry')
         )
         conn.commit()
-        inspection_id = c.lastrowid
         conn.close()
 
         return jsonify({'success': True, 'id': inspection_id}), 201
@@ -1519,6 +1792,9 @@ def health():
 def reset_database():
     """ADMIN: Reset database with full schema - USE WITH CAUTION!"""
     try:
+        if DB_BACKEND == 'postgres':
+            return jsonify({'success': False, 'error': 'Reset not supported for PostgreSQL backend'}), 400
+
         # Require secret key for safety
         data = request.get_json() or {}
         secret = data.get('secret', '')
@@ -1537,8 +1813,7 @@ def reset_database():
         
         # Verify schema
         cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(elements)")
-        columns = [col[1] for col in cursor.fetchall()]
+        columns = list(_get_table_columns(conn, 'elements'))
         conn.close()
         
         logger.info(f"Database reset complete. Elements table has {len(columns)} columns")
