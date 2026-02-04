@@ -98,6 +98,45 @@ class SubstationAndroidApp(App):
         {'key': 'maintenance_cycle', 'label': 'Κύκλος Συντήρησης (μήνες)', 'type': 'text', 'hint': 'π.χ. 12'},
         {'key': 'gate', 'label': 'Πύλη', 'type': 'text', 'hint': 'π.χ. ΠΥΛΗ 1'},
     ]
+    INSPECTION_FIELDS = [
+        {'type': 'section', 'title': '1. Έλεγχος Χώρων ΥΣ'},
+        'Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)',
+        'Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ',
+        'Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)',
+        'Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)',
+        'Έλεγχος μέσων πυρόσβεσης γενικά',
+        {'type': 'section', 'title': '2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV'},
+        'Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)',
+        'Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ',
+        'Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV',
+        'Έλεγχος λειτουργίας ανεμιστήρων Μ/Σ',
+        'Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)',
+        'Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)',
+        'Οπτικός έλεγχος τηκτών πυκνωτών',
+        'Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV',
+        'Λήψη φωτογραφίας όταν απαιτείται',
+        {'type': 'section', 'title': '3α. Υπαίθριες πύλες 20 kV'},
+        'Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)',
+        'Οπτικός έλεγχος των πυλών, A/Z και γενικά του ικριώματος για τυχόν φωλιές από πτηνά, σπασίματα, μονωτήρες, κλαδιά, σύρματα κλπ',
+        {'type': 'section', 'title': '3β. Πίνακες 20 kV'},
+        'Παρατηρήσεις (3β. Πίνακες 20 kV)',
+        'Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών',
+        'Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων',
+        {'type': 'section', 'title': '4. Κτίριο χειρισμών & Τ.Α.Σ.'},
+        'Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)',
+        'Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή',
+        'Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC',
+        'Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών',
+        {'type': 'section', 'title': '5. Αποζεύκτες Γραμμών'},
+        'Παρατηρήσεις (5. Αποζεύκτες Γραμμών)',
+        'Οπτικός έλεγχος των ΑΠ/Ζ και των "γεφυρών" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)',
+        {'type': 'section', 'title': '6. PC ΧΕΙΡΙΣΜΩΝ'},
+        'Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)',
+        'Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)',
+        'Τροφοδοσία υπολογιστή',
+        {'type': 'section', 'title': '7. Απόψεις'},
+        'Απόψεις - Προτάσεις'
+    ]
     
     API_BASE_URL = 'https://db-substations.onrender.com/api'  # Render Cloud API URL
     
@@ -473,8 +512,16 @@ class SubstationAndroidApp(App):
         layout = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=8)
         layout.bind(minimum_height=layout.setter('height'))
         
+        def wrapped_label(text_value):
+            label = Label(text=text_value, size_hint_y=None, halign='left', valign='middle')
+            label.bind(
+                width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                texture_size=lambda instance, value: setattr(instance, 'height', value[1] + 10)
+            )
+            return label
+
         # Element type
-        layout.add_widget(Label(text='Τύπος Στοιχείου:', size_hint_y=None, height=30))
+        layout.add_widget(wrapped_label('Τύπος Στοιχείου:'))
         element_spinner = Spinner(
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
@@ -486,7 +533,7 @@ class SubstationAndroidApp(App):
         # Dynamic fields
         field_inputs = {}
         for field in self.ELEMENT_FIELD_DEFS:
-            layout.add_widget(Label(text=f"{field['label']}:", size_hint_y=None, height=30))
+            layout.add_widget(wrapped_label(f"{field['label']}:") )
             if field.get('type') == 'spinner':
                 spinner = Spinner(
                     text=field['values'][0],
@@ -682,8 +729,16 @@ class SubstationAndroidApp(App):
         content_layout = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=10)
         content_layout.bind(minimum_height=content_layout.setter('height'))
         
+        def wrapped_label(text_value):
+            label = Label(text=text_value, size_hint_y=None, halign='left', valign='middle')
+            label.bind(
+                width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                texture_size=lambda instance, value: setattr(instance, 'height', value[1] + 10)
+            )
+            return label
+
         # Maintenance Type
-        content_layout.add_widget(Label(text='Τύπος Συντήρησης:', size_hint_y=None, height=30))
+        content_layout.add_widget(wrapped_label('Τύπος Συντήρησης:'))
         maint_type_spinner = Spinner(
             text='Επαναληπτική συντήρηση',
             values=['Επαναληπτική συντήρηση', 'Βλάβη', 'Οπτικός έλεγχος'],
@@ -693,7 +748,7 @@ class SubstationAndroidApp(App):
         content_layout.add_widget(maint_type_spinner)
         
         # Date/Time
-        content_layout.add_widget(Label(text='Ημερομηνία & Ώρα:', size_hint_y=None, height=30))
+        content_layout.add_widget(wrapped_label('Ημερομηνία & Ώρα:'))
         datetime_input = TextInput(
             text=datetime.now().strftime('%Y-%m-%d %H:%M'),
             hint_text='YYYY-MM-DD HH:MM',
@@ -704,7 +759,7 @@ class SubstationAndroidApp(App):
         content_layout.add_widget(datetime_input)
         
         # Overall comments
-        content_layout.add_widget(Label(text='Γενικά Σχόλια:', size_hint_y=None, height=30))
+        content_layout.add_widget(wrapped_label('Γενικά Σχόλια:'))
         overall_comments = TextInput(
             hint_text='Γενικά σχόλια για την συντήρηση...',
             size_hint_y=None,
@@ -717,12 +772,19 @@ class SubstationAndroidApp(App):
         content_layout.add_widget(Label(text='Στοιχεία που συντηρήθηκαν:', size_hint_y=None, height=40, bold=True))
         loading_label = Label(text='Φόρτωση στοιχείων...', size_hint_y=None, height=40)
         content_layout.add_widget(loading_label)
+        retry_btn = Button(text='Επανάληψη φόρτωσης', size_hint_y=None, height=40, disabled=True, opacity=0)
+        content_layout.add_widget(retry_btn)
         
         # Store element widgets
         element_widgets = {}
         
         def load_elements():
             """Load elements and create checkboxes with fields"""
+            retry_btn.disabled = True
+            retry_btn.opacity = 0
+            if loading_label.parent is None:
+                content_layout.add_widget(loading_label)
+
             def on_success(req, result):
                 try:
                     data = self.parse_json_response(result)
@@ -794,7 +856,7 @@ class SubstationAndroidApp(App):
                                 
                                 if is_breaker:
                                     # Insulation measurements (closed position)
-                                    details_container.add_widget(Label(text='Μονώσεις (Κλειστό):', size_hint_y=None, height=30, bold=True))
+                                    details_container.add_widget(wrapped_label('Μονώσεις (Κλειστό):'))
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
@@ -816,7 +878,7 @@ class SubstationAndroidApp(App):
                                         measurements[f'ins_closed_{phase}_unit'] = unit_spinner
                                     
                                     # Insulation measurements (open position)
-                                    details_container.add_widget(Label(text='Μονώσεις (Ανοιχτό):', size_hint_y=None, height=30, bold=True))
+                                    details_container.add_widget(wrapped_label('Μονώσεις (Ανοιχτό):'))
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A-A', 'fb': 'Φάση B-B', 'fc': 'Φάση C-C'}[phase]
@@ -838,7 +900,7 @@ class SubstationAndroidApp(App):
                                         measurements[f'ins_open_{phase}_unit'] = unit_spinner
                                     
                                     # Contact resistance
-                                    details_container.add_widget(Label(text='Αντίσταση Επαφών (μΩ):', size_hint_y=None, height=30, bold=True))
+                                    details_container.add_widget(wrapped_label('Αντίσταση Επαφών (μΩ):'))
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
@@ -873,19 +935,33 @@ class SubstationAndroidApp(App):
                 except Exception as e:
                     if loading_label.parent:
                         content_layout.remove_widget(loading_label)
+                    retry_btn.disabled = False
+                    retry_btn.opacity = 1
                     self.show_error(f'Error loading elements: {str(e)}')
             
             def on_error(req, error):
                 if loading_label.parent:
                     content_layout.remove_widget(loading_label)
+                retry_btn.disabled = False
+                retry_btn.opacity = 1
                 self.show_error(f'Error: {str(error)}')
+
+            def on_failure(req, result):
+                if loading_label.parent:
+                    content_layout.remove_widget(loading_label)
+                retry_btn.disabled = False
+                retry_btn.opacity = 1
+                self.show_error('Αποτυχία φόρτωσης στοιχείων')
             
             UrlRequest(
                 f'{self.API_BASE_URL}/elements?substation_id={substation_id}',
                 on_success=on_success,
                 on_error=on_error,
-                timeout=60
+                on_failure=on_failure,
+                timeout=30
             )
+
+        retry_btn.bind(on_press=lambda _x: load_elements())
         
         Clock.schedule_once(lambda *_args: load_elements(), 0)
         
@@ -1010,7 +1086,15 @@ class SubstationAndroidApp(App):
         layout = BoxLayout(orientation='vertical', size_hint_y=None, padding=5, spacing=10)
         layout.bind(minimum_height=layout.setter('height'))
 
-        layout.add_widget(Label(text='Ημερομηνία Επιθεώρησης:', size_hint_y=None, height=30))
+        def wrapped_label(text_value, bold=False):
+            label = Label(text=text_value, size_hint_y=None, halign='left', valign='middle', bold=bold, markup=bold)
+            label.bind(
+                width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                texture_size=lambda instance, value: setattr(instance, 'height', value[1] + 10)
+            )
+            return label
+
+        layout.add_widget(wrapped_label('Ημερομηνία Επιθεώρησης:'))
         date_input = TextInput(
             text=datetime.now().strftime('%Y-%m-%d'),
             hint_text='YYYY-MM-DD',
@@ -1020,14 +1104,31 @@ class SubstationAndroidApp(App):
         )
         layout.add_widget(date_input)
 
-        layout.add_widget(Label(text='Σχόλια:', size_hint_y=None, height=30))
-        notes_input = TextInput(
-            hint_text='Σχόλια επιθεώρησης...',
-            size_hint_y=None,
-            height=140,
-            multiline=True
-        )
-        layout.add_widget(notes_input)
+        field_inputs = []
+        for field in self.INSPECTION_FIELDS:
+            if isinstance(field, dict) and field.get('type') == 'section':
+                layout.add_widget(wrapped_label(f"[b]{field.get('title')}[/b]", bold=True))
+                continue
+
+            row = BoxLayout(size_hint_y=None, spacing=8)
+            row.bind(minimum_height=row.setter('height'))
+
+            label = Label(text=str(field), size_hint_x=0.62, size_hint_y=None, halign='left', valign='top')
+            label.bind(
+                width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+                texture_size=lambda instance, value: (
+                    setattr(instance, 'height', value[1] + 10),
+                    setattr(row, 'height', max(value[1] + 10, 60))
+                )
+            )
+
+            ti = TextInput(hint_text='Παρατηρήσεις', size_hint_x=0.38, size_hint_y=None, height=60, multiline=True)
+            ti.bind(height=lambda _instance, _value: setattr(row, 'height', max(row.height, ti.height)))
+
+            row.add_widget(label)
+            row.add_widget(ti)
+            layout.add_widget(row)
+            field_inputs.append((str(field), ti))
 
         scroll.add_widget(layout)
         main_layout.add_widget(scroll)
@@ -1039,10 +1140,11 @@ class SubstationAndroidApp(App):
                 self.show_error('Η ημερομηνία είναι υποχρεωτική!')
                 return
 
+            fields_payload = [{'label': label, 'value': ti.text.strip()} for label, ti in field_inputs]
             payload = {
                 'substation_id': substation_id,
                 'inspection_date': date_input.text.strip(),
-                'notes': notes_input.text.strip()
+                'data_json': json.dumps({'fields': fields_payload}, ensure_ascii=False)
             }
 
             def on_success(req, result):
