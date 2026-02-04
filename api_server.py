@@ -387,9 +387,6 @@ def init_database():
         logger.error(f"Database initialization error: {str(e)}", exc_info=True)
         raise
 
-# Initialize database when module loads
-init_database()
-
 def get_db():
     """Get database connection with error handling"""
     try:
@@ -413,6 +410,9 @@ def get_db():
     except Exception as e:
         logger.error(f"Database connection error: {str(e)}")
         raise
+
+# Initialize database when module loads
+init_database()
 
 def _get_table_columns(conn, table_name):
     cur = conn.cursor()
