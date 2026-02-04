@@ -603,7 +603,7 @@ class SubstationAndroidApp(App):
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
             size_hint_y=None,
-            height=56
+            height=64
         )
         layout.add_widget(element_spinner)
         
@@ -616,7 +616,7 @@ class SubstationAndroidApp(App):
                     text=field['values'][0],
                     values=field['values'],
                     size_hint_y=None,
-                    height=56
+                    height=64
                 )
                 field_inputs[field['key']] = spinner
                 layout.add_widget(spinner)
@@ -624,9 +624,9 @@ class SubstationAndroidApp(App):
                 ti = TextInput(
                     hint_text=field.get('hint', ''),
                     size_hint_y=None,
-                    height=60,
+                    height=68,
                     multiline=False,
-                    padding=[12, 12, 12, 12]
+                    padding=[14, 14, 14, 14]
                 )
                 field_inputs[field['key']] = ti
                 layout.add_widget(ti)
@@ -894,9 +894,8 @@ class SubstationAndroidApp(App):
                                     if mfr != '-' or mdl != '-':
                                         elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
 
-                                    checkbox_layout = BoxLayout(size_hint_y=None, spacing=8)
-                                    checkbox_layout.height = 60
-                                    checkbox = CheckBox(size_hint=(None, None), size=(36, 36))
+                                    checkbox_layout = BoxLayout(size_hint_y=None, spacing=10)
+                                    checkbox = CheckBox(size_hint=(None, None), size=(40, 40))
                                     checkbox_layout.add_widget(checkbox)
 
                                     elem_label = Label(
@@ -909,8 +908,8 @@ class SubstationAndroidApp(App):
                                     elem_label.bind(
                                         width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
                                         texture_size=lambda instance, value: (
-                                            setattr(instance, 'height', max(60, value[1] + 10)),
-                                            setattr(checkbox_layout, 'height', max(60, value[1] + 10))
+                                            setattr(instance, 'height', max(70, value[1] + 12)),
+                                            setattr(checkbox_layout, 'height', max(70, value[1] + 12, checkbox.height + 12))
                                         )
                                     )
                                     checkbox_layout.add_widget(elem_label)
@@ -1043,9 +1042,8 @@ class SubstationAndroidApp(App):
                                     elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
                                 
                                 # Checkbox and name
-                                checkbox_layout = BoxLayout(size_hint_y=None, spacing=8)
-                                checkbox_layout.height = 60
-                                checkbox = CheckBox(size_hint=(None, None), size=(36, 36))
+                                checkbox_layout = BoxLayout(size_hint_y=None, spacing=10)
+                                checkbox = CheckBox(size_hint=(None, None), size=(40, 40))
                                 checkbox_layout.add_widget(checkbox)
                                 
                                 elem_label = Label(
@@ -1058,8 +1056,8 @@ class SubstationAndroidApp(App):
                                 elem_label.bind(
                                     width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
                                     texture_size=lambda instance, value: (
-                                        setattr(instance, 'height', max(60, value[1] + 10)),
-                                        setattr(checkbox_layout, 'height', max(60, value[1] + 10))
+                                        setattr(instance, 'height', max(70, value[1] + 12)),
+                                        setattr(checkbox_layout, 'height', max(70, value[1] + 12, checkbox.height + 12))
                                     )
                                 )
                                 checkbox_layout.add_widget(elem_label)
@@ -1317,9 +1315,9 @@ class SubstationAndroidApp(App):
             text=datetime.now().strftime('%Y-%m-%d'),
             hint_text='YYYY-MM-DD',
             size_hint_y=None,
-            height=60,
+            height=68,
             multiline=False,
-            padding=[12, 12, 12, 12]
+            padding=[14, 14, 14, 14]
         )
         layout.add_widget(date_input)
 
@@ -1359,7 +1357,7 @@ class SubstationAndroidApp(App):
         scroll.add_widget(layout)
         main_layout.add_widget(scroll)
 
-        button_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        button_layout = BoxLayout(size_hint_y=None, height=60, spacing=10)
 
         def save_inspection():
             if not date_input.text.strip():
