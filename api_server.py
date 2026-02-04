@@ -1122,19 +1122,34 @@ def get_elements():
         conn = get_db()
         c = conn.cursor()
         
+        c.execute("PRAGMA table_info(elements)")
+        columns = {col[1] for col in c.fetchall()}
+
+        desired = [
+            'id', 'substation_id', 'element_type', 'name', 'serial_number', 'maintenance_date',
+            'voltage_level', 'manufacturer', 'type', 'element_model_id', 'manufacture_year',
+            'model', 'model_version', 'operating_status', 'installation_space', 'maintenance_cycle',
+            'gate', 'is_main_switch', 'breaker_category'
+        ]
+
+        select_parts = []
+        for col in desired:
+            if col in columns:
+                select_parts.append(col)
+            elif col == 'gate' and 'bar' in columns:
+                select_parts.append('bar AS gate')
+            else:
+                select_parts.append(f"NULL AS {col}")
+
+        select_sql = ", ".join(select_parts)
+
         if substation_id:
             c.execute(
-                """SELECT id, substation_id, element_type, name, serial_number, maintenance_date, 
-                   voltage_level, manufacturer, type, element_model_id, manufacture_year, model, 
-                   model_version, operating_status, installation_space, maintenance_cycle, gate, is_main_switch 
-                   FROM elements WHERE substation_id=? ORDER BY element_type, name""",
+                f"SELECT {select_sql} FROM elements WHERE substation_id=? ORDER BY element_type, name",
                 (substation_id,)
             )
         else:
-            c.execute("""SELECT id, substation_id, element_type, name, serial_number, maintenance_date, 
-                         voltage_level, manufacturer, type, element_model_id, manufacture_year, model, 
-                         model_version, operating_status, installation_space, maintenance_cycle, gate, is_main_switch 
-                         FROM elements ORDER BY element_type, name""")
+            c.execute(f"SELECT {select_sql} FROM elements ORDER BY element_type, name")
         
         elements = [dict(row) for row in c.fetchall()]
         conn.close()
