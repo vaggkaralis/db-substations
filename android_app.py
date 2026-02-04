@@ -894,8 +894,9 @@ class SubstationAndroidApp(App):
                                     if mfr != '-' or mdl != '-':
                                         elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
 
-                                    checkbox_layout = BoxLayout(size_hint_y=None, spacing=10)
-                                    checkbox = CheckBox(size_hint=(None, None), size=(40, 40))
+                                    checkbox_layout = BoxLayout(size_hint_y=None, spacing=10, padding=[0, 4, 0, 4])
+                                    checkbox_layout.bind(minimum_height=checkbox_layout.setter('height'))
+                                    checkbox = CheckBox(size_hint=(None, None), size=(44, 44))
                                     checkbox_layout.add_widget(checkbox)
 
                                     elem_label = Label(
@@ -907,10 +908,7 @@ class SubstationAndroidApp(App):
                                     )
                                     elem_label.bind(
                                         width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
-                                        texture_size=lambda instance, value: (
-                                            setattr(instance, 'height', max(70, value[1] + 12)),
-                                            setattr(checkbox_layout, 'height', max(70, value[1] + 12, checkbox.height + 12))
-                                        )
+                                        texture_size=lambda instance, value: setattr(instance, 'height', max(80, value[1] + 16))
                                     )
                                     checkbox_layout.add_widget(elem_label)
                                     elem_box.add_widget(checkbox_layout)
@@ -921,9 +919,9 @@ class SubstationAndroidApp(App):
                                     elem_comments = TextInput(
                                         hint_text='Σχόλια για αυτό το στοιχείο...',
                                         size_hint_y=None,
-                                        height=50,
+                                        height=56,
                                         multiline=False,
-                                        padding=[10, 10, 10, 10]
+                                        padding=[12, 12, 12, 12]
                                     )
                                     details_container.add_widget(elem_comments)
 
@@ -934,9 +932,9 @@ class SubstationAndroidApp(App):
                                         details_container.add_widget(wrapped_label('Μονώσεις (Κλειστό):'))
                                         for phase in ['fa', 'fb', 'fc']:
                                             phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
-                                            phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                            phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
                                             phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
-                                            value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
+                                            value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, height=50, padding=[10, 10, 10, 10])
                                             phase_layout.add_widget(value_input)
                                             unit_spinner = Spinner(text='GΩ', values=['GΩ', 'MΩ', 'kΩ'], size_hint_x=0.25)
                                             phase_layout.add_widget(unit_spinner)
@@ -947,9 +945,9 @@ class SubstationAndroidApp(App):
                                         details_container.add_widget(wrapped_label('Μονώσεις (Ανοιχτό):'))
                                         for phase in ['fa', 'fb', 'fc']:
                                             phase_label = {'fa': 'Φάση A-A', 'fb': 'Φάση B-B', 'fc': 'Φάση C-C'}[phase]
-                                            phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                            phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
                                             phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
-                                            value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
+                                            value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, height=50, padding=[10, 10, 10, 10])
                                             phase_layout.add_widget(value_input)
                                             unit_spinner = Spinner(text='GΩ', values=['GΩ', 'MΩ', 'kΩ'], size_hint_x=0.25)
                                             phase_layout.add_widget(unit_spinner)
@@ -960,9 +958,9 @@ class SubstationAndroidApp(App):
                                         details_container.add_widget(wrapped_label('Αντίσταση Επαφών (μΩ):'))
                                         for phase in ['fa', 'fb', 'fc']:
                                             phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
-                                            phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                            phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
                                             phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.3))
-                                            value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False, padding=[8, 8, 8, 8])
+                                            value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False, height=50, padding=[10, 10, 10, 10])
                                             phase_layout.add_widget(value_input)
                                             details_container.add_widget(phase_layout)
                                             measurements[f'cont_{phase}'] = value_input
@@ -1042,8 +1040,9 @@ class SubstationAndroidApp(App):
                                     elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
                                 
                                 # Checkbox and name
-                                checkbox_layout = BoxLayout(size_hint_y=None, spacing=10)
-                                checkbox = CheckBox(size_hint=(None, None), size=(40, 40))
+                                checkbox_layout = BoxLayout(size_hint_y=None, spacing=10, padding=[0, 4, 0, 4])
+                                checkbox_layout.bind(minimum_height=checkbox_layout.setter('height'))
+                                checkbox = CheckBox(size_hint=(None, None), size=(44, 44))
                                 checkbox_layout.add_widget(checkbox)
                                 
                                 elem_label = Label(
@@ -1055,10 +1054,7 @@ class SubstationAndroidApp(App):
                                 )
                                 elem_label.bind(
                                     width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
-                                    texture_size=lambda instance, value: (
-                                        setattr(instance, 'height', max(70, value[1] + 12)),
-                                        setattr(checkbox_layout, 'height', max(70, value[1] + 12, checkbox.height + 12))
-                                    )
+                                    texture_size=lambda instance, value: setattr(instance, 'height', max(80, value[1] + 16))
                                 )
                                 checkbox_layout.add_widget(elem_label)
                                 elem_box.add_widget(checkbox_layout)
@@ -1071,9 +1067,9 @@ class SubstationAndroidApp(App):
                                 elem_comments = TextInput(
                                     hint_text='Σχόλια για αυτό το στοιχείο...',
                                     size_hint_y=None,
-                                    height=50,
+                                    height=56,
                                     multiline=False,
-                                    padding=[10, 10, 10, 10]
+                                    padding=[12, 12, 12, 12]
                                 )
                                 details_container.add_widget(elem_comments)
                                 
@@ -1087,16 +1083,17 @@ class SubstationAndroidApp(App):
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
-                                        phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                        phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
                                         phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
                                         
-                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
+                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, height=50, padding=[10, 10, 10, 10])
                                         phase_layout.add_widget(value_input)
                                         
                                         unit_spinner = Spinner(
                                             text='GΩ',
                                             values=['GΩ', 'MΩ', 'kΩ'],
-                                            size_hint_x=0.25
+                                            size_hint_x=0.25,
+                                            height=50
                                         )
                                         phase_layout.add_widget(unit_spinner)
                                         details_container.add_widget(phase_layout)
@@ -1109,16 +1106,17 @@ class SubstationAndroidApp(App):
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A-A', 'fb': 'Φάση B-B', 'fc': 'Φάση C-C'}[phase]
-                                        phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                        phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
                                         phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
                                         
-                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
+                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, height=50, padding=[10, 10, 10, 10])
                                         phase_layout.add_widget(value_input)
                                         
                                         unit_spinner = Spinner(
                                             text='GΩ',
                                             values=['GΩ', 'MΩ', 'kΩ'],
-                                            size_hint_x=0.25
+                                            size_hint_x=0.25,
+                                            height=50
                                         )
                                         phase_layout.add_widget(unit_spinner)
                                         details_container.add_widget(phase_layout)
@@ -1131,10 +1129,10 @@ class SubstationAndroidApp(App):
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
-                                        phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                                        phase_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
                                         phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.3))
                                         
-                                        value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False, padding=[8, 8, 8, 8])
+                                        value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False, height=50, padding=[10, 10, 10, 10])
                                         phase_layout.add_widget(value_input)
                                         details_container.add_widget(phase_layout)
                                         
