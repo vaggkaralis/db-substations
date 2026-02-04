@@ -370,7 +370,7 @@ class SubstationAndroidApp(App):
         button_layout.add_widget(maint_btn)
 
         inspect_btn = Button(text='Επιθεώρηση')
-        inspect_btn.bind(on_press=lambda x: self.show_inspection_menu(substation_id, substation))
+        inspect_btn.bind(on_press=lambda x: self.show_inspection_entry_popup(substation_id, substation))
         button_layout.add_widget(inspect_btn)
 
         add_elem_btn = Button(text='+ Στοιχείο')
@@ -387,10 +387,16 @@ class SubstationAndroidApp(App):
     
     def _load_substation_elements(self, substation_id, grid):
         """Load and display elements for a substation"""
+        grid.clear_widgets()
+        loading_label = Label(text='Φόρτωση στοιχείων...', size_hint_y=None, height=40)
+        grid.add_widget(loading_label)
+
         def on_success(req, result):
             try:
                 data = self.parse_json_response(result)
                 if data.get('success'):
+                    if loading_label.parent:
+                        grid.remove_widget(loading_label)
                     elements = data.get('data', [])
                     if not elements:
                         grid.add_widget(Label(text='Κανένα στοιχείο', size_hint_y=None, height=40))
@@ -422,15 +428,29 @@ class SubstationAndroidApp(App):
                             
                             grid.add_widget(elem_layout)
             except Exception as e:
+                if loading_label.parent:
+                    grid.remove_widget(loading_label)
                 grid.add_widget(Label(text=f'Error: {str(e)}', size_hint_y=None, height=40))
         
         def on_error(req, error):
-            grid.add_widget(Label(text=f'Error loading elements: {str(error)}', size_hint_y=None, height=40))
+            if loading_label.parent:
+                grid.remove_widget(loading_label)
+            status = getattr(req, 'resp_status', None)
+            grid.add_widget(Label(text=f'Error loading elements: {str(error)}' + (f' (HTTP {status})' if status else ''), size_hint_y=None, height=60))
+
+        def on_failure(req, result):
+            if loading_label.parent:
+                grid.remove_widget(loading_label)
+            status = getattr(req, 'resp_status', None)
+            grid.add_widget(Label(text='Αποτυχία φόρτωσης στοιχείων' + (f' (HTTP {status})' if status else ''), size_hint_y=None, height=60))
         
         UrlRequest(
             f'{self.API_BASE_URL}/elements?substation_id={substation_id}',
             on_success=on_success,
-            on_error=on_error
+            on_error=on_error,
+            on_failure=on_failure,
+            timeout=60,
+            req_headers={'Cache-Control': 'no-cache'}
         )
     
     def show_add_substation_popup(self, instance):
@@ -526,7 +546,7 @@ class SubstationAndroidApp(App):
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
             size_hint_y=None,
-            height=40
+            height=46
         )
         layout.add_widget(element_spinner)
         
@@ -539,7 +559,7 @@ class SubstationAndroidApp(App):
                     text=field['values'][0],
                     values=field['values'],
                     size_hint_y=None,
-                    height=40
+                    height=46
                 )
                 field_inputs[field['key']] = spinner
                 layout.add_widget(spinner)
@@ -547,8 +567,9 @@ class SubstationAndroidApp(App):
                 ti = TextInput(
                     hint_text=field.get('hint', ''),
                     size_hint_y=None,
-                    height=40,
-                    multiline=False
+                    height=50,
+                    multiline=False,
+                    padding=[10, 10, 10, 10]
                 )
                 field_inputs[field['key']] = ti
                 layout.add_widget(ti)
@@ -743,7 +764,7 @@ class SubstationAndroidApp(App):
             text='Επαναληπτική συντήρηση',
             values=['Επαναληπτική συντήρηση', 'Βλάβη', 'Οπτικός έλεγχος'],
             size_hint_y=None,
-            height=40
+            height=46
         )
         content_layout.add_widget(maint_type_spinner)
         
@@ -753,8 +774,9 @@ class SubstationAndroidApp(App):
             text=datetime.now().strftime('%Y-%m-%d %H:%M'),
             hint_text='YYYY-MM-DD HH:MM',
             size_hint_y=None,
-            height=40,
-            multiline=False
+            height=50,
+            multiline=False,
+            padding=[10, 10, 10, 10]
         )
         content_layout.add_widget(datetime_input)
         
@@ -763,8 +785,9 @@ class SubstationAndroidApp(App):
         overall_comments = TextInput(
             hint_text='Γενικά σχόλια για την συντήρηση...',
             size_hint_y=None,
-            height=60,
-            multiline=True
+            height=90,
+            multiline=True,
+            padding=[10, 10, 10, 10]
         )
         content_layout.add_widget(overall_comments)
         
@@ -845,8 +868,9 @@ class SubstationAndroidApp(App):
                                 elem_comments = TextInput(
                                     hint_text='Σχόλια για αυτό το στοιχείο...',
                                     size_hint_y=None,
-                                    height=40,
-                                    multiline=False
+                                    height=50,
+                                    multiline=False,
+                                    padding=[10, 10, 10, 10]
                                 )
                                 details_container.add_widget(elem_comments)
                                 
@@ -860,10 +884,10 @@ class SubstationAndroidApp(App):
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
-                                        phase_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                        phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
                                         phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
                                         
-                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False)
+                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
                                         phase_layout.add_widget(value_input)
                                         
                                         unit_spinner = Spinner(
@@ -882,10 +906,10 @@ class SubstationAndroidApp(App):
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A-A', 'fb': 'Φάση B-B', 'fc': 'Φάση C-C'}[phase]
-                                        phase_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                        phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
                                         phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.25))
                                         
-                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False)
+                                        value_input = TextInput(hint_text='Τιμή', size_hint_x=0.5, multiline=False, padding=[8, 8, 8, 8])
                                         phase_layout.add_widget(value_input)
                                         
                                         unit_spinner = Spinner(
@@ -904,10 +928,10 @@ class SubstationAndroidApp(App):
                                     
                                     for phase in ['fa', 'fb', 'fc']:
                                         phase_label = {'fa': 'Φάση A', 'fb': 'Φάση B', 'fc': 'Φάση C'}[phase]
-                                        phase_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                                        phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
                                         phase_layout.add_widget(Label(text=f'{phase_label}:', size_hint_x=0.3))
                                         
-                                        value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False)
+                                        value_input = TextInput(hint_text='Τιμή μΩ', size_hint_x=0.7, multiline=False, padding=[8, 8, 8, 8])
                                         phase_layout.add_widget(value_input)
                                         details_container.add_widget(phase_layout)
                                         
@@ -944,21 +968,24 @@ class SubstationAndroidApp(App):
                     content_layout.remove_widget(loading_label)
                 retry_btn.disabled = False
                 retry_btn.opacity = 1
-                self.show_error(f'Error: {str(error)}')
+                status = getattr(req, 'resp_status', None)
+                self.show_error(f'Error: {str(error)}' + (f' (HTTP {status})' if status else ''))
 
             def on_failure(req, result):
                 if loading_label.parent:
                     content_layout.remove_widget(loading_label)
                 retry_btn.disabled = False
                 retry_btn.opacity = 1
-                self.show_error('Αποτυχία φόρτωσης στοιχείων')
+                status = getattr(req, 'resp_status', None)
+                self.show_error('Αποτυχία φόρτωσης στοιχείων' + (f' (HTTP {status})' if status else ''))
             
             UrlRequest(
                 f'{self.API_BASE_URL}/elements?substation_id={substation_id}',
                 on_success=on_success,
                 on_error=on_error,
                 on_failure=on_failure,
-                timeout=30
+                timeout=60,
+                req_headers={'Cache-Control': 'no-cache'}
             )
 
         retry_btn.bind(on_press=lambda _x: load_elements())
@@ -1059,22 +1086,6 @@ class SubstationAndroidApp(App):
         popup.content = main_layout
         popup.open()
 
-    def show_inspection_menu(self, substation_id, substation):
-        """Show inspections menu"""
-        popup = Popup(title=f'Επιθεωρήσεις - {substation["name"]}', size_hint=(0.9, 0.5))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-
-        new_btn = Button(text='Νέα Επιθεώρηση', size_hint_y=None, height=50)
-        new_btn.bind(on_press=lambda x: (popup.dismiss(), self.show_inspection_entry_popup(substation_id, substation)))
-        layout.add_widget(new_btn)
-
-        cancel_btn = Button(text='Ακύρωση', size_hint_y=None, height=50)
-        cancel_btn.bind(on_press=popup.dismiss)
-        layout.add_widget(cancel_btn)
-
-        popup.content = layout
-        popup.open()
-
     def show_inspection_entry_popup(self, substation_id, substation):
         """Add a new inspection entry"""
         from datetime import datetime
@@ -1099,8 +1110,9 @@ class SubstationAndroidApp(App):
             text=datetime.now().strftime('%Y-%m-%d'),
             hint_text='YYYY-MM-DD',
             size_hint_y=None,
-            height=40,
-            multiline=False
+            height=50,
+            multiline=False,
+            padding=[10, 10, 10, 10]
         )
         layout.add_widget(date_input)
 
@@ -1118,11 +1130,18 @@ class SubstationAndroidApp(App):
                 width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
                 texture_size=lambda instance, value: (
                     setattr(instance, 'height', value[1] + 10),
-                    setattr(row, 'height', max(value[1] + 10, 60))
+                    setattr(row, 'height', max(value[1] + 10, 80))
                 )
             )
 
-            ti = TextInput(hint_text='Παρατηρήσεις', size_hint_x=0.38, size_hint_y=None, height=60, multiline=True)
+            ti = TextInput(
+                hint_text='Παρατηρήσεις',
+                size_hint_x=0.38,
+                size_hint_y=None,
+                height=80,
+                multiline=True,
+                padding=[10, 10, 10, 10]
+            )
             ti.bind(height=lambda _instance, _value: setattr(row, 'height', max(row.height, ti.height)))
 
             row.add_widget(label)
