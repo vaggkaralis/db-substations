@@ -330,6 +330,10 @@ class SubstationAndroidApp(App):
         maint_btn.bind(on_press=lambda x: self.show_maintenance_menu(substation_id, substation))
         button_layout.add_widget(maint_btn)
 
+        inspect_btn = Button(text='Επιθεώρηση')
+        inspect_btn.bind(on_press=lambda x: self.show_inspection_menu(substation_id, substation))
+        button_layout.add_widget(inspect_btn)
+
         add_elem_btn = Button(text='+ Στοιχείο')
         add_elem_btn.bind(on_press=lambda x: self.show_add_element_popup(substation_id))
         button_layout.add_widget(add_elem_btn)
@@ -969,7 +973,105 @@ class SubstationAndroidApp(App):
         main_layout.add_widget(button_layout)
         popup.content = main_layout
         popup.open()
-    
+
+    def show_inspection_menu(self, substation_id, substation):
+        """Show inspections menu"""
+        popup = Popup(title=f'Επιθεωρήσεις - {substation["name"]}', size_hint=(0.9, 0.5))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        new_btn = Button(text='Νέα Επιθεώρηση', size_hint_y=None, height=50)
+        new_btn.bind(on_press=lambda x: (popup.dismiss(), self.show_inspection_entry_popup(substation_id, substation)))
+        layout.add_widget(new_btn)
+
+        cancel_btn = Button(text='Ακύρωση', size_hint_y=None, height=50)
+        cancel_btn.bind(on_press=popup.dismiss)
+        layout.add_widget(cancel_btn)
+
+        popup.content = layout
+        popup.open()
+
+    def show_inspection_entry_popup(self, substation_id, substation):
+        """Add a new inspection entry"""
+        from datetime import datetime
+
+        popup = Popup(title=f'Νέα Επιθεώρηση - {substation["name"]}', size_hint=(0.95, 0.8))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        layout.add_widget(Label(text='Ημερομηνία Επιθεώρησης:', size_hint_y=None, height=30))
+        date_input = TextInput(
+            text=datetime.now().strftime('%Y-%m-%d'),
+            hint_text='YYYY-MM-DD',
+            size_hint_y=None,
+            height=40,
+            multiline=False
+        )
+        layout.add_widget(date_input)
+
+        layout.add_widget(Label(text='Σχόλια:', size_hint_y=None, height=30))
+        notes_input = TextInput(
+            hint_text='Σχόλια επιθεώρησης...',
+            size_hint_y=None,
+            height=120,
+            multiline=True
+        )
+        layout.add_widget(notes_input)
+
+        button_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+
+        def save_inspection():
+            if not date_input.text.strip():
+                self.show_error('Η ημερομηνία είναι υποχρεωτική!')
+                return
+
+            payload = {
+                'substation_id': substation_id,
+                'inspection_date': date_input.text.strip(),
+                'notes': notes_input.text.strip()
+            }
+
+            def on_success(req, result):
+                try:
+                    data = self.parse_json_response(result)
+                    if data.get('success'):
+                        popup.dismiss()
+                        success_popup = Popup(title='Επιτυχία', size_hint=(0.8, 0.4))
+                        success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                        success_layout.add_widget(Label(text='Η επιθεώρηση καταχωρήθηκε!'))
+                        ok_btn = Button(text='OK', size_hint_y=0.3)
+                        ok_btn.bind(on_press=success_popup.dismiss)
+                        success_layout.add_widget(ok_btn)
+                        success_popup.content = success_layout
+                        success_popup.open()
+                    else:
+                        self.show_error(data.get('error', 'Unknown error'))
+                except Exception as e:
+                    self.show_error(f'Error: {str(e)}')
+
+            def on_error(req, error):
+                self.show_error(f'Error saving inspection: {str(error)}')
+
+            UrlRequest(
+                f'{self.API_BASE_URL}/inspections',
+                on_success=on_success,
+                on_error=on_error,
+                method='POST',
+                req_headers={'Content-Type': 'application/json'},
+                req_body=json.dumps(payload),
+                timeout=60
+            )
+
+        save_btn = Button(text='Αποθήκευση')
+        save_btn.bind(on_press=lambda x: save_inspection())
+        button_layout.add_widget(save_btn)
+
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        button_layout.add_widget(cancel_btn)
+
+        layout.add_widget(button_layout)
+        popup.content = layout
+        popup.open()
+
     def show_error(self, message):
         """Show error popup"""
         popup = Popup(title='Σφάλμα', size_hint=(0.8, 0.4))

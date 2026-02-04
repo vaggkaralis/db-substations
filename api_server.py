@@ -7,8 +7,8 @@ from flask_cors import CORS
 import sqlite3
 import json
 import os
-from datetime import datetime
 import logging
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -185,6 +185,7 @@ def _fetch_substations(conn):
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations ORDER BY name")
     return [dict(row) for row in c.fetchall()]
+
 
 # ==================== WEB UI ROUTES ====================
 
@@ -1340,6 +1341,7 @@ def create_maintenance():
         logger.error(f"Error creating maintenance: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 @app.route('/api/maintenance/<int:maintenance_id>', methods=['DELETE'])
 def delete_maintenance(maintenance_id):
     """Delete a maintenance record"""
@@ -1364,6 +1366,102 @@ def delete_maintenance(maintenance_id):
     
     except Exception as e:
         logger.error(f"Error deleting maintenance: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ==================== INSPECTIONS ENDPOINTS ====================
+
+def _derive_month_key(inspection_date: str) -> str:
+    """Derive YYYY-MM month key from an ISO-like date string."""
+    if not inspection_date:
+        return datetime.now().strftime('%Y-%m')
+    try:
+        parsed = datetime.fromisoformat(inspection_date)
+        return parsed.strftime('%Y-%m')
+    except ValueError:
+        try:
+            parsed = datetime.strptime(inspection_date, '%Y-%m-%d')
+            return parsed.strftime('%Y-%m')
+        except ValueError:
+            return datetime.now().strftime('%Y-%m')
+
+
+@app.route('/api/inspections', methods=['GET'])
+def get_inspections():
+    """Get inspections, optionally filtered by substation_id"""
+    try:
+        substation_id = request.args.get('substation_id', type=int)
+        conn = get_db()
+        c = conn.cursor()
+        if substation_id:
+            c.execute(
+                """SELECT id, substation_id, substation_name, inspection_date, month_key,
+                          data_json, source_file, created_at
+                   FROM inspections WHERE substation_id=? ORDER BY inspection_date DESC""",
+                (substation_id,)
+            )
+        else:
+            c.execute(
+                """SELECT id, substation_id, substation_name, inspection_date, month_key,
+                          data_json, source_file, created_at
+                   FROM inspections ORDER BY inspection_date DESC"""
+            )
+        inspections = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'data': inspections})
+    except Exception as e:
+        logger.error(f"Error fetching inspections: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/inspections', methods=['POST'])
+def add_inspection():
+    """Add a new inspection"""
+    try:
+        data = request.get_json() or {}
+        substation_id = data.get('substation_id')
+        substation_name = (data.get('substation_name') or '').strip()
+        inspection_date = (data.get('inspection_date') or '').strip()
+        month_key = (data.get('month_key') or '').strip()
+        notes = (data.get('notes') or '').strip()
+        data_json = data.get('data_json')
+
+        if not inspection_date:
+            inspection_date = datetime.now().strftime('%Y-%m-%d')
+
+        if not month_key:
+            month_key = _derive_month_key(inspection_date)
+
+        conn = get_db()
+        c = conn.cursor()
+
+        if substation_id:
+            c.execute("SELECT name FROM substations WHERE id=?", (substation_id,))
+            row = c.fetchone()
+            if not row:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Substation not found'}), 404
+            substation_name = row['name']
+
+        if not substation_name:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Substation name is required'}), 400
+
+        if data_json is None:
+            data_json = json.dumps({'fields': [{'label': 'Σχόλια', 'value': notes}]}, ensure_ascii=False)
+
+        c.execute(
+            """INSERT INTO inspections (substation_id, substation_name, inspection_date, month_key,
+                      data_json, source_file, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (substation_id, substation_name, inspection_date, month_key, data_json, 'api-entry')
+        )
+        conn.commit()
+        inspection_id = c.lastrowid
+        conn.close()
+
+        return jsonify({'success': True, 'id': inspection_id}), 201
+    except Exception as e:
+        logger.error(f"Error adding inspection: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== HEALTH CHECK ====================
