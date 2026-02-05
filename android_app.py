@@ -5,6 +5,7 @@ import sys
 import traceback
 import os
 import sqlite3
+import shutil
 from datetime import datetime
 
 # Set up logging FIRST before any other imports
@@ -138,7 +139,48 @@ class SubstationAndroidApp(App):
                     base_dir = self.user_data_dir
             except Exception:
                 base_dir = os.getcwd()
-            self.change_log_path = os.path.join(base_dir, 'change_log.jsonl')
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.change_log_path = os.path.join(base_dir, f'change_log_{timestamp}.jsonl')
+            try:
+                os.makedirs(base_dir, exist_ok=True)
+                with open(self.change_log_path, 'a', encoding='utf-8'):
+                    pass
+            except Exception:
+                pass
+
+    def _settings_path(self):
+        try:
+            base_dir = self.user_data_dir
+        except Exception:
+            base_dir = os.getcwd()
+        return os.path.join(base_dir, 'android_settings.json')
+
+    def _load_settings(self):
+        try:
+            with open(self._settings_path(), 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_settings(self, data):
+        try:
+            os.makedirs(os.path.dirname(self._settings_path()), exist_ok=True)
+            with open(self._settings_path(), 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            Logger.warning(f'APP: Failed to save settings: {str(e)}')
+
+    def _get_saved_db_path(self):
+        settings = self._load_settings()
+        return settings.get('local_db_path') or ''
+
+    def _set_saved_db_path(self, db_path):
+        settings = self._load_settings()
+        settings['local_db_path'] = db_path
+        self._save_settings(settings)
+
+    def _generate_temp_id(self):
+        return -int(datetime.now().timestamp() * 1000)
 
     def _append_change_log(self, operation, table, payload):
         try:
@@ -157,7 +199,7 @@ class SubstationAndroidApp(App):
     def _get_local_conn(self):
         if not self.local_db_path:
             raise RuntimeError('Local DB path not set')
-        conn = sqlite3.connect(self.local_db_path)
+        conn = sqlite3.connect(f'file:{self.local_db_path}?mode=ro', uri=True)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -199,31 +241,13 @@ class SubstationAndroidApp(App):
         return rows
 
     def _local_insert(self, table, data):
-        conn = self._get_local_conn()
-        cur = conn.cursor()
-        columns = self._local_table_columns(conn, table)
-        filtered = {k: v for k, v in data.items() if k in columns}
-        cols = list(filtered.keys())
-        vals = [filtered[c] for c in cols]
-        placeholders = ', '.join(['?'] * len(cols))
-        cur.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders})", vals)
-        conn.commit()
-        new_id = cur.lastrowid
-        conn.close()
-        return new_id
+        return self._generate_temp_id()
 
     def _local_delete(self, table, row_id):
-        conn = self._get_local_conn()
-        cur = conn.cursor()
-        cur.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
-        conn.commit()
-        conn.close()
+        return
 
     def open_local_db_picker(self):
-        if filechooser:
-            filechooser.open_file(on_selection=self._on_local_db_selected)
-        else:
-            self._prompt_local_db_path()
+        self._prompt_local_db_path()
 
     def _on_local_db_selected(self, selection):
         if selection and len(selection) > 0:
@@ -233,8 +257,28 @@ class SubstationAndroidApp(App):
         popup = Popup(title='Άνοιγμα Τοπικής Βάσης', size_hint=(0.9, 0.4))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         layout.add_widget(Label(text='Δώσε πλήρες path του αρχείου .db'))
-        path_input = TextInput(hint_text='/storage/emulated/0/Download/substations.db', multiline=False)
+        default_path = self._get_saved_db_path() or '/storage/emulated/0/Download/substations.db'
+        path_input = TextInput(text=default_path, hint_text='/storage/emulated/0/Download/substations.db', multiline=False)
         layout.add_widget(path_input)
+
+        chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
+        choose_btn = Button(text='Αναζήτηση αρχείου')
+        choose_btn.disabled = not bool(filechooser)
+
+        def open_picker():
+            if not filechooser:
+                self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
+                return
+
+            def _selected(selection):
+                if selection and len(selection) > 0:
+                    path_input.text = selection[0]
+
+            filechooser.open_file(on_selection=_selected)
+
+        choose_btn.bind(on_press=lambda _x: open_picker())
+        chooser_layout.add_widget(choose_btn)
+        layout.add_widget(chooser_layout)
 
         buttons = BoxLayout(size_hint_y=0.3, spacing=10)
         open_btn = Button(text='Άνοιγμα')
@@ -251,10 +295,16 @@ class SubstationAndroidApp(App):
         if not db_path:
             self.show_error('Δεν επιλέχθηκε αρχείο βάσης')
             return
-        if not os.path.exists(db_path):
+        try:
+            db_path = self._prepare_local_db_path(db_path)
+        except FileNotFoundError:
             self.show_error('Το αρχείο βάσης δεν βρέθηκε')
             return
+        except Exception as e:
+            self.show_error(f'Αποτυχία ανοίγματος βάσης: {str(e)}')
+            return
         self.local_db_path = db_path
+        self._set_saved_db_path(db_path)
         self.data_mode = 'local'
         self.change_log_path = None
         self._ensure_change_log_path()
@@ -262,6 +312,33 @@ class SubstationAndroidApp(App):
             self.mode_label.text = 'Πηγή: Τοπική Βάση'
         self.show_error(f'Τοπική βάση ενεργή. Change log: {self.change_log_path}')
         self.load_substations(None)
+
+    def _normalize_android_storage_path(self, path_value: str) -> str:
+        if not path_value:
+            return path_value
+        normalized = path_value.strip().replace('\\', '/')
+        prefix_map = [
+            '/Εσωτερικός χώρος αποθήκευσης',
+            '/Internal storage',
+        ]
+        for prefix in prefix_map:
+            if normalized.startswith(prefix):
+                normalized = '/storage/emulated/0' + normalized[len(prefix):]
+                break
+        return normalized
+
+    def _prepare_local_db_path(self, path_value: str) -> str:
+        normalized = self._normalize_android_storage_path(path_value)
+        if not os.path.exists(normalized):
+            raise FileNotFoundError(normalized)
+        try:
+            conn = sqlite3.connect(f'file:{normalized}?mode=ro', uri=True)
+            conn.close()
+            return normalized
+        except sqlite3.OperationalError as e:
+            if 'unable to open database file' not in str(e).lower():
+                raise
+        raise
 
     def __init__(self, **kwargs):
         Logger.info('APP: Initializing SubstationAndroidApp')
@@ -572,7 +649,14 @@ class SubstationAndroidApp(App):
                 new_id = self._local_insert('substations', payload)
                 self._append_change_log('insert', 'substations', {**payload, 'id': new_id})
                 popup.dismiss()
-                self.load_substations(None)
+                success_popup = Popup(title='Επιτυχία', size_hint=(0.85, 0.45))
+                success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                success_layout.add_widget(Label(text='Η αλλαγή καταγράφηκε στο change log.'))
+                ok_btn = Button(text='OK', size_hint_y=0.3)
+                ok_btn.bind(on_press=success_popup.dismiss)
+                success_layout.add_widget(ok_btn)
+                success_popup.content = success_layout
+                success_popup.open()
             except Exception as e:
                 self.show_error(f'Local DB error: {str(e)}')
         
@@ -683,7 +767,14 @@ class SubstationAndroidApp(App):
                 new_id = self._local_insert('elements', payload)
                 self._append_change_log('insert', 'elements', {**payload, 'id': new_id})
                 popup.dismiss()
-                self.show_substation_details(substation_id)
+                success_popup = Popup(title='Επιτυχία', size_hint=(0.85, 0.45))
+                success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                success_layout.add_widget(Label(text='Η αλλαγή καταγράφηκε στο change log.'))
+                ok_btn = Button(text='OK', size_hint_y=0.3)
+                ok_btn.bind(on_press=success_popup.dismiss)
+                success_layout.add_widget(ok_btn)
+                success_popup.content = success_layout
+                success_popup.open()
             except Exception as e:
                 self.show_error(f'Local DB error: {str(e)}')
         
@@ -711,9 +802,15 @@ class SubstationAndroidApp(App):
         def do_delete():
             confirm_popup.dismiss()
             try:
-                self._local_delete('elements', element_id)
                 self._append_change_log('delete', 'elements', {'id': element_id})
-                self.show_substation_details(self.current_substation['id'])
+                success_popup = Popup(title='Επιτυχία', size_hint=(0.85, 0.45))
+                success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                success_layout.add_widget(Label(text='Η αλλαγή καταγράφηκε στο change log.'))
+                ok_btn = Button(text='OK', size_hint_y=0.3)
+                ok_btn.bind(on_press=success_popup.dismiss)
+                success_layout.add_widget(ok_btn)
+                success_popup.content = success_layout
+                success_popup.open()
             except Exception as e:
                 self.show_error(f'Local DB error: {str(e)}')
 
@@ -741,15 +838,15 @@ class SubstationAndroidApp(App):
         def do_delete():
             confirm_popup.dismiss()
             try:
-                # Delete elements first
-                conn = self._get_local_conn()
-                cur = conn.cursor()
-                cur.execute('DELETE FROM elements WHERE substation_id = ?', (substation_id,))
-                cur.execute('DELETE FROM substations WHERE id = ?', (substation_id,))
-                conn.commit()
-                conn.close()
                 self._append_change_log('delete', 'substations', {'id': substation_id})
-                self.load_substations(None)
+                success_popup = Popup(title='Επιτυχία', size_hint=(0.85, 0.45))
+                success_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                success_layout.add_widget(Label(text='Η αλλαγή καταγράφηκε στο change log.'))
+                ok_btn = Button(text='OK', size_hint_y=0.3)
+                ok_btn.bind(on_press=success_popup.dismiss)
+                success_layout.add_widget(ok_btn)
+                success_popup.content = success_layout
+                success_popup.open()
             except Exception as e:
                 self.show_error(f'Local DB error: {str(e)}')
 
@@ -1012,18 +1109,7 @@ class SubstationAndroidApp(App):
             }
 
             try:
-                maintenance_id = self._local_insert('maintenance', {
-                    'substation_id': substation_id,
-                    'date_time': datetime_input.text.strip(),
-                    'overall_comments': overall_comments.text.strip(),
-                    'maintenance_type': maint_type_spinner.text
-                })
-                for elem in maintenance_elements:
-                    self._local_insert('maintenance_elements', {
-                        'maintenance_id': maintenance_id,
-                        'element_id': elem['element_id'],
-                        'element_comments': elem.get('element_comments', '')
-                    })
+                maintenance_id = self._local_insert('maintenance', payload)
                 self._append_change_log('insert', 'maintenance', {
                     'id': maintenance_id,
                     **payload
@@ -1129,19 +1215,15 @@ class SubstationAndroidApp(App):
             payload = {
                 'substation_id': substation_id,
                 'inspection_date': date_input.text.strip(),
-                'data_json': json.dumps({'fields': fields_payload}, ensure_ascii=False)
+                'data_json': json.dumps({'fields': fields_payload}, ensure_ascii=False),
+                'substation_name': substation.get('name'),
+                'month_key': date_input.text.strip()[:7],
+                'source_file': 'android-local',
+                'created_at': datetime.now().strftime('%Y-%m-%d')
             }
 
             try:
-                inspection_id = self._local_insert('inspections', {
-                    'substation_id': substation_id,
-                    'substation_name': substation.get('name'),
-                    'inspection_date': date_input.text.strip(),
-                    'month_key': date_input.text.strip()[:7],
-                    'data_json': payload['data_json'],
-                    'source_file': 'android-local',
-                    'created_at': datetime.now().strftime('%Y-%m-%d')
-                })
+                inspection_id = self._local_insert('inspections', payload)
                 self._append_change_log('insert', 'inspections', {**payload, 'id': inspection_id})
                 popup.dismiss()
                 success_popup = Popup(title='Επιτυχία', size_hint=(0.8, 0.4))
@@ -1169,9 +1251,16 @@ class SubstationAndroidApp(App):
 
     def show_error(self, message):
         """Show error popup"""
-        popup = Popup(title='Σφάλμα', size_hint=(0.8, 0.4))
+        popup = Popup(title='Σφάλμα', size_hint=(0.9, 0.7))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        layout.add_widget(Label(text=message))
+        scroll = ScrollView(size_hint=(1, 1))
+        msg_label = Label(text=message, size_hint_y=None, halign='left', valign='top')
+        msg_label.bind(
+            width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
+            texture_size=lambda instance, value: setattr(instance, 'height', value[1] + 10)
+        )
+        scroll.add_widget(msg_label)
+        layout.add_widget(scroll)
         
         close_btn = Button(text='Κλείσιμο', size_hint_y=0.3)
         close_btn.bind(on_press=popup.dismiss)
