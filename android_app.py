@@ -300,6 +300,10 @@ class SubstationAndroidApp(App):
 
         def open_picker():
             if not filechooser:
+                if FileChooserListView:
+                    self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος.
+Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
+                    return
                 self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
                 return
 

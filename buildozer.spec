@@ -7,7 +7,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 
 version = 1.0.0
-requirements = python3,kivy==2.3.0,pillow,certifi,urllib3,charset-normalizer,idna,requests
+requirements = python3,kivy==2.3.0,plyer,pillow,certifi,urllib3,charset-normalizer,idna,requests
 
 permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
 
