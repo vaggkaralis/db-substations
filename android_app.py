@@ -308,7 +308,8 @@ class SubstationAndroidApp(App):
 
             def _selected(selection):
                 if selection and len(selection) > 0:
-                    path_input.text = selection[0]
+                    selected_path = str(selection[0])
+                    Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
 
             filechooser.open_file(on_selection=_selected)
 
@@ -319,7 +320,11 @@ class SubstationAndroidApp(App):
         if FileChooserListView:
             chooser_path = os.path.dirname(default_path) if default_path else '/storage/emulated/0'
             file_chooser = FileChooserListView(filters=['*.db'], path=chooser_path, size_hint_y=0.6)
-            file_chooser.bind(selection=lambda _instance, selection: path_input.setter('text')(path_input, selection[0] if selection else path_input.text))
+            def _file_list_selected(_instance, selection):
+                if selection:
+                    selected_path = str(selection[0])
+                    Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
+            file_chooser.bind(selection=_file_list_selected)
             layout.add_widget(file_chooser)
 
         buttons = BoxLayout(size_hint_y=0.3, spacing=10)
