@@ -296,7 +296,7 @@ class SubstationAndroidApp(App):
 
         chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
         choose_btn = Button(text='Αναζήτηση αρχείου')
-        choose_btn.disabled = not bool(filechooser)
+        choose_btn.disabled = not (filechooser or FileChooserListView)
 
         def open_picker():
             if not filechooser:
@@ -379,7 +379,16 @@ class SubstationAndroidApp(App):
         except sqlite3.OperationalError as e:
             if 'unable to open database file' not in str(e).lower():
                 raise
-            raise RuntimeError(f'Unable to open database file: {normalized}') from e
+            try:
+                target_dir = getattr(self, 'user_data_dir', None) or os.getcwd()
+                os.makedirs(target_dir, exist_ok=True)
+                target_path = os.path.join(target_dir, os.path.basename(normalized))
+                shutil.copy2(normalized, target_path)
+                conn = sqlite3.connect(f'file:{target_path}?mode=ro', uri=True)
+                conn.close()
+                return target_path
+            except Exception as copy_err:
+                raise RuntimeError(f'Unable to open database file: {normalized}') from copy_err
 
     def __init__(self, **kwargs):
         Logger.info('APP: Initializing SubstationAndroidApp')
