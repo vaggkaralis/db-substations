@@ -29,6 +29,10 @@ try:
     from kivy.uix.spinner import Spinner
     from kivy.clock import Clock
     Logger.info('APP: Kivy UI imports successful')
+    try:
+        from kivy.uix.filechooser import FileChooserListView
+    except Exception:
+        FileChooserListView = None
     
     
     import json
@@ -182,6 +186,35 @@ class SubstationAndroidApp(App):
     def _generate_temp_id(self):
         return -int(datetime.now().timestamp() * 1000)
 
+    def _copy_content_uri_to_file(self, uri_str: str) -> str:
+        target_dir = getattr(self, 'user_data_dir', None) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        target_path = os.path.join(target_dir, f'local_db_{timestamp}.db')
+        try:
+            from jnius import autoclass, jarray, jbyte
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            current_activity = PythonActivity.mActivity
+            content_resolver = current_activity.getContentResolver()
+            Uri = autoclass('android.net.Uri')
+            input_stream = content_resolver.openInputStream(Uri.parse(uri_str))
+            if input_stream is None:
+                raise RuntimeError('Unable to open selected file')
+            FileOutputStream = autoclass('java.io.FileOutputStream')
+            output_stream = FileOutputStream(target_path)
+            buf = jarray(jbyte)(1024 * 1024)
+            while True:
+                count = input_stream.read(buf)
+                if count == -1:
+                    break
+                output_stream.write(buf, 0, count)
+            output_stream.flush()
+            output_stream.close()
+            input_stream.close()
+            return target_path
+        except Exception as e:
+            raise RuntimeError(f'Unable to read selected file: {str(e)}') from e
+
     def _append_change_log(self, operation, table, payload):
         try:
             self._ensure_change_log_path()
@@ -280,6 +313,12 @@ class SubstationAndroidApp(App):
         chooser_layout.add_widget(choose_btn)
         layout.add_widget(chooser_layout)
 
+        if FileChooserListView:
+            chooser_path = os.path.dirname(default_path) if default_path else '/storage/emulated/0'
+            file_chooser = FileChooserListView(filters=['*.db'], path=chooser_path, size_hint_y=0.6)
+            file_chooser.bind(selection=lambda _instance, selection: path_input.setter('text')(path_input, selection[0] if selection else path_input.text))
+            layout.add_widget(file_chooser)
+
         buttons = BoxLayout(size_hint_y=0.3, spacing=10)
         open_btn = Button(text='Άνοιγμα')
         open_btn.bind(on_press=lambda _x: (popup.dismiss(), self.use_local_mode(path_input.text.strip())))
@@ -329,6 +368,8 @@ class SubstationAndroidApp(App):
 
     def _prepare_local_db_path(self, path_value: str) -> str:
         normalized = self._normalize_android_storage_path(path_value)
+        if normalized.startswith('content://'):
+            return self._copy_content_uri_to_file(normalized)
         if not os.path.exists(normalized):
             raise FileNotFoundError(normalized)
         try:
@@ -338,7 +379,7 @@ class SubstationAndroidApp(App):
         except sqlite3.OperationalError as e:
             if 'unable to open database file' not in str(e).lower():
                 raise
-        raise
+            raise RuntimeError(f'Unable to open database file: {normalized}') from e
 
     def __init__(self, **kwargs):
         Logger.info('APP: Initializing SubstationAndroidApp')
