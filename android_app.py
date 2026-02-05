@@ -186,6 +186,23 @@ class SubstationAndroidApp(App):
     def _generate_temp_id(self):
         return -int(datetime.now().timestamp() * 1000)
 
+    def _auto_load_saved_db(self):
+        saved_path = self._get_saved_db_path()
+        if not saved_path:
+            return False
+        try:
+            db_path = self._prepare_local_db_path(saved_path)
+        except Exception as e:
+            Logger.warning(f'APP: Failed to auto-load saved DB: {str(e)}')
+            return False
+        self.local_db_path = db_path
+        self.data_mode = 'local'
+        self.change_log_path = None
+        self._ensure_change_log_path()
+        if hasattr(self, 'mode_label'):
+            self.mode_label.text = 'Πηγή: Τοπική Βάση'
+        return True
+
     def _copy_content_uri_to_file(self, uri_str: str) -> str:
         target_dir = getattr(self, 'user_data_dir', None) or os.getcwd()
         os.makedirs(target_dir, exist_ok=True)
@@ -308,7 +325,11 @@ class SubstationAndroidApp(App):
 
             def _selected(selection):
                 if selection and len(selection) > 0:
-                    selected_path = str(selection[0])
+                    raw_value = selection[0]
+                    if isinstance(raw_value, bytes):
+                        selected_path = raw_value.decode('utf-8', errors='ignore')
+                    else:
+                        selected_path = str(raw_value)
                     Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
 
             filechooser.open_file(on_selection=_selected)
@@ -322,9 +343,14 @@ class SubstationAndroidApp(App):
             file_chooser = FileChooserListView(filters=['*.db'], path=chooser_path, size_hint_y=0.6)
             def _file_list_selected(_instance, selection):
                 if selection:
-                    selected_path = str(selection[0])
+                    raw_value = selection[0]
+                    if isinstance(raw_value, bytes):
+                        selected_path = raw_value.decode('utf-8', errors='ignore')
+                    else:
+                        selected_path = str(raw_value)
                     Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
             file_chooser.bind(selection=_file_list_selected)
+            file_chooser.bind(on_submit=lambda _instance, selection, _touch: _file_list_selected(_instance, selection))
             layout.add_widget(file_chooser)
 
         buttons = BoxLayout(size_hint_y=0.3, spacing=10)
@@ -489,7 +515,10 @@ class SubstationAndroidApp(App):
             
             # Load data after UI is rendered (prevent ANR)
             Logger.info('APP: Scheduling load_substations to run after UI renders')
-            Clock.schedule_once(self.load_substations, 0.5)
+            if not self._auto_load_saved_db():
+                Clock.schedule_once(self.load_substations, 0.5)
+            else:
+                Clock.schedule_once(self.load_substations, 0.5)
             
             Logger.info('APP: UI build completed successfully')
             return main_layout
@@ -514,6 +543,11 @@ class SubstationAndroidApp(App):
             loading_label = Label(text='Φόρτωση...', size_hint_y=1)
             self.content_layout.add_widget(loading_label)
             Logger.info('APP: Loading label added')
+
+            if not self.local_db_path:
+                self.content_layout.clear_widgets()
+                self.content_layout.add_widget(Label(text='Επίλεξε αρχείο βάσης για να ξεκινήσεις.'))
+                return
             
             try:
                 self.substations = self._local_fetch_substations()
