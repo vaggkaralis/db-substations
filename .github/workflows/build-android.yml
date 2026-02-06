@@ -18,6 +18,22 @@ jobs:
       with:
         python-version: '3.10'
 
+    - name: Cache pip
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt', 'Pipfile', 'buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Cache Buildozer
+      uses: actions/cache@v4
+      with:
+        path: ~/.buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
+
     - name: Install system dependencies
       run: |
         sudo apt-get update
@@ -58,7 +74,7 @@ jobs:
         cd ~/.buildozer/android/platform
         
         # Download and setup command line tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+        wget -q --tries=5 --waitretry=5 --timeout=30 https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
         unzip -q commandlinetools-linux-10406996_latest.zip
         mkdir -p android-sdk/cmdline-tools
         mv cmdline-tools android-sdk/cmdline-tools/latest
@@ -74,11 +90,32 @@ jobs:
         yes | sdkmanager --licenses
         sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0" "ndk;25.2.9519653"
 
+    - name: Prefetch freetype source
+      run: |
+        mkdir -p ~/.buildozer/android/packages
+        cd ~/.buildozer/android/packages
+        if [ ! -f freetype-2.10.1.tar.gz ]; then
+          echo "Downloading freetype from mirror"
+          wget -q --tries=5 --waitretry=5 --timeout=30 \
+            https://downloads.sourceforge.net/project/freetype/freetype2/2.10.1/freetype-2.10.1.tar.gz \
+            -O freetype-2.10.1.tar.gz
+        fi
+
     - name: Build APK with Buildozer
       run: |
         export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
         export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
-        buildozer android debug
+        for attempt in 1 2 3; do
+          echo "Buildozer attempt $attempt"
+          if buildozer android debug; then
+            break
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            sleep $((attempt * 15))
+          else
+            exit 1
+          fi
+        done
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
