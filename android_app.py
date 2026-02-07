@@ -1,6 +1,9 @@
 """
 Android Kivy App for DB Substations - local DB only
 """
+"""
+Android Kivy App for DB Substations - local DB only
+"""
 import sys
 import traceback
 import os
@@ -10,14 +13,13 @@ from datetime import datetime
 
 # Set up logging FIRST before any other imports
 from kivy.logger import Logger
-Logger.info('APP: ========== Starting DB Substations App ==========')
+Logger.info('APP: ========== Starting DB Substations App ==========' )
 Logger.info(f'APP: Python version: {sys.version}')
 
 try:
     import kivy
     Logger.info(f'APP: Kivy version: {kivy.__version__}')
     kivy.require('2.3.0')  # Minimum version with Android Cython modules
-    
     from kivy.app import App
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.gridlayout import GridLayout
@@ -29,32 +31,29 @@ try:
     from kivy.uix.spinner import Spinner
     from kivy.clock import Clock
     from kivy.utils import platform
-    Logger.info('APP: Kivy UI imports successful')
-    try:
-        from kivy.uix.filechooser import FileChooserListView
-    except Exception:
-        FileChooserListView = None
-    
-    
-    import json
-    Logger.info('APP: JSON import successful')
-    
-    import threading
-    Logger.info('APP: Threading import successful')
-
-    try:
-        from plyer import filechooser
-        Logger.info('APP: Plyer filechooser available')
-    except Exception as e:
-        filechooser = None
-        Logger.warning(f'APP: Plyer filechooser not available: {str(e)}')
-    
-    Logger.info('APP: All imports completed successfully')
-    
 except Exception as e:
-    Logger.critical(f'APP: FATAL - Import error: {str(e)}')
-    Logger.critical(f'APP: Traceback: {traceback.format_exc()}')
-    raise
+    Logger.warning(f'APP: Kivy import failed: {str(e)}')
+    platform = 'unknown'
+
+# Android-specific imports
+filechooser = None
+FileChooserListView = None
+try:
+    from plyer import filechooser
+except Exception as e:
+    Logger.warning(f'APP: plyer.filechooser import failed: {str(e)}')
+    filechooser = None
+try:
+    from kivy.uix.filechooser import FileChooserListView
+except Exception as e:
+    Logger.warning(f'APP: FileChooserListView import failed: {str(e)}')
+    FileChooserListView = None
+
+import json
+Logger.info('APP: JSON import successful')
+
+import threading
+Logger.info('APP: Threading import successful')
 
 class SubstationAndroidApp(App):
     # Element types - matches desktop app
@@ -209,6 +208,8 @@ class SubstationAndroidApp(App):
         os.makedirs(target_dir, exist_ok=True)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         target_path = os.path.join(target_dir, f'local_db_{timestamp}.db')
+        if platform != 'android':
+            raise RuntimeError('Android file copy only supported on Android platform')
         try:
             from jnius import autoclass, jarray, jbyte
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
@@ -383,6 +384,10 @@ class SubstationAndroidApp(App):
         popup.open()
 
     def _open_android_document_picker(self, on_selected):
+        if platform != 'android':
+            Logger.warning('APP: SAF picker only available on Android platform')
+            self.show_error('Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.')
+            return
         try:
             from android import activity
             from jnius import autoclass
@@ -509,6 +514,9 @@ class SubstationAndroidApp(App):
             raise
 
     def _request_android_permissions(self):
+        if platform != 'android':
+            Logger.info('APP: Android permissions only required on Android platform')
+            return
         try:
             from android.permissions import request_permissions, Permission
             request_permissions([
