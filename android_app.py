@@ -211,7 +211,7 @@ class SubstationAndroidApp(App):
         if platform != 'android':
             raise RuntimeError('Android file copy only supported on Android platform')
         try:
-            from jnius import autoclass, jarray, jbyte
+            from jnius import autoclass
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
             current_activity = PythonActivity.mActivity
             content_resolver = current_activity.getContentResolver()
@@ -221,7 +221,9 @@ class SubstationAndroidApp(App):
                 raise RuntimeError('Unable to open selected file')
             FileOutputStream = autoclass('java.io.FileOutputStream')
             output_stream = FileOutputStream(target_path)
-            buf = jarray(jbyte)(1024 * 1024)
+            # Create Java byte array for buffer
+            jbyte = autoclass('java.lang.Byte')
+            buf = autoclass('byte[]')(1024 * 1024)
             while True:
                 count = input_stream.read(buf)
                 if count == -1:
