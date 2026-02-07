@@ -84,7 +84,7 @@ jobs:
         
         # Create symlink for buildozer compatibility (expects tools/bin)
         mkdir -p $ANDROID_SDK_ROOT/tools/bin
-        ln -s $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+        ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager $ANDROID_SDK_ROOT/tools/bin/sdkmanager
         
         # Accept licenses and install build tools with AIDL
         yes | sdkmanager --licenses
