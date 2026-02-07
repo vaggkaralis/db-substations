@@ -485,8 +485,18 @@ class SubstationAndroidApp(App):
         self._ensure_change_log_path()
         if hasattr(self, 'mode_label'):
             self.mode_label.text = 'Πηγή: Τοπική Βάση'
-        self.show_error(f'Τοπική βάση ενεργή. Change log: {self.change_log_path}')
-        self.load_substations(None)
+        # Show info popup instead of error (optional, can be removed if not needed)
+        try:
+            self.load_substations(None)
+        except Exception as e:
+            # Show a popup with the error details
+            error_msg = f'Σφάλμα κατά το άνοιγμα της βάσης ή τη φόρτωση υποσταθμών:\n{str(e)}'
+            try:
+                import traceback
+                error_msg += f"\n\n{traceback.format_exc()}"
+            except Exception:
+                pass
+            self.show_error(error_msg)
 
     def _normalize_android_storage_path(self, path_value: str) -> str:
         if not path_value:
