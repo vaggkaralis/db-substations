@@ -28,6 +28,7 @@ try:
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.spinner import Spinner
     from kivy.clock import Clock
+    from kivy.utils import platform
     Logger.info('APP: Kivy UI imports successful')
     try:
         from kivy.uix.filechooser import FileChooserListView
@@ -316,6 +317,9 @@ class SubstationAndroidApp(App):
         choose_btn.disabled = not (filechooser or FileChooserListView)
 
         def open_picker():
+            if platform == 'android':
+                self._open_android_document_picker(_selected)
+                return
             if not filechooser:
                 if FileChooserListView:
                     self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
@@ -326,10 +330,17 @@ class SubstationAndroidApp(App):
             def _selected(selection):
                 if selection and len(selection) > 0:
                     raw_value = selection[0]
+                    if raw_value is None:
+                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                        return
                     if isinstance(raw_value, bytes):
                         selected_path = raw_value.decode('utf-8', errors='ignore')
                     else:
                         selected_path = str(raw_value)
+                    if selected_path.strip().lower() in ('', 'none', 'null'):
+                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                        return
+                    Logger.info(f'APP: File chooser selected: {selected_path}')
                     Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
 
             filechooser.open_file(on_selection=_selected)
@@ -344,10 +355,17 @@ class SubstationAndroidApp(App):
             def _file_list_selected(_instance, selection):
                 if selection:
                     raw_value = selection[0]
+                    if raw_value is None:
+                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                        return
                     if isinstance(raw_value, bytes):
                         selected_path = raw_value.decode('utf-8', errors='ignore')
                     else:
                         selected_path = str(raw_value)
+                    if selected_path.strip().lower() in ('', 'none', 'null'):
+                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                        return
+                    Logger.info(f'APP: File list selected: {selected_path}')
                     Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
             file_chooser.bind(selection=_file_list_selected)
             file_chooser.bind(on_submit=lambda _instance, selection, _touch: _file_list_selected(_instance, selection))
@@ -364,8 +382,52 @@ class SubstationAndroidApp(App):
         popup.content = layout
         popup.open()
 
+    def _open_android_document_picker(self, on_selected):
+        try:
+            from android import activity
+            from jnius import autoclass
+        except Exception as e:
+            Logger.warning(f'APP: Android SAF picker not available: {str(e)}')
+            self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
+            return
+
+        try:
+            Intent = autoclass('android.content.Intent')
+            Activity = autoclass('android.app.Activity')
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+
+            intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            intent.setType('*/*')
+
+            request_code = 61423
+
+            def _activity_result(req_code, result_code, data):
+                if req_code != request_code:
+                    return
+                activity.unbind(on_activity_result=_activity_result)
+                if result_code != Activity.RESULT_OK or data is None:
+                    return
+                try:
+                    uri = data.getData()
+                    if uri is None:
+                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                        return
+                    uri_str = uri.toString()
+                    Logger.info(f'APP: SAF selected: {uri_str}')
+                    on_selected([uri_str])
+                except Exception as e:
+                    Logger.warning(f'APP: SAF selection failed: {str(e)}')
+
+            activity.bind(on_activity_result=_activity_result)
+            current_activity = PythonActivity.mActivity
+            current_activity.startActivityForResult(intent, request_code)
+        except Exception as e:
+            Logger.warning(f'APP: Failed to open SAF picker: {str(e)}')
+            self.show_error('Αποτυχία ανοίγματος επιλογέα αρχείων')
+
     def use_local_mode(self, db_path):
-        if not db_path:
+        if not db_path or str(db_path).strip().lower() in ('none', 'null'):
             self.show_error('Δεν επιλέχθηκε αρχείο βάσης')
             return
         try:

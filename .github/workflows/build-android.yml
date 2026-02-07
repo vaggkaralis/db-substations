@@ -107,7 +107,7 @@ jobs:
         export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
         for attempt in 1 2 3; do
           echo "Buildozer attempt $attempt"
-          if buildozer android debug; then
+          if buildozer -v android debug; then
             break
           fi
           if [ "$attempt" -lt 3 ]; then
@@ -120,7 +120,7 @@ jobs:
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: db-substations-apk
+        name: db-substations-apk-debug
         path: bin/*.apk
         retention-days: 30
         
