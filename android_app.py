@@ -530,12 +530,26 @@ class SubstationAndroidApp(App):
         Logger.info('APP: Initializing SubstationAndroidApp')
         try:
             super().__init__(**kwargs)
+            # Ensure user_data_dir is always set
+            try:
+                from kivy.utils import platform as kivy_platform
+                if kivy_platform == 'android':
+                    from android.storage import app_storage_path
+                    self.user_data_dir = app_storage_path()
+                else:
+                    self.user_data_dir = os.path.join(os.getcwd(), 'user_data')
+            except Exception as e:
+                Logger.warning(f'APP: Could not set user_data_dir: {str(e)}')
+                self.user_data_dir = os.path.join(os.getcwd(), 'user_data')
+            os.makedirs(self.user_data_dir, exist_ok=True)
             self.substations = []
             self.elements = {}
             self.current_substation = None
             self.data_mode = 'local'
             self.local_db_path = None
             self.change_log_path = None
+            # Always request permissions on Android
+            self._request_android_permissions()
             Logger.info('APP: SubstationAndroidApp initialized successfully')
         except Exception as e:
             Logger.critical(f'APP: Error in __init__: {str(e)}')
