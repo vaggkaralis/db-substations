@@ -404,13 +404,18 @@ class SubstationAndroidApp(App):
 
             def _activity_result(req_code, result_code, data):
                 if req_code != request_code:
+                    Logger.warning('APP: Activity result request code mismatch.')
+                    self.show_error('Εσωτερικό σφάλμα επιλογέα αρχείων.')
                     return
                 activity.unbind(on_activity_result=_activity_result)
                 if result_code != Activity.RESULT_OK or data is None:
+                    Logger.warning('APP: Activity result not OK or data is None.')
+                    self.show_error('Η επιλογή αρχείου απέτυχε ή ακυρώθηκε.')
                     return
                 try:
                     uri = data.getData()
                     if uri is None:
+                        Logger.warning('APP: SAF picker returned None URI.')
                         self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
                         return
                     uri_str = uri.toString()
@@ -418,13 +423,14 @@ class SubstationAndroidApp(App):
                     on_selected([uri_str])
                 except Exception as e:
                     Logger.warning(f'APP: SAF selection failed: {str(e)}')
+                    self.show_error('Σφάλμα κατά την επιλογή αρχείου: ' + str(e))
 
             activity.bind(on_activity_result=_activity_result)
             current_activity = PythonActivity.mActivity
             current_activity.startActivityForResult(intent, request_code)
         except Exception as e:
             Logger.warning(f'APP: Failed to open SAF picker: {str(e)}')
-            self.show_error('Αποτυχία ανοίγματος επιλογέα αρχείων')
+            self.show_error('Αποτυχία ανοίγματος επιλογέα αρχείων: ' + str(e))
 
     def use_local_mode(self, db_path):
         if not db_path or str(db_path).strip().lower() in ('none', 'null'):
