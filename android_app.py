@@ -318,18 +318,11 @@ class SubstationAndroidApp(App):
         choose_btn.disabled = not (filechooser or FileChooserListView)
 
         def open_picker():
-            if platform == 'android':
-                self._open_android_document_picker(_selected)
-                return
-            if not filechooser:
-                if FileChooserListView:
-                    self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
-                    return
-                self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
-                return
-
             def _selected(selection):
-                if selection and len(selection) > 0:
+                try:
+                    if not selection or len(selection) == 0:
+                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                        return
                     raw_value = selection[0]
                     if raw_value is None:
                         self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
@@ -343,8 +336,24 @@ class SubstationAndroidApp(App):
                         return
                     Logger.info(f'APP: File chooser selected: {selected_path}')
                     Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
+                except Exception as e:
+                    Logger.error(f'APP: Exception in file picker callback: {str(e)}')
+                    self.show_error(f'Σφάλμα επιλογής αρχείου: {str(e)}')
 
-            filechooser.open_file(on_selection=_selected)
+            try:
+                if platform == 'android':
+                    self._open_android_document_picker(_selected)
+                    return
+                if not filechooser:
+                    if FileChooserListView:
+                        self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
+                        return
+                    self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
+                    return
+                filechooser.open_file(on_selection=_selected)
+            except Exception as e:
+                Logger.error(f'APP: Exception in open_picker: {str(e)}')
+                self.show_error(f'Σφάλμα ανοίγματος επιλογέα: {str(e)}')
 
         choose_btn.bind(on_press=lambda _x: open_picker())
         chooser_layout.add_widget(choose_btn)
