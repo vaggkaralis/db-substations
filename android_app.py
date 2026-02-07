@@ -388,6 +388,24 @@ class SubstationAndroidApp(App):
             Logger.warning('APP: SAF picker only available on Android platform')
             self.show_error('Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.')
             return
+        # Request permissions before proceeding
+        try:
+            from android.permissions import request_permissions, Permission, check_permission
+            needed_perms = [
+                Permission.READ_EXTERNAL_STORAGE,
+                Permission.WRITE_EXTERNAL_STORAGE,
+            ]
+            # Check if permissions are already granted
+            perms_granted = all(check_permission(p) for p in needed_perms)
+            if not perms_granted:
+                # Request permissions and return, user must retry after granting
+                request_permissions(needed_perms)
+                self.show_error('Απαιτούνται δικαιώματα αποθήκευσης. Παρακαλώ επιτρέψτε τα και ξαναδοκιμάστε.')
+                return
+        except Exception as perm_e:
+            Logger.warning(f'APP: Permission check/request failed: {str(perm_e)}')
+            # Continue, may work on older Android or if permissions not enforced
+
         try:
             from android import activity
             from jnius import autoclass
