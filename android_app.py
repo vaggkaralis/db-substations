@@ -899,6 +899,15 @@ class SubstationAndroidApp(App):
                             current = PythonActivity.mActivity
                             current.startActivity(intent)
                         except Exception:
+                            # Surface the error to the user so they know why opening failed
+                            try:
+                                import traceback as _tb
+
+                                self.show_error(
+                                    f"Άνοιγμα φακέλου απέτυχε: {_tb.format_exc()}"
+                                )
+                            except Exception:
+                                pass
                             try:
                                 from kivy.core.clipboard import Clipboard
 
@@ -1064,10 +1073,12 @@ class SubstationAndroidApp(App):
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             chooser = Intent.createChooser(intent, "Open folder")
             current.startActivity(chooser)
-        except Exception:
+        except Exception as e:
             try:
-                # Surface error to the user
-                self.show_error(f"Άνοιγμα φακέλου απέτυχε. Αναλυτικό σφάλμα: {e}")
+                # Surface error to the user so the stack/exception is visible in-app
+                import traceback as _tb
+
+                self.show_error(f"Άνοιγμα φακέλου απέτυχε: {_tb.format_exc()}")
             except Exception:
                 pass
             try:
@@ -2430,13 +2441,39 @@ class SubstationAndroidApp(App):
                 uri = Uri.fromFile(f)
 
             intent = Intent(Intent.ACTION_SEND)
-            intent.setType("text/plain")
-            intent.putExtra(Intent.EXTRA_STREAM, uri)
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            # Use a binary/* wildcard so the EXTRA_STREAM is treated as a Uri
+            intent.setType("*/*")
+
+            # Prefer using ClipData for content:// URIs to avoid Intent.putExtra
+            # overload ambiguity that may treat the Uri as a Java String.
+            try:
+                ContentResolver = current.getContentResolver()
+                ClipData = autoclass("android.content.ClipData")
+                # Create a ClipData holding the Uri and attach it to the intent
+                clip = ClipData.newUri(ContentResolver, "change-log", uri)
+                intent.setClipData(clip)
+                # Also include EXTRA_STREAM for receivers that expect it
+                intent.putExtra(Intent.EXTRA_STREAM, uri)
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            except Exception:
+                # Fallback: still attempt to put EXTRA_STREAM and grant permission
+                try:
+                    intent.putExtra(Intent.EXTRA_STREAM, uri)
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                except Exception:
+                    # Let the outer except handle showing error
+                    raise
+
             chooser = Intent.createChooser(intent, "Share change-log")
             current.startActivity(chooser)
         except Exception:
-            # Rethrow so callers can implement fallback (e.g., clipboard copy)
+            # Surface the error to the user (useful on-device) then re-raise
+            try:
+                import traceback as _tb
+
+                self.show_error(f"Κοινοποίηση απέτυχε: {_tb.format_exc()}")
+            except Exception:
+                pass
             raise
 
 
