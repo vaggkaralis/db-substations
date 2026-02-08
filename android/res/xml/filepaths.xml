@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Expose the app internal files directory so FileProvider can share files
+         placed in the app's user_data_dir (change_log.txt). Adjust path as needed. -->
+    <files-path name="internal_files" path="." />
+</paths>
