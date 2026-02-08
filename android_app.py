@@ -249,6 +249,30 @@ class SubstationAndroidApp(App):
 
             try:
                 if platform == "android":
+                    # Ensure storage permissions are requested BEFORE opening SAF picker
+                    try:
+                        from android.permissions import (
+                            check_permission,
+                            request_permissions,
+                            Permission,
+                        )
+
+                        needed_perms = [
+                            Permission.READ_EXTERNAL_STORAGE,
+                            Permission.WRITE_EXTERNAL_STORAGE,
+                        ]
+                        perms_granted = all(check_permission(p) for p in needed_perms)
+                        if not perms_granted:
+                            # Request permissions and ask user to retry after granting
+                            request_permissions(needed_perms)
+                            self.show_error(
+                                "Απαιτούνται δικαιώματα αποθήκευσης. Επιτρέψτε τα και ξαναδοκιμάστε."
+                            )
+                            return
+                    except Exception:
+                        # Continue without explicit permission check if android.permissions not available
+                        pass
+
                     self._open_android_document_picker(_selected)
                     return
                 if not filechooser:
@@ -318,61 +342,10 @@ class SubstationAndroidApp(App):
         popup.content = layout
         popup.open()
 
-        def _open_android_document_picker(self, on_selected):
-            if platform != "android":
-                Logger.warning("APP: SAF picker only available on Android platform")
-                self.show_error("Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.")
-                return
-            try:
-                from android import activity
-                from jnius import autoclass
-            except Exception as e:
-                Logger.warning(f"APP: Android SAF picker not available: {str(e)}")
-                self.show_error("Ο επιλογέας αρχείων δεν είναι διαθέσιμος")
-                return
-
-            try:
-                Intent = autoclass("android.content.Intent")
-                Activity = autoclass("android.app.Activity")
-                PythonActivity = autoclass("org.kivy.android.PythonActivity")
-
-                intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
-                intent.addCategory(Intent.CATEGORY_OPENABLE)
-                intent.setType("*/*")
-
-                request_code = 61423
-
-                def _activity_result(req_code, result_code, data):
-                    if req_code != request_code:
-                        Logger.warning("APP: Activity result request code mismatch.")
-                        self.show_error("Εσωτερικό σφάλμα επιλογέα αρχείων.")
-                        return
-                    activity.unbind(on_activity_result=_activity_result)
-                    if result_code != Activity.RESULT_OK or data is None:
-                        Logger.warning("APP: Activity result not OK or data is None.")
-                        self.show_error("Η επιλογή αρχείου απέτυχε ή ακυρώθηκε.")
-                        return
-                    try:
-                        uri = data.getData()
-                        if uri is None:
-                            Logger.warning("APP: SAF picker returned None URI.")
-                            self.show_error(
-                                "Ο επιλογέας επέστρεψε κενή επιλογή (None)."
-                            )
-                            return
-                        uri_str = uri.toString()
-                        Logger.info(f"APP: SAF selected: {uri_str}")
-                        on_selected([uri_str])
-                    except Exception as e:
-                        Logger.warning(f"APP: SAF selection failed: {str(e)}")
-                        self.show_error("Σφάλμα κατά την επιλογή αρχείου: " + str(e))
-
-                activity.bind(on_activity_result=_activity_result)
-                current_activity = PythonActivity.mActivity
-                current_activity.startActivityForResult(intent, request_code)
-            except Exception as e:
-                Logger.warning(f"APP: Failed to open SAF picker: {str(e)}")
-                self.show_error("Αποτυχία ανοίγματος επιλογέα αρχείων: " + str(e))
+        # NOTE: the real Android SAF picker implementation lives as a class method
+        # further down in the file (`def _open_android_document_picker(self, on_selected):`).
+        # The local nested implementation was removed to ensure permission checks
+        # from the top-level picker are always used.
 
         def use_local_mode(self, db_path):
             if not db_path or str(db_path).strip().lower() in ("none", "null"):
