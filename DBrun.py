@@ -6,6 +6,7 @@ import sys
 import unicodedata
 from datetime import datetime
 import json
+import sqlite3
 from database import init_db
 from importers import (
     import_elements_from_csv,
@@ -51,6 +52,69 @@ Window = importlib.import_module("kivy.core.window").Window
 CoreImage = importlib.import_module("kivy.core.image").Image
 Clipboard = importlib.import_module("kivy.core.clipboard").Clipboard
 Clock = importlib.import_module("kivy.clock").Clock
+
+
+def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
+    """Apply a JSONL change-log file to the given sqlite3 connection.
+
+    The change-log format is one JSON object per line: {operation, table, data}
+    Currently supports only 'insert' operations. For 'maintenance' inserts the
+    helper will also populate `maintenance_elements` and update `elements`.`maintenance_date`.
+    """
+    import os
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(file_path)
+
+    cur = conn.cursor()
+    with open(file_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            op = obj.get("operation")
+            table = obj.get("table")
+            data = obj.get("data") or {}
+            if op != "insert":
+                continue
+
+            # Special handling for maintenance rows which may embed elements
+            if table == "maintenance":
+                # Insert maintenance fields that exist in the schema
+                maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
+                maint_keys = [k for k in data.keys() if k in maint_cols]
+                placeholders = ",".join(["?"] * len(maint_keys))
+                sql = f"INSERT INTO maintenance ({','.join(maint_keys)}) VALUES ({placeholders})"
+                cur.execute(sql, [data[k] for k in maint_keys])
+                maintenance_id = cur.lastrowid
+
+                elements = data.get("elements") or []
+                for elem in elements:
+                    elem_id = elem.get("element_id") or elem.get("id")
+                    elem_comments = elem.get("element_comments") or elem.get("comments")
+                    cur.execute(
+                        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+                        (maintenance_id, elem_id, elem_comments),
+                    )
+                    # Update element maintenance_date if provided
+                    if data.get("date_time") and elem_id:
+                        cur.execute(
+                            "UPDATE elements SET maintenance_date=? WHERE id=?",
+                            (data.get("date_time"), elem_id),
+                        )
+                conn.commit()
+                continue
+
+            # Generic insert: map keys to existing table columns
+            cols_info = [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
+            insert_keys = [k for k in data.keys() if k in cols_info]
+            if not insert_keys:
+                continue
+            placeholders = ",".join(["?"] * len(insert_keys))
+            sql = f"INSERT INTO {table} ({','.join(insert_keys)}) VALUES ({placeholders})"
+            cur.execute(sql, [data[k] for k in insert_keys])
+            conn.commit()
 
 
 # Maximize window on startup
@@ -4419,10 +4483,71 @@ class SubstationApp(App):
         popup.open()
 
     def import_android_changes_from_file(self, file_path):
-        show_message_popup(
-            "Εισαγωγή αλλαγών από Android",
-            f"Λήφθηκε αρχείο:\n{file_path}\n\n(Η εφαρμογή αλλαγών θα υλοποιηθεί στο επόμενο βήμα)",
-        )
+        # Preview the change-log file and offer to backup DB before applying.
+        try:
+            with open(file_path, "r", encoding="utf-8") as fh:
+                lines = [next(fh).strip() for _ in range(5)]
+        except StopIteration:
+            pass
+        except Exception:
+            lines = []
+
+        preview_text = "\n".join(lines) or "(empty or unreadable)"
+
+        preview_popup = Popup(title="Preview change log", size_hint=(0.9, 0.9))
+        layout = BoxLayout(orientation="vertical", spacing=10, padding=10)
+        layout.add_widget(Label(text=f"File: {file_path}", size_hint_y=0.08))
+        preview_area = TextInput(text=preview_text, readonly=True)
+        layout.add_widget(preview_area)
+
+        btns = BoxLayout(size_hint_y=0.12, spacing=10)
+
+        def _backup_and_apply(_):
+            preview_popup.dismiss()
+            try:
+                # determine DB file path from connection
+                db_file = None
+                try:
+                    r = self.conn.execute("PRAGMA database_list").fetchall()
+                    for row in r:
+                        if row[1] == "main":
+                            db_file = row[2]
+                            break
+                except Exception:
+                    db_file = None
+                if not db_file:
+                    db_file = "substations.db"
+                import shutil, time
+
+                backup_path = f"{db_file}.backup.{int(time.time())}.bak"
+                shutil.copy2(db_file, backup_path)
+                apply_change_log_to_db(self.conn, file_path)
+                show_message_popup("Εισαγωγή αλλαγών από Android", f"Επιτυχής εισαγωγή. Backup: {backup_path}")
+            except Exception as e:
+                show_message_popup("Σφάλμα", f"Σφάλμα κατά την εισαγωγή: {e}")
+
+        def _apply_only(_):
+            preview_popup.dismiss()
+            try:
+                apply_change_log_to_db(self.conn, file_path)
+                show_message_popup("Εισαγωγή αλλαγών από Android", "Επιτυχής εισαγωγή.")
+            except Exception as e:
+                show_message_popup("Σφάλμα", f"Σφάλμα κατά την εισαγωγή: {e}")
+
+        apply_btn = Button(text="Εφαρμογή")
+        apply_btn.bind(on_press=_apply_only)
+        backup_btn = Button(text="Backup & Εφαρμογή")
+        backup_btn.bind(on_press=_backup_and_apply)
+        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn.bind(on_press=preview_popup.dismiss)
+
+        btns.add_widget(backup_btn)
+        btns.add_widget(apply_btn)
+        btns.add_widget(cancel_btn)
+
+        layout.add_widget(btns)
+        preview_popup.content = layout
+        preview_popup.open()
 
     def import_substations_from_file(self, file_path):
         def on_success(message):

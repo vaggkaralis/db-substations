@@ -273,6 +273,15 @@ class SubstationAndroidApp(App):
                             Logger.info(
                                 "APP: Requested storage permissions; waiting for user to grant them."
                             )
+                            # Show an in-app non-modal notice asking the user to
+                            # grant permissions and retry. We avoid showing an
+                            # error popup here because the system permission
+                            # dialog is a separate UI. The notice contains a
+                            # retry button that re-opens the local DB picker.
+                            try:
+                                self._show_permissions_requested_notice()
+                            except Exception:
+                                Logger.info("APP: Could not show permission notice")
                             return
                     except Exception:
                         # Continue without explicit permission check if android.permissions not available
@@ -351,65 +360,6 @@ class SubstationAndroidApp(App):
         # further down in the file (`def _open_android_document_picker(self, on_selected):`).
         # The local nested implementation was removed to ensure permission checks
         # from the top-level picker are always used.
-
-        def use_local_mode(self, db_path):
-            if not db_path or str(db_path).strip().lower() in ("none", "null"):
-                self.show_error("Δεν επιλέχθηκε αρχείο βάσης")
-                return
-
-            def _continue_with_path(resolved_path):
-                self.local_db_path = resolved_path
-                self._set_saved_db_path(resolved_path)
-                self.data_mode = "local"
-                self.change_log_path = None
-                self._ensure_change_log_path()
-                if hasattr(self, "mode_label"):
-                    self.mode_label.text = "Πηγή: Τοπική Βάση"
-                self.load_substations(None)
-
-            # Handle Android content URIs asynchronously to avoid blocking UI
-            try:
-                if isinstance(db_path, str) and db_path.startswith("content://"):
-                    def _on_copy_done(success, val):
-                        if not success:
-                            self.show_error(f"Αποτυχία ανοίγματος βάσης: {val}")
-                            return
-                        _continue_with_path(val)
-
-                    self._copy_content_uri_to_file_async(db_path, _on_copy_done)
-                    return
-                # normal path (may raise FileNotFoundError or other exceptions)
-                resolved = self._prepare_local_db_path(db_path)
-            except FileNotFoundError:
-                self.show_error("Το αρχείο βάσης δεν βρέθηκε")
-                return
-            except Exception as e:
-                self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
-                return
-
-            _continue_with_path(resolved)
-
-        def _prepare_local_db_path(self, path_value: str) -> str:
-            normalized = self._normalize_android_storage_path(path_value)
-            if normalized.startswith("content://"):
-                return self._copy_content_uri_to_file(normalized)
-            if not os.path.exists(normalized):
-                raise FileNotFoundError(normalized)
-            return normalized
-
-        def _normalize_android_storage_path(self, path_value: str) -> str:
-            if not path_value:
-                return path_value
-            normalized = path_value.strip().replace("\\", "/")
-            prefix_map = [
-                "/Εσωτερικός χώρος αποθήκευσης",
-                "/Internal storage",
-            ]
-            for prefix in prefix_map:
-                if normalized.startswith(prefix):
-                    normalized = "/storage/emulated/0" + normalized[len(prefix) :]
-                    break
-            return normalized
 
     def _open_android_document_picker(self, on_selected):
         if platform != "android":
@@ -613,6 +563,59 @@ class SubstationAndroidApp(App):
         except Exception:
             Logger.info("APP: Android permissions not available or not required")
 
+    def _show_permissions_requested_notice(self):
+        """Display a small non-modal notice in the app asking the user to grant storage permissions and retry."""
+
+        def _show(dt=None):
+            try:
+                notice = BoxLayout(size_hint_y=None, height=64, spacing=10, padding=8)
+                label = Label(
+                    text=(
+                        "Απαιτούνται δικαιώματα αποθήκευσης. Επιτρέψτε τα στο σύστημα και "
+                        "πατήστε 'Ξαναδοκίμασε' όταν τελειώσετε."
+                    ),
+                    halign="left",
+                    valign="middle",
+                )
+                label.bind(
+                    width=lambda instance, value: setattr(instance, "text_size", (value, None))
+                )
+                retry_btn = Button(text="Ξαναδοκίμασε", size_hint_x=None, width=140)
+
+                def _on_retry(_):
+                    try:
+                        # Re-open the local DB picker flow
+                        self.open_local_db_picker()
+                    except Exception as e:
+                        Logger.warning(f"APP: Retry open_local_db_picker failed: {e}")
+                    try:
+                        if notice.parent:
+                            notice.parent.remove_widget(notice)
+                    except Exception:
+                        pass
+
+                retry_btn.bind(on_press=_on_retry)
+                notice.add_widget(label)
+                notice.add_widget(retry_btn)
+
+                if hasattr(self, "content_layout") and getattr(self, "content_layout") is not None:
+                    # insert at top of content_layout so it's visible without blocking
+                    try:
+                        self.content_layout.add_widget(notice, index=0)
+                    except Exception:
+                        self.content_layout.add_widget(notice)
+                    # auto-remove after 30 seconds
+                    Clock.schedule_once(lambda _dt: notice.parent and notice.parent.remove_widget(notice), 30)
+                else:
+                    # fallback: show as a temporary popup (non-modal)
+                    p = Popup(title="Δικαιώματα", content=notice, size_hint=(0.9, 0.12), auto_dismiss=True)
+                    p.open()
+                    Clock.schedule_once(lambda _dt: p.dismiss(), 30)
+            except Exception as e:
+                Logger.warning(f"APP: Failed to show permission notice: {e}")
+
+        Clock.schedule_once(_show, 0)
+
     def build(self):
         Logger.info("APP: ========== BUILD METHOD STARTING ==========")
         Logger.info("APP: Building UI")
@@ -758,11 +761,24 @@ class SubstationAndroidApp(App):
             raise Exception("No DB path")
         conn = sqlite3.connect(self.local_db_path)
         cursor = conn.cursor()
-        columns = ", ".join(payload.keys())
-        placeholders = ", ".join("?" * len(payload))
+        # Filter payload keys to columns actually present in the table to avoid
+        # SQLite errors when payload contains nested structures (e.g., 'elements').
+        try:
+            existing = {r[1] for r in cursor.execute(f"PRAGMA table_info({table})")}
+        except Exception:
+            existing = set()
+
+        filtered_items = [(k, v) for k, v in payload.items() if k in existing]
+        if not filtered_items:
+            # Nothing to insert into this table schema; close and raise to surface
+            conn.close()
+            raise RuntimeError(f"No matching columns to insert into table '{table}'")
+
+        columns = ", ".join(k for k, _ in filtered_items)
+        placeholders = ", ".join("?" * len(filtered_items))
         cursor.execute(
             f"INSERT INTO {table} ({columns}) VALUES ({placeholders})",
-            list(payload.values()),
+            [v for _, v in filtered_items],
         )
         new_id = cursor.lastrowid
         conn.commit()
@@ -796,6 +812,49 @@ class SubstationAndroidApp(App):
                 json.dumps({"operation": operation, "table": table, "data": data})
                 + "\n"
             )
+        # Notify user where the change log was stored (non-modal)
+        try:
+            change_log_path = getattr(self, "change_log_path", "change_log.txt")
+
+            def _show_notice(dt=None):
+                try:
+                    notice = BoxLayout(size_hint_y=None, height=64, spacing=10, padding=8)
+                    label = Label(
+                        text=f"Οι αλλαγές αποθηκεύτηκαν στο: {change_log_path}",
+                        halign="left",
+                        valign="middle",
+                    )
+                    label.bind(width=lambda instance, value: setattr(instance, "text_size", (value, None)))
+                    copy_btn = Button(text="Αντιγραφή διαδρομής", size_hint_x=None, width=180)
+
+                    def _copy_path(_):
+                        try:
+                            from kivy.core.clipboard import Clipboard
+
+                            Clipboard.copy(change_log_path)
+                        except Exception:
+                            pass
+
+                    copy_btn.bind(on_press=_copy_path)
+                    notice.add_widget(label)
+                    notice.add_widget(copy_btn)
+
+                    if hasattr(self, "content_layout") and getattr(self, "content_layout") is not None:
+                        try:
+                            self.content_layout.add_widget(notice, index=0)
+                        except Exception:
+                            self.content_layout.add_widget(notice)
+                        Clock.schedule_once(lambda _dt: notice.parent and notice.parent.remove_widget(notice), 20)
+                    else:
+                        p = Popup(title="Change log saved", content=notice, size_hint=(0.9, 0.12), auto_dismiss=True)
+                        p.open()
+                        Clock.schedule_once(lambda _dt: p.dismiss(), 20)
+                except Exception:
+                    pass
+
+            Clock.schedule_once(_show_notice, 0)
+        except Exception:
+            pass
 
     def _ensure_change_log_path(self):
         if not self.change_log_path:
@@ -1149,10 +1208,9 @@ class SubstationAndroidApp(App):
                     "adoption_date": date_input.text.strip(),
                     "division": "ΤΜΘ",
                 }
-                new_id = self._local_insert("substations", payload)
-                self._append_change_log(
-                    "insert", "substations", {**payload, "id": new_id}
-                )
+                # Do not write to the main DB from Android; append to change log
+                temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
+                self._append_change_log("insert", "substations", {**payload, "id": temp_id})
                 popup.dismiss()
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
                 success_layout = BoxLayout(
@@ -1167,7 +1225,8 @@ class SubstationAndroidApp(App):
                 success_popup.content = success_layout
                 success_popup.open()
             except Exception as e:
-                self.show_error(f"Local DB error: {str(e)}")
+                Logger.error(f"APP: Failed to append substation to change log: {e}")
+                self.show_error(f"Local change log error: {str(e)}")
 
         add_btn = Button(text="Προσθήκη")
         add_btn.bind(on_press=lambda x: add_substation())
@@ -1281,8 +1340,9 @@ class SubstationAndroidApp(App):
             }
 
             try:
-                new_id = self._local_insert("elements", payload)
-                self._append_change_log("insert", "elements", {**payload, "id": new_id})
+                # Do not write to the main DB from Android; append to change log
+                temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
+                self._append_change_log("insert", "elements", {**payload, "id": temp_id})
                 popup.dismiss()
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
                 success_layout = BoxLayout(
@@ -1297,7 +1357,8 @@ class SubstationAndroidApp(App):
                 success_popup.content = success_layout
                 success_popup.open()
             except Exception as e:
-                self.show_error(f"Local DB error: {str(e)}")
+                Logger.error(f"APP: Failed to append element to change log: {e}")
+                self.show_error(f"Local change log error: {str(e)}")
 
         add_btn = Button(text="Προσθήκη")
         add_btn.bind(on_press=lambda x: add_element())
@@ -1761,23 +1822,27 @@ class SubstationAndroidApp(App):
             }
 
             try:
-                maintenance_id = self._local_insert("maintenance", payload)
+                # On Android we do NOT write changes directly to the main DB.
+                # Append an insert entry to the change log which the desktop app
+                # will later import. Generate a temporary client-side id.
+                temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
                 self._append_change_log(
-                    "insert", "maintenance", {"id": maintenance_id, **payload}
+                    "insert", "maintenance", {"id": temp_id, **payload}
                 )
                 popup.dismiss()
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.8, 0.4))
                 success_layout = BoxLayout(
                     orientation="vertical", padding=10, spacing=10
                 )
-                success_layout.add_widget(Label(text="Η συντήρηση καταχωρήθηκε!"))
+                success_layout.add_widget(Label(text="Η συντήρηση καταχωρήθηκε στο change log."))
                 ok_btn = Button(text="OK", size_hint_y=0.3)
                 ok_btn.bind(on_press=success_popup.dismiss)
                 success_layout.add_widget(ok_btn)
                 success_popup.content = success_layout
                 success_popup.open()
             except Exception as e:
-                self.show_error(f"Local DB error: {str(e)}")
+                Logger.error(f"APP: Failed to append maintenance to change log: {e}")
+                self.show_error(f"Local change log error: {str(e)}")
 
         save_btn = Button(text="Αποθήκευση")
         save_btn.bind(on_press=lambda x: save_maintenance())
@@ -1906,23 +1971,25 @@ class SubstationAndroidApp(App):
             }
 
             try:
-                inspection_id = self._local_insert("inspections", payload)
+                # Do not write to the main DB from Android; append to change log
+                temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
                 self._append_change_log(
-                    "insert", "inspections", {**payload, "id": inspection_id}
+                    "insert", "inspections", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.8, 0.4))
                 success_layout = BoxLayout(
                     orientation="vertical", padding=10, spacing=10
                 )
-                success_layout.add_widget(Label(text="Η επιθεώρηση καταχωρήθηκε!"))
+                success_layout.add_widget(Label(text="Η επιθεώρηση καταχωρήθηκε στο change log."))
                 ok_btn = Button(text="OK", size_hint_y=0.3)
                 ok_btn.bind(on_press=success_popup.dismiss)
                 success_layout.add_widget(ok_btn)
                 success_popup.content = success_layout
                 success_popup.open()
             except Exception as e:
-                self.show_error(f"Local DB error: {str(e)}")
+                Logger.error(f"APP: Failed to append inspection to change log: {e}")
+                self.show_error(f"Local change log error: {str(e)}")
 
         save_btn = Button(text="Αποθήκευση")
         save_btn.bind(on_press=lambda x: save_inspection())
