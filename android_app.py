@@ -11,6 +11,7 @@ import os
 import sqlite3
 import shutil
 from datetime import datetime
+import threading
 
 # Set up logging FIRST before any other imports
 from kivy.logger import Logger
@@ -378,22 +379,38 @@ class SubstationAndroidApp(App):
             if not db_path or str(db_path).strip().lower() in ("none", "null"):
                 self.show_error("Δεν επιλέχθηκε αρχείο βάσης")
                 return
+
+            def _continue_with_path(resolved_path):
+                self.local_db_path = resolved_path
+                self._set_saved_db_path(resolved_path)
+                self.data_mode = "local"
+                self.change_log_path = None
+                self._ensure_change_log_path()
+                if hasattr(self, "mode_label"):
+                    self.mode_label.text = "Πηγή: Τοπική Βάση"
+                self.load_substations(None)
+
+            # Handle Android content URIs asynchronously to avoid blocking UI
             try:
-                db_path = self._prepare_local_db_path(db_path)
+                if isinstance(db_path, str) and db_path.startswith("content://"):
+                    def _on_copy_done(success, val):
+                        if not success:
+                            self.show_error(f"Αποτυχία ανοίγματος βάσης: {val}")
+                            return
+                        _continue_with_path(val)
+
+                    self._copy_content_uri_to_file_async(db_path, _on_copy_done)
+                    return
+                # normal path (may raise FileNotFoundError or other exceptions)
+                resolved = self._prepare_local_db_path(db_path)
             except FileNotFoundError:
                 self.show_error("Το αρχείο βάσης δεν βρέθηκε")
                 return
             except Exception as e:
                 self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
                 return
-            self.local_db_path = db_path
-            self._set_saved_db_path(db_path)
-            self.data_mode = "local"
-            self.change_log_path = None
-            self._ensure_change_log_path()
-            if hasattr(self, "mode_label"):
-                self.mode_label.text = "Πηγή: Τοπική Βάση"
-            self.load_substations(None)
+
+            _continue_with_path(resolved)
 
         def _prepare_local_db_path(self, path_value: str) -> str:
             normalized = self._normalize_android_storage_path(path_value)
@@ -500,23 +517,38 @@ class SubstationAndroidApp(App):
         if not db_path or str(db_path).strip().lower() in ("none", "null"):
             self.show_error("Δεν επιλέχθηκε αρχείο βάσης")
             return
+
+        def _continue_with_path(resolved_path):
+            self.local_db_path = resolved_path
+            self._set_saved_db_path(resolved_path)
+            self.data_mode = "local"
+            self.change_log_path = None
+            self._ensure_change_log_path()
+            if hasattr(self, "mode_label"):
+                self.mode_label.text = "Πηγή: Τοπική Βάση"
+            # Only load substations if DB is valid and loaded
+            self.load_substations(None)
+
         try:
-            db_path = self._prepare_local_db_path(db_path)
+            if isinstance(db_path, str) and db_path.startswith("content://"):
+                def _on_copy_done(success, val):
+                    if not success:
+                        self.show_error(f"Αποτυχία ανοίγματος βάσης: {val}")
+                        return
+                    _continue_with_path(val)
+
+                self._copy_content_uri_to_file_async(db_path, _on_copy_done)
+                return
+
+            resolved = self._prepare_local_db_path(db_path)
         except FileNotFoundError:
             self.show_error("Το αρχείο βάσης δεν βρέθηκε")
             return
         except Exception as e:
             self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
             return
-        self.local_db_path = db_path
-        self._set_saved_db_path(db_path)
-        self.data_mode = "local"
-        self.change_log_path = None
-        self._ensure_change_log_path()
-        if hasattr(self, "mode_label"):
-            self.mode_label.text = "Πηγή: Τοπική Βάση"
-        # Only load substations if DB is valid and loaded
-        self.load_substations(None)
+
+        _continue_with_path(resolved)
 
     def _normalize_android_storage_path(self, path_value: str) -> str:
         if not path_value:
@@ -845,6 +877,35 @@ class SubstationAndroidApp(App):
             return target_path
         except Exception as e:
             raise RuntimeError('Failed to copy content URI: ' + str(e)) from e
+
+    def _copy_content_uri_to_file_async(self, uri, on_result):
+        """Copy content URI in background, show progress popup, then call on_result(success, value)."""
+        popup = Popup(title='Αντιγραφή αρχείου...', size_hint=(0.9, 0.25))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        msg = Label(text='Αντιγραφή αρχείου από το σύστημα αρχείων. Παρακαλώ περιμένετε...')
+        layout.add_widget(msg)
+        popup.content = layout
+        popup.open()
+
+        def finish(success, val):
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+            try:
+                on_result(success, val)
+            except Exception as e:
+                Logger.error(f'APP: Error in copy callback: {e}')
+
+        def _worker():
+            try:
+                path = self._copy_content_uri_to_file(uri)
+                Clock.schedule_once(lambda _dt: finish(True, path), 0)
+            except Exception as e:
+                Clock.schedule_once(lambda _dt: finish(False, str(e)), 0)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
 
     def load_substations(self, instance):
         """Load substations from local database"""
