@@ -11,10 +11,28 @@ import sqlite3
 import shutil
 from datetime import datetime
 
+
 # Set up logging FIRST before any other imports
 from kivy.logger import Logger
 Logger.info('APP: ========== Starting DB Substations App ==========' )
 Logger.info(f'APP: Python version: {sys.version}')
+
+# Global exception handler to catch any uncaught exceptions
+def _global_exception_handler(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    Logger.critical(f'APP: Uncaught exception: {exc_value}')
+    Logger.critical('APP: Traceback: ' + ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+    try:
+        from kivy.app import App
+        app = App.get_running_app()
+        if app and hasattr(app, 'show_error'):
+            app.show_error(f'Uncaught error: {exc_value}')
+    except Exception:
+        pass
+
+sys.excepthook = _global_exception_handler
 
 try:
     import kivy
