@@ -902,7 +902,8 @@ class SubstationAndroidApp(App):
                 path = self._copy_content_uri_to_file(uri)
                 Clock.schedule_once(lambda _dt: finish(True, path), 0)
             except Exception as e:
-                Clock.schedule_once(lambda _dt: finish(False, str(e)), 0)
+                err = str(e)
+                Clock.schedule_once(lambda _dt, _err=err: finish(False, _err), 0)
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
