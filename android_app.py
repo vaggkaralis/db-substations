@@ -146,47 +146,6 @@ class SubstationAndroidApp(App):
         'Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)',
         'Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)',
     ]
-        """
-        Copy a file from a content URI to a local file (Android only).
-        Returns the local file path, or raises an Exception on failure.
-        """
-        from kivy.utils import platform
-        import os
-        if platform != 'android':
-            raise RuntimeError('Content URI copy only supported on Android')
-        try:
-            from jnius import autoclass, cast
-            from android.storage import app_storage_path
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            activity = PythonActivity.mActivity
-            ContentResolver = autoclass('android.content.ContentResolver')
-            FileOutputStream = autoclass('java.io.FileOutputStream')
-            BufferedOutputStream = autoclass('java.io.BufferedOutputStream')
-            InputStreamReader = autoclass('java.io.InputStreamReader')
-            BufferedInputStream = autoclass('java.io.BufferedInputStream')
-            File = autoclass('java.io.File')
-            # Get input stream from content URI
-            resolver = activity.getContentResolver()
-            input_stream = resolver.openInputStream(cast('android.net.Uri', autoclass('android.net.Uri').parse(content_uri)))
-            # Prepare output file path
-            user_data_dir = app_storage_path()
-            os.makedirs(user_data_dir, exist_ok=True)
-            file_name = 'imported_db_' + str(abs(hash(content_uri))) + '.db'
-            out_path = os.path.join(user_data_dir, file_name)
-            # Write to output file
-            with open(out_path, 'wb') as f:
-                buf = bytearray(4096)
-                while True:
-                    read = input_stream.read(buf)
-                    if read == -1 or read == 0:
-                        break
-                    f.write(buf[:read])
-            input_stream.close()
-            return out_path
-        except Exception as e:
-            from kivy.logger import Logger
-            Logger.error(f'APP: Failed to copy content URI: {str(e)}')
-            raise RuntimeError(f'Failed to copy content URI: {str(e)}')
 
     def open_local_db_picker(self):
         # Last working version: prompt for DB path and allow file selection
