@@ -35,6 +35,8 @@ class DummyAutoclassModule:
         if name == "android.content.Intent":
             class Intent:
                 ACTION_SEND = "ACTION_SEND"
+                EXTRA_STREAM = "EXTRA_STREAM"
+                FLAG_GRANT_READ_URI_PERMISSION = 1
 
                 def __init__(self, *a, **k):
                     pass

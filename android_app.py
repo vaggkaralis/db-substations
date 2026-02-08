@@ -680,13 +680,19 @@ class SubstationAndroidApp(App):
             # Bottom buttons
             button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
-            refresh_btn = Button(text="Ανανέωση")
-            refresh_btn.bind(on_press=self.load_substations)
-            button_layout.add_widget(refresh_btn)
+            # Keep references so we can hide these when viewing a substation
+            self.refresh_btn = Button(text="Ανανέωση")
+            self.refresh_btn.bind(on_press=self.load_substations)
+            button_layout.add_widget(self.refresh_btn)
 
-            add_substation_btn = Button(text="+ Υποσταθμός")
-            add_substation_btn.bind(on_press=self.show_add_substation_popup)
-            button_layout.add_widget(add_substation_btn)
+            self.add_substation_btn = Button(text="+ Υποσταθμός")
+            self.add_substation_btn.bind(on_press=self.show_add_substation_popup)
+            button_layout.add_widget(self.add_substation_btn)
+
+            # Add a persistent Change-log button to open share/open actions
+            change_log_btn = Button(text="Change-log")
+            change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
+            button_layout.add_widget(change_log_btn)
 
             main_layout.add_widget(button_layout)
             Logger.info("APP: Buttons added")
@@ -860,6 +866,53 @@ class SubstationAndroidApp(App):
                             pass
 
                     copy_btn.bind(on_press=_copy_path)
+                    # Open folder button (Android intent when available)
+                    open_btn = Button(text="Άνοιγμα φακέλου", size_hint_x=None, width=140)
+
+                    def _open_folder(_):
+                        try:
+                            from jnius import autoclass
+
+                            Intent = autoclass("android.content.Intent")
+                            Uri = autoclass("android.net.Uri")
+                            File = autoclass("java.io.File")
+                            PythonActivity = autoclass(
+                                "org.kivy.android.PythonActivity"
+                            )
+                            f = File(change_log_path)
+                            uri = Uri.fromFile(f)
+                            intent = Intent(Intent.ACTION_VIEW)
+                            intent.setDataAndType(uri, "*/*")
+                            current = PythonActivity.mActivity
+                            current.startActivity(intent)
+                        except Exception:
+                            try:
+                                from kivy.core.clipboard import Clipboard
+
+                                Clipboard.copy(change_log_path)
+                            except Exception:
+                                pass
+
+                    open_btn.bind(on_press=_open_folder)
+                    notice.add_widget(open_btn)
+
+                    # Share button (attempt Android share intent, fallback to copy path)
+                    share_btn = Button(text="Κοινοποίηση", size_hint_x=None, width=120)
+
+                    def _share_file(_):
+                        # Delegate to testable helper on the app instance
+                        try:
+                            self._launch_share_intent(change_log_path)
+                        except Exception:
+                            try:
+                                from kivy.core.clipboard import Clipboard
+
+                                Clipboard.copy(change_log_path)
+                            except Exception:
+                                pass
+
+                    share_btn.bind(on_press=_share_file)
+                    notice.add_widget(share_btn)
                     notice.add_widget(label)
                     notice.add_widget(copy_btn)
 
@@ -901,6 +954,71 @@ class SubstationAndroidApp(App):
                 )
             else:
                 self.change_log_path = "change_log.txt"
+
+    def _set_root_buttons_visible(self, visible: bool):
+        """Show or hide the root-level Refresh / Add Substation buttons."""
+        try:
+            if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
+                self.refresh_btn.disabled = not visible
+                # keep widget in layout but hide visually when not visible
+                self.refresh_btn.opacity = 1 if visible else 0
+            if hasattr(self, "add_substation_btn") and self.add_substation_btn is not None:
+                self.add_substation_btn.disabled = not visible
+                self.add_substation_btn.opacity = 1 if visible else 0
+        except Exception:
+            pass
+
+    def _open_change_log_folder(self):
+        """Attempt to open the change log folder on Android, fallback to copying path."""
+        self._ensure_change_log_path()
+        change_log_path = getattr(self, "change_log_path", "change_log.txt")
+        try:
+            from jnius import autoclass
+
+            Intent = autoclass("android.content.Intent")
+            Uri = autoclass("android.net.Uri")
+            File = autoclass("java.io.File")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            f = File(change_log_path)
+            uri = Uri.fromFile(f)
+            intent = Intent(Intent.ACTION_VIEW)
+            intent.setDataAndType(uri, "*/*")
+            current = PythonActivity.mActivity
+            current.startActivity(intent)
+        except Exception:
+            try:
+                from kivy.core.clipboard import Clipboard
+
+                Clipboard.copy(change_log_path)
+            except Exception:
+                pass
+
+    def show_change_log_menu(self):
+        """Show a popup that allows opening or sharing the change-log file."""
+        self._ensure_change_log_path()
+        change_log_path = getattr(self, "change_log_path", "change_log.txt")
+        try:
+            p = Popup(title="Change log actions", size_hint=(0.9, 0.3))
+            layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+            label = Label(text=f"File: {change_log_path}")
+            btns = BoxLayout(size_hint_y=None, height=48, spacing=8)
+            open_btn = Button(text="Άνοιγμα φακέλου")
+            open_btn.bind(on_press=lambda _x: self._open_change_log_folder())
+            share_btn = Button(text="Κοινοποίηση")
+            share_btn.bind(on_press=lambda _x: (self._launch_share_intent(change_log_path)))
+            btns.add_widget(open_btn)
+            btns.add_widget(share_btn)
+            layout.add_widget(label)
+            layout.add_widget(btns)
+            p.content = layout
+            p.open()
+        except Exception:
+            try:
+                from kivy.core.clipboard import Clipboard
+
+                Clipboard.copy(change_log_path)
+            except Exception:
+                pass
 
     def _copy_content_uri_to_file(self, uri):
         # Copy a content:// URI to a local file and return the path.
@@ -992,6 +1110,11 @@ class SubstationAndroidApp(App):
         Logger.info("APP: ========== LOAD_SUBSTATIONS CALLED ==========")
         Logger.info(f"APP: Instance: {instance}")
         Logger.info(f"APP: Content layout exists: {hasattr(self, 'content_layout')}")
+        # Ensure root buttons are visible when at root
+        try:
+            self._set_root_buttons_visible(True)
+        except Exception:
+            pass
         try:
             Logger.info("APP: Clearing content_layout widgets")
             self.content_layout.clear_widgets()
@@ -1092,6 +1215,12 @@ class SubstationAndroidApp(App):
             return
 
         self.current_substation = substation
+
+        # Hide root-level buttons when viewing a substation
+        try:
+            self._set_root_buttons_visible(False)
+        except Exception:
+            pass
 
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=15)
 
@@ -1556,8 +1685,8 @@ class SubstationAndroidApp(App):
         )
         content_layout.add_widget(datetime_input)
 
-        # Overall comments
-        content_layout.add_widget(wrapped_label("Γενικά Σχόλια:"))
+        # Overall comments (rendered outside the scrolling elements list
+        # so it remains visible and cannot be overlapped while elements load)
         overall_comments = TextInput(
             hint_text="Γενικά σχόλια για την συντήρηση...",
             size_hint_y=None,
@@ -1565,7 +1694,6 @@ class SubstationAndroidApp(App):
             multiline=True,
             padding=[12, 12, 12, 12],
         )
-        content_layout.add_widget(overall_comments)
 
         # Elements section
         content_layout.add_widget(
@@ -1813,6 +1941,12 @@ class SubstationAndroidApp(App):
         retry_btn.bind(on_press=lambda _x: load_elements())
 
         Clock.schedule_once(lambda *_args: load_elements(), 0)
+
+        # Place the overall comments in a fixed container above the elements scroll
+        comments_container = BoxLayout(orientation="vertical", size_hint_y=None, height=160)
+        comments_container.add_widget(wrapped_label("Γενικά Σχόλια:"))
+        comments_container.add_widget(overall_comments)
+        main_layout.add_widget(comments_container)
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
@@ -2091,6 +2225,41 @@ class SubstationAndroidApp(App):
                 Logger.error(f"APP: show_error failed to open popup: {e}")
 
         Clock.schedule_once(_show, 0)
+
+    def _launch_share_intent(self, file_path):
+        """Launch Android share chooser for a file. Uses FileProvider when available.
+
+        This method is isolated so tests can monkeypatch `jnius.autoclass` and
+        verify behavior without needing nested closures.
+        """
+        if not file_path:
+            raise RuntimeError("No file path provided")
+        try:
+            from jnius import autoclass
+
+            Intent = autoclass("android.content.Intent")
+            Uri = autoclass("android.net.Uri")
+            File = autoclass("java.io.File")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            current = PythonActivity.mActivity
+            f = File(file_path)
+
+            try:
+                FileProvider = autoclass("androidx.core.content.FileProvider")
+                authority = current.getPackageName() + ".provider"
+                uri = FileProvider.getUriForFile(current, authority, f)
+            except Exception:
+                uri = Uri.fromFile(f)
+
+            intent = Intent(Intent.ACTION_SEND)
+            intent.setType("text/plain")
+            intent.putExtra(Intent.EXTRA_STREAM, uri)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            chooser = Intent.createChooser(intent, "Share change-log")
+            current.startActivity(chooser)
+        except Exception:
+            # Rethrow so callers can implement fallback (e.g., clipboard copy)
+            raise
 
 
 if __name__ == "__main__":

@@ -15,5 +15,9 @@ class _Logger:
     def debug(msg, *args, **kwargs):
         pass
 
+    @staticmethod
+    def critical(msg, *args, **kwargs):
+        pass
+
 
 Logger = _Logger()
