@@ -9,6 +9,7 @@ import traceback
 import os
 import sqlite3
 import shutil
+import sqlite3
 from datetime import datetime
 
 
@@ -584,23 +585,102 @@ class SubstationAndroidApp(App):
             error_layout.add_widget(Label(text=f'Error: {str(e)}'))
             return error_layout
 
-        def _auto_load_saved_db(self):
-            """Attempt to auto-load saved DB path if available. Returns True if loaded, False otherwise."""
-            try:
-                db_path = getattr(self, 'local_db_path', None)
-                if db_path and os.path.exists(db_path):
-                    self.use_local_mode(db_path)
+    def _auto_load_saved_db(self):
+        """Attempt to auto-load saved DB path if available. Returns True if loaded, False otherwise."""
+        try:
+            db_path = getattr(self, 'local_db_path', None)
+            if db_path and os.path.exists(db_path):
+                self.use_local_mode(db_path)
+                return True
+            # Optionally, check for a saved DB path in persistent storage
+            if hasattr(self, '_get_saved_db_path'):
+                saved_path = self._get_saved_db_path()
+                if saved_path and os.path.exists(saved_path):
+                    self.use_local_mode(saved_path)
                     return True
-                # Optionally, check for a saved DB path in persistent storage
-                if hasattr(self, '_get_saved_db_path'):
-                    saved_path = self._get_saved_db_path()
-                    if saved_path and os.path.exists(saved_path):
-                        self.use_local_mode(saved_path)
-                        return True
-            except Exception as e:
-                self.show_error(f'Auto-load DB error: {str(e)}')
-            return False
-    
+        except Exception as e:
+            self.show_error(f'Auto-load DB error: {str(e)}')
+        return False
+
+    def show_error(self, message):
+        popup = Popup(title='Error', size_hint=(0.8, 0.4))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        layout.add_widget(Label(text=str(message)))
+        btn = Button(text='OK', size_hint_y=0.3)
+        btn.bind(on_press=popup.dismiss)
+        layout.add_widget(btn)
+        popup.content = layout
+        popup.open()
+
+    def _local_fetch_substations(self):
+        if not self.local_db_path or not os.path.exists(self.local_db_path):
+            return []
+        conn = sqlite3.connect(self.local_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, location, adoption_date FROM substations")
+        rows = cursor.fetchall()
+        conn.close()
+        return [{'id': r[0], 'name': r[1], 'location': r[2], 'adoption_date': r[3]} for r in rows]
+
+    def _local_fetch_elements(self, substation_id):
+        if not self.local_db_path or not os.path.exists(self.local_db_path):
+            return []
+        conn = sqlite3.connect(self.local_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM elements WHERE substation_id = ?", (substation_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        columns = ['id', 'substation_id', 'element_type', 'name', 'serial_number', 'maintenance_date', 'voltage_level', 'manufacturer', 'type', 'breaker_category', 'manufacture_year', 'model', 'model_version', 'operating_status', 'installation_space', 'maintenance_cycle', 'gate', 'is_main_switch', 'element_model_id']
+        return [dict(zip(columns, r)) for r in rows]
+
+    def _local_insert(self, table, payload):
+        if not self.local_db_path or not os.path.exists(self.local_db_path):
+            raise Exception("No DB path")
+        conn = sqlite3.connect(self.local_db_path)
+        cursor = conn.cursor()
+        columns = ', '.join(payload.keys())
+        placeholders = ', '.join('?' * len(payload))
+        cursor.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", list(payload.values()))
+        new_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return new_id
+
+    def _set_saved_db_path(self, path):
+        self.saved_db_path = path
+        if hasattr(self, 'user_data_dir') and self.user_data_dir:
+            with open(os.path.join(self.user_data_dir, 'saved_db.txt'), 'w') as f:
+                f.write(path)
+
+    def _get_saved_db_path(self):
+        if hasattr(self, 'saved_db_path'):
+            return self.saved_db_path
+        if hasattr(self, 'user_data_dir') and self.user_data_dir:
+            try:
+                with open(os.path.join(self.user_data_dir, 'saved_db.txt'), 'r') as f:
+                    return f.read().strip()
+            except:
+                pass
+        return None
+
+    def _append_change_log(self, operation, table, data):
+        if not self.change_log_path:
+            self._ensure_change_log_path()
+        with open(self.change_log_path, 'a') as f:
+            import json
+            f.write(json.dumps({'operation': operation, 'table': table, 'data': data}) + '\n')
+
+    def _ensure_change_log_path(self):
+        if not self.change_log_path:
+            if hasattr(self, 'user_data_dir') and self.user_data_dir:
+                self.change_log_path = os.path.join(self.user_data_dir, 'change_log.txt')
+            else:
+                self.change_log_path = 'change_log.txt'
+
+    def _copy_content_uri_to_file(self, uri):
+        # Stub for content URI copy
+        raise NotImplementedError("Content URI copy not implemented")
+
     def load_substations(self, instance):
         """Load substations from local database"""
         Logger.info('APP: ========== LOAD_SUBSTATIONS CALLED ==========')
