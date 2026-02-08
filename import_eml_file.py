@@ -1,6 +1,7 @@
 """
 Import a single maintenance email from a .eml file into SQLite.
 """
+
 import argparse
 
 from email_eml_parser import parse_eml_file
@@ -8,9 +9,13 @@ from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import a maintenance email from a .eml file.")
+    parser = argparse.ArgumentParser(
+        description="Import a maintenance email from a .eml file."
+    )
     parser.add_argument("--file", required=True, help="Path to .eml file")
-    parser.add_argument("--database", default=DEFAULT_DB_PATH, help="Path to SQLite database")
+    parser.add_argument(
+        "--database", default=DEFAULT_DB_PATH, help="Path to SQLite database"
+    )
     args = parser.parse_args()
 
     payload = parse_eml_file(args.file)

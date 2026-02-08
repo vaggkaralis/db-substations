@@ -2,9 +2,6 @@
 Android Kivy App for DB Substations - local DB only
 """
 
-"""
-Android Kivy App for DB Substations - local DB only
-"""
 import sys
 import traceback
 import os
@@ -12,6 +9,7 @@ import sqlite3
 import shutil
 from datetime import datetime
 import threading
+import json
 
 # Set up logging FIRST before any other imports
 from kivy.logger import Logger
@@ -44,20 +42,23 @@ sys.excepthook = _global_exception_handler
 
 try:
     import kivy
+    import importlib
 
     Logger.info(f"APP: Kivy version: {kivy.__version__}")
     kivy.require("2.3.0")  # Minimum version with Android Cython modules
-    from kivy.app import App
-    from kivy.uix.boxlayout import BoxLayout
-    from kivy.uix.gridlayout import GridLayout
-    from kivy.uix.button import Button
-    from kivy.uix.label import Label
-    from kivy.uix.textinput import TextInput
-    from kivy.uix.popup import Popup
-    from kivy.uix.scrollview import ScrollView
-    from kivy.uix.spinner import Spinner
-    from kivy.clock import Clock
-    from kivy.utils import platform
+
+    # Dynamic Kivy imports to avoid static imports after executable code
+    App = importlib.import_module("kivy.app").App
+    BoxLayout = importlib.import_module("kivy.uix.boxlayout").BoxLayout
+    GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
+    Button = importlib.import_module("kivy.uix.button").Button
+    Label = importlib.import_module("kivy.uix.label").Label
+    TextInput = importlib.import_module("kivy.uix.textinput").TextInput
+    Popup = importlib.import_module("kivy.uix.popup").Popup
+    ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
+    Spinner = importlib.import_module("kivy.uix.spinner").Spinner
+    Clock = importlib.import_module("kivy.clock").Clock
+    platform = importlib.import_module("kivy.utils").platform
 except Exception as e:
     Logger.warning(f"APP: Kivy import failed: {str(e)}")
     platform = "unknown"
@@ -75,8 +76,6 @@ try:
 except Exception as e:
     Logger.warning(f"APP: FileChooserListView import failed: {str(e)}")
     FileChooserListView = None
-
-import json
 
 Logger.info("APP: JSON import successful")
 
@@ -931,7 +930,12 @@ class SubstationAndroidApp(App):
             try:
                 self.substations = self._local_fetch_substations()
                 Logger.info(f"APP: Loaded {len(self.substations)} local substations")
-                self.root.ids = {}
+                # Only clear root.ids if the root widget exists (may be None during early startup)
+                if getattr(self, "root", None) is not None:
+                    try:
+                        self.root.ids = {}
+                    except Exception:
+                        Logger.info("APP: Could not clear root.ids - skipping")
                 self.display_substations()
             except Exception as e:
                 Logger.error(f"APP: Local DB error: {str(e)}")
@@ -1944,33 +1948,38 @@ class SubstationAndroidApp(App):
 
     def show_error(self, message):
         """Show error popup"""
-        # Improved error popup for better visibility on Android
-        popup = Popup(title="Σφάλμα", size_hint=(0.98, 0.98))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        scroll = ScrollView(size_hint=(1, 0.85))
-        msg_label = Label(
-            text=message,
-            size_hint_y=None,
-            halign="left",
-            valign="top",
-            font_size="18sp",
-            text_size=(popup.width * 0.95, None),
-        )
+        # Ensure popup creation runs on the Kivy main thread (some callers may be on worker threads)
+        def _show(dt=None):
+            try:
+                popup = Popup(title="Σφάλμα", size_hint=(0.98, 0.98))
+                layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+                scroll = ScrollView(size_hint=(1, 0.85))
+                msg_label = Label(
+                    text=message,
+                    size_hint_y=None,
+                    halign="left",
+                    valign="top",
+                    font_size="18sp",
+                )
 
-        def update_label_height(instance, value):
-            instance.height = max(60, value[1] + 20)
+                def update_label_height(instance, value):
+                    instance.height = max(60, value[1] + 20)
 
-        msg_label.bind(
-            width=lambda instance, value: setattr(instance, "text_size", (value, None)),
-            texture_size=update_label_height,
-        )
-        scroll.add_widget(msg_label)
-        layout.add_widget(scroll)
-        close_btn = Button(text="Κλείσιμο", size_hint_y=0.15, font_size="20sp")
-        close_btn.bind(on_press=popup.dismiss)
-        layout.add_widget(close_btn)
-        popup.content = layout
-        popup.open()
+                msg_label.bind(
+                    width=lambda instance, value: setattr(instance, "text_size", (value, None)),
+                    texture_size=update_label_height,
+                )
+                scroll.add_widget(msg_label)
+                layout.add_widget(scroll)
+                close_btn = Button(text="Κλείσιμο", size_hint_y=0.15, font_size="20sp")
+                close_btn.bind(on_press=popup.dismiss)
+                layout.add_widget(close_btn)
+                popup.content = layout
+                popup.open()
+            except Exception as e:
+                Logger.error(f"APP: show_error failed to open popup: {e}")
+
+        Clock.schedule_once(_show, 0)
 
 
 if __name__ == "__main__":

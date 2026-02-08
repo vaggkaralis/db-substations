@@ -1,26 +1,3 @@
-import kivy
-
-kivy.require("2.0.0")
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.textinput import TextInput
-from kivy.uix.popup import Popup
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.spinner import Spinner
-from kivy.uix.checkbox import CheckBox
-from kivy.uix.filechooser import FileChooserListView
-from kivy.uix.image import Image
-from kivy.uix.behaviors import ButtonBehavior
-from kivy.uix.widget import Widget
-from kivy.properties import StringProperty, ListProperty
-from kivy.graphics import Color, Rectangle, Ellipse, Line
-from kivy.core.window import Window
-from kivy.core.image import Image as CoreImage
-from kivy.core.clipboard import Clipboard
-from kivy.clock import Clock
 import webbrowser
 import os
 import re
@@ -29,10 +6,6 @@ import sys
 import unicodedata
 from datetime import datetime
 import json
-
-# Maximize window on startup
-Window.maximize()
-
 from database import init_db
 from importers import (
     import_elements_from_csv,
@@ -46,6 +19,42 @@ from model_management import show_models_management
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from import_wizard import ColumnMappingPopup, DataValidationPopup
 from email_eml_parser import parse_eml_file
+
+import importlib
+import kivy
+
+# Ensure the requested Kivy version before loading submodules
+kivy.require("2.0.0")
+
+# Dynamically import Kivy submodules (avoid static imports after code)
+App = importlib.import_module("kivy.app").App
+BoxLayout = importlib.import_module("kivy.uix.boxlayout").BoxLayout
+Button = importlib.import_module("kivy.uix.button").Button
+Label = importlib.import_module("kivy.uix.label").Label
+TextInput = importlib.import_module("kivy.uix.textinput").TextInput
+Popup = importlib.import_module("kivy.uix.popup").Popup
+GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
+ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
+Spinner = importlib.import_module("kivy.uix.spinner").Spinner
+CheckBox = importlib.import_module("kivy.uix.checkbox").CheckBox
+FileChooserListView = importlib.import_module("kivy.uix.filechooser").FileChooserListView
+Image = importlib.import_module("kivy.uix.image").Image
+ButtonBehavior = importlib.import_module("kivy.uix.behaviors").ButtonBehavior
+Widget = importlib.import_module("kivy.uix.widget").Widget
+StringProperty = importlib.import_module("kivy.properties").StringProperty
+ListProperty = importlib.import_module("kivy.properties").ListProperty
+Color = importlib.import_module("kivy.graphics").Color
+Rectangle = importlib.import_module("kivy.graphics").Rectangle
+Ellipse = importlib.import_module("kivy.graphics").Ellipse
+Line = importlib.import_module("kivy.graphics").Line
+Window = importlib.import_module("kivy.core.window").Window
+CoreImage = importlib.import_module("kivy.core.image").Image
+Clipboard = importlib.import_module("kivy.core.clipboard").Clipboard
+Clock = importlib.import_module("kivy.clock").Clock
+
+
+# Maximize window on startup
+Window.maximize()
 
 
 class IconWidget(Widget):

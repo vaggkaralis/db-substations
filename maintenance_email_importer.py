@@ -1,6 +1,7 @@
 """
 Shared utilities to import maintenance records from email metadata.
 """
+
 import os
 import re
 import sqlite3
@@ -105,7 +106,10 @@ def _match_substation_by_name(conn, subject_substation: str):
         normalized_name = _normalize_text(name)
         if normalized_name == normalized_subject:
             return dict(row)
-        if normalized_subject in normalized_name or normalized_name in normalized_subject:
+        if (
+            normalized_subject in normalized_name
+            or normalized_name in normalized_subject
+        ):
             score = min(len(normalized_name), len(normalized_subject))
             if score > best_score:
                 best_score = score
@@ -128,7 +132,7 @@ def _match_substation_in_text(conn, text: str):
         if not name_tokens:
             continue
         for i in range(len(tokens) - len(name_tokens) + 1):
-            candidate = tokens[i:i + len(name_tokens)]
+            candidate = tokens[i : i + len(name_tokens)]
             if _tokens_match(candidate, name_tokens):
                 return dict(row)
 
@@ -191,7 +195,10 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
 
 def _find_elements_in_body(conn, body_text: str, substation_id: int):
     c = conn.cursor()
-    c.execute("SELECT id, name, element_type FROM elements WHERE substation_id=?", (substation_id,))
+    c.execute(
+        "SELECT id, name, element_type FROM elements WHERE substation_id=?",
+        (substation_id,),
+    )
     elements = c.fetchall()
 
     normalized_body = _normalize_text(body_text)
@@ -201,8 +208,12 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
     compact_body = re.sub(r"[^0-9a-zα-ω]+", "", normalized_body)
     compact_body = re.sub(r"(μσ|ms)[ilι](?![0-9])", r"\g<1>1", compact_body)
     has_satyf = "σατυφ" in compact_body
-    transformer_numbers = set(re.findall(r"(?:μσ|μετασχηματιστησ)[^0-9]{0,3}([0-9]+)", normalized_body))
-    transformer_numbers.update(re.findall(r"(?:ms|transformer)[^0-9]{0,3}([0-9]+)", normalized_body))
+    transformer_numbers = set(
+        re.findall(r"(?:μσ|μετασχηματιστησ)[^0-9]{0,3}([0-9]+)", normalized_body)
+    )
+    transformer_numbers.update(
+        re.findall(r"(?:ms|transformer)[^0-9]{0,3}([0-9]+)", normalized_body)
+    )
     ms_numbers = set(re.findall(r"μσ([0-9]+)", compact_body))
     ms_numbers.update(re.findall(r"ms([0-9]+)", compact_body))
 
@@ -215,39 +226,55 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
 
         digits = "".join(ch for ch in compact if ch.isdigit())
         if digits:
-            if "μετασχηματιστης" in _normalize_text(elem_type) or compact.startswith("μσ"):
+            if "μετασχηματιστης" in _normalize_text(elem_type) or compact.startswith(
+                "μσ"
+            ):
                 variants.add(f"μσ{digits}")
                 variants.add(f"μετασχηματιστης{digits}")
             if compact.startswith("ρ"):
                 variants.add(f"ρ{digits}")
 
-        element_ms_numbers = set(re.findall(r"(?:μσ|μετασχηματιστησ)[^0-9]{0,3}([0-9]+)", base))
-        element_ms_numbers.update(re.findall(r"(?:ms|transformer)[^0-9]{0,3}([0-9]+)", base))
+        element_ms_numbers = set(
+            re.findall(r"(?:μσ|μετασχηματιστησ)[^0-9]{0,3}([0-9]+)", base)
+        )
+        element_ms_numbers.update(
+            re.findall(r"(?:ms|transformer)[^0-9]{0,3}([0-9]+)", base)
+        )
         element_ms_numbers.update(re.findall(r"μσ([0-9]+)", compact))
         element_ms_numbers.update(re.findall(r"ms([0-9]+)", compact))
 
         elem_type_norm = _normalize_text(elem_type)
         is_motor_drive = (
-            "motor drive" in elem_type_norm or
-            elem_type_norm == "motordrive" or
-            "md" in compact or
-            "σατυφ" in base
+            "motor drive" in elem_type_norm
+            or elem_type_norm == "motordrive"
+            or "md" in compact
+            or "σατυφ" in base
         )
 
         if is_motor_drive:
-            motor_drive_candidates.append((elem_id, element_ms_numbers, compact, elem_type_norm))
+            motor_drive_candidates.append(
+                (elem_id, element_ms_numbers, compact, elem_type_norm)
+            )
 
         if is_motor_drive and has_satyf:
-            if element_ms_numbers and (element_ms_numbers & (transformer_numbers | ms_numbers)):
+            if element_ms_numbers and (
+                element_ms_numbers & (transformer_numbers | ms_numbers)
+            ):
                 matched.add(elem_id)
                 continue
-            if (transformer_numbers or ms_numbers) and (not element_ms_numbers or element_ms_numbers & (transformer_numbers | ms_numbers)):
+            if (transformer_numbers or ms_numbers) and (
+                not element_ms_numbers
+                or element_ms_numbers & (transformer_numbers | ms_numbers)
+            ):
                 matched.add(elem_id)
                 continue
             if digits and (digits in transformer_numbers or digits in ms_numbers):
                 matched.add(elem_id)
                 continue
-            if digits and (f"μσ{digits}" in compact_body or f"μετασχηματιστησ{digits}" in compact_body):
+            if digits and (
+                f"μσ{digits}" in compact_body
+                or f"μετασχηματιστησ{digits}" in compact_body
+            ):
                 matched.add(elem_id)
                 continue
             if not digits and len(transformer_numbers | ms_numbers) == 1:
@@ -260,10 +287,18 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
     if has_satyf and (transformer_numbers or ms_numbers):
         md_matched = any(eid in matched for eid, _, _, _ in motor_drive_candidates)
         if not md_matched:
-            for elem_id, element_ms_numbers, compact, elem_type_norm in motor_drive_candidates:
+            for (
+                elem_id,
+                element_ms_numbers,
+                compact,
+                elem_type_norm,
+            ) in motor_drive_candidates:
                 if element_ms_numbers & (transformer_numbers | ms_numbers):
                     matched.add(elem_id)
-            if not any(eid in matched for eid, _, _, _ in motor_drive_candidates) and len(motor_drive_candidates) == 1:
+            if (
+                not any(eid in matched for eid, _, _, _ in motor_drive_candidates)
+                and len(motor_drive_candidates) == 1
+            ):
                 matched.add(motor_drive_candidates[0][0])
 
     if has_satyf and not (transformer_numbers or ms_numbers):
@@ -284,7 +319,7 @@ def _get_previous_maintenance_defaults(conn, substation_id: int, date_time_value
         ORDER BY date_time DESC
         LIMIT 1
         """,
-        (substation_id, date_time_value)
+        (substation_id, date_time_value),
     )
     row = c.fetchone()
     if not row:
@@ -292,24 +327,30 @@ def _get_previous_maintenance_defaults(conn, substation_id: int, date_time_value
 
     maintenance_id, maint_type, comments, responsible_id = row
 
-    c.execute("SELECT person_id, role FROM maintenance_people WHERE maintenance_id=?", (maintenance_id,))
+    c.execute(
+        "SELECT person_id, role FROM maintenance_people WHERE maintenance_id=?",
+        (maintenance_id,),
+    )
     people_rows = c.fetchall()
-    crew_ids = {pid for pid, role in people_rows if role == 'crew'}
+    crew_ids = {pid for pid, role in people_rows if role == "crew"}
     if not responsible_id:
         for pid, role in people_rows:
-            if role == 'responsible':
+            if role == "responsible":
                 responsible_id = pid
                 break
 
-    c.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+    c.execute(
+        "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+        (maintenance_id,),
+    )
     element_ids = {row[0] for row in c.fetchall()}
 
     return {
-        'maintenance_type': maint_type,
-        'overall_comments': comments,
-        'responsible_id': responsible_id,
-        'crew_ids': crew_ids,
-        'element_ids': element_ids
+        "maintenance_type": maint_type,
+        "overall_comments": comments,
+        "responsible_id": responsible_id,
+        "crew_ids": crew_ids,
+        "element_ids": element_ids,
     }
 
 
@@ -362,7 +403,9 @@ def create_maintenance_from_email(
             date_time_value = f"{date_str} 00:00:00"
         if received_at and not date_time_value:
             try:
-                parsed_received = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+                parsed_received = datetime.fromisoformat(
+                    received_at.replace("Z", "+00:00")
+                )
                 date_time_value = parsed_received.strftime("%Y-%m-%d %H:%M:%S")
             except ValueError:
                 date_time_value = None
@@ -371,8 +414,10 @@ def create_maintenance_from_email(
 
         prev_defaults = {}
         if not responsible_id:
-            prev_defaults = _get_previous_maintenance_defaults(conn, substation["id"], date_time_value)
-            responsible_id = prev_defaults.get('responsible_id')
+            prev_defaults = _get_previous_maintenance_defaults(
+                conn, substation["id"], date_time_value
+            )
+            responsible_id = prev_defaults.get("responsible_id")
 
         maint_cols = _get_table_columns(conn, "maintenance")
         fields = ["substation_id", "date_time", "overall_comments"]
@@ -391,7 +436,9 @@ def create_maintenance_from_email(
             values.append(responsible_id)
 
         placeholders = ", ".join(["?"] * len(fields))
-        insert_sql = f"INSERT INTO maintenance ({', '.join(fields)}) VALUES ({placeholders})"
+        insert_sql = (
+            f"INSERT INTO maintenance ({', '.join(fields)}) VALUES ({placeholders})"
+        )
 
         c = conn.cursor()
         c.execute(insert_sql, values)
@@ -409,17 +456,21 @@ def create_maintenance_from_email(
             except Exception:
                 pass
 
-        crew_ids = _find_people_in_body(conn, body, exclude_ids={responsible_id} if responsible_id else set())
+        crew_ids = _find_people_in_body(
+            conn, body, exclude_ids={responsible_id} if responsible_id else set()
+        )
         if not crew_ids:
             if not prev_defaults:
-                prev_defaults = _get_previous_maintenance_defaults(conn, substation["id"], date_time_value)
-            crew_ids = prev_defaults.get('crew_ids') or set()
+                prev_defaults = _get_previous_maintenance_defaults(
+                    conn, substation["id"], date_time_value
+                )
+            crew_ids = prev_defaults.get("crew_ids") or set()
 
         for pid in crew_ids:
             try:
                 c.execute(
                     "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, ?)",
-                    (maintenance_id, pid, 'crew')
+                    (maintenance_id, pid, "crew"),
                 )
             except Exception:
                 pass
@@ -427,14 +478,16 @@ def create_maintenance_from_email(
         element_ids = _find_elements_in_body(conn, body, substation["id"])
         if not element_ids:
             if not prev_defaults:
-                prev_defaults = _get_previous_maintenance_defaults(conn, substation["id"], date_time_value)
-            element_ids = prev_defaults.get('element_ids') or set()
+                prev_defaults = _get_previous_maintenance_defaults(
+                    conn, substation["id"], date_time_value
+                )
+            element_ids = prev_defaults.get("element_ids") or set()
 
         for elem_id in element_ids:
             try:
                 c.execute(
                     "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
-                    (maintenance_id, elem_id, '')
+                    (maintenance_id, elem_id, ""),
                 )
             except Exception:
                 pass

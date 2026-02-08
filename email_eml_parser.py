@@ -1,11 +1,11 @@
 """
 Parse .eml files and return normalized email fields.
 """
+
 import re
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
-
 
 _QUOTE_BREAK_PATTERNS = [
     re.compile(r"^\s*-{2,}\s*Original Message\s*-{2,}\s*$", re.IGNORECASE),

@@ -1,6 +1,7 @@
 """
 Import maintenance emails from .eml files in a folder.
 """
+
 import argparse
 import os
 
@@ -21,10 +22,16 @@ def _iter_eml_files(folder, recursive):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import maintenance emails from .eml files.")
+    parser = argparse.ArgumentParser(
+        description="Import maintenance emails from .eml files."
+    )
     parser.add_argument("--folder", required=True, help="Folder with .eml files")
-    parser.add_argument("--database", default=DEFAULT_DB_PATH, help="Path to SQLite database")
-    parser.add_argument("--recursive", action="store_true", help="Scan subfolders recursively")
+    parser.add_argument(
+        "--database", default=DEFAULT_DB_PATH, help="Path to SQLite database"
+    )
+    parser.add_argument(
+        "--recursive", action="store_true", help="Scan subfolders recursively"
+    )
     parser.add_argument(
         "--processed-folder",
         default=None,
