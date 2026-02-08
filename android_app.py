@@ -56,48 +56,6 @@ import threading
 Logger.info('APP: Threading import successful')
 
 class SubstationAndroidApp(App):
-        def _copy_content_uri_to_file(self, content_uri):
-            """
-            Copy a file from a content URI to a local file (Android only).
-            Returns the local file path, or raises an Exception on failure.
-            """
-            from kivy.utils import platform
-            import os
-            if platform != 'android':
-                raise RuntimeError('Content URI copy only supported on Android')
-            try:
-                from jnius import autoclass, cast
-                from android.storage import app_storage_path
-                PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                activity = PythonActivity.mActivity
-                ContentResolver = autoclass('android.content.ContentResolver')
-                FileOutputStream = autoclass('java.io.FileOutputStream')
-                BufferedOutputStream = autoclass('java.io.BufferedOutputStream')
-                InputStreamReader = autoclass('java.io.InputStreamReader')
-                BufferedInputStream = autoclass('java.io.BufferedInputStream')
-                File = autoclass('java.io.File')
-                # Get input stream from content URI
-                resolver = activity.getContentResolver()
-                input_stream = resolver.openInputStream(cast('android.net.Uri', autoclass('android.net.Uri').parse(content_uri)))
-                # Prepare output file path
-                user_data_dir = app_storage_path()
-                os.makedirs(user_data_dir, exist_ok=True)
-                file_name = 'imported_db_' + str(abs(hash(content_uri))) + '.db'
-                out_path = os.path.join(user_data_dir, file_name)
-                # Write to output file
-                with open(out_path, 'wb') as f:
-                    buf = bytearray(4096)
-                    while True:
-                        read = input_stream.read(buf)
-                        if read == -1 or read == 0:
-                            break
-                        f.write(buf[:read])
-                input_stream.close()
-                return out_path
-            except Exception as e:
-                from kivy.logger import Logger
-                Logger.error(f'APP: Failed to copy content URI: {str(e)}')
-                raise RuntimeError(f'Failed to copy content URI: {str(e)}')
     # Element types - matches desktop app
     ELEMENT_TYPES = [
         'Διακόπτης ΥΤ',
@@ -169,27 +127,108 @@ class SubstationAndroidApp(App):
         {'type': 'section', 'title': '6. PC ΧΕΙΡΙΣΜΩΝ'},
         'Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)',
         'Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)',
-        def open_local_db_picker(self):
-            # Last working version: prompt for DB path and allow file selection
-            self._prompt_local_db_path()
+    ]
+        """
+        Copy a file from a content URI to a local file (Android only).
+        Returns the local file path, or raises an Exception on failure.
+        """
+        from kivy.utils import platform
+        import os
+        if platform != 'android':
+            raise RuntimeError('Content URI copy only supported on Android')
+        try:
+            from jnius import autoclass, cast
+            from android.storage import app_storage_path
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            activity = PythonActivity.mActivity
+            ContentResolver = autoclass('android.content.ContentResolver')
+            FileOutputStream = autoclass('java.io.FileOutputStream')
+            BufferedOutputStream = autoclass('java.io.BufferedOutputStream')
+            InputStreamReader = autoclass('java.io.InputStreamReader')
+            BufferedInputStream = autoclass('java.io.BufferedInputStream')
+            File = autoclass('java.io.File')
+            # Get input stream from content URI
+            resolver = activity.getContentResolver()
+            input_stream = resolver.openInputStream(cast('android.net.Uri', autoclass('android.net.Uri').parse(content_uri)))
+            # Prepare output file path
+            user_data_dir = app_storage_path()
+            os.makedirs(user_data_dir, exist_ok=True)
+            file_name = 'imported_db_' + str(abs(hash(content_uri))) + '.db'
+            out_path = os.path.join(user_data_dir, file_name)
+            # Write to output file
+            with open(out_path, 'wb') as f:
+                buf = bytearray(4096)
+                while True:
+                    read = input_stream.read(buf)
+                    if read == -1 or read == 0:
+                        break
+                    f.write(buf[:read])
+            input_stream.close()
+            return out_path
+        except Exception as e:
+            from kivy.logger import Logger
+            Logger.error(f'APP: Failed to copy content URI: {str(e)}')
+            raise RuntimeError(f'Failed to copy content URI: {str(e)}')
 
-        def _prompt_local_db_path(self):
-            popup = Popup(title='Άνοιγμα Τοπικής Βάσης', size_hint=(0.9, 0.4))
-            layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-            layout.add_widget(Label(text='Δώσε πλήρες path του αρχείου .db'))
-            default_path = '/storage/emulated/0/Download/substations.db'
-            path_input = TextInput(text=default_path, hint_text='/storage/emulated/0/Download/substations.db', multiline=False)
-            layout.add_widget(path_input)
+    def open_local_db_picker(self):
+        # Last working version: prompt for DB path and allow file selection
+        self._prompt_local_db_path()
 
-            chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
-            choose_btn = Button(text='Αναζήτηση αρχείου')
-            choose_btn.disabled = not (filechooser or FileChooserListView)
+    def _prompt_local_db_path(self):
+        popup = Popup(title='Άνοιγμα Τοπικής Βάσης', size_hint=(0.9, 0.4))
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        layout.add_widget(Label(text='Δώσε πλήρες path του αρχείου .db'))
+        default_path = '/storage/emulated/0/Download/substations.db'
+        path_input = TextInput(text=default_path, hint_text='/storage/emulated/0/Download/substations.db', multiline=False)
+        layout.add_widget(path_input)
 
-            def open_picker():
-                def _selected(selection):
-                    if not selection or len(selection) == 0:
-                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+        chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
+        choose_btn = Button(text='Αναζήτηση αρχείου')
+        choose_btn.disabled = not (filechooser or FileChooserListView)
+
+        def open_picker():
+            def _selected(selection):
+                if not selection or len(selection) == 0:
+                    self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                    return
+                raw_value = selection[0]
+                if raw_value is None:
+                    self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                    return
+                if isinstance(raw_value, bytes):
+                    selected_path = raw_value.decode('utf-8', errors='ignore')
+                else:
+                    selected_path = str(raw_value)
+                if selected_path.strip().lower() in ('', 'none', 'null'):
+                    self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                    return
+                Logger.info(f'APP: File chooser selected: {selected_path}')
+                Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
+
+            try:
+                if platform == 'android':
+                    self._open_android_document_picker(_selected)
+                    return
+                if not filechooser:
+                    if FileChooserListView:
+                        self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
                         return
+                    self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
+                    return
+                filechooser.open_file(on_selection=_selected)
+            except Exception as e:
+                Logger.error(f'APP: Exception in open_picker: {str(e)}')
+                self.show_error(f'Σφάλμα ανοίγματος επιλογέα: {str(e)}')
+
+        choose_btn.bind(on_press=lambda _x: open_picker())
+        chooser_layout.add_widget(choose_btn)
+        layout.add_widget(chooser_layout)
+
+        if FileChooserListView:
+            chooser_path = os.path.dirname(default_path) if default_path else '/storage/emulated/0'
+            file_chooser = FileChooserListView(filters=['*.db'], path=chooser_path, size_hint_y=0.6)
+            def _file_list_selected(_instance, selection):
+                if selection:
                     raw_value = selection[0]
                     if raw_value is None:
                         self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
@@ -201,60 +240,22 @@ class SubstationAndroidApp(App):
                     if selected_path.strip().lower() in ('', 'none', 'null'):
                         self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
                         return
-                    Logger.info(f'APP: File chooser selected: {selected_path}')
+                    Logger.info(f'APP: File list selected: {selected_path}')
                     Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
+            file_chooser.bind(selection=_file_list_selected)
+            file_chooser.bind(on_submit=lambda _instance, selection, _touch: _file_list_selected(_instance, selection))
+            layout.add_widget(file_chooser)
 
-                try:
-                    if platform == 'android':
-                        self._open_android_document_picker(_selected)
-                        return
-                    if not filechooser:
-                        if FileChooserListView:
-                            self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
-                            return
-                        self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
-                        return
-                    filechooser.open_file(on_selection=_selected)
-                except Exception as e:
-                    Logger.error(f'APP: Exception in open_picker: {str(e)}')
-                    self.show_error(f'Σφάλμα ανοίγματος επιλογέα: {str(e)}')
-
-            choose_btn.bind(on_press=lambda _x: open_picker())
-            chooser_layout.add_widget(choose_btn)
-            layout.add_widget(chooser_layout)
-
-            if FileChooserListView:
-                chooser_path = os.path.dirname(default_path) if default_path else '/storage/emulated/0'
-                file_chooser = FileChooserListView(filters=['*.db'], path=chooser_path, size_hint_y=0.6)
-                def _file_list_selected(_instance, selection):
-                    if selection:
-                        raw_value = selection[0]
-                        if raw_value is None:
-                            self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
-                            return
-                        if isinstance(raw_value, bytes):
-                            selected_path = raw_value.decode('utf-8', errors='ignore')
-                        else:
-                            selected_path = str(raw_value)
-                        if selected_path.strip().lower() in ('', 'none', 'null'):
-                            self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
-                            return
-                        Logger.info(f'APP: File list selected: {selected_path}')
-                        Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
-                file_chooser.bind(selection=_file_list_selected)
-                file_chooser.bind(on_submit=lambda _instance, selection, _touch: _file_list_selected(_instance, selection))
-                layout.add_widget(file_chooser)
-
-            buttons = BoxLayout(size_hint_y=0.3, spacing=10)
-            open_btn = Button(text='Άνοιγμα')
-            open_btn.bind(on_press=lambda _x: (popup.dismiss(), self.use_local_mode(path_input.text.strip())))
-            cancel_btn = Button(text='Ακύρωση')
-            cancel_btn.bind(on_press=popup.dismiss)
-            buttons.add_widget(open_btn)
-            buttons.add_widget(cancel_btn)
-            layout.add_widget(buttons)
-            popup.content = layout
-            popup.open()
+        buttons = BoxLayout(size_hint_y=0.3, spacing=10)
+        open_btn = Button(text='Άνοιγμα')
+        open_btn.bind(on_press=lambda _x: (popup.dismiss(), self.use_local_mode(path_input.text.strip())))
+        cancel_btn = Button(text='Ακύρωση')
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons.add_widget(open_btn)
+        buttons.add_widget(cancel_btn)
+        layout.add_widget(buttons)
+        popup.content = layout
+        popup.open()
 
         def _open_android_document_picker(self, on_selected):
             if platform != 'android':
@@ -352,64 +353,6 @@ class SubstationAndroidApp(App):
                     normalized = '/storage/emulated/0' + normalized[len(prefix):]
                     break
             return normalized
-                        return
-                    Logger.info(f'APP: File chooser selected: {selected_path}')
-                    Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
-                except Exception as e:
-                    Logger.error(f'APP: Exception in file picker callback: {str(e)}')
-                    self.show_error(f'Σφάλμα επιλογής αρχείου: {str(e)}')
-
-            try:
-                if platform == 'android':
-                    self._open_android_document_picker(_selected)
-                    return
-                if not filechooser:
-                    if FileChooserListView:
-                        self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
-                        return
-                    self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
-                    return
-                filechooser.open_file(on_selection=_selected)
-            except Exception as e:
-                Logger.error(f'APP: Exception in open_picker: {str(e)}')
-                self.show_error(f'Σφάλμα ανοίγματος επιλογέα: {str(e)}')
-
-        choose_btn.bind(on_press=lambda _x: open_picker())
-        chooser_layout.add_widget(choose_btn)
-        layout.add_widget(chooser_layout)
-
-        if FileChooserListView:
-            chooser_path = os.path.dirname(default_path) if default_path else '/storage/emulated/0'
-            file_chooser = FileChooserListView(filters=['*.db'], path=chooser_path, size_hint_y=0.6)
-            def _file_list_selected(_instance, selection):
-                if selection:
-                    raw_value = selection[0]
-                    if raw_value is None:
-                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
-                        return
-                    if isinstance(raw_value, bytes):
-                        selected_path = raw_value.decode('utf-8', errors='ignore')
-                    else:
-                        selected_path = str(raw_value)
-                    if selected_path.strip().lower() in ('', 'none', 'null'):
-                        self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
-                        return
-                    Logger.info(f'APP: File list selected: {selected_path}')
-                    Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
-            file_chooser.bind(selection=_file_list_selected)
-            file_chooser.bind(on_submit=lambda _instance, selection, _touch: _file_list_selected(_instance, selection))
-            layout.add_widget(file_chooser)
-
-        buttons = BoxLayout(size_hint_y=0.3, spacing=10)
-        open_btn = Button(text='Άνοιγμα')
-        open_btn.bind(on_press=lambda _x: (popup.dismiss(), self.use_local_mode(path_input.text.strip())))
-        cancel_btn = Button(text='Ακύρωση')
-        cancel_btn.bind(on_press=popup.dismiss)
-        buttons.add_widget(open_btn)
-        buttons.add_widget(cancel_btn)
-        layout.add_widget(buttons)
-        popup.content = layout
-        popup.open()
 
     def _open_android_document_picker(self, on_selected):
         if platform != 'android':
@@ -532,9 +475,21 @@ class SubstationAndroidApp(App):
         except sqlite3.OperationalError as e:
             if 'unable to open database file' not in str(e).lower():
                 raise
+            # Set user_data_dir only if needed
+            target_dir = getattr(self, 'user_data_dir', None)
+            if not target_dir:
+                try:
+                    from kivy.utils import platform as kivy_platform
+                    if kivy_platform == 'android':
+                        from android.storage import app_storage_path
+                        target_dir = app_storage_path()
+                    else:
+                        target_dir = os.path.join(os.getcwd(), 'user_data')
+                except Exception:
+                    target_dir = os.path.join(os.getcwd(), 'user_data')
+                self.user_data_dir = target_dir
+            os.makedirs(target_dir, exist_ok=True)
             try:
-                target_dir = getattr(self, 'user_data_dir', None) or os.getcwd()
-                os.makedirs(target_dir, exist_ok=True)
                 target_path = os.path.join(target_dir, os.path.basename(normalized))
                 shutil.copy2(normalized, target_path)
                 conn = sqlite3.connect(f'file:{target_path}?mode=ro', uri=True)
@@ -547,26 +502,12 @@ class SubstationAndroidApp(App):
         Logger.info('APP: Initializing SubstationAndroidApp')
         try:
             super().__init__(**kwargs)
-            # Ensure user_data_dir is always set
-            try:
-                from kivy.utils import platform as kivy_platform
-                if kivy_platform == 'android':
-                    from android.storage import app_storage_path
-                    self.user_data_dir = app_storage_path()
-                else:
-                    self.user_data_dir = os.path.join(os.getcwd(), 'user_data')
-            except Exception as e:
-                Logger.warning(f'APP: Could not set user_data_dir: {str(e)}')
-                self.user_data_dir = os.path.join(os.getcwd(), 'user_data')
-            os.makedirs(self.user_data_dir, exist_ok=True)
             self.substations = []
             self.elements = {}
             self.current_substation = None
             self.data_mode = 'local'
             self.local_db_path = None
             self.change_log_path = None
-            # Always request permissions on Android
-            self._request_android_permissions()
             Logger.info('APP: SubstationAndroidApp initialized successfully')
         except Exception as e:
             Logger.critical(f'APP: Error in __init__: {str(e)}')
@@ -590,7 +531,6 @@ class SubstationAndroidApp(App):
         Logger.info('APP: ========== BUILD METHOD STARTING ==========')
         Logger.info('APP: Building UI')
         try:
-            self._request_android_permissions()
             Logger.info('APP: Setting window title')
             self.title = 'DB Substations'
             # Ensure spinner dropdowns are fully opaque
