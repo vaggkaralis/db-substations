@@ -38,7 +38,9 @@ GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
 ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
 Spinner = importlib.import_module("kivy.uix.spinner").Spinner
 CheckBox = importlib.import_module("kivy.uix.checkbox").CheckBox
-FileChooserListView = importlib.import_module("kivy.uix.filechooser").FileChooserListView
+FileChooserListView = importlib.import_module(
+    "kivy.uix.filechooser"
+).FileChooserListView
 Image = importlib.import_module("kivy.uix.image").Image
 ButtonBehavior = importlib.import_module("kivy.uix.behaviors").ButtonBehavior
 Widget = importlib.import_module("kivy.uix.widget").Widget
@@ -82,7 +84,9 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
             # Special handling for maintenance rows which may embed elements
             if table == "maintenance":
                 # Insert maintenance fields that exist in the schema
-                maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
+                maint_cols = [
+                    r[1] for r in cur.execute("PRAGMA table_info(maintenance)")
+                ]
                 maint_keys = [k for k in data.keys() if k in maint_cols]
                 placeholders = ",".join(["?"] * len(maint_keys))
                 sql = f"INSERT INTO maintenance ({','.join(maint_keys)}) VALUES ({placeholders})"
@@ -112,7 +116,9 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
             if not insert_keys:
                 continue
             placeholders = ",".join(["?"] * len(insert_keys))
-            sql = f"INSERT INTO {table} ({','.join(insert_keys)}) VALUES ({placeholders})"
+            sql = (
+                f"INSERT INTO {table} ({','.join(insert_keys)}) VALUES ({placeholders})"
+            )
             cur.execute(sql, [data[k] for k in insert_keys])
             conn.commit()
 
@@ -3217,8 +3223,8 @@ class SubstationApp(App):
                     on_press=lambda x, iid=insp_id: self.show_inspection_details(iid)
                 )
                 pdf_btn.bind(
-                    on_press=lambda x, iid=insp_id, sname=substation_name: self.generate_inspection_pdf(
-                        iid, sname
+                    on_press=lambda x, iid=insp_id, sname=substation_name: (
+                        self.generate_inspection_pdf(iid, sname)
                     )
                 )
                 email_btn.bind(
@@ -3268,10 +3274,10 @@ class SubstationApp(App):
 
         if is_interconnection:
             # Generate interconnection gates: ΠΥΛΗ 1-2, ΠΥΛΗ 2-3, etc.
-            gates = [f"ΠΥΛΗ {i}-{i+1}" for i in range(1, num_gates)]
+            gates = [f"ΠΥΛΗ {i}-{i + 1}" for i in range(1, num_gates)]
         else:
             # Generate regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, etc.
-            gates = [f"ΠΥΛΗ {i+1}" for i in range(num_gates)]
+            gates = [f"ΠΥΛΗ {i + 1}" for i in range(num_gates)]
 
         # Always include option for unassigned
         return ["(Μη καταχωρημένο)"] + gates
@@ -3565,8 +3571,8 @@ class SubstationApp(App):
                 sub_id, sub_name = all_substations[i]
                 sub_btn = Button(text=sub_name, size_hint_y=None, height=50)
                 sub_btn.bind(
-                    on_press=lambda x, name=sub_name, popup=selection_popup: self._show_specific_substation_from_window(
-                        name, popup
+                    on_press=lambda x, name=sub_name, popup=selection_popup: (
+                        self._show_specific_substation_from_window(name, popup)
                     )
                 )
                 grid.add_widget(sub_btn)
@@ -3838,8 +3844,8 @@ class SubstationApp(App):
                     )
                 else:
                     monogram_btn.bind(
-                        on_press=lambda x, sid=sub_id, p=popup, f=filter_name: self._select_monogram_pdf(
-                            sid, p, f
+                        on_press=lambda x, sid=sub_id, p=popup, f=filter_name: (
+                            self._select_monogram_pdf(sid, p, f)
                         )
                     )
                 sub_row_layout.add_widget(monogram_btn)
@@ -3854,32 +3860,32 @@ class SubstationApp(App):
 
                 edit_btn = Button(text="Επεξεργασία", size_hint_x=0.25)
                 edit_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, p=popup: self.show_edit_substation_popup(
-                        sid, sname, loc, adate, div, p
+                    on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, p=popup: (
+                        self.show_edit_substation_popup(sid, sname, loc, adate, div, p)
                     )
                 )
                 buttons_layout.add_widget(edit_btn)
 
                 maint_hist_btn = Button(text="Ιστορικό Συντ.", size_hint_x=0.25)
                 maint_hist_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.show_substation_maintenance_history(
-                        sid, sname, p
+                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
+                        self.show_substation_maintenance_history(sid, sname, p)
                     )
                 )
                 buttons_layout.add_widget(maint_hist_btn)
 
                 insp_hist_btn = Button(text="Ιστορικό Επιθ.", size_hint_x=0.25)
                 insp_hist_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.show_substation_inspection_history(
-                        sid, sname, p
+                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
+                        self.show_substation_inspection_history(sid, sname, p)
                     )
                 )
                 buttons_layout.add_widget(insp_hist_btn)
 
                 delete_sub_btn = Button(text="Διαγραφή", size_hint_x=0.25)
                 delete_sub_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.confirm_delete_substation(
-                        sid, sname, p
+                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
+                        self.confirm_delete_substation(sid, sname, p)
                     )
                 )
                 buttons_layout.add_widget(delete_sub_btn)
@@ -3891,8 +3897,8 @@ class SubstationApp(App):
                     text="   + Προσθήκη Στοιχείου", size_hint_y=None, height=35
                 )
                 add_elem_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.show_add_element_popup_for_substation(
-                        sid, sname, p
+                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
+                        self.show_add_element_popup_for_substation(sid, sname, p)
                     )
                 )
                 grid.add_widget(add_elem_btn)
@@ -3905,8 +3911,8 @@ class SubstationApp(App):
                     height=35,
                 )
                 inactive_elem_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.show_inactive_elements(
-                        sid, sname, p
+                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
+                        self.show_inactive_elements(sid, sname, p)
                     )
                 )
                 grid.add_widget(inactive_elem_btn)
@@ -3918,8 +3924,8 @@ class SubstationApp(App):
                         height=35,
                     )
                     view_elements_btn.bind(
-                        on_press=lambda x, sname=sub_name, p=popup: self._display_substations(
-                            sname, p
+                        on_press=lambda x, sname=sub_name, p=popup: (
+                            self._display_substations(sname, p)
                         )
                     )
                     grid.add_widget(view_elements_btn)
@@ -4210,16 +4216,18 @@ class SubstationApp(App):
 
                             edit_elem_btn = Button(text="Επεξ.", size_hint_x=0.5)
                             edit_elem_btn.bind(
-                                on_press=lambda x, eid=elem_id, sid=sub_id, sname=sub_name, p=popup: self.show_edit_element_popup(
-                                    eid, sid, p, sname
+                                on_press=lambda x, eid=elem_id, sid=sub_id, sname=sub_name, p=popup: (
+                                    self.show_edit_element_popup(eid, sid, p, sname)
                                 )
                             )
                             btn_box.add_widget(edit_elem_btn)
 
                             delete_elem_btn = Button(text="Διαγρ.", size_hint_x=0.5)
                             delete_elem_btn.bind(
-                                on_press=lambda x, eid=elem_id, ename=elem_name, sid=sub_id, sname=sub_name, p=popup: self.confirm_delete_element(
-                                    eid, ename, sid, p, sname
+                                on_press=lambda x, eid=elem_id, ename=elem_name, sid=sub_id, sname=sub_name, p=popup: (
+                                    self.confirm_delete_element(
+                                        eid, ename, sid, p, sname
+                                    )
                                 )
                             )
                             btn_box.add_widget(delete_elem_btn)
@@ -4522,7 +4530,10 @@ class SubstationApp(App):
                 backup_path = f"{db_file}.backup.{int(time.time())}.bak"
                 shutil.copy2(db_file, backup_path)
                 apply_change_log_to_db(self.conn, file_path)
-                show_message_popup("Εισαγωγή αλλαγών από Android", f"Επιτυχής εισαγωγή. Backup: {backup_path}")
+                show_message_popup(
+                    "Εισαγωγή αλλαγών από Android",
+                    f"Επιτυχής εισαγωγή. Backup: {backup_path}",
+                )
             except Exception as e:
                 show_message_popup("Σφάλμα", f"Σφάλμα κατά την εισαγωγή: {e}")
 
@@ -5758,7 +5769,7 @@ class SubstationApp(App):
                     display_elem_type = f"{elem_type} ({breaker_type_label})"
 
                 # Element info
-                info_text = f'[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or "-"} | Κατ.: {model_manufacturer or "-"} | Μοντ.: {model_name or "-"}'
+                info_text = f"[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'}"
                 elem_label = Label(
                     text=info_text, size_hint_y=None, height=50, markup=True
                 )
@@ -5769,8 +5780,8 @@ class SubstationApp(App):
 
                 edit_btn = Button(text="Επεξεργασία")
                 edit_btn.bind(
-                    on_press=lambda x, eid=elem_id, sid=substation_id, sname=substation_name, p=popup, gp=parent_popup: self.show_edit_element_popup(
-                        eid, sid, p, sname, gp
+                    on_press=lambda x, eid=elem_id, sid=substation_id, sname=substation_name, p=popup, gp=parent_popup: (
+                        self.show_edit_element_popup(eid, sid, p, sname, gp)
                     )
                 )
                 btn_layout.add_widget(edit_btn)
@@ -6051,6 +6062,7 @@ class SubstationApp(App):
             size_hint_y=None,
             height=40,
         )
+
         # Define handler early so it can be safely bound before later helper functions exist.
         def on_breaker_category_change(spinner, text):
             try:
@@ -7341,7 +7353,7 @@ class SubstationApp(App):
                     elem_display = f"[b]{elem_name}[/b] - {elem_type}"
                     if breaker_category:
                         elem_display += f" ({breaker_category})"
-                    elem_display += f'\nS/N: {serial_number or "-"}'
+                    elem_display += f"\nS/N: {serial_number or '-'}"
 
                     # Add manufacturer and model info
                     mfr = model_manufacturer or manufacturer or "-"
@@ -8439,7 +8451,7 @@ class SubstationApp(App):
                     elem_row.bind(minimum_height=elem_row.setter("height"))
 
                     elem_text = (
-                        f'  • {elem_type}: {elem_name} (S/N: {serial_num or "-"})'
+                        f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
                     )
                     if elem_comments:
                         elem_text += f"\n    Σχόλια: {elem_comments}"
@@ -8682,7 +8694,7 @@ class SubstationApp(App):
                 elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
                 elem_row.bind(minimum_height=elem_row.setter("height"))
 
-                elem_text = f'  • {elem_type}: {elem_name} (S/N: {serial_num or "-"})'
+                elem_text = f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
                 if elem_comments:
                     elem_text += f"\n    Σχόλια: {elem_comments}"
 
@@ -8868,7 +8880,7 @@ class SubstationApp(App):
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         header_text = (
-            f'Υποσταθμός: {substation_name or "-"} | Ημερομηνία: {inspection_date}'
+            f"Υποσταθμός: {substation_name or '-'} | Ημερομηνία: {inspection_date}"
         )
         main_layout.add_widget(Label(text=header_text, size_hint_y=None, height=30))
 

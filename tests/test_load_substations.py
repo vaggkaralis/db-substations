@@ -41,7 +41,10 @@ def main():
     # Call the method under test
     app.load_substations(None)
 
-    print("Final widgets in content_layout:", [type(w).__name__ for w in app.content_layout.widgets])
+    print(
+        "Final widgets in content_layout:",
+        [type(w).__name__ for w in app.content_layout.widgets],
+    )
 
 
 if __name__ == "__main__":

@@ -46,12 +46,14 @@ def test_copy_failure():
 
     app.use_local_mode("content://com.android.providers.documents/document/1")
 
-    assert any("Αποτυχία ανοίγματος βάσης" in e or "simulated copy error" in e for e in errors)
+    assert any(
+        "Αποτυχία ανοίγματος βάσης" in e or "simulated copy error" in e for e in errors
+    )
 
 
-if __name__ == '__main__':
-    print('Running content URI success test')
+if __name__ == "__main__":
+    print("Running content URI success test")
     test_copy_success()
-    print('Running content URI failure test')
+    print("Running content URI failure test")
     test_copy_failure()
-    print('Done')
+    print("Done")

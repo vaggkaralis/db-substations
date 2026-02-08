@@ -61,13 +61,22 @@ def run_permission_test(simulate_granted: bool):
     # Emulate permission check behavior inside open_picker
     try:
         # Call the permission-checking logic from the file chooser branch
-        from android.permissions import check_permission, request_permissions, Permission
+        from android.permissions import (
+            check_permission,
+            request_permissions,
+            Permission,
+        )
 
-        needed_perms = [Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE]
+        needed_perms = [
+            Permission.READ_EXTERNAL_STORAGE,
+            Permission.WRITE_EXTERNAL_STORAGE,
+        ]
         perms_granted = all(check_permission(p) for p in needed_perms)
         if not perms_granted:
             request_permissions(needed_perms)
-            app.show_error("Απαιτούνται δικαιώματα αποθήκευσης. Επιτρέψτε τα και ξαναδοκιμάστε.")
+            app.show_error(
+                "Απαιτούνται δικαιώματα αποθήκευσης. Επιτρέψτε τα και ξαναδοκιμάστε."
+            )
         else:
             print("Permissions already granted; would call SAF picker")
     except Exception as e:

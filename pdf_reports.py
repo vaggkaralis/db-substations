@@ -3,23 +3,29 @@ PDF Report Generation for Circuit Breaker Maintenance
 Generates maintenance reports matching the official templates
 """
 
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import mm
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Table,
-    TableStyle,
-    Paragraph,
-    Spacer,
-    Image,
-)
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase.pdfmetrics import registerFontFamily
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib.utils import ImageReader
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Table,
+        TableStyle,
+        Paragraph,
+        Spacer,
+        Image,
+    )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfbase.pdfmetrics import registerFontFamily
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.utils import ImageReader
+
+    _HAS_REPORTLAB = True
+except Exception:
+    # Allow importing this module in test environments without reportlab
+    _HAS_REPORTLAB = False
 import os
 import unicodedata
 import json
@@ -779,7 +785,7 @@ class MaintenanceReportGenerator:
         )
         footer = Paragraph(
             self.normalize_text(
-                f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+                f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             ),
             footer_style,
         )
@@ -834,7 +840,7 @@ class MaintenanceReportGenerator:
         )
         footer = Paragraph(
             self.normalize_text(
-                f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+                f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             ),
             footer_style,
         )
@@ -889,7 +895,7 @@ class MaintenanceReportGenerator:
         )
         footer = Paragraph(
             self.normalize_text(
-                f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+                f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             ),
             footer_style,
         )
@@ -1082,7 +1088,7 @@ class InspectionReportGenerator:
         )
 
         subtitle_text = (
-            f'Υποσταθμός: {substation_name or "-"} | Ημερομηνία: {inspection_date}'
+            f"Υποσταθμός: {substation_name or '-'} | Ημερομηνία: {inspection_date}"
         )
         subtitle = Paragraph(self.normalize_text(subtitle_text), subtitle_style)
 
@@ -1286,7 +1292,7 @@ class InspectionReportGenerator:
         )
         footer = Paragraph(
             self.normalize_text(
-                f'Δημιουργήθηκε: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+                f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             ),
             footer_style,
         )

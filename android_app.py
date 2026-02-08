@@ -458,6 +458,7 @@ class SubstationAndroidApp(App):
 
         try:
             if isinstance(db_path, str) and db_path.startswith("content://"):
+
                 def _on_copy_done(success, val):
                     if not success:
                         self.show_error(f"Αποτυχία ανοίγματος βάσης: {val}")
@@ -578,7 +579,9 @@ class SubstationAndroidApp(App):
                     valign="middle",
                 )
                 label.bind(
-                    width=lambda instance, value: setattr(instance, "text_size", (value, None))
+                    width=lambda instance, value: setattr(
+                        instance, "text_size", (value, None)
+                    )
                 )
                 retry_btn = Button(text="Ξαναδοκίμασε", size_hint_x=None, width=140)
 
@@ -598,17 +601,30 @@ class SubstationAndroidApp(App):
                 notice.add_widget(label)
                 notice.add_widget(retry_btn)
 
-                if hasattr(self, "content_layout") and getattr(self, "content_layout") is not None:
+                if (
+                    hasattr(self, "content_layout")
+                    and getattr(self, "content_layout") is not None
+                ):
                     # insert at top of content_layout so it's visible without blocking
                     try:
                         self.content_layout.add_widget(notice, index=0)
                     except Exception:
                         self.content_layout.add_widget(notice)
                     # auto-remove after 30 seconds
-                    Clock.schedule_once(lambda _dt: notice.parent and notice.parent.remove_widget(notice), 30)
+                    Clock.schedule_once(
+                        lambda _dt: (
+                            notice.parent and notice.parent.remove_widget(notice)
+                        ),
+                        30,
+                    )
                 else:
                     # fallback: show as a temporary popup (non-modal)
-                    p = Popup(title="Δικαιώματα", content=notice, size_hint=(0.9, 0.12), auto_dismiss=True)
+                    p = Popup(
+                        title="Δικαιώματα",
+                        content=notice,
+                        size_hint=(0.9, 0.12),
+                        auto_dismiss=True,
+                    )
                     p.open()
                     Clock.schedule_once(lambda _dt: p.dismiss(), 30)
             except Exception as e:
@@ -818,14 +834,22 @@ class SubstationAndroidApp(App):
 
             def _show_notice(dt=None):
                 try:
-                    notice = BoxLayout(size_hint_y=None, height=64, spacing=10, padding=8)
+                    notice = BoxLayout(
+                        size_hint_y=None, height=64, spacing=10, padding=8
+                    )
                     label = Label(
                         text=f"Οι αλλαγές αποθηκεύτηκαν στο: {change_log_path}",
                         halign="left",
                         valign="middle",
                     )
-                    label.bind(width=lambda instance, value: setattr(instance, "text_size", (value, None)))
-                    copy_btn = Button(text="Αντιγραφή διαδρομής", size_hint_x=None, width=180)
+                    label.bind(
+                        width=lambda instance, value: setattr(
+                            instance, "text_size", (value, None)
+                        )
+                    )
+                    copy_btn = Button(
+                        text="Αντιγραφή διαδρομής", size_hint_x=None, width=180
+                    )
 
                     def _copy_path(_):
                         try:
@@ -839,14 +863,27 @@ class SubstationAndroidApp(App):
                     notice.add_widget(label)
                     notice.add_widget(copy_btn)
 
-                    if hasattr(self, "content_layout") and getattr(self, "content_layout") is not None:
+                    if (
+                        hasattr(self, "content_layout")
+                        and getattr(self, "content_layout") is not None
+                    ):
                         try:
                             self.content_layout.add_widget(notice, index=0)
                         except Exception:
                             self.content_layout.add_widget(notice)
-                        Clock.schedule_once(lambda _dt: notice.parent and notice.parent.remove_widget(notice), 20)
+                        Clock.schedule_once(
+                            lambda _dt: (
+                                notice.parent and notice.parent.remove_widget(notice)
+                            ),
+                            20,
+                        )
                     else:
-                        p = Popup(title="Change log saved", content=notice, size_hint=(0.9, 0.12), auto_dismiss=True)
+                        p = Popup(
+                            title="Change log saved",
+                            content=notice,
+                            size_hint=(0.9, 0.12),
+                            auto_dismiss=True,
+                        )
                         p.open()
                         Clock.schedule_once(lambda _dt: p.dismiss(), 20)
                 except Exception:
@@ -870,17 +907,19 @@ class SubstationAndroidApp(App):
         # This attempts to use Android ContentResolver via pyjnius when running
         # on device. On other platforms it raises a RuntimeError.
         if not uri:
-            raise RuntimeError('Empty URI')
-        if not uri.startswith('content://'):
-            raise RuntimeError('Not a content URI')
+            raise RuntimeError("Empty URI")
+        if not uri.startswith("content://"):
+            raise RuntimeError("Not a content URI")
         try:
             from jnius import autoclass
         except Exception as e:
-            raise RuntimeError('Android pyjnius not available to copy content URI') from e
+            raise RuntimeError(
+                "Android pyjnius not available to copy content URI"
+            ) from e
 
         try:
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            Uri = autoclass('android.net.Uri')
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            Uri = autoclass("android.net.Uri")
 
             activity = PythonActivity.mActivity
             content_resolver = activity.getContentResolver()
@@ -890,17 +929,19 @@ class SubstationAndroidApp(App):
             # choose a local filename
             try:
                 filename = os.path.basename(uri)
-                if not filename or filename.strip() == '':
-                    filename = 'content_db.db'
+                if not filename or filename.strip() == "":
+                    filename = "content_db.db"
             except Exception:
-                filename = 'content_db.db'
+                filename = "content_db.db"
 
-            target_dir = getattr(self, 'user_data_dir', None) or os.path.join(os.getcwd(), 'user_data')
+            target_dir = getattr(self, "user_data_dir", None) or os.path.join(
+                os.getcwd(), "user_data"
+            )
             os.makedirs(target_dir, exist_ok=True)
             target_path = os.path.join(target_dir, filename)
 
             # Write bytes from InputStream to local file (read one byte at a time)
-            with open(target_path, 'wb') as outp:
+            with open(target_path, "wb") as outp:
                 while True:
                     b = in_stream.read()
                     if b == -1:
@@ -912,13 +953,15 @@ class SubstationAndroidApp(App):
                 pass
             return target_path
         except Exception as e:
-            raise RuntimeError('Failed to copy content URI: ' + str(e)) from e
+            raise RuntimeError("Failed to copy content URI: " + str(e)) from e
 
     def _copy_content_uri_to_file_async(self, uri, on_result):
         """Copy content URI in background, show progress popup, then call on_result(success, value)."""
-        popup = Popup(title='Αντιγραφή αρχείου...', size_hint=(0.9, 0.25))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        msg = Label(text='Αντιγραφή αρχείου από το σύστημα αρχείων. Παρακαλώ περιμένετε...')
+        popup = Popup(title="Αντιγραφή αρχείου...", size_hint=(0.9, 0.25))
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        msg = Label(
+            text="Αντιγραφή αρχείου από το σύστημα αρχείων. Παρακαλώ περιμένετε..."
+        )
         layout.add_widget(msg)
         popup.content = layout
         popup.open()
@@ -931,7 +974,7 @@ class SubstationAndroidApp(App):
             try:
                 on_result(success, val)
             except Exception as e:
-                Logger.error(f'APP: Error in copy callback: {e}')
+                Logger.error(f"APP: Error in copy callback: {e}")
 
         def _worker():
             try:
@@ -948,7 +991,7 @@ class SubstationAndroidApp(App):
         """Load substations from local database"""
         Logger.info("APP: ========== LOAD_SUBSTATIONS CALLED ==========")
         Logger.info(f"APP: Instance: {instance}")
-        Logger.info(f'APP: Content layout exists: {hasattr(self, "content_layout")}')
+        Logger.info(f"APP: Content layout exists: {hasattr(self, 'content_layout')}")
         try:
             Logger.info("APP: Clearing content_layout widgets")
             self.content_layout.clear_widgets()
@@ -1210,7 +1253,9 @@ class SubstationAndroidApp(App):
                 }
                 # Do not write to the main DB from Android; append to change log
                 temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
-                self._append_change_log("insert", "substations", {**payload, "id": temp_id})
+                self._append_change_log(
+                    "insert", "substations", {**payload, "id": temp_id}
+                )
                 popup.dismiss()
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
                 success_layout = BoxLayout(
@@ -1342,7 +1387,9 @@ class SubstationAndroidApp(App):
             try:
                 # Do not write to the main DB from Android; append to change log
                 temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
-                self._append_change_log("insert", "elements", {**payload, "id": temp_id})
+                self._append_change_log(
+                    "insert", "elements", {**payload, "id": temp_id}
+                )
                 popup.dismiss()
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
                 success_layout = BoxLayout(
@@ -1463,7 +1510,7 @@ class SubstationAndroidApp(App):
         from kivy.uix.checkbox import CheckBox
         from kivy.uix.spinner import Spinner
 
-        popup = Popup(title=f'Συντήρηση - {substation["name"]}', size_hint=(0.95, 0.95))
+        popup = Popup(title=f"Συντήρηση - {substation['name']}", size_hint=(0.95, 0.95))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Scrollable content area
@@ -1834,7 +1881,9 @@ class SubstationAndroidApp(App):
                 success_layout = BoxLayout(
                     orientation="vertical", padding=10, spacing=10
                 )
-                success_layout.add_widget(Label(text="Η συντήρηση καταχωρήθηκε στο change log."))
+                success_layout.add_widget(
+                    Label(text="Η συντήρηση καταχωρήθηκε στο change log.")
+                )
                 ok_btn = Button(text="OK", size_hint_y=0.3)
                 ok_btn.bind(on_press=success_popup.dismiss)
                 success_layout.add_widget(ok_btn)
@@ -1860,7 +1909,7 @@ class SubstationAndroidApp(App):
         """Add a new inspection entry"""
 
         popup = Popup(
-            title=f'Νέα Επιθεώρηση - {substation["name"]}', size_hint=(0.95, 0.85)
+            title=f"Νέα Επιθεώρηση - {substation['name']}", size_hint=(0.95, 0.85)
         )
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -1981,7 +2030,9 @@ class SubstationAndroidApp(App):
                 success_layout = BoxLayout(
                     orientation="vertical", padding=10, spacing=10
                 )
-                success_layout.add_widget(Label(text="Η επιθεώρηση καταχωρήθηκε στο change log."))
+                success_layout.add_widget(
+                    Label(text="Η επιθεώρηση καταχωρήθηκε στο change log.")
+                )
                 ok_btn = Button(text="OK", size_hint_y=0.3)
                 ok_btn.bind(on_press=success_popup.dismiss)
                 success_layout.add_widget(ok_btn)
@@ -2005,6 +2056,7 @@ class SubstationAndroidApp(App):
 
     def show_error(self, message):
         """Show error popup"""
+
         # Ensure popup creation runs on the Kivy main thread (some callers may be on worker threads)
         def _show(dt=None):
             try:
@@ -2023,7 +2075,9 @@ class SubstationAndroidApp(App):
                     instance.height = max(60, value[1] + 20)
 
                 msg_label.bind(
-                    width=lambda instance, value: setattr(instance, "text_size", (value, None)),
+                    width=lambda instance, value: setattr(
+                        instance, "text_size", (value, None)
+                    ),
                     texture_size=update_label_height,
                 )
                 scroll.add_widget(msg_label)

@@ -184,8 +184,8 @@ def show_models_management(app_instance):
 
                                     list_btn = Button(text="Λίστα", size_hint_x=0.25)
                                     list_btn.bind(
-                                        on_press=lambda x, mid=model_id, mname=model_name: show_model_usages(
-                                            app_instance, mid, mname
+                                        on_press=lambda x, mid=model_id, mname=model_name: (
+                                            show_model_usages(app_instance, mid, mname)
                                         )
                                     )
                                     btn_box.add_widget(list_btn)
@@ -199,16 +199,20 @@ def show_models_management(app_instance):
                                         text=manual_label, size_hint_x=0.25
                                     )
                                     manual_btn.bind(
-                                        on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: _handle_manual_pdf(
-                                            app_instance, mid, path, p
+                                        on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: (
+                                            _handle_manual_pdf(
+                                                app_instance, mid, path, p
+                                            )
                                         )
                                     )
                                     btn_box.add_widget(manual_btn)
 
                                     edit_btn = Button(text="Επεξ.", size_hint_x=0.25)
                                     edit_btn.bind(
-                                        on_press=lambda x, mid=model_id: show_edit_model_popup(
-                                            app_instance, mid, popup
+                                        on_press=lambda x, mid=model_id: (
+                                            show_edit_model_popup(
+                                                app_instance, mid, popup
+                                            )
                                         )
                                     )
                                     btn_box.add_widget(edit_btn)
@@ -225,7 +229,7 @@ def show_models_management(app_instance):
                                     model_box.add_widget(header)
 
                                     # Details
-                                    details_text = f'    Κατασκευαστής: {manufacturer or "-"} | Κύκλος: {cycle} έτη | Χώρος: {space or "-"}'
+                                    details_text = f"    Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle} έτη | Χώρος: {space or '-'}"
                                     details = Label(
                                         text=details_text, size_hint_y=None, height=30
                                     )
@@ -262,8 +266,8 @@ def show_models_management(app_instance):
 
                             list_btn = Button(text="Λίστα", size_hint_x=0.25)
                             list_btn.bind(
-                                on_press=lambda x, mid=model_id, mname=model_name: show_model_usages(
-                                    app_instance, mid, mname
+                                on_press=lambda x, mid=model_id, mname=model_name: (
+                                    show_model_usages(app_instance, mid, mname)
                                 )
                             )
                             btn_box.add_widget(list_btn)
@@ -275,8 +279,8 @@ def show_models_management(app_instance):
                             )
                             manual_btn = Button(text=manual_label, size_hint_x=0.25)
                             manual_btn.bind(
-                                on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: _handle_manual_pdf(
-                                    app_instance, mid, path, p
+                                on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: (
+                                    _handle_manual_pdf(app_instance, mid, path, p)
                                 )
                             )
                             btn_box.add_widget(manual_btn)
@@ -301,7 +305,7 @@ def show_models_management(app_instance):
                             model_box.add_widget(header)
 
                             # Details
-                            details_text = f'Κατασκευαστής: {manufacturer or "-"} | Κύκλος: {cycle} έτη | Χώρος: {space or "-"}'
+                            details_text = f"Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle} έτη | Χώρος: {space or '-'}"
                             if breaker_cat:
                                 details_text += f" | Κατηγορία: {breaker_cat}"
                             details = Label(
@@ -995,8 +999,8 @@ def show_model_usages(app_instance, model_id, model_name):
                 # Add button to jump to substation elements view
                 jump_btn = Button(text="Μετάβαση στον Υποσταθμό", size_hint_x=0.3)
                 jump_btn.bind(
-                    on_press=lambda x, sname=substation_name, p=popup: jump_to_substation(
-                        app_instance, sname, p
+                    on_press=lambda x, sname=substation_name, p=popup: (
+                        jump_to_substation(app_instance, sname, p)
                     )
                 )
                 substation_header_layout.add_widget(jump_btn)
@@ -1032,7 +1036,7 @@ def show_model_usages(app_instance, model_id, model_name):
             manufacture_info = (
                 f" | Έτος: {manufacture_year}" if manufacture_year else ""
             )
-            sn_text = f'S/N: {serial_number or "-"}{manufacture_info}'
+            sn_text = f"S/N: {serial_number or '-'}{manufacture_info}"
             sn_label = Label(
                 text=sn_text,
                 size_hint_y=None,
@@ -1044,7 +1048,7 @@ def show_model_usages(app_instance, model_id, model_name):
             elem_box.add_widget(sn_label)
 
             # Manufacturer, installation space, operating status
-            details_text = f'Κατ.: {manufacturer or "-"} | Χώρος: {installation_space or "-"} | Κατάστ.: {operating_status or "Ενεργή"}'
+            details_text = f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | Κατάστ.: {operating_status or 'Ενεργή'}"
             details_label = Label(
                 text=details_text,
                 size_hint_y=None,
@@ -1056,7 +1060,7 @@ def show_model_usages(app_instance, model_id, model_name):
             elem_box.add_widget(details_label)
 
             # Maintenance info
-            maint_text = f'Κύκλος: {maintenance_cycle or "-"} | Τελ. Συντ.: {maintenance_date or "-"}'
+            maint_text = f"Κύκλος: {maintenance_cycle or '-'} | Τελ. Συντ.: {maintenance_date or '-'}"
             maint_label = Label(
                 text=maint_text,
                 size_hint_y=None,

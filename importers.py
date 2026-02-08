@@ -240,7 +240,7 @@ def import_elements_from_excel(
         missing_cols = [col for col in REQUIRED_COLUMNS if col not in df_elem.columns]
         if missing_cols:
             on_error(
-                f'Λείπουν απαιτούμενες στήλες: {", ".join(missing_cols)}\n\nΠαρακαλώ χρησιμοποιήστε το ενημερωμένο template.'
+                f"Λείπουν απαιτούμενες στήλες: {', '.join(missing_cols)}\n\nΠαρακαλώ χρησιμοποιήστε το ενημερωμένο template."
             )
             return
 
@@ -492,7 +492,7 @@ def import_elements_from_csv(
         missing_cols = [col for col in REQUIRED_COLUMNS if col not in df_elem.columns]
         if missing_cols:
             on_error(
-                f'Λείπουν απαιτούμενες στήλες: {", ".join(missing_cols)}\n\nΠαρακαλώ χρησιμοποιήστε το ενημερωμένο template.'
+                f"Λείπουν απαιτούμενες στήλες: {', '.join(missing_cols)}\n\nΠαρακαλώ χρησιμοποιήστε το ενημερωμένο template."
             )
             return
 
