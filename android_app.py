@@ -1071,7 +1071,13 @@ class SubstationAndroidApp(App):
             intent = Intent(Intent.ACTION_VIEW)
             intent.setDataAndType(uri, "*/*")
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            chooser = Intent.createChooser(intent, "Open folder")
+            # Ensure chooser title is a Java CharSequence to avoid jnius overload issues
+            try:
+                JavaString = autoclass("java.lang.String")
+                title_obj = JavaString("Open folder")
+            except Exception:
+                title_obj = "Open folder"
+            chooser = Intent.createChooser(intent, title_obj)
             current.startActivity(chooser)
         except Exception as e:
             try:
@@ -2447,24 +2453,47 @@ class SubstationAndroidApp(App):
             # Prefer using ClipData for content:// URIs to avoid Intent.putExtra
             # overload ambiguity that may treat the Uri as a Java String.
             try:
-                ContentResolver = current.getContentResolver()
+                # Use explicit Java String and ContentResolver instances to avoid
+                # ambiguous overload selection in jnius.
+                cr = current.getContentResolver()
                 ClipData = autoclass("android.content.ClipData")
+                JavaString = autoclass("java.lang.String")
                 # Create a ClipData holding the Uri and attach it to the intent
-                clip = ClipData.newUri(ContentResolver, "change-log", uri)
+                clip = ClipData.newUri(cr, JavaString("change-log"), uri)
                 intent.setClipData(clip)
-                # Also include EXTRA_STREAM for receivers that expect it
-                intent.putExtra(Intent.EXTRA_STREAM, uri)
+                # Also attempt to include EXTRA_STREAM for receivers that expect it.
+                # Some jnius environments may pick the wrong overload; if that
+                # happens, fall back to sending the string form.
+                try:
+                    intent.putExtra(Intent.EXTRA_STREAM, uri)
+                except TypeError:
+                    try:
+                        intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
+                    except Exception:
+                        # Ignore: keep ClipData as primary delivery mechanism
+                        pass
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             except Exception:
                 # Fallback: still attempt to put EXTRA_STREAM and grant permission
                 try:
-                    intent.putExtra(Intent.EXTRA_STREAM, uri)
+                    try:
+                        intent.putExtra(Intent.EXTRA_STREAM, uri)
+                    except TypeError:
+                        intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 except Exception:
                     # Let the outer except handle showing error
                     raise
 
-            chooser = Intent.createChooser(intent, "Share change-log")
+            # Use java.lang.String to ensure the chooser title is passed as a
+            # CharSequence (avoid jnius overload confusion). Fall back to a
+            # plain Python string if java.lang.String isn't available (tests/shims).
+            try:
+                JavaString = autoclass("java.lang.String")
+                title_obj = JavaString("Share change-log")
+            except Exception:
+                title_obj = "Share change-log"
+            chooser = Intent.createChooser(intent, title_obj)
             current.startActivity(chooser)
         except Exception:
             # Surface the error to the user (useful on-device) then re-raise
