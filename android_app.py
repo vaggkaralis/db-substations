@@ -9,7 +9,6 @@ import traceback
 import os
 import sqlite3
 import shutil
-import sqlite3
 from datetime import datetime
 
 
@@ -601,16 +600,6 @@ class SubstationAndroidApp(App):
         except Exception as e:
             self.show_error(f'Auto-load DB error: {str(e)}')
         return False
-
-    def show_error(self, message):
-        popup = Popup(title='Error', size_hint=(0.8, 0.4))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        layout.add_widget(Label(text=str(message)))
-        btn = Button(text='OK', size_hint_y=0.3)
-        btn.bind(on_press=popup.dismiss)
-        layout.add_widget(btn)
-        popup.content = layout
-        popup.open()
 
     def _local_fetch_substations(self):
         if not self.local_db_path or not os.path.exists(self.local_db_path):
