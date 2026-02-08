@@ -263,10 +263,15 @@ class SubstationAndroidApp(App):
                         ]
                         perms_granted = all(check_permission(p) for p in needed_perms)
                         if not perms_granted:
-                            # Request permissions and ask user to retry after granting
+                            # Request permissions and return; DO NOT show an error popup
+                            # immediately because the Android permission dialog is a
+                            # system UI overlay. Showing our own popup at the same
+                            # time leads to the UX problem where our popup appears
+                            # behind the permission dialog. The app should wait for
+                            # the system dialog to complete and the user to retry.
                             request_permissions(needed_perms)
-                            self.show_error(
-                                "Απαιτούνται δικαιώματα αποθήκευσης. Επιτρέψτε τα και ξαναδοκιμάστε."
+                            Logger.info(
+                                "APP: Requested storage permissions; waiting for user to grant them."
                             )
                             return
                     except Exception:
@@ -1517,12 +1522,13 @@ class SubstationAndroidApp(App):
                             elem_text += f"\nΚατ.: {mfr} | Μοντ.: {mdl}"
 
                         checkbox_layout = BoxLayout(
-                            size_hint_y=None, spacing=10, padding=[0, 4, 0, 4]
+                            size_hint_y=None, spacing=10, padding=[0, 8, 0, 8]
                         )
                         checkbox_layout.bind(
                             minimum_height=checkbox_layout.setter("height")
                         )
-                        checkbox = CheckBox(size_hint=(None, None), size=(44, 44))
+                        # Larger checkboxes for easier tapping on Android
+                        checkbox = CheckBox(size_hint=(None, None), size=(64, 64))
                         checkbox_layout.add_widget(checkbox)
 
                         elem_label = Label(
@@ -1550,13 +1556,24 @@ class SubstationAndroidApp(App):
                             minimum_height=details_container.setter("height")
                         )
 
+                        # Allow comments to expand vertically with content for better readability on mobile
                         elem_comments = TextInput(
                             hint_text="Σχόλια για αυτό το στοιχείο...",
                             size_hint_y=None,
                             height=56,
-                            multiline=False,
+                            multiline=True,
                             padding=[12, 12, 12, 12],
                         )
+
+                        def _adjust_comments_height(instance, value):
+                            try:
+                                lines = max(1, instance.text.count("\n") + 1)
+                                # approximate line height multiplier
+                                instance.height = max(56, min(300, lines * 28))
+                            except Exception:
+                                instance.height = 56
+
+                        elem_comments.bind(text=_adjust_comments_height)
                         details_container.add_widget(elem_comments)
 
                         measurements = {}
