@@ -568,10 +568,10 @@ class SubstationAndroidApp(App):
             
             # Load data after UI is rendered (prevent ANR)
             Logger.info('APP: Scheduling load_substations to run after UI renders')
-            if not self._auto_load_saved_db():
-                Clock.schedule_once(self.load_substations, 0.5)
-            else:
-                Clock.schedule_once(self.load_substations, 0.5)
+            if not self._auto_load_saved_db(): 
+                Clock.schedule_once(self.load_substations, 0.5) 
+            else: 
+                Clock.schedule_once(self.load_substations, 0.5) 
             
             Logger.info('APP: UI build completed successfully')
             return main_layout
@@ -583,6 +583,23 @@ class SubstationAndroidApp(App):
             error_layout = BoxLayout(orientation='vertical', padding=20)
             error_layout.add_widget(Label(text=f'Error: {str(e)}'))
             return error_layout
+
+        def _auto_load_saved_db(self):
+            """Attempt to auto-load saved DB path if available. Returns True if loaded, False otherwise."""
+            try:
+                db_path = getattr(self, 'local_db_path', None)
+                if db_path and os.path.exists(db_path):
+                    self.use_local_mode(db_path)
+                    return True
+                # Optionally, check for a saved DB path in persistent storage
+                if hasattr(self, '_get_saved_db_path'):
+                    saved_path = self._get_saved_db_path()
+                    if saved_path and os.path.exists(saved_path):
+                        self.use_local_mode(saved_path)
+                        return True
+            except Exception as e:
+                self.show_error(f'Auto-load DB error: {str(e)}')
+            return False
     
     def load_substations(self, instance):
         """Load substations from local database"""
@@ -1396,21 +1413,29 @@ class SubstationAndroidApp(App):
 
     def show_error(self, message):
         """Show error popup"""
-        popup = Popup(title='Σφάλμα', size_hint=(0.9, 0.7))
+        # Improved error popup for better visibility on Android
+        popup = Popup(title='Σφάλμα', size_hint=(0.98, 0.98))
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        scroll = ScrollView(size_hint=(1, 1))
-        msg_label = Label(text=message, size_hint_y=None, halign='left', valign='top')
+        scroll = ScrollView(size_hint=(1, 0.85))
+        msg_label = Label(
+            text=message,
+            size_hint_y=None,
+            halign='left',
+            valign='top',
+            font_size='18sp',
+            text_size=(popup.width * 0.95, None)
+        )
+        def update_label_height(instance, value):
+            instance.height = max(60, value[1] + 20)
         msg_label.bind(
             width=lambda instance, value: setattr(instance, 'text_size', (value, None)),
-            texture_size=lambda instance, value: setattr(instance, 'height', value[1] + 10)
+            texture_size=update_label_height
         )
         scroll.add_widget(msg_label)
         layout.add_widget(scroll)
-        
-        close_btn = Button(text='Κλείσιμο', size_hint_y=0.3)
+        close_btn = Button(text='Κλείσιμο', size_hint_y=0.15, font_size='20sp')
         close_btn.bind(on_press=popup.dismiss)
         layout.add_widget(close_btn)
-        
         popup.content = layout
         popup.open()
 
