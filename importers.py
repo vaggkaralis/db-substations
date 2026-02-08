@@ -334,10 +334,18 @@ def import_elements_from_excel(
                             str(element_type) if pd.notna(element_type) else ""
                         )
                         cursor.execute(
-                            "SELECT id FROM element_models WHERE element_category=? AND model_name=? AND manufacturer=?",
+                            "SELECT id FROM element_models WHERE TRIM(element_category)=TRIM(?) AND TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
                             (elem_type_for_model, model_name, model_manufacturer),
                         )
                         model_result = cursor.fetchone()
+                        
+                        # Fallback: try matching by model name + manufacturer only
+                        if not model_result and model_name and model_manufacturer:
+                            cursor.execute(
+                                "SELECT id FROM element_models WHERE TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
+                                (model_name, model_manufacturer),
+                            )
+                            model_result = cursor.fetchone()
                         if model_result:
                             element_model_id = model_result[0]
 
@@ -586,10 +594,18 @@ def import_elements_from_csv(
                             str(element_type) if pd.notna(element_type) else ""
                         )
                         cursor.execute(
-                            "SELECT id FROM element_models WHERE element_category=? AND model_name=? AND manufacturer=?",
+                            "SELECT id FROM element_models WHERE TRIM(element_category)=TRIM(?) AND TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
                             (elem_type_for_model, model_name, model_manufacturer),
                         )
                         model_result = cursor.fetchone()
+                        
+                        # Fallback: try matching by model name + manufacturer only
+                        if not model_result and model_name and model_manufacturer:
+                            cursor.execute(
+                                "SELECT id FROM element_models WHERE TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
+                                (model_name, model_manufacturer),
+                            )
+                            model_result = cursor.fetchone()
                         if model_result:
                             element_model_id = model_result[0]
 
