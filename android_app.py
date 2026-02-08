@@ -1059,14 +1059,36 @@ class SubstationAndroidApp(App):
             current = PythonActivity.mActivity
             f = File(change_log_path)
 
+            # Prefer FileProvider to generate a content:// URI which is
+            # safe on modern Android versions.
+            FileProvider = autoclass("androidx.core.content.FileProvider")
+            authority = current.getPackageName() + ".provider"
             try:
-                # Prefer FileProvider to generate a content:// URI which is
-                # safe on modern Android versions.
-                FileProvider = autoclass("androidx.core.content.FileProvider")
-                authority = current.getPackageName() + ".provider"
                 uri = FileProvider.getUriForFile(current, authority, f)
+                # If FileProvider unexpectedly returns a file:// URI,
+                # copy to external cache and retry to obtain a content:// URI.
+                if uri is not None and str(uri.toString()).startswith("file://"):
+                    try:
+                        ext_cache = current.getExternalCacheDir()
+                        if ext_cache is not None:
+                            dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
+                            shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
+                            uri = FileProvider.getUriForFile(current, authority, dest)
+                    except Exception:
+                        pass
             except Exception:
-                uri = Uri.fromFile(f)
+                # If provider isn't available, attempt to copy file to
+                # external cache and use that path as a fallback URI.
+                try:
+                    ext_cache = current.getExternalCacheDir()
+                    if ext_cache is not None:
+                        dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
+                        shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
+                        uri = Uri.fromFile(dest)
+                    else:
+                        uri = Uri.fromFile(f)
+                except Exception:
+                    uri = Uri.fromFile(f)
 
             intent = Intent(Intent.ACTION_VIEW)
             intent.setDataAndType(uri, "*/*")
@@ -2439,12 +2461,34 @@ class SubstationAndroidApp(App):
             current = PythonActivity.mActivity
             f = File(file_path)
 
+            FileProvider = autoclass("androidx.core.content.FileProvider")
+            authority = current.getPackageName() + ".provider"
             try:
-                FileProvider = autoclass("androidx.core.content.FileProvider")
-                authority = current.getPackageName() + ".provider"
                 uri = FileProvider.getUriForFile(current, authority, f)
+                # If FileProvider produced a file:// URI for some reason,
+                # fall back to copying to external cache and retry.
+                if uri is not None and str(uri.toString()).startswith("file://"):
+                    try:
+                        ext_cache = current.getExternalCacheDir()
+                        if ext_cache is not None:
+                            dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
+                            shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
+                            uri = FileProvider.getUriForFile(current, authority, dest)
+                    except Exception:
+                        pass
             except Exception:
-                uri = Uri.fromFile(f)
+                # If provider isn't available, copy file to external cache
+                # and use a file-based Uri there (some devices may allow it).
+                try:
+                    ext_cache = current.getExternalCacheDir()
+                    if ext_cache is not None:
+                        dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
+                        shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
+                        uri = Uri.fromFile(dest)
+                    else:
+                        uri = Uri.fromFile(f)
+                except Exception:
+                    uri = Uri.fromFile(f)
 
             intent = Intent(Intent.ACTION_SEND)
             # Use a binary/* wildcard so the EXTRA_STREAM is treated as a Uri
