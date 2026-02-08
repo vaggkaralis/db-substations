@@ -1,6 +1,5 @@
 import os
 import json
-import tempfile
 
 from android_app import SubstationAndroidApp
 

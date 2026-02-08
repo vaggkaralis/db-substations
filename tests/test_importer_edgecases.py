@@ -73,7 +73,9 @@ def test_maintenance_with_elements_creates_links(tmp_path):
         mrow = cur.fetchone()
         assert mrow is not None
         mid = mrow[0]
-        cur.execute("SELECT COUNT(*) FROM maintenance_elements WHERE maintenance_id = ?", (mid,))
+        cur.execute(
+            "SELECT COUNT(*) FROM maintenance_elements WHERE maintenance_id = ?", (mid,)
+        )
         cnt = cur.fetchone()[0]
         assert cnt == 2
     finally:

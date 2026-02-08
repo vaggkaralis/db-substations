@@ -581,6 +581,7 @@ class SubstationAndroidApp(App):
                 # Make label wrap its text to the available width and adjust
                 # height to the rendered texture so text doesn't overflow.
                 label.size_hint_y = None
+
                 def _bind_width(instance, value):
                     instance.text_size = (value, None)
 
@@ -855,6 +856,7 @@ class SubstationAndroidApp(App):
                     )
                     # Ensure wrapping and auto-height so the label won't overflow
                     label.size_hint_y = None
+
                     def _bind_width2(instance, value):
                         instance.text_size = (value, None)
 
@@ -876,7 +878,9 @@ class SubstationAndroidApp(App):
 
                     copy_btn.bind(on_press=_copy_path)
                     # Open folder button (Android intent when available)
-                    open_btn = Button(text="Άνοιγμα φακέλου", size_hint_x=None, width=140)
+                    open_btn = Button(
+                        text="Άνοιγμα φακέλου", size_hint_x=None, width=140
+                    )
 
                     def _open_folder(_):
                         try:
@@ -1002,6 +1006,19 @@ class SubstationAndroidApp(App):
                 )
             else:
                 self.change_log_path = "change_log.txt"
+        # Ensure parent directory exists and file is present so intents
+        # and FileProvider can access it reliably.
+        try:
+            parent = os.path.dirname(self.change_log_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            # Ensure file exists
+            with open(self.change_log_path, "a", encoding="utf-8"):
+                pass
+        except Exception:
+            # If we cannot create the file, leave it as-is; callers will
+            # handle failures and fallbacks (clipboard, popup)
+            pass
 
     def _set_root_buttons_visible(self, visible: bool):
         """Show or hide the root-level Refresh / Add Substation buttons."""
@@ -1010,7 +1027,10 @@ class SubstationAndroidApp(App):
                 self.refresh_btn.disabled = not visible
                 # keep widget in layout but hide visually when not visible
                 self.refresh_btn.opacity = 1 if visible else 0
-            if hasattr(self, "add_substation_btn") and self.add_substation_btn is not None:
+            if (
+                hasattr(self, "add_substation_btn")
+                and self.add_substation_btn is not None
+            ):
                 self.add_substation_btn.disabled = not visible
                 self.add_substation_btn.opacity = 1 if visible else 0
         except Exception:
@@ -1046,6 +1066,11 @@ class SubstationAndroidApp(App):
             current.startActivity(chooser)
         except Exception:
             try:
+                # Surface error to the user
+                self.show_error(f"Άνοιγμα φακέλου απέτυχε. Αναλυτικό σφάλμα: {e}")
+            except Exception:
+                pass
+            try:
                 # fallback: copy to clipboard so user can navigate manually
                 import importlib
 
@@ -1064,13 +1089,28 @@ class SubstationAndroidApp(App):
         try:
             p = Popup(title="Change log actions", size_hint=(0.95, 0.28))
             layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
-            label = Label(text=f"File: {change_log_path}")
+            # Show file path and basic file info so users can debug missing files
+            try:
+                exists = os.path.exists(change_log_path)
+                size = os.path.getsize(change_log_path) if exists else 0
+            except Exception:
+                exists = False
+                size = 0
+            label = Label(
+                text=f"File: {change_log_path}\nExists: {exists}  Size: {size} bytes",
+            )
             btns = BoxLayout(size_hint_y=None, height=48, spacing=8)
             open_btn = Button(text="Άνοιγμα φακέλου")
+
             def _on_open(_):
                 try:
                     self._open_change_log_folder()
-                except Exception:
+                except Exception as e:
+                    # Surface error to the user and then fallback to clipboard
+                    try:
+                        self.show_error(f"Άνοιγμα φακέλου απέτυχε: {e}")
+                    except Exception:
+                        pass
                     try:
                         import importlib
 
@@ -1090,7 +1130,12 @@ class SubstationAndroidApp(App):
             def _on_share(_):
                 try:
                     self._launch_share_intent(change_log_path)
-                except Exception:
+                except Exception as e:
+                    # Surface error to the user and then fallback to clipboard
+                    try:
+                        self.show_error(f"Κοινοποίηση απέτυχε: {e}")
+                    except Exception:
+                        pass
                     try:
                         import importlib
 
@@ -1183,13 +1228,12 @@ class SubstationAndroidApp(App):
 
         # Informational label with wrapping
         msg = Label(
-            text=(
-                "Αντιγραφή αρχείου από το σύστημα αρχείων. Παρακαλώ περιμένετε..."
-            ),
+            text=("Αντιγραφή αρχείου από το σύστημα αρχείων. Παρακαλώ περιμένετε..."),
             halign="left",
             valign="middle",
         )
         msg.size_hint_y = None
+
         def _bind_msg_width(instance, value):
             instance.text_size = (value, None)
 
@@ -2075,7 +2119,9 @@ class SubstationAndroidApp(App):
         Clock.schedule_once(lambda *_args: load_elements(), 0)
 
         # Place the overall comments in a fixed container above the elements scroll
-        comments_container = BoxLayout(orientation="vertical", size_hint_y=None, height=160)
+        comments_container = BoxLayout(
+            orientation="vertical", size_hint_y=None, height=160
+        )
         comments_container.add_widget(wrapped_label("Γενικά Σχόλια:"))
         comments_container.add_widget(overall_comments)
         main_layout.add_widget(comments_container)

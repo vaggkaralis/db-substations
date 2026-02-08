@@ -4525,7 +4525,8 @@ class SubstationApp(App):
                     db_file = None
                 if not db_file:
                     db_file = "substations.db"
-                import shutil, time
+                import shutil
+                import time
 
                 backup_path = f"{db_file}.backup.{int(time.time())}.bak"
                 shutil.copy2(db_file, backup_path)

@@ -26,6 +26,7 @@ class DummyAutoclassModule:
     def __call__(self, name):
         # Return simple stand-ins for classes
         if name == "org.kivy.android.PythonActivity":
+
             class PA:
                 mActivity = self.activity
 
@@ -33,6 +34,7 @@ class DummyAutoclassModule:
         if name == "java.io.File":
             return lambda p: DummyFile(p)
         if name == "android.content.Intent":
+
             class Intent:
                 ACTION_SEND = "ACTION_SEND"
                 EXTRA_STREAM = "EXTRA_STREAM"
@@ -56,6 +58,7 @@ class DummyAutoclassModule:
 
             return Intent
         if name == "android.net.Uri":
+
             class Uri:
                 @staticmethod
                 def fromFile(f):
@@ -63,6 +66,7 @@ class DummyAutoclassModule:
 
             return Uri
         if name == "androidx.core.content.FileProvider":
+
             class FP:
                 @staticmethod
                 def getUriForFile(activity, authority, f):
