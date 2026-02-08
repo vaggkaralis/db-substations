@@ -56,6 +56,48 @@ import threading
 Logger.info('APP: Threading import successful')
 
 class SubstationAndroidApp(App):
+        def _copy_content_uri_to_file(self, content_uri):
+            """
+            Copy a file from a content URI to a local file (Android only).
+            Returns the local file path, or raises an Exception on failure.
+            """
+            from kivy.utils import platform
+            import os
+            if platform != 'android':
+                raise RuntimeError('Content URI copy only supported on Android')
+            try:
+                from jnius import autoclass, cast
+                from android.storage import app_storage_path
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                activity = PythonActivity.mActivity
+                ContentResolver = autoclass('android.content.ContentResolver')
+                FileOutputStream = autoclass('java.io.FileOutputStream')
+                BufferedOutputStream = autoclass('java.io.BufferedOutputStream')
+                InputStreamReader = autoclass('java.io.InputStreamReader')
+                BufferedInputStream = autoclass('java.io.BufferedInputStream')
+                File = autoclass('java.io.File')
+                # Get input stream from content URI
+                resolver = activity.getContentResolver()
+                input_stream = resolver.openInputStream(cast('android.net.Uri', autoclass('android.net.Uri').parse(content_uri)))
+                # Prepare output file path
+                user_data_dir = app_storage_path()
+                os.makedirs(user_data_dir, exist_ok=True)
+                file_name = 'imported_db_' + str(abs(hash(content_uri))) + '.db'
+                out_path = os.path.join(user_data_dir, file_name)
+                # Write to output file
+                with open(out_path, 'wb') as f:
+                    buf = bytearray(4096)
+                    while True:
+                        read = input_stream.read(buf)
+                        if read == -1 or read == 0:
+                            break
+                        f.write(buf[:read])
+                input_stream.close()
+                return out_path
+            except Exception as e:
+                from kivy.logger import Logger
+                Logger.error(f'APP: Failed to copy content URI: {str(e)}')
+                raise RuntimeError(f'Failed to copy content URI: {str(e)}')
     # Element types - matches desktop app
     ELEMENT_TYPES = [
         'Διακόπτης ΥΤ',
@@ -127,201 +169,24 @@ class SubstationAndroidApp(App):
         {'type': 'section', 'title': '6. PC ΧΕΙΡΙΣΜΩΝ'},
         'Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)',
         'Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)',
-        'Τροφοδοσία υπολογιστή',
-        {'type': 'section', 'title': '7. Απόψεις'},
-        'Απόψεις - Προτάσεις'
-    ]
-    
-    
+        def open_local_db_picker(self):
+            # Last working version: prompt for DB path and allow file selection
+            self._prompt_local_db_path()
 
-    def _ensure_change_log_path(self):
-        if not self.change_log_path:
-            try:
-                if self.local_db_path and os.path.exists(self.local_db_path):
-                    base_dir = os.path.dirname(self.local_db_path)
-                else:
-                    base_dir = self.user_data_dir
-            except Exception:
-                base_dir = os.getcwd()
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            self.change_log_path = os.path.join(base_dir, f'change_log_{timestamp}.jsonl')
-            try:
-                os.makedirs(base_dir, exist_ok=True)
-                with open(self.change_log_path, 'a', encoding='utf-8'):
-                    pass
-            except Exception:
-                pass
+        def _prompt_local_db_path(self):
+            popup = Popup(title='Άνοιγμα Τοπικής Βάσης', size_hint=(0.9, 0.4))
+            layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            layout.add_widget(Label(text='Δώσε πλήρες path του αρχείου .db'))
+            default_path = '/storage/emulated/0/Download/substations.db'
+            path_input = TextInput(text=default_path, hint_text='/storage/emulated/0/Download/substations.db', multiline=False)
+            layout.add_widget(path_input)
 
-    def _settings_path(self):
-        try:
-            base_dir = self.user_data_dir
-        except Exception:
-            base_dir = os.getcwd()
-        return os.path.join(base_dir, 'android_settings.json')
+            chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
+            choose_btn = Button(text='Αναζήτηση αρχείου')
+            choose_btn.disabled = not (filechooser or FileChooserListView)
 
-    def _load_settings(self):
-        try:
-            with open(self._settings_path(), 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-
-    def _save_settings(self, data):
-        try:
-            os.makedirs(os.path.dirname(self._settings_path()), exist_ok=True)
-            with open(self._settings_path(), 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            Logger.warning(f'APP: Failed to save settings: {str(e)}')
-
-    def _get_saved_db_path(self):
-        settings = self._load_settings()
-        return settings.get('local_db_path') or ''
-
-    def _set_saved_db_path(self, db_path):
-        settings = self._load_settings()
-        settings['local_db_path'] = db_path
-        self._save_settings(settings)
-
-    def _generate_temp_id(self):
-        return -int(datetime.now().timestamp() * 1000)
-
-    def _auto_load_saved_db(self):
-        saved_path = self._get_saved_db_path()
-        if not saved_path:
-            return False
-        try:
-            db_path = self._prepare_local_db_path(saved_path)
-        except Exception as e:
-            Logger.warning(f'APP: Failed to auto-load saved DB: {str(e)}')
-            return False
-        self.local_db_path = db_path
-        self.data_mode = 'local'
-        self.change_log_path = None
-        self._ensure_change_log_path()
-        if hasattr(self, 'mode_label'):
-            self.mode_label.text = 'Πηγή: Τοπική Βάση'
-        return True
-
-    def _copy_content_uri_to_file(self, uri_str: str) -> str:
-        target_dir = getattr(self, 'user_data_dir', None) or os.getcwd()
-        os.makedirs(target_dir, exist_ok=True)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        target_path = os.path.join(target_dir, f'local_db_{timestamp}.db')
-        if platform != 'android':
-            raise RuntimeError('Android file copy only supported on Android platform')
-        try:
-            from jnius import autoclass
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            current_activity = PythonActivity.mActivity
-            content_resolver = current_activity.getContentResolver()
-            Uri = autoclass('android.net.Uri')
-            input_stream = content_resolver.openInputStream(Uri.parse(uri_str))
-            if input_stream is None:
-                raise RuntimeError('Unable to open selected file')
-            FileOutputStream = autoclass('java.io.FileOutputStream')
-            output_stream = FileOutputStream(target_path)
-            # Create Java byte array for buffer
-            jbyte = autoclass('java.lang.Byte')
-            buf = autoclass('byte[]')(1024 * 1024)
-            while True:
-                count = input_stream.read(buf)
-                if count == -1:
-                    break
-                output_stream.write(buf, 0, count)
-            output_stream.flush()
-            output_stream.close()
-            input_stream.close()
-            return target_path
-        except Exception as e:
-            raise RuntimeError(f'Unable to read selected file: {str(e)}') from e
-
-    def _append_change_log(self, operation, table, payload):
-        try:
-            self._ensure_change_log_path()
-            record = {
-                'ts': datetime.now().isoformat(timespec='seconds'),
-                'operation': operation,
-                'table': table,
-                'payload': payload
-            }
-            with open(self.change_log_path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(record, ensure_ascii=False) + '\n')
-        except Exception as e:
-            Logger.warning(f'APP: Failed to write change log: {str(e)}')
-
-    def _get_local_conn(self):
-        if not self.local_db_path:
-            raise RuntimeError('Local DB path not set')
-        conn = sqlite3.connect(f'file:{self.local_db_path}?mode=ro', uri=True)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _local_table_columns(self, conn, table_name):
-        cur = conn.cursor()
-        cur.execute(f'PRAGMA table_info({table_name})')
-        return {row[1] for row in cur.fetchall()}
-
-    def _local_fetch_substations(self):
-        conn = self._get_local_conn()
-        cur = conn.cursor()
-        cur.execute('SELECT id, name, location, adoption_date, division FROM substations ORDER BY name')
-        substations = [dict(row) for row in cur.fetchall()]
-        conn.close()
-        return substations
-
-    def _local_fetch_elements(self, substation_id):
-        conn = self._get_local_conn()
-        cur = conn.cursor()
-        columns = self._local_table_columns(conn, 'elements')
-        desired = [
-            'id', 'substation_id', 'element_type', 'name', 'serial_number', 'maintenance_date',
-            'voltage_level', 'manufacturer', 'type', 'element_model_id', 'manufacture_year',
-            'model', 'model_version', 'operating_status', 'installation_space', 'maintenance_cycle',
-            'gate', 'is_main_switch', 'breaker_category'
-        ]
-        select_parts = []
-        for col in desired:
-            if col in columns:
-                select_parts.append(col)
-            elif col == 'gate' and 'bar' in columns:
-                select_parts.append('bar AS gate')
-            else:
-                select_parts.append(f"NULL AS {col}")
-        query = f"SELECT {', '.join(select_parts)} FROM elements WHERE substation_id = ? ORDER BY name"
-        cur.execute(query, (substation_id,))
-        rows = [dict(row) for row in cur.fetchall()]
-        conn.close()
-        return rows
-
-    def _local_insert(self, table, data):
-        return self._generate_temp_id()
-
-    def _local_delete(self, table, row_id):
-        return
-
-    def open_local_db_picker(self):
-        self._prompt_local_db_path()
-
-    def _on_local_db_selected(self, selection):
-        if selection and len(selection) > 0:
-            self.use_local_mode(selection[0])
-
-    def _prompt_local_db_path(self):
-        popup = Popup(title='Άνοιγμα Τοπικής Βάσης', size_hint=(0.9, 0.4))
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        layout.add_widget(Label(text='Δώσε πλήρες path του αρχείου .db'))
-        default_path = self._get_saved_db_path() or '/storage/emulated/0/Download/substations.db'
-        path_input = TextInput(text=default_path, hint_text='/storage/emulated/0/Download/substations.db', multiline=False)
-        layout.add_widget(path_input)
-
-        chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
-        choose_btn = Button(text='Αναζήτηση αρχείου')
-        choose_btn.disabled = not (filechooser or FileChooserListView)
-
-        def open_picker():
-            def _selected(selection):
-                try:
+            def open_picker():
+                def _selected(selection):
                     if not selection or len(selection) == 0:
                         self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
                         return
@@ -335,6 +200,158 @@ class SubstationAndroidApp(App):
                         selected_path = str(raw_value)
                     if selected_path.strip().lower() in ('', 'none', 'null'):
                         self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                        return
+                    Logger.info(f'APP: File chooser selected: {selected_path}')
+                    Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
+
+                try:
+                    if platform == 'android':
+                        self._open_android_document_picker(_selected)
+                        return
+                    if not filechooser:
+                        if FileChooserListView:
+                            self.show_error('Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.')
+                            return
+                        self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
+                        return
+                    filechooser.open_file(on_selection=_selected)
+                except Exception as e:
+                    Logger.error(f'APP: Exception in open_picker: {str(e)}')
+                    self.show_error(f'Σφάλμα ανοίγματος επιλογέα: {str(e)}')
+
+            choose_btn.bind(on_press=lambda _x: open_picker())
+            chooser_layout.add_widget(choose_btn)
+            layout.add_widget(chooser_layout)
+
+            if FileChooserListView:
+                chooser_path = os.path.dirname(default_path) if default_path else '/storage/emulated/0'
+                file_chooser = FileChooserListView(filters=['*.db'], path=chooser_path, size_hint_y=0.6)
+                def _file_list_selected(_instance, selection):
+                    if selection:
+                        raw_value = selection[0]
+                        if raw_value is None:
+                            self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                            return
+                        if isinstance(raw_value, bytes):
+                            selected_path = raw_value.decode('utf-8', errors='ignore')
+                        else:
+                            selected_path = str(raw_value)
+                        if selected_path.strip().lower() in ('', 'none', 'null'):
+                            self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                            return
+                        Logger.info(f'APP: File list selected: {selected_path}')
+                        Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
+                file_chooser.bind(selection=_file_list_selected)
+                file_chooser.bind(on_submit=lambda _instance, selection, _touch: _file_list_selected(_instance, selection))
+                layout.add_widget(file_chooser)
+
+            buttons = BoxLayout(size_hint_y=0.3, spacing=10)
+            open_btn = Button(text='Άνοιγμα')
+            open_btn.bind(on_press=lambda _x: (popup.dismiss(), self.use_local_mode(path_input.text.strip())))
+            cancel_btn = Button(text='Ακύρωση')
+            cancel_btn.bind(on_press=popup.dismiss)
+            buttons.add_widget(open_btn)
+            buttons.add_widget(cancel_btn)
+            layout.add_widget(buttons)
+            popup.content = layout
+            popup.open()
+
+        def _open_android_document_picker(self, on_selected):
+            if platform != 'android':
+                Logger.warning('APP: SAF picker only available on Android platform')
+                self.show_error('Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.')
+                return
+            try:
+                from android import activity
+                from jnius import autoclass
+            except Exception as e:
+                Logger.warning(f'APP: Android SAF picker not available: {str(e)}')
+                self.show_error('Ο επιλογέας αρχείων δεν είναι διαθέσιμος')
+                return
+
+            try:
+                Intent = autoclass('android.content.Intent')
+                Activity = autoclass('android.app.Activity')
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+
+                intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+                intent.addCategory(Intent.CATEGORY_OPENABLE)
+                intent.setType('*/*')
+
+                request_code = 61423
+
+                def _activity_result(req_code, result_code, data):
+                    if req_code != request_code:
+                        Logger.warning('APP: Activity result request code mismatch.')
+                        self.show_error('Εσωτερικό σφάλμα επιλογέα αρχείων.')
+                        return
+                    activity.unbind(on_activity_result=_activity_result)
+                    if result_code != Activity.RESULT_OK or data is None:
+                        Logger.warning('APP: Activity result not OK or data is None.')
+                        self.show_error('Η επιλογή αρχείου απέτυχε ή ακυρώθηκε.')
+                        return
+                    try:
+                        uri = data.getData()
+                        if uri is None:
+                            Logger.warning('APP: SAF picker returned None URI.')
+                            self.show_error('Ο επιλογέας επέστρεψε κενή επιλογή (None).')
+                            return
+                        uri_str = uri.toString()
+                        Logger.info(f'APP: SAF selected: {uri_str}')
+                        on_selected([uri_str])
+                    except Exception as e:
+                        Logger.warning(f'APP: SAF selection failed: {str(e)}')
+                        self.show_error('Σφάλμα κατά την επιλογή αρχείου: ' + str(e))
+
+                activity.bind(on_activity_result=_activity_result)
+                current_activity = PythonActivity.mActivity
+                current_activity.startActivityForResult(intent, request_code)
+            except Exception as e:
+                Logger.warning(f'APP: Failed to open SAF picker: {str(e)}')
+                self.show_error('Αποτυχία ανοίγματος επιλογέα αρχείων: ' + str(e))
+
+        def use_local_mode(self, db_path):
+            if not db_path or str(db_path).strip().lower() in ('none', 'null'):
+                self.show_error('Δεν επιλέχθηκε αρχείο βάσης')
+                return
+            try:
+                db_path = self._prepare_local_db_path(db_path)
+            except FileNotFoundError:
+                self.show_error('Το αρχείο βάσης δεν βρέθηκε')
+                return
+            except Exception as e:
+                self.show_error(f'Αποτυχία ανοίγματος βάσης: {str(e)}')
+                return
+            self.local_db_path = db_path
+            self._set_saved_db_path(db_path)
+            self.data_mode = 'local'
+            self.change_log_path = None
+            self._ensure_change_log_path()
+            if hasattr(self, 'mode_label'):
+                self.mode_label.text = 'Πηγή: Τοπική Βάση'
+            self.load_substations(None)
+
+        def _prepare_local_db_path(self, path_value: str) -> str:
+            normalized = self._normalize_android_storage_path(path_value)
+            if normalized.startswith('content://'):
+                return self._copy_content_uri_to_file(normalized)
+            if not os.path.exists(normalized):
+                raise FileNotFoundError(normalized)
+            return normalized
+
+        def _normalize_android_storage_path(self, path_value: str) -> str:
+            if not path_value:
+                return path_value
+            normalized = path_value.strip().replace('\\', '/')
+            prefix_map = [
+                '/Εσωτερικός χώρος αποθήκευσης',
+                '/Internal storage',
+            ]
+            for prefix in prefix_map:
+                if normalized.startswith(prefix):
+                    normalized = '/storage/emulated/0' + normalized[len(prefix):]
+                    break
+            return normalized
                         return
                     Logger.info(f'APP: File chooser selected: {selected_path}')
                     Clock.schedule_once(lambda _dt: setattr(path_input, 'text', selected_path), 0)
@@ -485,18 +502,8 @@ class SubstationAndroidApp(App):
         self._ensure_change_log_path()
         if hasattr(self, 'mode_label'):
             self.mode_label.text = 'Πηγή: Τοπική Βάση'
-        # Show info popup instead of error (optional, can be removed if not needed)
-        try:
-            self.load_substations(None)
-        except Exception as e:
-            # Show a popup with the error details
-            error_msg = f'Σφάλμα κατά το άνοιγμα της βάσης ή τη φόρτωση υποσταθμών:\n{str(e)}'
-            try:
-                import traceback
-                error_msg += f"\n\n{traceback.format_exc()}"
-            except Exception:
-                pass
-            self.show_error(error_msg)
+        # Only load substations if DB is valid and loaded
+        self.load_substations(None)
 
     def _normalize_android_storage_path(self, path_value: str) -> str:
         if not path_value:
