@@ -695,10 +695,12 @@ class SubstationAndroidApp(App):
             self.add_substation_btn.bind(on_press=self.show_add_substation_popup)
             button_layout.add_widget(self.add_substation_btn)
 
-            # Add a persistent Change-log button to open share/open actions
-            change_log_btn = Button(text="Change-log")
-            change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
-            button_layout.add_widget(change_log_btn)
+            # Add a persistent Save Change-log button to choose where to store the
+            # change-log file (user selects a folder; file will be saved as
+            # <chosen_folder>/change_log.txt).
+            save_cl_btn = Button(text="Save change-log")
+            save_cl_btn.bind(on_press=lambda _x: self.choose_change_log_folder())
+            button_layout.add_widget(save_cl_btn)
 
             main_layout.add_widget(button_layout)
             Logger.info("APP: Buttons added")
@@ -1206,6 +1208,150 @@ class SubstationAndroidApp(App):
                     clip.Clipboard.copy(change_log_path)
             except Exception:
                 pass
+
+    def choose_change_log_folder(self):
+        """Let the user choose a folder to save the change-log file.
+
+        On desktop this uses a `FileChooserListView` popup when available.
+        On Android we attempt to use the FileChooser widget if available; if
+        not, we fall back to a sensible default folder (Downloads or
+        application storage).
+        """
+        # Determine sensible default path
+        try:
+            default_parent = None
+            if hasattr(self, "user_data_dir") and self.user_data_dir:
+                default_parent = self.user_data_dir
+            else:
+                if platform == "android":
+                    try:
+                        from android.storage import primary_external_storage_path
+
+                        default_parent = os.path.join(
+                            primary_external_storage_path(), "Download"
+                        )
+                    except Exception:
+                        default_parent = os.path.join(os.getcwd(), "user_data")
+                else:
+                    default_parent = os.path.join(os.path.expanduser("~"), "Documents")
+            os.makedirs(default_parent, exist_ok=True)
+        except Exception:
+            default_parent = os.getcwd()
+
+        popup = Popup(title="Save change log - choose folder", size_hint=(0.95, 0.85))
+        layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+
+        path_input = TextInput(text=default_parent, multiline=False)
+        layout.add_widget(Label(text="Selected folder:"))
+        layout.add_widget(path_input)
+
+        # If FileChooserListView is available, present it so users can navigate
+        if FileChooserListView:
+            try:
+                chooser = FileChooserListView(path=default_parent, dirselect=True)
+
+                def _on_selection(_instance, selection):
+                    if selection and len(selection) > 0:
+                        sel = selection[0]
+                        # If a file was selected, take its directory
+                        if os.path.isfile(sel):
+                            sel = os.path.dirname(sel)
+                        Clock.schedule_once(lambda _dt: setattr(path_input, "text", sel), 0)
+
+                chooser.bind(selection=_on_selection)
+                layout.add_widget(chooser)
+            except Exception:
+                # If FileChooserListView fails, continue with path input only
+                pass
+
+        btn_row = BoxLayout(size_hint_y=None, height=48, spacing=8)
+        use_btn = Button(text="Use this folder")
+
+        def _use_folder(_):
+            chosen = path_input.text.strip()
+            if not chosen:
+                self.show_error("Επιλέξτε έναν φάκελο")
+                return
+            # Ensure directory exists
+            try:
+                os.makedirs(chosen, exist_ok=True)
+            except Exception as e:
+                self.show_error(f"Αποτυχία δημιουργίας φακέλου: {e}")
+                return
+            # Set change_log_path
+            self.change_log_path = os.path.join(chosen, "change_log.txt")
+            # Create file if missing
+            try:
+                with open(self.change_log_path, "a", encoding="utf-8"):
+                    pass
+            except Exception:
+                try:
+                    self.show_error("Αποτυχία δημιουργίας αρχείου change_log.txt σε αυτόν τον φάκελο")
+                except Exception:
+                    pass
+                return
+            # Notify user and close popup
+            try:
+                self._notify_change_log_saved(self.change_log_path)
+            except Exception:
+                pass
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+
+        use_btn.bind(on_press=_use_folder)
+        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn.bind(on_press=popup.dismiss)
+        btn_row.add_widget(use_btn)
+        btn_row.add_widget(cancel_btn)
+        layout.add_widget(btn_row)
+        popup.content = layout
+        popup.open()
+
+    def _notify_change_log_saved(self, change_log_path):
+        """Show a brief non-modal notice telling the user where the change-log was saved."""
+        try:
+            notice = BoxLayout(size_hint_y=None, height=64, spacing=10, padding=8)
+            label = Label(
+                text=f"Οι αλλαγές θα αποθηκεύονται στο: {change_log_path}",
+                halign="left",
+                valign="middle",
+            )
+            label.size_hint_y = None
+
+            def _bind_width(instance, value):
+                instance.text_size = (value, None)
+
+            label.bind(width=_bind_width)
+            label.bind(texture_size=lambda inst, val: setattr(inst, "height", val[1]))
+
+            copy_btn = Button(text="Αντιγραφή διαδρομής", size_hint_x=None, width=180)
+
+            def _copy(_):
+                try:
+                    from kivy.core.clipboard import Clipboard
+
+                    Clipboard.copy(change_log_path)
+                except Exception:
+                    pass
+
+            copy_btn.bind(on_press=_copy)
+            notice.add_widget(copy_btn)
+            notice.add_widget(label)
+
+            if hasattr(self, "content_layout") and getattr(self, "content_layout") is not None:
+                try:
+                    self.content_layout.add_widget(notice, index=0)
+                except Exception:
+                    self.content_layout.add_widget(notice)
+                Clock.schedule_once(lambda _dt: (notice.parent and notice.parent.remove_widget(notice)), 20)
+            else:
+                p = Popup(title="Change log folder", content=notice, size_hint=(0.9, 0.12), auto_dismiss=True)
+                p.open()
+                Clock.schedule_once(lambda _dt: p.dismiss(), 20)
+        except Exception:
+            pass
 
     def _copy_content_uri_to_file(self, uri):
         # Copy a content:// URI to a local file and return the path.
