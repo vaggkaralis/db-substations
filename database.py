@@ -1,7 +1,10 @@
 import sqlite3
+from settings import DB_PATH
 
 
-def init_db(db_path: str = "substations.db") -> sqlite3.Connection:
+def init_db(db_path: str = None) -> sqlite3.Connection:
+    if db_path is None:
+        db_path = DB_PATH
     """Initialize SQLite connection, ensure tables exist, and apply lightweight migrations."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()

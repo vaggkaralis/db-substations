@@ -5,6 +5,7 @@ Uses PyInstaller to bundle the Kivy application
 
 import PyInstaller.__main__
 import os
+from settings import DB_FILENAME
 
 # Get the directory of this script
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +21,7 @@ data_files = [
     "VERSION",
     "elements_import_template.xlsx",
     "επιθεωρήσεις_template.xlsx",
-    "substations.db",
+    DB_FILENAME,
 ]
 
 add_data_args = []

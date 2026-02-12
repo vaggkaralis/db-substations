@@ -9,8 +9,7 @@ import unicodedata
 from datetime import datetime
 
 from database import init_db
-
-DEFAULT_DB_PATH = os.environ.get("DATABASE_PATH", "substations.db")
+from settings import DB_PATH as DEFAULT_DB_PATH
 
 
 def _get_table_columns(conn, table_name):

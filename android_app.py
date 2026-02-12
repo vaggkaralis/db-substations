@@ -17,6 +17,11 @@ from kivy.logger import Logger
 Logger.info("APP: ========== Starting DB Substations App ==========")
 Logger.info(f"APP: Python version: {sys.version}")
 
+try:
+    from settings import ANDROID_DEFAULT_DB_PATH
+except Exception:
+    ANDROID_DEFAULT_DB_PATH = "/storage/emulated/0/Download/substations.db"
+
 
 # Global exception handler to catch any uncaught exceptions
 def _global_exception_handler(exc_type, exc_value, exc_traceback):
@@ -214,12 +219,8 @@ class SubstationAndroidApp(App):
         popup = Popup(title="Άνοιγμα Τοπικής Βάσης", size_hint=(0.9, 0.4))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
         layout.add_widget(Label(text="Δώσε πλήρες path του αρχείου .db"))
-        default_path = "/storage/emulated/0/Download/substations.db"
-        path_input = TextInput(
-            text=default_path,
-            hint_text="/storage/emulated/0/Download/substations.db",
-            multiline=False,
-        )
+        default_path = ANDROID_DEFAULT_DB_PATH
+        path_input = TextInput(text=default_path, hint_text=ANDROID_DEFAULT_DB_PATH, multiline=False)
         layout.add_widget(path_input)
 
         chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)

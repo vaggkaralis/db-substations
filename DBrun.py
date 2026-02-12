@@ -23,6 +23,11 @@ from email_eml_parser import parse_eml_file
 
 import importlib
 import kivy
+from validation import (
+    is_interconnection_gate,
+    validate_gate_assignment,
+    validate_breaker_category_required,
+)
 
 # Ensure the requested Kivy version before loading submodules
 kivy.require("2.0.0")
@@ -398,6 +403,28 @@ class SubstationApp(App):
         "Πτωχού Ελαίου",
         "Ελαίου",
     ]  # All breaker categories
+
+    def _format_elem_type(self, elem_type, is_main_switch):
+        """Return element type with breaker subtype in parentheses for breakers.
+
+        Ensures circuit breakers always show a subtype (Κεντρικός/Γραμμής/Διασυνδετικός/Διακόπτης Πυκνωτών).
+        """
+        if elem_type not in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+            return elem_type
+        try:
+            if elem_type == "Διακόπτης ΥΤ":
+                label = "Κεντρικός"
+            elif is_main_switch == 1:
+                label = "Κεντρικός"
+            elif is_main_switch == 2:
+                label = "Διασυνδετικός"
+            elif is_main_switch == 3:
+                label = "Διακόπτης Πυκνωτών"
+            else:
+                label = "Γραμμής"
+        except Exception:
+            label = "Γραμμής"
+        return f"{elem_type} ({label})"
     BREAKER_CATEGORIES_HV = ["SF6", "Κενού", "Ελαίου"]  # HV breaker categories
     BREAKER_CATEGORIES_MV = [
         "SF6",
@@ -3252,13 +3279,16 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
-    def get_available_gates(self, substation_id, is_interconnection=False):
+    def get_available_gates(self, substation_id, is_interconnection=None):
         """Get available gates (ΠΥΛΗ) based on existing transformers in the substation
 
         Args:
             substation_id: The ID of the substation
             is_interconnection: If True, returns interconnection gates (1-2, 2-3, etc.)
                                If False, returns regular gates (1, 2, 3, etc.)
+                               If None (default), returns both regular and interconnection
+                               gates when multiple transformers exist so the caller can
+                               choose combined gates (e.g., ΠΥΛΗ 1-2).
         """
         c = self.conn.cursor()
         # Get all transformers for this substation, ordered by name
@@ -3272,12 +3302,19 @@ class SubstationApp(App):
 
         num_gates = len(transformers)
 
-        if is_interconnection:
-            # Generate interconnection gates: ΠΥΛΗ 1-2, ΠΥΛΗ 2-3, etc.
-            gates = [f"ΠΥΛΗ {i}-{i + 1}" for i in range(1, num_gates)]
+        # Regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, ...
+        regular = [f"ΠΥΛΗ {i + 1}" for i in range(num_gates)]
+        # Interconnection gates: ΠΥΛΗ 1-2, ΠΥΛΗ 2-3, ...
+        inter = [f"ΠΥΛΗ {i}-{i + 1}" for i in range(1, num_gates)]
+
+        if is_interconnection is True:
+            gates = inter
+        elif is_interconnection is False:
+            gates = regular
         else:
-            # Generate regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, etc.
-            gates = [f"ΠΥΛΗ {i + 1}" for i in range(num_gates)]
+            # Default: if there are multiple transformers, include both regular and interconnection
+            # so users can pick gates that span transformers (e.g., 1-2).
+            gates = regular + inter
 
         # Always include option for unassigned
         return ["(Μη καταχωρημένο)"] + gates
@@ -3495,7 +3532,22 @@ class SubstationApp(App):
         all_substations = c.fetchall()
 
         if not all_substations:
-            show_message_popup("Σφάλμα", "Δεν υπάρχουν υποσταθμοί στη βάση!")
+            # Show a popup offering to add a new substation when DB is empty
+            empty_popup = Popup(title="Δεν βρέθηκαν Υποσταθμοί", size_hint=(0.6, 0.4))
+            v = BoxLayout(orientation="vertical", padding=10, spacing=10)
+            v.add_widget(Label(text="Δεν υπάρχουν υποσταθμοί στη βάση!"))
+            btn_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            add_btn = Button(text="Προσθήκη Υποσταθμού")
+            add_btn.bind(on_press=lambda _x: (empty_popup.dismiss(), self.show_add_substation_popup(None)))
+            cancel_btn = Button(text="Ακύρωση")
+            cancel_btn.bind(on_press=empty_popup.dismiss)
+            btn_row.add_widget(Widget())
+            btn_row.add_widget(add_btn)
+            btn_row.add_widget(cancel_btn)
+            btn_row.add_widget(Widget())
+            v.add_widget(btn_row)
+            empty_popup.content = v
+            empty_popup.open()
             return
 
         # Create selection popup
@@ -3661,6 +3713,7 @@ class SubstationApp(App):
         reuse_popup=None,
         element_type_filter=None,
         gate_filter=None,
+        prev_scroll_y=None,
     ):
         c = self.conn.cursor()
         if filter_name:
@@ -3728,7 +3781,7 @@ class SubstationApp(App):
             )
             inactive_count_map = {sid: cnt for sid, cnt in c.fetchall()}
 
-        # Create popup window
+        # Create popup window (reuse if requested)
         popup = (
             reuse_popup if reuse_popup else Popup(title=title, size_hint=(0.95, 0.9))
         )
@@ -3741,6 +3794,14 @@ class SubstationApp(App):
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         grid = GridLayout(cols=1, spacing=5, size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
+
+        # If a previous scroll position was provided, restore it after layout
+        if prev_scroll_y is not None:
+            try:
+                # schedule after frame to ensure widgets have size
+                Clock.schedule_once(lambda dt: setattr(scroll, "scroll_y", float(prev_scroll_y)), 0)
+            except Exception:
+                pass
 
         if substations:
             for (
@@ -4182,7 +4243,7 @@ class SubstationApp(App):
                                     breaker_type_label = "Διακόπτης Πυκνωτών"
                                 else:
                                     breaker_type_label = "Γραμμής"
-                                elem_type = f"{elem_type} ({breaker_type_label})"
+                                elem_type = self._format_elem_type(elem_type, is_main_switch)
 
                             breaker_info = (
                                 f" | {breaker_category}" if breaker_category else ""
@@ -4530,7 +4591,11 @@ class SubstationApp(App):
                 except Exception:
                     db_file = None
                 if not db_file:
-                    db_file = "substations.db"
+                    try:
+                        from settings import DB_PATH as _dbpath
+                        db_file = _dbpath
+                    except Exception:
+                        db_file = "substations.db"
                 import shutil
                 import time
 
@@ -5444,6 +5509,24 @@ class SubstationApp(App):
 
         # Handler to refresh gates when breaker type changes
         def on_breaker_type_change(spinner, text):
+            def _format_elem_type(self, elem_type, is_main_switch):
+                """Return element type with breaker subtype in parentheses for breakers.
+
+                Ensures circuit breakers always show a subtype (Κεντρικός/Γραμμής/Διασυνδετικός/Διακόπτης Πυκνωτών).
+                """
+                if elem_type not in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+                    return elem_type
+                if elem_type == "Διακόπτης ΥΤ":
+                    label = "Κεντρικός"
+                elif is_main_switch == 1:
+                    label = "Κεντρικός"
+                elif is_main_switch == 2:
+                    label = "Διασυνδετικός"
+                elif is_main_switch == 3:
+                    label = "Διακόπτης Πυκνωτών"
+                else:
+                    label = "Γραμμής"
+                return f"{elem_type} ({label})"
             is_interconnection = text == "Διασυνδετικός"
             available_gates = self.get_available_gates(
                 substation_id, is_interconnection
@@ -5566,6 +5649,15 @@ class SubstationApp(App):
             if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
                 breaker_category_value = breaker_category_spinner.text
 
+            # Validate breaker category for circuit breakers (prevent emptying)
+            if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and (
+                breaker_category_value is None or str(breaker_category_value).strip() == ""
+            ):
+                show_message_popup(
+                    "Σφάλμα", "Η κατηγορία διακόπτη είναι υποχρεωτική για τους διακόπτες!"
+                )
+                return
+
             # Update is_main_switch based on element type and breaker type selection
             if elem_type == "Διακόπτης ΥΤ":
                 # HV breakers are always main breakers
@@ -5587,6 +5679,35 @@ class SubstationApp(App):
                 if voltage_level_spinner.text != "(Κενό)"
                 else ""
             )
+
+            try:
+                validate_gate_assignment(elem_type, breaker_type_spinner.text, gate_value)
+            except ValueError as e:
+                show_message_popup("Σφάλμα", str(e))
+                return
+
+            # Validate that removing/moving this main breaker won't leave the gate without required mains
+            try:
+                if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                    # if this element was previously a main breaker and is being changed to non-main or moved
+                    if is_main_switch == 1 and (
+                        new_is_main_switch != 1 or gate_value != (gate or "")
+                    ):
+                        # count remaining main breakers of this voltage level in the old gate
+                        old_gate = gate or ""
+                        c.execute(
+                            "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
+                            (substation_id, old_gate, elem_type, element_id),
+                        )
+                        remaining = c.fetchone()[0]
+                        if remaining == 0:
+                            show_message_popup(
+                                "Σφάλμα",
+                                f"Η πύλη '{old_gate or '(Μη καταχωρημένο)'}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
+                            )
+                            return
+            except Exception:
+                pass
 
             c.execute(
                 """UPDATE elements SET 
@@ -5690,21 +5811,45 @@ class SubstationApp(App):
         self, element_id, substation_id, parent_popup, substation_name=None
     ):
         c = self.conn.cursor()
+        # Fetch element info to validate main-breaker constraints
+        c.execute(
+            "SELECT element_type, gate, is_main_switch FROM elements WHERE id=?",
+            (element_id,),
+        )
+        row = c.fetchone()
+        if row:
+            elem_type, gate, is_main = row
+            if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and is_main == 1:
+                gate_value = gate or ""
+                c.execute(
+                    "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
+                    (substation_id, gate_value, elem_type, element_id),
+                )
+                remaining = c.fetchone()[0]
+                if remaining == 0:
+                    show_message_popup(
+                        "Σφάλμα",
+                        f"Η πύλη '{gate_value or '(Μη καταχωρημένο)'}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
+                    )
+                    return
+        # Capture current scroll position in case the parent popup is a listing
+        prev_scroll = None
+        try:
+            prev_scroll = self._get_popup_scroll_y(parent_popup)
+        except Exception:
+            prev_scroll = None
+
         c.execute("DELETE FROM elements WHERE id=?", (element_id,))
         self.conn.commit()
-        parent_popup.dismiss()
+
+        # Refresh the listing in-place to preserve scroll position if possible
         if substation_name:
-            show_message_popup(
-                "Ολοκληρώθηκε",
-                "Το στοιχείο διαγράφηκε!",
-                callback=lambda: self._display_substations(substation_name),
-            )
+            self._display_substations(substation_name, reuse_popup=parent_popup, prev_scroll_y=prev_scroll)
+            show_message_popup("Ολοκληρώθηκε", "Το στοιχείο διαγράφηκε!")
         else:
-            show_message_popup(
-                "Ολοκληρώθηκε",
-                "Το στοιχείο διαγράφηκε!",
-                callback=lambda: self.show_records(None),
-            )
+            # For global listing, reuse popup and restore scroll
+            self._display_substations(None, reuse_popup=parent_popup, prev_scroll_y=prev_scroll)
+            show_message_popup("Ολοκληρώθηκε", "Το στοιχείο διαγράφηκε!")
 
     def show_inactive_elements(self, substation_id, substation_name, parent_popup):
         """Show list of inactive elements for a substation"""
@@ -5773,7 +5918,7 @@ class SubstationApp(App):
                         breaker_type_label = "Διακόπτης Πυκνωτών"
                     else:
                         breaker_type_label = "Γραμμής"
-                    display_elem_type = f"{elem_type} ({breaker_type_label})"
+                    display_elem_type = self._format_elem_type(elem_type, is_main_switch)
 
                 # Element info
                 info_text = f"[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'} (id:{elem_id})"
@@ -5806,6 +5951,23 @@ class SubstationApp(App):
 
         popup.content = main_layout
         popup.open()
+
+    def _get_popup_scroll_y(self, popup):
+        """Return the first ScrollView.scroll_y found inside popup.content or None."""
+        def _find_scroll(widget):
+            from kivy.uix.scrollview import ScrollView
+
+            if isinstance(widget, ScrollView):
+                return widget.scroll_y
+            for child in getattr(widget, "children", []):
+                res = _find_scroll(child)
+                if res is not None:
+                    return res
+            return None
+
+        if not popup or not hasattr(popup, "content"):
+            return None
+        return _find_scroll(popup.content)
 
     def confirm_delete_substation(self, substation_id, substation_name, parent_popup):
         """Confirm before deleting a substation and its elements."""
@@ -5843,11 +6005,18 @@ class SubstationApp(App):
         # Then delete the substation
         c.execute("DELETE FROM substations WHERE id=?", (substation_id,))
         self.conn.commit()
-        parent_popup.dismiss()
+        # Try to preserve scroll position in the listing popup
+        prev_scroll = None
+        try:
+            prev_scroll = self._get_popup_scroll_y(parent_popup)
+        except Exception:
+            prev_scroll = None
+
+        # Refresh in-place using the same popup so scroll position can be restored
+        self._display_substations(None, reuse_popup=parent_popup, prev_scroll_y=prev_scroll)
         show_message_popup(
             "Ολοκληρώθηκε",
             "Ο υποσταθμός και όλα τα στοιχεία του διαγράφηκαν!",
-            callback=lambda: self.show_records(None),
         )
 
     def show_edit_substation_popup(
@@ -6015,14 +6184,15 @@ class SubstationApp(App):
         # Update gates when substation changes
         def on_substation_change(spinner, text):
             substation_id = self.substations_map[text]
-            # Check if current element type is a breaker and breaker type is Διασυνδετικός
-            is_interconnection = (
-                element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]
-                and breaker_type_spinner.text == "Διασυνδετικός"
-            )
-            available_gates = self.get_available_gates(
-                substation_id, is_interconnection
-            )
+            # Determine available gates. For breakers show interconnection-only when
+            # breaker type is 'Διασυνδετικός', otherwise show regular gates only.
+            if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                if breaker_type_spinner.text == "Διασυνδετικός":
+                    available_gates = self.get_available_gates(substation_id, True)
+                else:
+                    available_gates = self.get_available_gates(substation_id, False)
+            else:
+                available_gates = self.get_available_gates(substation_id, False)
             gate_spinner.values = available_gates
             gate_spinner.text = (
                 available_gates[0] if available_gates else "(Μη καταχωρημένο)"
@@ -6042,13 +6212,14 @@ class SubstationApp(App):
         # Update gates when breaker type changes
         def on_breaker_type_change(spinner, text):
             substation_id = self.substations_map[substation_spinner.text]
-            is_interconnection = (
-                element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]
-                and text == "Διασυνδετικός"
-            )
-            available_gates = self.get_available_gates(
-                substation_id, is_interconnection
-            )
+            # Update gates: when breaker type is interconnection show inter gates only
+            if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                if text == "Διασυνδετικός":
+                    available_gates = self.get_available_gates(substation_id, True)
+                else:
+                    available_gates = self.get_available_gates(substation_id, False)
+            else:
+                available_gates = self.get_available_gates(substation_id, False)
             gate_spinner.values = available_gates
             gate_spinner.text = (
                 available_gates[0] if available_gates else "(Μη καταχωρημένο)"
@@ -6159,12 +6330,12 @@ class SubstationApp(App):
                     idx = layout.children.index(model_spinner)
                     layout.add_widget(breaker_type_spinner, index=idx)
                     layout.add_widget(breaker_type_label, index=idx + 1)
-                # Update gates based on breaker type
+                # For breakers show both regular and interconnection gates by default
                 substation_id = self.substations_map[substation_spinner.text]
-                is_interconnection = breaker_type_spinner.text == "Διασυνδετικός"
-                available_gates = self.get_available_gates(
-                    substation_id, is_interconnection
-                )
+                if breaker_type_spinner.text == "Διασυνδετικός":
+                    available_gates = self.get_available_gates(substation_id, True)
+                else:
+                    available_gates = self.get_available_gates(substation_id, False)
                 gate_spinner.values = available_gates
                 gate_spinner.text = (
                     available_gates[0] if available_gates else "(Μη καταχωρημένο)"
@@ -6293,10 +6464,22 @@ class SubstationApp(App):
                 gate_spinner.text if gate_spinner.text != "(Μη καταχωρημένο)" else ""
             )
 
+            try:
+                validate_gate_assignment(element_type, breaker_type_spinner.text, gate_value)
+            except ValueError as e:
+                show_message_popup("Σφάλμα", str(e))
+                return
+
             # Get breaker category for circuit breakers
             breaker_category_value = None
             if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
                 breaker_category_value = breaker_category_spinner.text
+
+            try:
+                validate_breaker_category_required(element_type, breaker_category_value)
+            except ValueError as e:
+                show_message_popup("Σφάλμα", str(e))
+                return
 
             # Get model_id if selected
             model_id = None
@@ -6450,14 +6633,14 @@ class SubstationApp(App):
         # Update gates when substation changes
         def on_substation_change(spinner, text):
             selected_substation_id = substation_map[text]
-            # Check if current element type is a breaker and breaker type is Διασυνδετικός
-            is_interconnection = (
-                element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]
-                and breaker_type_spinner.text == "Διασυνδετικός"
-            )
-            available_gates = self.get_available_gates(
-                selected_substation_id, is_interconnection
-            )
+            # For breakers: interconnection gates only when breaker type is Διασυνδετικός
+            if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                if breaker_type_spinner.text == "Διασυνδετικός":
+                    available_gates = self.get_available_gates(selected_substation_id, True)
+                else:
+                    available_gates = self.get_available_gates(selected_substation_id, False)
+            else:
+                available_gates = self.get_available_gates(selected_substation_id, False)
             gate_spinner.values = available_gates
             gate_spinner.text = (
                 available_gates[0] if available_gates else "(Μη καταχωρημένο)"
@@ -6477,13 +6660,13 @@ class SubstationApp(App):
         # Update gates when breaker type changes
         def on_breaker_type_change(spinner, text):
             selected_substation_id = substation_map[substation_spinner.text]
-            is_interconnection = (
-                element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]
-                and text == "Διασυνδετικός"
-            )
-            available_gates = self.get_available_gates(
-                selected_substation_id, is_interconnection
-            )
+            if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                if text == "Διασυνδετικός":
+                    available_gates = self.get_available_gates(selected_substation_id, True)
+                else:
+                    available_gates = self.get_available_gates(selected_substation_id, False)
+            else:
+                available_gates = self.get_available_gates(selected_substation_id, False)
             gate_spinner.values = available_gates
             gate_spinner.text = (
                 available_gates[0] if available_gates else "(Μη καταχωρημένο)"
@@ -6639,16 +6822,16 @@ class SubstationApp(App):
                         breaker_type_label,
                         index=input_layout.children.index(breaker_type_spinner) + 1,
                     )
-                # Refresh gates based on current breaker type
-                is_interconnection = breaker_type_spinner.text == "Διασυνδετικός"
-                available_gates = self.get_available_gates(
-                    substation_id, is_interconnection
-                )
-                gate_spinner.values = available_gates
-                if gate_spinner.text not in available_gates:
-                    gate_spinner.text = (
-                        available_gates[0] if available_gates else "(Μη καταχωρημένο)"
-                    )
+                    # For MV breakers show only interconnection gates when selected as such
+                    if breaker_type_spinner.text == "Διασυνδετικός":
+                        available_gates = self.get_available_gates(substation_id, True)
+                    else:
+                        available_gates = self.get_available_gates(substation_id, False)
+                    gate_spinner.values = available_gates
+                    if gate_spinner.text not in available_gates:
+                        gate_spinner.text = (
+                            available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+                        )
             else:
                 if breaker_type_label in input_layout.children:
                     input_layout.remove_widget(breaker_type_label)
@@ -6782,6 +6965,15 @@ class SubstationApp(App):
             breaker_category_value = None
             if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
                 breaker_category_value = breaker_category_spinner.text
+
+            # Validate breaker category is provided for circuit breakers
+            if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and (
+                breaker_category_value is None or str(breaker_category_value).strip() == ""
+            ):
+                show_message_popup(
+                    "Σφάλμα", "Παρακαλώ επιλέξτε κατηγορία διακόπτη!"
+                )
+                return
 
             # Validate maintenance_cycle is a number
             maintenance_cycle = values.get("maintenance_cycle", "0")
@@ -7357,7 +7549,8 @@ class SubstationApp(App):
                     is_breaker = elem_type in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]
 
                     # Build element display text with breaker type, manufacturer, and model
-                    elem_display = f"[b]{elem_name}[/b] - {elem_type}"
+                    display_type = self._format_elem_type(elem_type, is_main_switch)
+                    elem_display = f"[b]{elem_name}[/b] - {display_type}"
                     if breaker_category:
                         elem_display += f" ({breaker_category})"
                     elem_display += f"\nS/N: {serial_number or '-'}"
