@@ -22,43 +22,111 @@ from import_wizard import ColumnMappingPopup, DataValidationPopup
 from email_eml_parser import parse_eml_file
 
 import importlib
-import kivy
+try:
+    import kivy
+    # Ensure the requested Kivy version before loading submodules
+    kivy.require("2.0.0")
+
+    # Dynamically import Kivy submodules (avoid static imports after code)
+    App = importlib.import_module("kivy.app").App
+    BoxLayout = importlib.import_module("kivy.uix.boxlayout").BoxLayout
+    Button = importlib.import_module("kivy.uix.button").Button
+    Label = importlib.import_module("kivy.uix.label").Label
+    TextInput = importlib.import_module("kivy.uix.textinput").TextInput
+    Popup = importlib.import_module("kivy.uix.popup").Popup
+    GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
+    ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
+    Spinner = importlib.import_module("kivy.uix.spinner").Spinner
+    CheckBox = importlib.import_module("kivy.uix.checkbox").CheckBox
+    FileChooserListView = importlib.import_module(
+        "kivy.uix.filechooser"
+    ).FileChooserListView
+    Image = importlib.import_module("kivy.uix.image").Image
+    ButtonBehavior = importlib.import_module("kivy.uix.behaviors").ButtonBehavior
+    Widget = importlib.import_module("kivy.uix.widget").Widget
+    AnchorLayout = importlib.import_module("kivy.uix.anchorlayout").AnchorLayout
+    StringProperty = importlib.import_module("kivy.properties").StringProperty
+    ListProperty = importlib.import_module("kivy.properties").ListProperty
+    Color = importlib.import_module("kivy.graphics").Color
+    Rectangle = importlib.import_module("kivy.graphics").Rectangle
+    Ellipse = importlib.import_module("kivy.graphics").Ellipse
+    Line = importlib.import_module("kivy.graphics").Line
+    Window = importlib.import_module("kivy.core.window").Window
+    CoreImage = importlib.import_module("kivy.core.image").Image
+    Clipboard = importlib.import_module("kivy.core.clipboard").Clipboard
+    Clock = importlib.import_module("kivy.clock").Clock
+except Exception:
+    # Running in test environment without Kivy available — provide lightweight stubs
+    class _StubWidget:
+        def __init__(self, *a, **k):
+            pass
+
+        def __call__(self, *a, **k):
+            return _StubWidget()
+
+    class _StubBehavior:
+        def __init__(self, *a, **k):
+            pass
+
+    App = _StubWidget
+    BoxLayout = _StubWidget
+    Button = _StubWidget
+    Label = _StubWidget
+    TextInput = _StubWidget
+    Popup = _StubWidget
+    GridLayout = _StubWidget
+    ScrollView = _StubWidget
+    Spinner = _StubWidget
+    CheckBox = _StubWidget
+    FileChooserListView = _StubWidget
+    Image = _StubWidget
+    ButtonBehavior = _StubBehavior
+    Widget = _StubWidget
+    AnchorLayout = _StubWidget
+
+    class StringProperty:
+        def __init__(self, *a, **k):
+            pass
+
+    class ListProperty:
+        def __init__(self, *a, **k):
+            pass
+
+    def Color(*a, **k):
+        return None
+
+    Rectangle = _StubWidget
+    Ellipse = _StubWidget
+    Line = _StubWidget
+
+    class Window:
+        modifiers = []
+
+        @staticmethod
+        def maximize():
+            return None
+
+        @staticmethod
+        def bind(*a, **k):
+            return None
+
+    CoreImage = _StubWidget
+    Clipboard = _StubWidget
+
+    class Clock:
+        @staticmethod
+        def schedule_once(cb, t=0):
+            # run immediately in tests to avoid scheduling
+            try:
+                cb(0)
+            except Exception:
+                pass
 from validation import (
     is_interconnection_gate,
     validate_gate_assignment,
     validate_breaker_category_required,
 )
-
-# Ensure the requested Kivy version before loading submodules
-kivy.require("2.0.0")
-
-# Dynamically import Kivy submodules (avoid static imports after code)
-App = importlib.import_module("kivy.app").App
-BoxLayout = importlib.import_module("kivy.uix.boxlayout").BoxLayout
-Button = importlib.import_module("kivy.uix.button").Button
-Label = importlib.import_module("kivy.uix.label").Label
-TextInput = importlib.import_module("kivy.uix.textinput").TextInput
-Popup = importlib.import_module("kivy.uix.popup").Popup
-GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
-ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
-Spinner = importlib.import_module("kivy.uix.spinner").Spinner
-CheckBox = importlib.import_module("kivy.uix.checkbox").CheckBox
-FileChooserListView = importlib.import_module(
-    "kivy.uix.filechooser"
-).FileChooserListView
-Image = importlib.import_module("kivy.uix.image").Image
-ButtonBehavior = importlib.import_module("kivy.uix.behaviors").ButtonBehavior
-Widget = importlib.import_module("kivy.uix.widget").Widget
-StringProperty = importlib.import_module("kivy.properties").StringProperty
-ListProperty = importlib.import_module("kivy.properties").ListProperty
-Color = importlib.import_module("kivy.graphics").Color
-Rectangle = importlib.import_module("kivy.graphics").Rectangle
-Ellipse = importlib.import_module("kivy.graphics").Ellipse
-Line = importlib.import_module("kivy.graphics").Line
-Window = importlib.import_module("kivy.core.window").Window
-CoreImage = importlib.import_module("kivy.core.image").Image
-Clipboard = importlib.import_module("kivy.core.clipboard").Clipboard
-Clock = importlib.import_module("kivy.clock").Clock
+from validation import PEOPLE_ROLES, filter_people_for_maintenance, group_people_by_category, canonical_role
 
 
 def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
@@ -604,6 +672,11 @@ class SubstationApp(App):
         layout.add_widget(buttons_layout)
 
         self.conn = init_db()
+        # Ensure people name columns exist and are populated (migration)
+        try:
+            self._migrate_people_name_columns()
+        except Exception:
+            pass
 
     def _handle_request_close(self, *args):
         self._cleanup_before_exit()
@@ -1189,7 +1262,7 @@ class SubstationApp(App):
             )
             return
 
-        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY name")
+        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE")
         people = c.fetchall()
         if not people:
             show_message_popup(
@@ -2021,7 +2094,7 @@ class SubstationApp(App):
         c = self.conn.cursor()
         c.execute(
             """
-            SELECT p.name, mp.role
+            SELECT COALESCE(p.surname, p.name) || ' ' || COALESCE(p.given_name, '') as display_name, mp.role
             FROM maintenance_people mp
             JOIN people p ON mp.person_id = p.id
             WHERE mp.maintenance_id = ?
@@ -2044,14 +2117,23 @@ class SubstationApp(App):
         popup = Popup(title="Διαχείριση Προσωπικού", size_hint=(0.7, 0.8))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-        form_layout = GridLayout(cols=2, size_hint_y=None, height=120, spacing=5)
+        form_layout = GridLayout(cols=2, size_hint_y=None, height=140, spacing=5)
+        # Surname first (user-entered first)
+        form_layout.add_widget(Label(text="Επώνυμο:", size_hint_x=0.3))
+        surname_input = TextInput(multiline=False, size_hint_x=0.7)
+        form_layout.add_widget(surname_input)
+
         form_layout.add_widget(Label(text="Όνομα:", size_hint_x=0.3))
-        name_input = TextInput(multiline=False, size_hint_x=0.7)
-        form_layout.add_widget(name_input)
+        given_input = TextInput(multiline=False, size_hint_x=0.7)
+        form_layout.add_widget(given_input)
 
         form_layout.add_widget(Label(text="Ρόλος:", size_hint_x=0.3))
-        role_input = TextInput(multiline=False, size_hint_x=0.7)
-        form_layout.add_widget(role_input)
+        role_spinner = Spinner(
+            text=PEOPLE_ROLES[0] if PEOPLE_ROLES else "",
+            values=PEOPLE_ROLES,
+            size_hint_x=0.7,
+        )
+        form_layout.add_widget(role_spinner)
 
         form_layout.add_widget(Label(text="Email:", size_hint_x=0.3))
         email_input = TextInput(multiline=False, size_hint_x=0.7)
@@ -2069,6 +2151,17 @@ class SubstationApp(App):
         )
         main_layout.add_widget(receiver_layout)
 
+        # Active checkbox for new person (Ενεργός)
+        active_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
+        active_checkbox = CheckBox(
+            size_hint_x=0.1,
+            active=True,
+            color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+        )
+        active_layout.add_widget(active_checkbox)
+        active_layout.add_widget(Label(text="Ενεργός", size_hint_x=0.9))
+        main_layout.add_widget(active_layout)
+
         add_btn = Button(text="Προσθήκη", size_hint_y=None, height=40)
 
         list_scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -2078,53 +2171,94 @@ class SubstationApp(App):
         def refresh_list():
             list_layout.clear_widgets()
             c = self.conn.cursor()
+            # Order people by active status, then by the preferred role order, then by name
             c.execute(
-                "SELECT id, name, role, email, report_receiver, active FROM people ORDER BY active DESC, name"
+                "SELECT id, name, role, email, report_receiver, active FROM people ORDER BY active DESC, CASE\n                    WHEN role LIKE '%Τομεαρ%' COLLATE NOCASE OR role LIKE '%Τομεάρχ%' COLLATE NOCASE THEN 0\n                    WHEN role LIKE '%Υποτο%' COLLATE NOCASE THEN 1\n                    WHEN role LIKE '%Ειδικ%' COLLATE NOCASE OR role LIKE '%Ειδικό Στέλεχος%' COLLATE NOCASE THEN 2\n                    WHEN role LIKE '%Μηχανικ%' COLLATE NOCASE THEN 3\n                    WHEN role LIKE '%Εργοδηγ%' COLLATE NOCASE THEN 4\n                    WHEN role LIKE '%Αρχιτεχν%' COLLATE NOCASE THEN 5\n                    WHEN role LIKE '%Τεχν%' COLLATE NOCASE THEN 6\n                    WHEN role LIKE '%Χειριστ%' COLLATE NOCASE THEN 7\n                    WHEN role LIKE '%Υποστ%' COLLATE NOCASE THEN 8\n                    ELSE 99 END, COALESCE(surname, name) COLLATE NOCASE"
             )
-            for person_id, name, role, email, report_receiver, active in c.fetchall():
-                row = BoxLayout(size_hint_y=None, height=35, spacing=5)
-                status = "Ενεργός" if active else "Ανενεργός"
-                email_text = email if email else "-"
-                receiver_text = "Ναι" if report_receiver else "Όχι"
-                row.add_widget(
-                    Label(
-                        text=f"{name} ({role}) | {email_text} | Παραλήπτης: {receiver_text} | {status}",
-                        size_hint_x=0.8,
-                    )
+            rows = c.fetchall()
+            grouped = group_people_by_category(rows)
+            for cat, items in grouped.items():
+                if not items:
+                    continue
+                # Category header
+                header = Label(
+                    text=f"[b]{cat}[/b]",
+                    markup=True,
+                    color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+                    size_hint_y=None,
+                    height=30,
                 )
+                list_layout.add_widget(header)
+                # sort items by role priority (PEOPLE_ROLES) then by display name (surname-first)
+                def _role_priority(role):
+                    # Map role to canonical PEOPLE_ROLES entry if possible, then return its index
+                    try:
+                        canon = canonical_role(role)
+                        if canon and canon in PEOPLE_ROLES:
+                            return PEOPLE_ROLES.index(canon)
+                    except Exception:
+                        pass
+                    return 99
 
-                edit_btn = Button(text="Επεξ.", size_hint_x=0.1)
-                delete_btn = Button(text="Διαγραφή", size_hint_x=0.1)
-
-                def make_delete(pid, pname):
-                    return lambda x: self._confirm_delete_person(
-                        pid, pname, refresh_list
+                items_sorted = sorted(
+                    items,
+                    key=lambda r: (_role_priority(r[2] if len(r) > 2 else None), (r[1] or "").lower()),
+                )
+                for person_id, name, role, email, report_receiver, active in items_sorted:
+                    row = BoxLayout(size_hint_y=None, height=35, spacing=5)
+                    status = "Ενεργός" if active else "Ανενεργός"
+                    email_text = email if email else "-"
+                    receiver_text = "Ναι" if report_receiver else "Όχι"
+                    row.add_widget(
+                        Label(
+                            text=f"{name} ({role}) | {email_text} | Παραλήπτης: {receiver_text} | {status}",
+                            size_hint_x=0.8,
+                        )
                     )
 
-                def make_edit(pid):
-                    return lambda x: self._show_edit_person_popup(pid, refresh_list)
+                    edit_btn = Button(text="Επεξ.", size_hint_x=0.1)
+                    delete_btn = Button(text="Διαγραφή", size_hint_x=0.1)
 
-                row.add_widget(edit_btn)
-                row.add_widget(delete_btn)
-                edit_btn.bind(on_press=make_edit(person_id))
-                delete_btn.bind(on_press=make_delete(person_id, name))
-                list_layout.add_widget(row)
+                    def make_delete(pid, pname):
+                        return lambda x: self._confirm_delete_person(pid, pname, refresh_list)
+
+                    def make_edit(pid):
+                        return lambda x: self._show_edit_person_popup(pid, refresh_list)
+
+                    row.add_widget(edit_btn)
+                    row.add_widget(delete_btn)
+                    edit_btn.bind(on_press=make_edit(person_id))
+                    delete_btn.bind(on_press=make_delete(person_id, name))
+                    list_layout.add_widget(row)
 
         def add_person(instance):
-            name = name_input.text.strip()
-            role = role_input.text.strip()
+            surname = surname_input.text.strip()
+            given = given_input.text.strip()
+            role = role_spinner.text.strip()
             email = email_input.text.strip()
-            if not name or not role:
-                show_message_popup("Σφάλμα", "Το όνομα και ο ρόλος είναι υποχρεωτικά!")
+            if not surname or not role:
+                show_message_popup("Σφάλμα", "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
                 return
+            composite = f"{surname} {given}".strip()
             c = self.conn.cursor()
             c.execute(
-                "INSERT INTO people (name, role, email, report_receiver, active) VALUES (?, ?, ?, ?, 1)",
-                (name, role, email, 1 if receiver_checkbox.active else 0),
+                "INSERT INTO people (name, given_name, surname, role, email, report_receiver, active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    composite,
+                    given,
+                    surname,
+                    role,
+                    email,
+                    1 if receiver_checkbox.active else 0,
+                    1 if active_checkbox.active else 0,
+                ),
             )
             self.conn.commit()
-            name_input.text = ""
-            role_input.text = ""
+            surname_input.text = ""
+            given_input.text = ""
+            # reset spinner to default and active flag
+            role_spinner.text = PEOPLE_ROLES[0] if PEOPLE_ROLES else ""
+            active_checkbox.active = True
             email_input.text = ""
             receiver_checkbox.active = False
             refresh_list()
@@ -2203,11 +2337,51 @@ class SubstationApp(App):
         confirm_popup.content = layout
         confirm_popup.open()
 
+    def _migrate_people_name_columns(self):
+        """Add `given_name` and `surname` columns to `people` if missing and populate them.
+
+        Existing `name` values are expected as "Given Family" and will be split on the
+        last space. If there's no space the whole value is treated as `surname`.
+        """
+        c = self.conn.cursor()
+        cols = [r[1] for r in c.execute("PRAGMA table_info(people)")]
+        need_commit = False
+        if "given_name" not in cols:
+            c.execute("ALTER TABLE people ADD COLUMN given_name TEXT")
+            need_commit = True
+        if "surname" not in cols:
+            c.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+            need_commit = True
+        if need_commit:
+            self.conn.commit()
+
+        # Populate given_name and surname where missing
+        c.execute("SELECT id, name, given_name, surname FROM people")
+        rows = c.fetchall()
+        for pid, fullname, gname, sname in rows:
+            if (gname and gname.strip()) or (sname and sname.strip()):
+                continue
+            if not fullname:
+                continue
+            parts = fullname.strip().rsplit(" ", 1)
+            if len(parts) == 1:
+                given = ""
+                surname = parts[0]
+            else:
+                given, surname = parts[0], parts[1]
+            # store both components and update the canonical `name` to "Surname Given"
+            composite = f"{surname} {given}".strip()
+            c.execute(
+                "UPDATE people SET given_name=?, surname=?, name=? WHERE id=?",
+                (given, surname, composite, pid),
+            )
+        self.conn.commit()
+
     def _show_edit_person_popup(self, person_id, refresh_cb):
         """Edit person details."""
         c = self.conn.cursor()
         c.execute(
-            "SELECT name, role, email, report_receiver, active FROM people WHERE id=?",
+            "SELECT name, given_name, surname, role, email, report_receiver, active FROM people WHERE id=?",
             (person_id,),
         )
         row = c.fetchone()
@@ -2215,19 +2389,27 @@ class SubstationApp(App):
             show_message_popup("Σφάλμα", "Το άτομο δεν βρέθηκε!")
             return
 
-        name, role, email, report_receiver, active = row
+        name, given, surname, role, email, report_receiver, active = row
 
         popup = Popup(title="Επεξεργασία Προσώπου", size_hint=(0.6, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-        form = GridLayout(cols=2, size_hint_y=None, height=140, spacing=5)
+        form = GridLayout(cols=2, size_hint_y=None, height=160, spacing=5)
+        form.add_widget(Label(text="Επώνυμο:", size_hint_x=0.3))
+        surname_input = TextInput(text=surname or "", multiline=False, size_hint_x=0.7)
+        form.add_widget(surname_input)
+
         form.add_widget(Label(text="Όνομα:", size_hint_x=0.3))
-        name_input = TextInput(text=name or "", multiline=False, size_hint_x=0.7)
+        name_input = TextInput(text=given or "", multiline=False, size_hint_x=0.7)
         form.add_widget(name_input)
 
         form.add_widget(Label(text="Ρόλος:", size_hint_x=0.3))
-        role_input = TextInput(text=role or "", multiline=False, size_hint_x=0.7)
-        form.add_widget(role_input)
+        # Use Spinner for locked role values; include current role if it's not in the enum
+        role_values = list(PEOPLE_ROLES)
+        if role and role not in role_values:
+            role_values.insert(0, role)
+        role_spinner = Spinner(text=role or (role_values[0] if role_values else ""), values=role_values, size_hint_x=0.7)
+        form.add_widget(role_spinner)
 
         form.add_widget(Label(text="Email:", size_hint_x=0.3))
         email_input = TextInput(text=email or "", multiline=False, size_hint_x=0.7)
@@ -2260,16 +2442,20 @@ class SubstationApp(App):
         buttons_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
 
         def save_changes():
-            new_name = name_input.text.strip()
-            new_role = role_input.text.strip()
+            new_surname = surname_input.text.strip()
+            new_given = name_input.text.strip()
+            new_role = role_spinner.text.strip()
             new_email = email_input.text.strip()
-            if not new_name or not new_role:
-                show_message_popup("Σφάλμα", "Το όνομα και ο ρόλος είναι υποχρεωτικά!")
+            if not new_surname or not new_role:
+                show_message_popup("Σφάλμα", "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
                 return
+            composite = f"{new_surname} {new_given}".strip()
             c.execute(
-                "UPDATE people SET name=?, role=?, email=?, report_receiver=?, active=? WHERE id=?",
+                "UPDATE people SET name=?, given_name=?, surname=?, role=?, email=?, report_receiver=?, active=? WHERE id=?",
                 (
-                    new_name,
+                    composite,
+                    new_given,
+                    new_surname,
                     new_role,
                     new_email,
                     1 if receiver_checkbox.active else 0,
@@ -2651,7 +2837,7 @@ class SubstationApp(App):
         content_layout.add_widget(substation_row)
 
         # People list for inspector
-        c.execute("SELECT name FROM people WHERE active=1 ORDER BY name")
+        c.execute("SELECT name FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE")
         people = [row[0] for row in c.fetchall()]
         if not people:
             show_message_popup(
@@ -6107,7 +6293,7 @@ class SubstationApp(App):
             return
 
         # Get active people for responsible/crew selection
-        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY name")
+        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE")
         people = c.fetchall()
         if not people:
             show_message_popup(
@@ -7267,7 +7453,9 @@ class SubstationApp(App):
         content_layout.add_widget(datetime_input)
 
         # Responsible person (mandatory)
-        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY name")
+        c.execute(
+            "SELECT id, name, role FROM people WHERE active=1 ORDER BY CASE\n                    WHEN role LIKE '%Τομεαρ%' COLLATE NOCASE OR role LIKE '%Τομεάρχ%' COLLATE NOCASE THEN 0\n                    WHEN role LIKE '%Υποτο%' COLLATE NOCASE THEN 1\n                    WHEN role LIKE '%Ειδικ%' COLLATE NOCASE OR role LIKE '%Ειδικό Στέλεχος%' COLLATE NOCASE THEN 2\n                    WHEN role LIKE '%Μηχανικ%' COLLATE NOCASE THEN 3\n                    WHEN role LIKE '%Εργοδηγ%' COLLATE NOCASE THEN 4\n                    WHEN role LIKE '%Αρχιτεχν%' COLLATE NOCASE THEN 5\n                    WHEN role LIKE '%Τεχν%' COLLATE NOCASE THEN 6\n                    WHEN role LIKE '%Χειριστ%' COLLATE NOCASE THEN 7\n                    WHEN role LIKE '%Υποστ%' COLLATE NOCASE THEN 8\n                    ELSE 99 END, COALESCE(surname, name) COLLATE NOCASE"
+        )
         people = c.fetchall()
         if not people:
             show_message_popup(
@@ -7282,7 +7470,21 @@ class SubstationApp(App):
                 text="Υπεύθυνος Συντήρησης (υποχρεωτικό):", size_hint_y=None, height=35
             )
         )
-        people_map = {f"{p[1]} ({p[2]})": p[0] for p in people}
+
+        # Filter people into responsible and crew lists according to role rules
+        responsible_people, crew_people = filter_people_for_maintenance(
+            people, responsible_person_id
+        )
+
+        if not responsible_people:
+            show_message_popup(
+                "Σφάλμα",
+                "Δεν υπάρχει διαθέσιμος υπεύθυνος συντήρησης με τα κατάλληλα δικαιώματα. Προσθέστε ή ενημερώστε προσωπικό.",
+                callback=lambda: self.show_people_management(None),
+            )
+            return
+
+        people_map = {f"{p[1]} ({p[2]})": p[0] for p in responsible_people}
         responsible_default_text = list(people_map.keys())[0] if people_map else ""
         if not maintenance_id and prefill_data.get("responsible_id"):
             responsible_person_id = prefill_data.get("responsible_id")
@@ -7312,37 +7514,125 @@ class SubstationApp(App):
         crew_actions.add_widget(clear_all_btn)
         content_layout.add_widget(crew_actions)
 
-        crew_container = GridLayout(cols=1, spacing=3, size_hint_y=None, padding=5)
+        # Create a table-like, multi-column layout for crew checkboxes so many people fit
+        import math
+
+        preferred_col_width = 280
+        max_cols = 5
+        cols = max(1, min(max_cols, int(Window.width // preferred_col_width)))
+        crew_container = GridLayout(cols=cols, spacing=6, size_hint_y=None, padding=5)
         crew_container.bind(minimum_height=crew_container.setter("height"))
         crew_checks = {}
         crew_ids = {pid for pid, role in maintenance_people if role == "crew"}
         if not maintenance_id and prefill_data.get("crew_ids"):
             crew_ids = set(prefill_data.get("crew_ids"))
-        for pid, name, role in people:
-            row = BoxLayout(size_hint_y=None, height=28, spacing=5)
-            cb = CheckBox(
-                size_hint_x=0.1, color=self.theme.get("primary", (0.05, 0.18, 0.36, 1))
-            )
-            if pid in crew_ids:
-                cb.active = True
-            row.add_widget(cb)
-            row.add_widget(Label(text=f"{name} ({role})", size_hint_x=0.9))
-            crew_container.add_widget(row)
-            crew_checks[pid] = cb
+        # Ensure responsible person appears in crew list (preselected & not editable)
+        responsible_pid = None
+        try:
+            responsible_pid = people_map.get(responsible_default_text)
+        except Exception:
+            responsible_pid = None
+        if responsible_pid and not any(p[0] == responsible_pid for p in crew_people):
+            # find responsible in all people and prepend to crew_people
+            found = next((p for p in people if p[0] == responsible_pid), None)
+            if found:
+                crew_people.insert(0, found)
 
-        crew_scroll = ScrollView(
-            bar_width=8, scroll_type=["bars", "content"], size_hint_y=None
-        )
-        crew_scroll.height = min(220, max(60, len(people) * 30 + 10))
-        crew_scroll.add_widget(crew_container)
-        content_layout.add_widget(crew_scroll)
+        # Build categorized crew area: compact gaps, category headers, and per-category grids
+        min_cell_h = 18
+        # Fixed per-person row height (adjust this value to change cell heights manually)
+        crew_cell_h = 26
+        # small spacing so headers don't overlap wrapped names
+        crew_section = BoxLayout(orientation="vertical", size_hint_y=None, spacing=4)
+        crew_section.bind(minimum_height=crew_section.setter("height"))
+
+        # Group crew_people into categories using validation helper
+        grouped = group_people_by_category(crew_people)
+        for cat, members in grouped.items():
+            if not members:
+                continue
+            # Category header (taller so it doesn't overlap wrapped names)
+            hdr = Label(
+                text=f"[b]{cat}[/b]",
+                markup=True,
+                color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+                size_hint_y=None,
+                height=max(36, min_cell_h + 12),
+            )
+            crew_section.add_widget(hdr)
+            # Small spacer to guarantee separation between header and wrapped rows
+            from kivy.uix.widget import Widget as _KivyWidget
+            crew_section.add_widget(_KivyWidget(size_hint_y=None, height=8))
+
+            # Grid for this category (horizontal, vertical spacing)
+            # Increase vertical spacing between rows so wrapped/second-line items have more room
+            cat_grid = GridLayout(cols=cols, spacing=(6,18), size_hint_y=None, padding=10)
+            cat_grid.bind(minimum_height=cat_grid.setter("height"))
+
+            for pid, name, role in members:
+                # container cell
+                cell = BoxLayout(orientation="horizontal", size_hint_y=None, height=min_cell_h, spacing=6, padding=(2,0))
+                # anchor layout for checkbox top alignment with text
+                anchor = AnchorLayout(size_hint_x=None, size_hint_y=None, width=30, height=min_cell_h, anchor_x='center', anchor_y='top')
+                cb = CheckBox(size_hint=(None, None), size=(20, min_cell_h), pos_hint={'top':1}, color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)))
+                if pid in crew_ids:
+                    cb.active = True
+                if responsible_pid and pid == responsible_pid:
+                    cb.active = True
+                    cb.disabled = True
+                anchor.add_widget(cb)
+                cell.add_widget(anchor)
+
+                # Simple fixed-height label so you can adjust heights manually.
+                lbl = Label(text=f"{name} ({role})", halign="left", valign="top", size_hint_x=1)
+                lbl.size_hint_y = None
+                lbl.height = crew_cell_h
+                lbl.padding = (0, 2)
+                # keep text wrapping updated when width changes, but do not re-measure height
+                lbl.bind(width=lambda inst, w: setattr(inst, 'text_size', (max(0, w - 6), None)))
+
+                # apply fixed heights to containers and checkbox
+                cell.height = crew_cell_h
+                anchor.height = crew_cell_h
+                cb.size = (20, crew_cell_h)
+
+                cell.add_widget(lbl)
+                cat_grid.add_widget(cell)
+                crew_checks[pid] = cb
+
+            # Let the GridLayout compute its minimum height from children (handles wrapped labels)
+            # (binding to minimum_height already set above)
+            crew_section.add_widget(cat_grid)
+
+        # finally add the whole crew section to content layout so it expands fully
+        content_layout.add_widget(crew_section)
+
+        # The per-category grids are inside `crew_section` and will size themselves;
+        # `crew_container` is unused here so don't add it to avoid extra spacing.
 
         def set_all_crew(value):
             for cb in crew_checks.values():
-                cb.active = value
+                if not getattr(cb, "disabled", False):
+                    cb.active = value
 
         select_all_btn.bind(on_press=lambda x: set_all_crew(True))
         clear_all_btn.bind(on_press=lambda x: set_all_crew(False))
+
+        # When responsible changes, ensure crew checkbox for responsible is selected and disabled
+        def _sync_responsible_in_crew(*_args):
+            # determine selected responsible pid
+            sel_label = responsible_spinner.text
+            sel_pid = people_map.get(sel_label)
+            for pid, cb in crew_checks.items():
+                if pid == sel_pid:
+                    cb.active = True
+                    cb.disabled = True
+                else:
+                    # re-enable other checkboxes
+                    if getattr(cb, "disabled", False):
+                        cb.disabled = False
+
+        responsible_spinner.bind(text=lambda _inst, _val: _sync_responsible_in_crew())
 
         # Overall comments
         content_layout.add_widget(
@@ -10458,4 +10748,5 @@ class SubstationApp(App):
         show_models_management(self)
 
 
-SubstationApp().run()
+if __name__ == "__main__":
+    SubstationApp().run()
