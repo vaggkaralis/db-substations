@@ -1,0 +1,4 @@
+0.0.4 - 2026-02-12
+- Fix: maintenance UI builder — per-element metadata handling corrected (removed closure/shared-widget bug).
+- UI: show element IDs in lists; substation info line expanded when viewing a single substation; Google Maps button centered.
+- Cleanup: removed debug prints and removed generated reports from repository; updated `.gitignore`.

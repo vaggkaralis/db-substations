@@ -3760,6 +3760,13 @@ class SubstationApp(App):
                 )
                 grid.add_widget(substation_title)
 
+                # If viewing a single substation, show expanded first-line info
+                if filter_name:
+                    info_text = f"{location or '-'} | {division or '-'} | Ανάληψη: {adoption_date or '-'}"
+                    info_label = Label(text=info_text, size_hint_y=None, height=30)
+                    info_label.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], None)))
+                    grid.add_widget(info_label)
+
                 # Add header for each substation
                 header_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
                 header_layout.add_widget(
@@ -3801,22 +3808,21 @@ class SubstationApp(App):
                 # Substation row (removed name since it's now a title)
                 sub_row_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
 
-                # Location button (clickable)
+                # Location button (clickable) - do not display raw URL; center the button
                 if location:
+                    btn_holder = BoxLayout(size_hint_x=0.17)
+                    btn_holder.add_widget(Widget())
                     location_btn = Button(
                         text="Google Maps Link",
-                        size_hint_x=0.17,
+                        size_hint=(None, None),
+                        size=(140, 30),
                         font_size="11sp",
                         padding=(5, 5),
                     )
-                    # Bind text_size to button size for proper text wrapping
-                    location_btn.bind(
-                        size=lambda btn, size: setattr(btn, "text_size", size)
-                    )
-                    location_btn.bind(
-                        on_press=lambda x, url=location: webbrowser.open(url)
-                    )
-                    sub_row_layout.add_widget(location_btn)
+                    location_btn.bind(on_press=lambda x, url=location: webbrowser.open(url))
+                    btn_holder.add_widget(location_btn)
+                    btn_holder.add_widget(Widget())
+                    sub_row_layout.add_widget(btn_holder)
                 else:
                     sub_row_layout.add_widget(Label(text="-", size_hint_x=0.17))
 
@@ -4186,7 +4192,7 @@ class SubstationApp(App):
                                 if manufacture_year
                                 else ""
                             )
-                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display}"
+                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
 
                             # Create a horizontal layout for element and buttons
                             elem_layout = BoxLayout(size_hint_y=None, spacing=5)
@@ -5770,7 +5776,7 @@ class SubstationApp(App):
                     display_elem_type = f"{elem_type} ({breaker_type_label})"
 
                 # Element info
-                info_text = f"[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'}"
+                info_text = f"[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'} (id:{elem_id})"
                 elem_label = Label(
                     text=info_text, size_hint_y=None, height=50, markup=True
                 )
@@ -7360,6 +7366,7 @@ class SubstationApp(App):
                     mfr = model_manufacturer or manufacturer or "-"
                     mdl = model_name or model or "-"
                     elem_display += f" | Κατ.: {mfr} | Μοντ.: {mdl}"
+                    elem_display += f" (id:{elem_id})"
 
                     # Element container - initially just checkbox and label
                     elem_box = BoxLayout(
@@ -7379,14 +7386,37 @@ class SubstationApp(App):
                     checkbox_layout.add_widget(elem_label)
                     elem_box.add_widget(checkbox_layout)
 
-                    details_container = None
-                    elem_comments = None
-                    measurements = None
+                    # Per-element holders stored in element_widgets to avoid sharing
+                    element_widgets.setdefault(elem_id, {})
+                    element_widgets[elem_id].setdefault("details_container", None)
+                    element_widgets[elem_id].setdefault("comments", None)
+                    element_widgets[elem_id].setdefault("measurements", None)
 
-                    def build_details():
-                        nonlocal details_container, elem_comments, measurements
-                        if details_container is not None:
+                    # Store metadata for this element so builders can use it reliably
+                    element_widgets[elem_id]["meta"] = {
+                        "elem_name": elem_name,
+                        "breaker_category": breaker_category,
+                        "model_manufacturer": model_manufacturer,
+                        "model_name": model_name,
+                        "is_breaker": is_breaker,
+                        "operations_count": operations_count,
+                    }
+
+                    def build_details_for(eid):
+                        meta = element_widgets.get(eid, {}).get("meta")
+                        if not meta:
                             return
+                        if element_widgets.get(eid, {}).get("details_container") is not None:
+                            return
+
+                        elem_name = meta.get("elem_name")
+                        breaker_category = meta.get("breaker_category")
+                        model_manufacturer = meta.get("model_manufacturer")
+                        model_name = meta.get("model_name")
+                        is_breaker = meta.get("is_breaker")
+                        operations_count = meta.get("operations_count")
+
+                        # build_details_for START
 
                         details_container = BoxLayout(
                             size_hint_y=None, spacing=5, orientation="vertical"
@@ -7402,6 +7432,8 @@ class SubstationApp(App):
                             multiline=False,
                         )
                         details_container.add_widget(elem_comments)
+
+                        # created details_container
 
                         measurements = {}
 
@@ -7594,7 +7626,7 @@ class SubstationApp(App):
                             )
                             ops_layout.add_widget(ops_count_input)
 
-                            last_ops_val = last_ops_map.get(elem_id)
+                            last_ops_val = last_ops_map.get(eid)
                             ops_diff = ""
                             if last_ops_val is not None:
                                 try:
@@ -7820,41 +7852,57 @@ class SubstationApp(App):
                                 "vidar": vidar_widgets,
                             }
 
-                        element_widgets[elem_id][
-                            "details_container"
-                        ] = details_container
-                        element_widgets[elem_id]["comments"] = elem_comments
-                        element_widgets[elem_id]["measurements"] = measurements
+                        # Save into per-element storage (use eid)
+                        element_widgets.setdefault(eid, {})
+                        element_widgets[eid]["details_container"] = details_container
+                        element_widgets[eid]["comments"] = elem_comments
+                        element_widgets[eid]["measurements"] = measurements
 
-                    def ensure_details(elem_box=elem_box):
-                        build_details()
-                        if details_container not in elem_box.children:
-                            elem_box.add_widget(details_container)
+                        # saved details_container
 
-                    def toggle_details(_checkbox_instance, value, elem_box=elem_box):
+                    def ensure_details(elem_box=elem_box, eid=elem_id):
+                        build_details_for(eid)
+                        dc = element_widgets.get(eid, {}).get("details_container")
+                        if dc is not None and dc not in elem_box.children:
+                            elem_box.add_widget(dc)
+
+                    def toggle_details(_checkbox_instance, value, elem_box=elem_box, eid=elem_id):
                         if value:
-                            ensure_details(elem_box)
+                            ensure_details(elem_box, eid)
                         else:
-                            if details_container in elem_box.children:
-                                elem_box.remove_widget(details_container)
+                            dc = element_widgets.get(eid, {}).get("details_container")
+                            if dc is not None and dc in elem_box.children:
+                                elem_box.remove_widget(dc)
 
                     checkbox.bind(active=toggle_details)
+
+                    # Checkbox active handler (no debug logging)
+                    def _on_checkbox_active(instance, value, eid=elem_id):
+                        return
+
+                    checkbox.bind(active=_on_checkbox_active)
 
                     elements_container.add_widget(elem_box)
 
                     spacing = Label(text="", size_hint_y=None, height=5)
                     elements_container.add_widget(spacing)
 
-                    element_widgets[elem_id] = {
-                        "checkbox": checkbox,
-                        "label": elem_label,
-                        "display": elem_display,
-                        "comments": None,
-                        "measurements": None,
-                        "elem_type": elem_type,
-                        "details_container": None,
-                        "ensure_details": ensure_details,
-                    }
+                    # Update existing element_widgets entry instead of overwriting
+                    element_widgets.setdefault(elem_id, {})
+                    element_widgets[elem_id].update(
+                        {
+                            "checkbox": checkbox,
+                            "label": elem_label,
+                            "display": elem_display,
+                            "comments": element_widgets[elem_id].get("comments"),
+                            "measurements": element_widgets[elem_id].get("measurements"),
+                            "elem_type": elem_type,
+                            "details_container": element_widgets[elem_id].get(
+                                "details_container"
+                            ),
+                            "ensure_details": ensure_details,
+                        }
+                    )
 
             if not maintenance_id and prefill_data.get("element_ids"):
                 prefill_elements = set(prefill_data.get("element_ids"))
@@ -8015,6 +8063,8 @@ class SubstationApp(App):
                 for eid, widgets in element_widgets.items()
                 if widgets["checkbox"].active
             ]
+
+            # selected_elements prepared
 
             if not selected_elements:
                 show_message_popup(

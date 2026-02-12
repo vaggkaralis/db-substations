@@ -275,7 +275,7 @@ class MaintenanceReportGenerator:
             )
 
         # Generate the PDF based on breaker category
-        if breaker_category == "SF6":
+        if "SF6" in breaker_category:
             self._generate_sf6_report(output_path, maintenance, element, measurements)
         elif breaker_category in ["Oil", "Πτωχού Ελαίου", "Ελαίου"]:
             self._generate_oil_report(output_path, maintenance, element, measurements)
@@ -594,7 +594,7 @@ class MaintenanceReportGenerator:
         tables.append(table)
 
         # SF6 Gas Quality (only for SF6 breakers)
-        if breaker_category == "SF6" and (sf6_n2_fa or h2o_fa or so2_fa):
+        if "SF6" in breaker_category and (sf6_n2_fa or h2o_fa or so2_fa):
             sf6_data = [
                 ["ΠΟΙΟΤΗΤΑ ΑΕΡΙΟΥ SF6", "", "", ""],
                 ["", "SF6/N2 (%)", "H2O (°C atm)", "SO2 (ppm)"],
