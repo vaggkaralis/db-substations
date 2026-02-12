@@ -25,7 +25,7 @@ import importlib
 try:
     import kivy
     # Ensure the requested Kivy version before loading submodules
-    kivy.require("2.0.0")
+    kivy.require("2.3.0")
 
     # Dynamically import Kivy submodules (avoid static imports after code)
     App = importlib.import_module("kivy.app").App
