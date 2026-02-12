@@ -41,3 +41,29 @@ def validate_breaker_category_required(element_type, breaker_category_value):
     ):
         raise ValueError("Η κατηγορία διακόπτη είναι υποχρεωτική για τους διακόπτες!")
     return True
+
+
+def filter_people_for_maintenance(people_rows, responsible_person_id=None):
+    """Return (responsible_people, crew_people) filtered for maintenance.
+
+    people_rows: iterable of (id, name, role)
+    If responsible_person_id is provided but the person isn't in allowed responsible
+    roles, they are prepended to the responsible_people list so they remain selectable.
+    """
+    allowed_responsible_roles = {
+        "Μηχανικός",
+        "Τομεάρχης ΤΕΙ",
+        "Υποτομεάρχης ΤΕΙ",
+        "Ειδικό Στέλεχος Γ'",
+    }
+
+    people = list(people_rows)
+    responsible_people = [p for p in people if p[2] in allowed_responsible_roles]
+    crew_people = [p for p in people if p[2] != "Υποστήριξη"]
+
+    if responsible_person_id and not any(p[0] == responsible_person_id for p in responsible_people):
+        found = next((p for p in people if p[0] == responsible_person_id), None)
+        if found:
+            responsible_people.insert(0, found)
+
+    return responsible_people, crew_people
