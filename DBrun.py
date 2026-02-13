@@ -7651,6 +7651,7 @@ class SubstationApp(App):
                     element_widgets[elem_id]["meta"] = {
                         "elem_name": elem_name,
                         "breaker_category": breaker_category,
+                        "elem_type": elem_type,
                         "model_manufacturer": model_manufacturer,
                         "model_name": model_name,
                         "is_breaker": is_breaker,
@@ -7665,11 +7666,14 @@ class SubstationApp(App):
                             return
 
                         elem_name = meta.get("elem_name")
+                        elem_type = meta.get("elem_type")
                         breaker_category = meta.get("breaker_category")
                         model_manufacturer = meta.get("model_manufacturer")
                         model_name = meta.get("model_name")
                         is_breaker = meta.get("is_breaker")
                         operations_count = meta.get("operations_count")
+
+                        is_hv_oil = (elem_type == "Διακόπτης ΥΤ" and breaker_category == "Ελαίου")
 
                         # build_details_for START
 
@@ -7681,7 +7685,7 @@ class SubstationApp(App):
                         )
 
                         elem_comments = TextInput(
-                            hint_text="Σχόλια για αυτό το στοιχείο...",
+                            hint_text="Παρατηρήσεις για αυτό το στοιχείο...",
                             size_hint_y=None,
                             height=30,
                             multiline=False,
@@ -7690,9 +7694,157 @@ class SubstationApp(App):
 
                         # created details_container
 
+                        # Initialize measurements structure and container placeholders
                         measurements = {}
 
-                        if is_breaker:
+                        # Prepare containers for special measurements
+                        sf6_widgets = {}
+                        vidar_widgets = {}
+
+                        # High-voltage oil-specific layout (only for ΥΤ & Ελαίου)
+                        if is_hv_oil:
+                            # Category header
+                            details_container.add_widget(
+                                Label(
+                                    text="ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ",
+                                    size_hint_y=None,
+                                    height=25,
+                                    bold=True,
+                                )
+                            )
+
+                            # Ops count (reuse ops_count_input created above)
+                            ops_layout_custom = BoxLayout(
+                                size_hint_y=None, height=30, spacing=6
+                            )
+                            ops_layout_custom.add_widget(
+                                Label(text="Αριθμός Χειρισμών:", size_hint_x=0.6)
+                            )
+                            try:
+                                ops_count_input.size_hint_x = 0.12
+                                ops_layout_custom.add_widget(ops_count_input)
+                            except Exception:
+                                ops_layout_custom.add_widget(TextInput(text="", size_hint_x=0.12))
+                            ops_layout_custom.add_widget(Widget())
+                            details_container.add_widget(ops_layout_custom)
+
+                            # ΚΑΤΑΣΤΑΣΗ ΔΙΑΚΟΠΤΗ
+                            details_container.add_widget(
+                                Label(
+                                    text="ΚΑΤΑΣΤΑΣΗ ΔΙΑΚΟΠΤΗ",
+                                    size_hint_y=None,
+                                    height=25,
+                                    bold=True,
+                                )
+                            )
+
+                            oil_cond = TextInput(hint_text="Κατάσταση λαδιού", multiline=False, size_hint_y=None, height=30)
+                            details_container.add_widget(oil_cond)
+
+                            oil_changed_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                            oil_changed_row.add_widget(Label(text="Αλλαγή λαδιών:", size_hint_x=0.6))
+                            oil_changed_cb = CheckBox(size_hint=(None, None), size=(28, 28))
+                            oil_changed_cb.color = (0, 0, 0, 1)
+                            oil_changed_row.add_widget(oil_changed_cb)
+                            oil_changed_row.add_widget(Widget())
+                            details_container.add_widget(oil_changed_row)
+
+                            synch_check = TextInput(hint_text="Έλεγχος ταυτοχρονισμού", multiline=False, size_hint_y=None, height=30)
+                            details_container.add_widget(synch_check)
+
+                            wash_insulators = TextInput(hint_text="Πλύσιμο Μονωτήρων - Έλεγχος Φθορών", multiline=False, size_hint_y=None, height=30)
+                            details_container.add_widget(wash_insulators)
+
+                            conn_check_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                            conn_check_row.add_widget(Label(text="Έλεγχος συνδέσμων, κεφαλών, πείρων:", size_hint_x=0.6))
+                            conn_check_cb = CheckBox(size_hint=(None, None), size=(28, 28))
+                            conn_check_cb.color = (0, 0, 0, 1)
+                            conn_check_row.add_widget(conn_check_cb)
+                            conn_check_row.add_widget(Widget())
+                            details_container.add_widget(conn_check_row)
+
+                            lubrication_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                            lubrication_row.add_widget(Label(text="Λίπανση Μηχανισμού:", size_hint_x=0.6))
+                            lubrication_cb = CheckBox(size_hint=(None, None), size=(28, 28))
+                            lubrication_cb.color = (0, 0, 0, 1)
+                            lubrication_row.add_widget(lubrication_cb)
+                            lubrication_row.add_widget(Widget())
+                            details_container.add_widget(lubrication_row)
+
+                            # Μέτρηση Αντίστασης Διαβάσεως (MΩ) - table 3 columns
+                            details_container.add_widget(Label(text="Μέτρηση Αντίστασης Διαβάσεως (MΩ):", size_hint_y=None, height=25, bold=True))
+                            raid_header = BoxLayout(size_hint_y=None, height=25)
+                            raid_header.add_widget(Label(text="Α(ΦΑΣΗ)", size_hint_x=0.33))
+                            raid_header.add_widget(Label(text="Β(ΦΑΣΗ)", size_hint_x=0.33))
+                            raid_header.add_widget(Label(text="C(ΦΑΣΗ)", size_hint_x=0.34))
+                            details_container.add_widget(raid_header)
+                            raid_row = BoxLayout(size_hint_y=None, height=32)
+                            raid_a = TextInput(hint_text="0.0", multiline=False)
+                            raid_b = TextInput(hint_text="0.0", multiline=False)
+                            raid_c = TextInput(hint_text="0.0", multiline=False)
+                            raid_row.add_widget(raid_a)
+                            raid_row.add_widget(raid_b)
+                            raid_row.add_widget(raid_c)
+                            details_container.add_widget(raid_row)
+
+                            # Μέτρηση Επαφών (Μηχανισμός Κλειστός) - two rows (Α/Ζ, Μ/Σ) in μΩ
+                            details_container.add_widget(Label(text="Μέτρηση Επαφών (Μηχανισμός Κλειστός) (μΩ):", size_hint_y=None, height=25, bold=True))
+                            contact_header = BoxLayout(size_hint_y=None, height=25)
+                            contact_header.add_widget(Label(text="", size_hint_x=0.2))
+                            contact_header.add_widget(Label(text="Α(ΦΑΣΗ)", size_hint_x=0.266))
+                            contact_header.add_widget(Label(text="Β(ΦΑΣΗ)", size_hint_x=0.266))
+                            contact_header.add_widget(Label(text="C(ΦΑΣΗ)", size_hint_x=0.274))
+                            details_container.add_widget(contact_header)
+
+                            # Row Α/Ζ
+                            contact_row_az = BoxLayout(size_hint_y=None, height=32)
+                            contact_row_az.add_widget(Label(text="Α/Ζ", size_hint_x=0.2))
+                            contact_az_a = TextInput(hint_text="0.0", multiline=False)
+                            contact_az_b = TextInput(hint_text="0.0", multiline=False)
+                            contact_az_c = TextInput(hint_text="0.0", multiline=False)
+                            contact_row_az.add_widget(contact_az_a)
+                            contact_row_az.add_widget(contact_az_b)
+                            contact_row_az.add_widget(contact_az_c)
+                            details_container.add_widget(contact_row_az)
+
+                            # Row Μ/Σ
+                            contact_row_ms = BoxLayout(size_hint_y=None, height=32)
+                            contact_row_ms.add_widget(Label(text="Μ/Σ", size_hint_x=0.2))
+                            contact_ms_a = TextInput(hint_text="0.0", multiline=False)
+                            contact_ms_b = TextInput(hint_text="0.0", multiline=False)
+                            contact_ms_c = TextInput(hint_text="0.0", multiline=False)
+                            contact_row_ms.add_widget(contact_ms_a)
+                            contact_row_ms.add_widget(contact_ms_b)
+                            contact_row_ms.add_widget(contact_ms_c)
+                            details_container.add_widget(contact_row_ms)
+
+                            # Αποστάσεις Αμορτισέρ (mm) - 3 columns
+                            details_container.add_widget(Label(text="Αποστάσεις Αμορτισέρ (mm):", size_hint_y=None, height=25, bold=True))
+                            amort_row = BoxLayout(size_hint_y=None, height=32)
+                            amort_a = TextInput(hint_text="mm", multiline=False)
+                            amort_b = TextInput(hint_text="mm", multiline=False)
+                            amort_c = TextInput(hint_text="mm", multiline=False)
+                            amort_row.add_widget(amort_a)
+                            amort_row.add_widget(amort_b)
+                            amort_row.add_widget(amort_c)
+                            details_container.add_widget(amort_row)
+
+                            # Expose these widgets in measurements dict so save logic can pick them up
+                            measurements.update({
+                                "oil_condition": oil_cond,
+                                "oil_changed": oil_changed_cb,
+                                "synch_check": synch_check,
+                                "wash_insulators": wash_insulators,
+                                "connections_check": conn_check_cb,
+                                "lubrication": lubrication_cb,
+                                "resistance_raid": (raid_a, raid_b, raid_c),
+                                "contact_az": (contact_az_a, contact_az_b, contact_az_c),
+                                "contact_ms": (contact_ms_a, contact_ms_b, contact_ms_c),
+                                "amort_dist": (amort_a, amort_b, amort_c),
+                            })
+
+                        elif is_breaker:
+                            # Legacy breaker measurement UI (MV and other categories)
                             details_container.add_widget(
                                 Label(
                                     text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ (Φ-ΓΗ):",
@@ -7702,212 +7854,83 @@ class SubstationApp(App):
                                 )
                             )
 
-                            closed_fa_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            closed_fa_layout.add_widget(
-                                Label(text="ΦΑ-ΓΗ:", size_hint_x=0.15)
-                            )
-                            ins_closed_fa = TextInput(
-                                hint_text="0.0", size_hint_x=0.35, multiline=False
-                            )
+                            closed_fa_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            closed_fa_layout.add_widget(Label(text="ΦΑ-ΓΗ:", size_hint_x=0.15))
+                            ins_closed_fa = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
                             closed_fa_layout.add_widget(ins_closed_fa)
-                            ins_closed_fa_unit = Spinner(
-                                text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15
-                            )
+                            ins_closed_fa_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             closed_fa_layout.add_widget(ins_closed_fa_unit)
-                            closed_fa_layout.add_widget(
-                                Label(text="", size_hint_x=0.35)
-                            )
+                            closed_fa_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(closed_fa_layout)
 
-                            closed_fb_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            closed_fb_layout.add_widget(
-                                Label(text="ΦΒ-ΓΗ:", size_hint_x=0.15)
-                            )
-                            ins_closed_fb = TextInput(
-                                hint_text="0.0", size_hint_x=0.35, multiline=False
-                            )
+                            closed_fb_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            closed_fb_layout.add_widget(Label(text="ΦΒ-ΓΗ:", size_hint_x=0.15))
+                            ins_closed_fb = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
                             closed_fb_layout.add_widget(ins_closed_fb)
-                            ins_closed_fb_unit = Spinner(
-                                text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15
-                            )
+                            ins_closed_fb_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             closed_fb_layout.add_widget(ins_closed_fb_unit)
-                            closed_fb_layout.add_widget(
-                                Label(text="", size_hint_x=0.35)
-                            )
+                            closed_fb_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(closed_fb_layout)
 
-                            closed_fc_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            closed_fc_layout.add_widget(
-                                Label(text="ΦΓ-ΓΗ:", size_hint_x=0.15)
-                            )
-                            ins_closed_fc = TextInput(
-                                hint_text="0.0", size_hint_x=0.35, multiline=False
-                            )
+                            closed_fc_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            closed_fc_layout.add_widget(Label(text="ΦΓ-ΓΗ:", size_hint_x=0.15))
+                            ins_closed_fc = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
                             closed_fc_layout.add_widget(ins_closed_fc)
-                            ins_closed_fc_unit = Spinner(
-                                text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15
-                            )
+                            ins_closed_fc_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             closed_fc_layout.add_widget(ins_closed_fc_unit)
-                            closed_fc_layout.add_widget(
-                                Label(text="", size_hint_x=0.35)
-                            )
+                            closed_fc_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(closed_fc_layout)
 
-                            details_container.add_widget(
-                                Label(
-                                    text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (Φ-Φ):",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
-                            )
-
-                            open_fa_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            open_fa_layout.add_widget(
-                                Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15)
-                            )
-                            ins_open_fa = TextInput(
-                                hint_text="0.0", size_hint_x=0.35, multiline=False
-                            )
+                            details_container.add_widget(Label(text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (Φ-Φ):", size_hint_y=None, height=25, bold=True))
+                            open_fa_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            open_fa_layout.add_widget(Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15))
+                            ins_open_fa = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
                             open_fa_layout.add_widget(ins_open_fa)
-                            ins_open_fa_unit = Spinner(
-                                text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15
-                            )
+                            ins_open_fa_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             open_fa_layout.add_widget(ins_open_fa_unit)
                             open_fa_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(open_fa_layout)
 
-                            open_fb_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            open_fb_layout.add_widget(
-                                Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15)
-                            )
-                            ins_open_fb = TextInput(
-                                hint_text="0.0", size_hint_x=0.35, multiline=False
-                            )
+                            open_fb_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            open_fb_layout.add_widget(Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15))
+                            ins_open_fb = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
                             open_fb_layout.add_widget(ins_open_fb)
-                            ins_open_fb_unit = Spinner(
-                                text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15
-                            )
+                            ins_open_fb_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             open_fb_layout.add_widget(ins_open_fb_unit)
                             open_fb_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(open_fb_layout)
 
-                            open_fc_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            open_fc_layout.add_widget(
-                                Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15)
-                            )
-                            ins_open_fc = TextInput(
-                                hint_text="0.0", size_hint_x=0.35, multiline=False
-                            )
+                            open_fc_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            open_fc_layout.add_widget(Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15))
+                            ins_open_fc = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
                             open_fc_layout.add_widget(ins_open_fc)
-                            ins_open_fc_unit = Spinner(
-                                text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15
-                            )
+                            ins_open_fc_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             open_fc_layout.add_widget(ins_open_fc_unit)
                             open_fc_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(open_fc_layout)
 
-                            details_container.add_widget(
-                                Label(
-                                    text="ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (μΩ) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
-                            )
-
-                            contact_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            contact_layout.add_widget(
-                                Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15)
-                            )
-                            cont_fa = TextInput(
-                                hint_text="0.0", size_hint_x=0.25, multiline=False
-                            )
+                            details_container.add_widget(Label(text="ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (μΩ) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:", size_hint_y=None, height=25, bold=True))
+                            contact_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                            contact_layout.add_widget(Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15))
+                            cont_fa = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
                             contact_layout.add_widget(cont_fa)
-                            contact_layout.add_widget(
-                                Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15)
-                            )
-                            cont_fb = TextInput(
-                                hint_text="0.0", size_hint_x=0.25, multiline=False
-                            )
+                            contact_layout.add_widget(Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15))
+                            cont_fb = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
                             contact_layout.add_widget(cont_fb)
-                            contact_layout.add_widget(
-                                Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15)
-                            )
-                            cont_fc = TextInput(
-                                hint_text="0.0", size_hint_x=0.25, multiline=False
-                            )
+                            contact_layout.add_widget(Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15))
+                            cont_fc = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
                             contact_layout.add_widget(cont_fc)
                             details_container.add_widget(contact_layout)
 
-                            details_container.add_widget(
-                                Label(
-                                    text="ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ:",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
-                            )
-
-                            ops_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=3
-                            )
-                            ops_layout.add_widget(
-                                Label(text="Αριθμός Χειρισμών:", size_hint_x=0.3)
-                            )
-                            ops_count_input = TextInput(
-                                text="",
-                                hint_text=(
-                                    f"Τελευταία τιμή: {operations_count}"
-                                    if operations_count
-                                    else "0"
-                                ),
-                                size_hint_x=0.2,
-                                multiline=False,
-                            )
-                            ops_layout.add_widget(ops_count_input)
-
-                            last_ops_val = last_ops_map.get(eid)
-                            ops_diff = ""
-                            if last_ops_val is not None:
-                                try:
-                                    current = (
-                                        int(ops_count_input.text)
-                                        if ops_count_input.text
-                                        else 0
-                                    )
-                                    diff = current - last_ops_val
-                                    ops_diff = (
-                                        f"(Διαφορά από τελευταία: +{diff})"
-                                        if diff >= 0
-                                        else f"(Διαφορά από τελευταία: {diff})"
-                                    )
-                                except Exception:
-                                    pass
-
-                            ops_diff_label = Label(
-                                text=ops_diff, size_hint_x=0.5, font_size="10sp"
-                            )
-                            ops_layout.add_widget(ops_diff_label)
-                            details_container.add_widget(ops_layout)
-
-                            sf6_widgets = {}
-                            vidar_widgets = {}
-
+                            # expose ops_count and placeholders
+                            try:
+                                measurements.setdefault("ops_count", ops_count_input)
+                            except Exception:
+                                measurements.setdefault("ops_count", None)
+                            measurements.setdefault("sf6", sf6_widgets)
+                            measurements.setdefault("sf6_leakage", None)
+                            measurements.setdefault("sf6_leak_methodology", None)
+                            measurements.setdefault("vidar", vidar_widgets)
                             if breaker_category == "SF6":
                                 sf6_leakage_input = TextInput(
                                     hint_text="kg", size_hint_x=0.25, multiline=False
@@ -8071,28 +8094,41 @@ class SubstationApp(App):
                                     "vidar_fc": vidar_fc,
                                 }
 
-                            measurements = {
-                                "ins_closed_fa": ins_closed_fa,
-                                "ins_closed_fa_unit": ins_closed_fa_unit,
-                                "ins_closed_fb": ins_closed_fb,
-                                "ins_closed_fb_unit": ins_closed_fb_unit,
-                                "ins_closed_fc": ins_closed_fc,
-                                "ins_closed_fc_unit": ins_closed_fc_unit,
-                                "ins_open_fa": ins_open_fa,
-                                "ins_open_fa_unit": ins_open_fa_unit,
-                                "ins_open_fb": ins_open_fb,
-                                "ins_open_fb_unit": ins_open_fb_unit,
-                                "ins_open_fc": ins_open_fc,
-                                "ins_open_fc_unit": ins_open_fc_unit,
-                                "cont_fa": cont_fa,
-                                "cont_fb": cont_fb,
-                                "cont_fc": cont_fc,
-                                "ops_count": ops_count_input,
-                                "sf6": sf6_widgets,
-                                "sf6_leakage": sf6_leakage_input,
-                                "sf6_leak_methodology": sf6_methodology_input,
-                                "vidar": vidar_widgets,
-                            }
+                            # Build measurements dict according to branch. For HV oil breakers
+                            # we only include the oil-specific widgets added above; for other
+                            # breakers include the legacy insulation/contact fields.
+                            if is_hv_oil:
+                                try:
+                                    measurements.setdefault("ops_count", ops_count_input)
+                                except Exception:
+                                    measurements.setdefault("ops_count", None)
+                                measurements.setdefault("sf6", sf6_widgets)
+                                measurements.setdefault("sf6_leakage", sf6_leakage_input)
+                                measurements.setdefault("sf6_leak_methodology", sf6_methodology_input)
+                                measurements.setdefault("vidar", vidar_widgets)
+                            else:
+                                measurements = {
+                                    "ins_closed_fa": ins_closed_fa,
+                                    "ins_closed_fa_unit": ins_closed_fa_unit,
+                                    "ins_closed_fb": ins_closed_fb,
+                                    "ins_closed_fb_unit": ins_closed_fb_unit,
+                                    "ins_closed_fc": ins_closed_fc,
+                                    "ins_closed_fc_unit": ins_closed_fc_unit,
+                                    "ins_open_fa": ins_open_fa,
+                                    "ins_open_fa_unit": ins_open_fa_unit,
+                                    "ins_open_fb": ins_open_fb,
+                                    "ins_open_fb_unit": ins_open_fb_unit,
+                                    "ins_open_fc": ins_open_fc,
+                                    "ins_open_fc_unit": ins_open_fc_unit,
+                                    "cont_fa": cont_fa,
+                                    "cont_fb": cont_fb,
+                                    "cont_fc": cont_fc,
+                                    "ops_count": ops_count_input,
+                                    "sf6": sf6_widgets,
+                                    "sf6_leakage": sf6_leakage_input,
+                                    "sf6_leak_methodology": sf6_methodology_input,
+                                    "vidar": vidar_widgets,
+                                }
 
                         # Save into per-element storage (use eid)
                         element_widgets.setdefault(eid, {})
