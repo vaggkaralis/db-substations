@@ -7674,6 +7674,7 @@ class SubstationApp(App):
                         operations_count = meta.get("operations_count")
 
                         is_hv_oil = (elem_type == "Διακόπτης ΥΤ" and breaker_category == "Ελαίου")
+                        is_hv_sf6 = (elem_type == "Διακόπτης ΥΤ" and breaker_category == "SF6")
 
                         # build_details_for START
 
@@ -7842,6 +7843,103 @@ class SubstationApp(App):
                                 "contact_ms": (contact_ms_a, contact_ms_b, contact_ms_c),
                                 "amort_dist": (amort_a, amort_b, amort_c),
                             })
+
+                        # High-voltage SF6-specific layout (only for ΥΤ & SF6)
+                        elif is_hv_sf6:
+                            # Category header (Operations counter)
+                            details_container.add_widget(
+                                Label(
+                                    text="ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ",
+                                    size_hint_y=None,
+                                    height=25,
+                                    bold=True,
+                                )
+                            )
+
+                            ops_layout_sf6 = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                            ops_layout_sf6.add_widget(Label(text="Αριθμός Χειρισμών:", size_hint_x=0.6))
+                            try:
+                                ops_count_input.size_hint_x = 0.12
+                                ops_layout_sf6.add_widget(ops_count_input)
+                            except Exception:
+                                ops_layout_sf6.add_widget(TextInput(text="", size_hint_x=0.12))
+                            ops_layout_sf6.add_widget(Widget())
+                            details_container.add_widget(ops_layout_sf6)
+
+                            # Status section
+                            details_container.add_widget(
+                                Label(
+                                    text="ΚΑΤΑΣΤΑΣΗ ΔΙΑΚΟΠΤΗ",
+                                    size_hint_y=None,
+                                    height=25,
+                                    bold=True,
+                                )
+                            )
+
+                            # 2) Lubrication checkbox
+                            lubrication_row_sf6 = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                            lubrication_row_sf6.add_widget(Label(text="Λίπανση μηχανισμού αρθρώσεων:", size_hint_x=0.6))
+                            lubrication_cb_sf6 = CheckBox(size_hint=(None, None), size=(28, 28))
+                            lubrication_cb_sf6.color = (0, 0, 0, 1)
+                            lubrication_row_sf6.add_widget(lubrication_cb_sf6)
+                            lubrication_row_sf6.add_widget(Widget())
+                            details_container.add_widget(lubrication_row_sf6)
+
+                            # 3) Leak check (free text)
+                            leak_check = TextInput(hint_text="Έλεγχος Διαρροών Sf6", multiline=False, size_hint_y=None, height=30)
+                            leak_layout_sf6 = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                            leak_layout_sf6.add_widget(Label(text="Έλεγχος Διαρροών Sf6 :", size_hint_x=0.45))
+                            leak_layout_sf6.add_widget(leak_check)
+                            leak_layout_sf6.add_widget(Widget())
+                            details_container.add_widget(leak_layout_sf6)
+
+                            # 4) Refill SF6 checkbox
+                            refill_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                            refill_row.add_widget(Label(text="Συμπλήρωση Sf6 :", size_hint_x=0.6))
+                            refill_cb = CheckBox(size_hint=(None, None), size=(28, 28))
+                            refill_cb.color = (0, 0, 0, 1)
+                            refill_row.add_widget(refill_cb)
+                            refill_row.add_widget(Widget())
+                            details_container.add_widget(refill_row)
+
+                            # 5) Synchronization check (free text)
+                            synch_check_sf6 = TextInput(hint_text="Έλεγχος ταυτοχρονισμού", multiline=False, size_hint_y=None, height=30)
+                            details_container.add_widget(synch_check_sf6)
+
+                            # 6) Wash insulators (free text)
+                            wash_insulators_sf6 = TextInput(hint_text="Πλύσιμο Μονωτήρων – Έλεγχος Φθοράς", multiline=False, size_hint_y=None, height=30)
+                            details_container.add_widget(wash_insulators_sf6)
+
+                            # 7) Corrosion check (free text)
+                            corrosion_check = TextInput(hint_text="Έλεγχος Διάβρωσης Εξωτερικών Μεταλλικών Τμημάτων", multiline=False, size_hint_y=None, height=30)
+                            details_container.add_widget(corrosion_check)
+
+                            # 8) Μέτρηση Αντίστασης Διαβάσεως (MΩ) - table 3 columns
+                            details_container.add_widget(Label(text="Μέτρηση Αντίστασης Διαβάσεως (MΩ):", size_hint_y=None, height=25, bold=True))
+                            raid_header_sf6 = BoxLayout(size_hint_y=None, height=25)
+                            raid_header_sf6.add_widget(Label(text="Α(ΦΑΣΗ)", size_hint_x=0.33))
+                            raid_header_sf6.add_widget(Label(text="Β(ΦΑΣΗ)", size_hint_x=0.33))
+                            raid_header_sf6.add_widget(Label(text="C(ΦΑΣΗ)", size_hint_x=0.34))
+                            details_container.add_widget(raid_header_sf6)
+                            raid_row_sf6 = BoxLayout(size_hint_y=None, height=32)
+                            raid_a_sf6 = TextInput(hint_text="0.0", multiline=False)
+                            raid_b_sf6 = TextInput(hint_text="0.0", multiline=False)
+                            raid_c_sf6 = TextInput(hint_text="0.0", multiline=False)
+                            raid_row_sf6.add_widget(raid_a_sf6)
+                            raid_row_sf6.add_widget(raid_b_sf6)
+                            raid_row_sf6.add_widget(raid_c_sf6)
+                            details_container.add_widget(raid_row_sf6)
+
+                            # Expose SF6 widgets for persistence
+                            sf6_widgets = {
+                                "lubrication": lubrication_cb_sf6,
+                                "leak_check": leak_check,
+                                "refill": refill_cb,
+                                "synch_check": synch_check_sf6,
+                                "wash_insulators": wash_insulators_sf6,
+                                "corrosion_check": corrosion_check,
+                                "resistance_raid": (raid_a_sf6, raid_b_sf6, raid_c_sf6),
+                            }
 
                         elif is_breaker:
                             # Legacy breaker measurement UI (MV and other categories)
@@ -8097,7 +8195,7 @@ class SubstationApp(App):
                             # Build measurements dict according to branch. For HV oil breakers
                             # we only include the oil-specific widgets added above; for other
                             # breakers include the legacy insulation/contact fields.
-                            if is_hv_oil:
+                            if is_hv_oil or is_hv_sf6:
                                 try:
                                     measurements.setdefault("ops_count", ops_count_input)
                                 except Exception:
