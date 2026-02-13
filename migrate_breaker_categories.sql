@@ -13,12 +13,18 @@ FROM elements
 WHERE element_type IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ')
 GROUP BY breaker_category;
 
--- Step 2: Update English category names to Greek equivalents
--- Convert "Vacuum" to "Κενού"
+-- Convert legacy 'Vacuum' values:
+-- - For HV breakers (Διακόπτης ΥΤ) treat legacy Vacuum as oil ('Ελαίου')
+-- - For MV breakers (Διακόπτης ΜΤ) keep as Vacuum ('Κενού')
+UPDATE elements
+SET breaker_category = 'Ελαίου'
+WHERE breaker_category = 'Vacuum'
+  AND element_type = 'Διακόπτης ΥΤ';
+
 UPDATE elements
 SET breaker_category = 'Κενού'
 WHERE breaker_category = 'Vacuum'
-  AND element_type IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
+  AND element_type = 'Διακόπτης ΜΤ';
 
 -- Convert "Oil" to "Ελαίου"
 UPDATE elements
@@ -41,9 +47,14 @@ WHERE element_category IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ')
 GROUP BY breaker_category;
 
 UPDATE element_models
+SET breaker_category = 'Ελαίου'
+WHERE breaker_category = 'Vacuum'
+  AND element_category = 'Διακόπτης ΥΤ';
+
+UPDATE element_models
 SET breaker_category = 'Κενού'
 WHERE breaker_category = 'Vacuum'
-  AND element_category IN ('Διακόπτης ΜΤ', 'Διακόπτης ΥΤ');
+  AND element_category = 'Διακόπτης ΜΤ';
 
 UPDATE element_models
 SET breaker_category = 'Ελαίου'
@@ -72,8 +83,8 @@ GROUP BY breaker_category;
 SELECT id, name, element_type, breaker_category, substation_id
 FROM elements
 WHERE (
-    (element_type = 'Διακόπτης ΥΤ' AND (breaker_category IS NULL OR breaker_category NOT IN ('SF6', 'Κενού', 'Ελαίου')))
-  OR (element_type = 'Διακόπτης ΜΤ' AND (breaker_category IS NULL OR breaker_category NOT IN ('SF6', 'Κενού', 'Πτωχού Ελαίου', 'Ελαίου')))
+    (element_type = 'Διακόπτης ΥΤ' AND (breaker_category IS NULL OR breaker_category NOT IN ('SF6', 'Ελαίου')))
+  OR (element_type = 'Διακόπτης ΜΤ' AND (breaker_category IS NULL OR breaker_category NOT IN ('SF6', 'Πτωχού Ελαίου', 'Ελαίου')))
 );
 
 -- ============================================================

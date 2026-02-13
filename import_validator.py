@@ -124,9 +124,9 @@ BREAKER_ROLE_MAPPINGS = {
 # Expected values for breaker categories
 BREAKER_CATEGORY_MAPPINGS = {
     "SF6": ["SF6", "SF 6", "Hexafluoride"],
-    "Κενού": ["Κενού", "Vacuum", "VAC"],
     "Πτωχού Ελαίου": ["Πτωχού Ελαίου", "Minimum Oil", "Low Oil"],
     "Ελαίου": ["Ελαίου", "Oil"],
+    "Κενού": ["Κενού", "Vacuum", "VAC"],
 }
 
 

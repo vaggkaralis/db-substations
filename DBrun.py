@@ -223,9 +223,9 @@ class SubstationApp(App):
     ]
     BREAKER_CATEGORIES_ALL = [
         "SF6",
-        "Κενού",
         "Πτωχού Ελαίου",
         "Ελαίου",
+        "Κενού",
     ]  # All breaker categories
 
     def _format_elem_type(self, elem_type, is_main_switch):
@@ -249,12 +249,12 @@ class SubstationApp(App):
         except Exception:
             label = "Γραμμής"
         return f"{elem_type} ({label})"
-    BREAKER_CATEGORIES_HV = ["SF6", "Κενού", "Ελαίου"]  # HV breaker categories
+    BREAKER_CATEGORIES_HV = ["SF6", "Ελαίου"]  # HV breaker categories
     BREAKER_CATEGORIES_MV = [
         "SF6",
-        "Κενού",
         "Πτωχού Ελαίου",
         "Ελαίου",
+        "Κενού",
     ]  # MV breaker categories
     BREAKER_TYPES = [
         "Κεντρικός",
@@ -1272,7 +1272,7 @@ class SubstationApp(App):
             "Λειτουργίες εφαρμογής:\n"
             "• Προβολή και διαχείριση βάσης υποσταθμών\n"
             "• Προσθήκη/επεξεργασία/διαγραφή υποσταθμών και στοιχείων\n"
-            "• Κατηγορίες διακοπτών (SF6/Κενού/Ελαίου/Πτωχού Ελαίου)\n"
+            "• Κατηγορίες διακοπτών (SF6/Ελαίου/Πτωχού Ελαίου)\n"
             "• Διαχείριση τύπων στοιχείων (μοντέλα/κατασκευαστές/κύκλοι)\n"
             "• Καταχώρηση συντηρήσεων\n"
             "• Εισαγωγή συντήρησης από e-mail (.eml)\n"
@@ -1845,6 +1845,9 @@ class SubstationApp(App):
         if element_type in ["Συστοιχία Συσσωρευτών", "Μ/Σ Εγχύσεως"]:
             return "20KV"
         return ""
+
+    # Deprecated: previously returned options including an empty placeholder.
+    # Use `_derive_voltage_level()` directly and construct values where needed.
 
     def _get_maintenance_people(self, maintenance_id):
         c = self.conn.cursor()
@@ -5328,7 +5331,9 @@ class SubstationApp(App):
         current_voltage = (
             voltage_level or self._derive_voltage_level(elem_type) or "(Κενό)"
         )
-        voltage_options = list(self.VOLTAGE_LEVELS)
+        # Use derive logic: if element type maps to a single voltage, show only that option
+        _derived = self._derive_voltage_level(elem_type)
+        voltage_options = [_derived] if _derived else list(self.VOLTAGE_LEVELS)
         if current_voltage not in voltage_options:
             voltage_options.append(current_voltage)
         voltage_level_spinner = Spinner(
@@ -6109,10 +6114,11 @@ class SubstationApp(App):
 
         # Voltage level selection
         layout.add_widget(Label(text="Επίπεδο Τάσης:", size_hint_y=None, height=30))
-        initial_voltage = self._derive_voltage_level(element_spinner.text) or "(Κενό)"
+        _derived = self._derive_voltage_level(element_spinner.text)
+        initial_voltage = _derived or "(Κενό)"
         voltage_level_spinner = Spinner(
             text=initial_voltage,
-            values=self.VOLTAGE_LEVELS,
+            values=[_derived] if _derived else list(self.VOLTAGE_LEVELS),
             size_hint_y=None,
             height=40,
         )
@@ -6306,8 +6312,10 @@ class SubstationApp(App):
                 )
 
             # Auto-select voltage level based on element type
-            derived_voltage = self._derive_voltage_level(text) or "(Κενό)"
-            voltage_level_spinner.text = derived_voltage
+            # update allowed options then set text (no empty option for restricted types)
+            _derived = self._derive_voltage_level(text)
+            voltage_level_spinner.values = [_derived] if _derived else list(self.VOLTAGE_LEVELS)
+            voltage_level_spinner.text = _derived or "(Κενό)"
 
         element_spinner.bind(text=on_element_type_change)
         on_element_type_change(element_spinner, element_spinner.text)
@@ -6560,10 +6568,11 @@ class SubstationApp(App):
         input_layout.add_widget(
             Label(text="Επίπεδο Τάσης:", size_hint_y=None, height=30)
         )
-        initial_voltage = self._derive_voltage_level(element_spinner.text) or "(Κενό)"
+        _derived = self._derive_voltage_level(element_spinner.text)
+        initial_voltage = _derived or "(Κενό)"
         voltage_level_spinner = Spinner(
             text=initial_voltage,
-            values=self.VOLTAGE_LEVELS,
+            values=[_derived] if _derived else list(self.VOLTAGE_LEVELS),
             size_hint_y=None,
             height=40,
         )
@@ -6798,8 +6807,10 @@ class SubstationApp(App):
                     )
 
             # Auto-select voltage level based on element type
-            derived_voltage = self._derive_voltage_level(text) or "(Κενό)"
-            voltage_level_spinner.text = derived_voltage
+            # update allowed options then set text (no empty option for restricted types)
+            _derived = self._derive_voltage_level(text)
+            voltage_level_spinner.values = [_derived] if _derived else list(self.VOLTAGE_LEVELS)
+            voltage_level_spinner.text = _derived or "(Κενό)"
 
         element_spinner.bind(text=on_element_type_change)
         on_element_type_change(element_spinner, element_spinner.text)
@@ -7131,11 +7142,6 @@ class SubstationApp(App):
                         "sf6_n2_fc": row[26],
                         "h2o_fc": row[27],
                         "so2_fc": row[28],
-                    },
-                    "vidar": {
-                        "vidar_fa": row[29],
-                        "vidar_fb": row[30],
-                        "vidar_fc": row[31],
                     },
                 }
 
@@ -7615,8 +7621,7 @@ class SubstationApp(App):
                     # Add manufacturer and model info
                     mfr = model_manufacturer or manufacturer or "-"
                     mdl = model_name or model or "-"
-                    elem_display += f" | Κατ.: {mfr} | Μοντ.: {mdl}"
-                    elem_display += f" (id:{elem_id})"
+                    elem_display += f" | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id or 'N/A'})"
 
                     # Element container - initially just checkbox and label
                     elem_box = BoxLayout(
@@ -8037,7 +8042,8 @@ class SubstationApp(App):
                                 sf6_leakage_input = None
                                 sf6_methodology_input = None
 
-                            if breaker_category in ["Vacuum", "Κενού"]:
+                            # VIDAR (vacuum) inputs for MV Vacuum breakers (single-row layout)
+                            if elem_type == "Διακόπτης ΜΤ" and breaker_category in ["Vacuum", "Κενού"]:
                                 details_container.add_widget(
                                     Label(
                                         text="ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):",
@@ -8047,29 +8053,15 @@ class SubstationApp(App):
                                     )
                                 )
 
-                                vidar_layout = BoxLayout(
-                                    size_hint_y=None, height=30, spacing=3
-                                )
-                                vidar_layout.add_widget(
-                                    Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15)
-                                )
-                                vidar_fa = TextInput(
-                                    hint_text="0.0", size_hint_x=0.25, multiline=False
-                                )
+                                vidar_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
+                                vidar_layout.add_widget(Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15))
+                                vidar_fa = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
                                 vidar_layout.add_widget(vidar_fa)
-                                vidar_layout.add_widget(
-                                    Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15)
-                                )
-                                vidar_fb = TextInput(
-                                    hint_text="0.0", size_hint_x=0.25, multiline=False
-                                )
+                                vidar_layout.add_widget(Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15))
+                                vidar_fb = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
                                 vidar_layout.add_widget(vidar_fb)
-                                vidar_layout.add_widget(
-                                    Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15)
-                                )
-                                vidar_fc = TextInput(
-                                    hint_text="0.0", size_hint_x=0.25, multiline=False
-                                )
+                                vidar_layout.add_widget(Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15))
+                                vidar_fc = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
                                 vidar_layout.add_widget(vidar_fc)
                                 details_container.add_widget(vidar_layout)
 
@@ -8442,11 +8434,17 @@ class SubstationApp(App):
                         )
                         return
 
-                    # Parse VIDAR measurements if present
+                    # Parse VIDAR (vacuum) measurements when present
                     vidar_vals = {}
-                    if measurements["vidar"]:
+                    if measurements.get("vidar"):
                         for key, widget in measurements["vidar"].items():
-                            vidar_vals[key] = parse_float(widget.text)
+                            try:
+                                vidar_vals[key] = float(widget.text) if widget.text.strip() else None
+                            except Exception:
+                                try:
+                                    vidar_vals[key] = float(widget.text.replace(',','.'))
+                                except Exception:
+                                    vidar_vals[key] = None
 
                     c.execute(
                         """INSERT INTO maintenance_elements 
@@ -9573,9 +9571,11 @@ class SubstationApp(App):
             )
             content.add_widget(grid)
 
+        # Show VIDAR (vacuum) measurements for MV Vacuum breakers only
         if (
             has_measurements
             and breaker_category in ["Vacuum", "Κενού"]
+            and elem_type == "Διακόπτης ΜΤ"
             and any([vidar_fa, vidar_fb, vidar_fc])
         ):
             add_section("Έλεγχος Κενού (VIDAR)")

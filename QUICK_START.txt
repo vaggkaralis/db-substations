@@ -47,8 +47,8 @@ Scenario 3: Maintenance Recording with SF6 Breaker
 7. Verify PDF button (📄 PDF) appears for SF6 breaker
 8. Click PDF button and verify PDF generates
 
-Scenario 4: Maintenance Recording with Κενού Breaker
-1. Repeat steps from Scenario 3 but with Κενού breaker
+Scenario 4: Maintenance Recording with Oil Breaker
+1. Repeat steps from Scenario 3 but with an oil breaker (Ελαίου)
 2. Verify PDF button appears
 3. Generate and verify PDF
 
@@ -61,7 +61,7 @@ Scenario 6: Category Filter in Breaker Management
 1. Go to element list
 2. Use breaker category filter dropdown
 3. Select "SF6" and verify only SF6 breakers shown
-4. Select "Κενού" and verify only Vacuum breakers shown
+4. Select "Ελαίου" and verify only oil breakers shown
 5. Select "Πτωχού Ελαίου" and verify only MV oil breakers shown
 6. Select "Ελαίου" and verify HV oil breakers shown
 6. Select "Όλα" to see all breakers
@@ -74,7 +74,7 @@ Issue: 63 breakers have NULL or empty categories
 Solution Option A (Manual - RECOMMENDED):
 1. Go through element list
 2. Edit each breaker without category
-3. Assign correct category (ΜΤ: SF6/Κενού/Πτωχού Ελαίου/Ελαίου, ΥΤ: SF6/Κενού/Ελαίου)
+3. Assign correct category (ΜΤ: SF6/Πτωχού Ελαίου/Ελαίου, ΥΤ: SF6/Ελαίου)
 4. Save
 
 Solution Option B (Bulk SQL - Advanced):
@@ -107,7 +107,7 @@ Problem: Test fails
 Solution: Read error message, check AUDIT_REPORT.md for details
 
 Problem: PDF button doesn't appear
-Solution: Check breaker has valid category (ΜΤ: SF6/Κενού/Πτωχού Ελαίου/Ελαίου, ΥΤ: SF6/Κενού/Ελαίου)
+Solution: Check breaker has valid category (ΜΤ: SF6/Πτωχού Ελαίου/Ελαίου, ΥΤ: SF6/Ελαίου)
 
 Problem: Models don't filter
 Solution: Verify breaker_category_spinner.bind() exists in code

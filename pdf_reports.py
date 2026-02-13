@@ -153,9 +153,10 @@ class MaintenanceReportGenerator:
             "SF6": "ΑΕΡΙΟΥ (SF6)",
             "Πτωχού Ελαίου": "ΛΑΔΙΟΥ",
             "Ελαίου": "ΛΑΔΙΟΥ",
-            "Κενού": "ΚΕΝΟΥ",
             # Legacy English names (for backward compatibility)
             "Oil": "ΛΑΔΙΟΥ",
+            # Vacuum (MV) representation
+            "Κενού": "ΚΕΝΟΥ",
             "Vacuum": "ΚΕΝΟΥ",
         }
         return category_map.get(breaker_category, breaker_category)
@@ -248,8 +249,7 @@ class MaintenanceReportGenerator:
                    insulation_open_fc_fc, insulation_open_fc_unit,
                    contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc,
                    operations_count,
-                   sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
-                   vidar_fa, vidar_fb, vidar_fc
+                   sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc
             FROM maintenance_elements
             WHERE maintenance_id = ? AND element_id = ?
         """,
@@ -279,10 +279,6 @@ class MaintenanceReportGenerator:
             self._generate_sf6_report(output_path, maintenance, element, measurements)
         elif breaker_category in ["Oil", "Πτωχού Ελαίου", "Ελαίου"]:
             self._generate_oil_report(output_path, maintenance, element, measurements)
-        elif breaker_category in ["Vacuum", "Κενού"]:
-            self._generate_vacuum_report(
-                output_path, maintenance, element, measurements
-            )
         else:
             raise ValueError(f"Unknown breaker category: {breaker_category}")
 
