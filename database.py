@@ -220,6 +220,13 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         except Exception:
             pass
 
+    # Add power (ΙΣΧΥΣ) column to elements to store transformer power in MVA
+    if "power_mva" not in elem_columns:
+        try:
+            cursor.execute('ALTER TABLE elements ADD COLUMN power_mva REAL DEFAULT 50')
+        except Exception:
+            pass
+
     # Add gate column to elements table for organizing by transformer/gate
     if "gate" not in elem_columns:
         try:
