@@ -221,9 +221,10 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             pass
 
     # Add power (ΙΣΧΥΣ) column to elements to store transformer power in MVA
+    # This is a standard attribute for any element; allow NULL so it can be empty.
     if "power_mva" not in elem_columns:
         try:
-            cursor.execute('ALTER TABLE elements ADD COLUMN power_mva REAL DEFAULT 50')
+            cursor.execute('ALTER TABLE elements ADD COLUMN power_mva REAL')
         except Exception:
             pass
 
@@ -256,6 +257,15 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             cursor.execute(
                 'UPDATE elements SET gate = REPLACE(gate, "ΖΥΓΟΣ", "ΠΥΛΗ") WHERE gate LIKE "ΖΥΓΟΣ%"'
             )
+        except Exception:
+            pass
+
+    # Add data_json column to maintenance_elements for storing arbitrary form data
+    cursor.execute("PRAGMA table_info(maintenance_elements)")
+    me_columns = [column[1] for column in cursor.fetchall()]
+    if "data_json" not in me_columns:
+        try:
+            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN data_json TEXT')
         except Exception:
             pass
 

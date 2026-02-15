@@ -58,9 +58,11 @@ def filter_people_for_maintenance(people_rows, responsible_person_id=None):
     }
 
     people = list(people_rows)
-    responsible_people = [p for p in people if p[2] in allowed_responsible_roles]
-    crew_people = [p for p in people if p[2] != "Υποστήριξη"]
+    # Use canonical role matching to be tolerant to diacritics/variants in DB
+    responsible_people = [p for p in people if canonical_role(p[2]) in allowed_responsible_roles]
+    crew_people = [p for p in people if canonical_role(p[2]) != "Υποστήριξη"]
 
+    # If a preselected responsible person isn't in the allowed list, prepend them so they remain selectable
     if responsible_person_id and not any(p[0] == responsible_person_id for p in responsible_people):
         found = next((p for p in people if p[0] == responsible_person_id), None)
         if found:

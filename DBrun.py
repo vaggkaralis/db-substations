@@ -199,7 +199,7 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
 # Maximize window on startup
 Window.maximize()
 
-from ui.shared import IconWidget, ShiftSelectableTextInput, IconButton
+from ui.shared import IconWidget, ShiftSelectableTextInput, IconButton, IconOnlyButton
 
 
 class SubstationApp(App):
@@ -736,6 +736,21 @@ class SubstationApp(App):
         value = "".join(ch for ch in value if not unicodedata.combining(ch))
         value = value.replace("ς", "σ").lower()
         return value
+
+    def _is_transformer(self, elem_type: str) -> bool:
+        """Return True when an element type represents the 150/20KV transformer.
+
+        This is intentionally permissive because some databases may contain
+        mojibake or slightly different spellings; we therefore check for the
+        numeric `150/20` marker or the normalized greek stem `μετασχη`.
+        """
+        if not elem_type:
+            return False
+        try:
+            norm = self._normalize_text(elem_type)
+        except Exception:
+            norm = (elem_type or "").lower()
+        return ("150/20" in (elem_type or "")) or ("150/20" in norm) or ("μετασχη" in norm)
 
     def _tokenize_text(self, value: str):
         normalized = self._normalize_text(value)
@@ -1834,7 +1849,7 @@ class SubstationApp(App):
         return f"Υ/Σ {substation_name} - DATE {formatted_date}"
 
     def _derive_voltage_level(self, element_type: str) -> str:
-        if element_type == "Μετασχηματιστής 150/20KV":
+        if self._is_transformer(element_type):
             return "150/20KV"
         if element_type == "Διακόπτης ΜΤ":
             return "20KV"
@@ -3238,9 +3253,9 @@ class SubstationApp(App):
         c = self.conn.cursor()
         # Get all transformers for this substation, ordered by name
         c.execute(
-            """SELECT name FROM elements 
-                    WHERE substation_id=? AND element_type='Μετασχηματιστής 150/20KV' 
-                    ORDER BY name""",
+            """SELECT name FROM elements
+                WHERE substation_id=? AND (element_type LIKE '%150/20%' OR element_type LIKE '%Μετασχη%')
+                ORDER BY name""",
             (substation_id,),
         )
         transformers = c.fetchall()
@@ -3766,42 +3781,62 @@ class SubstationApp(App):
                 )
                 grid.add_widget(substation_title)
 
-                # If viewing a single substation, show expanded first-line info
-                if filter_name:
-                    info_text = f"{location or '-'} | {division or '-'} | Ανάληψη: {adoption_date or '-'}"
-                    info_label = Label(text=info_text, size_hint_y=None, height=30)
-                    info_label.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], None)))
-                    grid.add_widget(info_label)
+                # (removed accidental top-line raw info display)
 
                 # Add header for each substation
                 header_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
-                header_layout.add_widget(
-                    Label(text="Τοποθεσία", bold=True, size_hint_x=0.17)
-                )
-                header_layout.add_widget(
-                    Label(text="Ανάληψη", bold=True, size_hint_x=0.1)
-                )
-                header_layout.add_widget(
-                    Label(text="Στοιχεία", bold=True, size_hint_x=0.07)
-                )
-                header_layout.add_widget(
-                    Label(text="Πύλες", bold=True, size_hint_x=0.07)
-                )
-                header_layout.add_widget(
-                    Label(text="Πυκνωτές", bold=True, size_hint_x=0.07)
-                )
-                header_layout.add_widget(
-                    Label(text="Συντηρήσεις", bold=True, size_hint_x=0.1)
-                )
-                header_layout.add_widget(
-                    Label(text="Τελευταία", bold=True, size_hint_x=0.1)
-                )
-                header_layout.add_widget(
-                    Label(text="Μονογραμμικό", bold=True, size_hint_x=0.12)
-                )
-                header_layout.add_widget(
-                    Label(text="", size_hint_x=0.2)
-                )  # Space for buttons
+                # create header labels and bind their text_size so they stretch to the layout width
+                h_loc = Label(text="Τοποθεσία", bold=True, size_hint_x=0.17)
+                h_loc.halign = "center"
+                h_loc.valign = "middle"
+                h_loc.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_loc)
+
+                h_ad = Label(text="Ανάληψη", bold=True, size_hint_x=0.1)
+                h_ad.halign = "center"
+                h_ad.valign = "middle"
+                h_ad.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_ad)
+
+                h_info = Label(text="Στοιχεία", bold=True, size_hint_x=0.07)
+                h_info.halign = "center"
+                h_info.valign = "middle"
+                h_info.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_info)
+
+                h_gates = Label(text="Πύλες", bold=True, size_hint_x=0.07)
+                h_gates.halign = "center"
+                h_gates.valign = "middle"
+                h_gates.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_gates)
+
+                h_cap = Label(text="Πυκνωτές", bold=True, size_hint_x=0.07)
+                h_cap.halign = "center"
+                h_cap.valign = "middle"
+                h_cap.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_cap)
+
+                h_main = Label(text="Συντηρήσεις", bold=True, size_hint_x=0.1)
+                h_main.halign = "center"
+                h_main.valign = "middle"
+                h_main.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_main)
+
+                h_last = Label(text="Τελευταία", bold=True, size_hint_x=0.1)
+                h_last.halign = "center"
+                h_last.valign = "middle"
+                h_last.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_last)
+
+                h_mono = Label(text="Μονογραμμικό", bold=True, size_hint_x=0.12)
+                h_mono.halign = "center"
+                h_mono.valign = "middle"
+                h_mono.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(h_mono)
+
+                spacer = Label(text="", size_hint_x=0.2)
+                spacer.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                header_layout.add_widget(spacer)  # Space for buttons
                 grid.add_widget(header_layout)
 
                 elem_count = elem_count_map.get(sub_id, 0)
@@ -3830,29 +3865,62 @@ class SubstationApp(App):
                     btn_holder.add_widget(Widget())
                     sub_row_layout.add_widget(btn_holder)
                 else:
-                    sub_row_layout.add_widget(Label(text="-", size_hint_x=0.17))
+                    lbl_loc = Label(text="-", size_hint_x=0.17)
+                    lbl_loc.halign = "center"
+                    lbl_loc.valign = "middle"
+                    lbl_loc.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                    sub_row_layout.add_widget(lbl_loc)
 
-                sub_row_layout.add_widget(
-                    Label(text=adoption_date or "-", size_hint_x=0.1)
-                )
-                sub_row_layout.add_widget(Label(text=str(elem_count), size_hint_x=0.07))
-                sub_row_layout.add_widget(Label(text=str(gate_count), size_hint_x=0.07))
-                sub_row_layout.add_widget(
-                    Label(text=str(capacitor_count), size_hint_x=0.07)
-                )
-                sub_row_layout.add_widget(Label(text=str(maint_count), size_hint_x=0.1))
-                sub_row_layout.add_widget(
-                    Label(text=last_maint_display, size_hint_x=0.1)
-                )
+                lbl_ad = Label(text=adoption_date or "-", size_hint_x=0.1)
+                lbl_ad.halign = "center"
+                lbl_ad.valign = "middle"
+                lbl_ad.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                sub_row_layout.add_widget(lbl_ad)
 
+                lbl_count = Label(text=str(elem_count), size_hint_x=0.07)
+                lbl_count.halign = "center"
+                lbl_count.valign = "middle"
+                lbl_count.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                sub_row_layout.add_widget(lbl_count)
+
+                lbl_gates = Label(text=str(gate_count), size_hint_x=0.07)
+                lbl_gates.halign = "center"
+                lbl_gates.valign = "middle"
+                lbl_gates.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                sub_row_layout.add_widget(lbl_gates)
+
+                lbl_cap = Label(text=str(capacitor_count), size_hint_x=0.07)
+                lbl_cap.halign = "center"
+                lbl_cap.valign = "middle"
+                lbl_cap.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                sub_row_layout.add_widget(lbl_cap)
+
+                lbl_maint = Label(text=str(maint_count), size_hint_x=0.1)
+                lbl_maint.halign = "center"
+                lbl_maint.valign = "middle"
+                lbl_maint.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                sub_row_layout.add_widget(lbl_maint)
+
+                lbl_last = Label(text=last_maint_display, size_hint_x=0.1)
+                lbl_last.halign = "center"
+                lbl_last.valign = "middle"
+                lbl_last.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+                sub_row_layout.add_widget(lbl_last)
+
+                mono_text = "Άνοιγμα" if monogram_pdf else "Προσθήκη"
+                # hyperlink style: underline, blue text, transparent background
                 monogram_btn = Button(
-                    text="Άνοιγμα" if monogram_pdf else "Προσθήκη", size_hint_x=0.12
+                    text=f"[u]{mono_text}[/u]",
+                    markup=True,
+                    background_normal="",
+                    background_down="",
+                    background_color=(0, 0, 0, 0),
+                    color=(0.2, 0.6, 1, 1),
+                    size_hint_x=0.12,
                 )
                 if monogram_pdf and os.path.exists(monogram_pdf):
                     monogram_btn.bind(
-                        on_press=lambda x, path=monogram_pdf: self._open_monogram_pdf(
-                            path
-                        )
+                        on_press=lambda x, path=monogram_pdf: self._open_monogram_pdf(path)
                     )
                 else:
                     monogram_btn.bind(
@@ -3860,87 +3928,83 @@ class SubstationApp(App):
                             self._select_monogram_pdf(sid, p, f)
                         )
                     )
-                sub_row_layout.add_widget(monogram_btn)
+                # group monogram and action buttons in a fixed-width container
+                actions_container = BoxLayout(size_hint_x=0.32, spacing=6)
+                # monogram occupies the left portion (matching header 0.12 / 0.32)
+                mono_portion = BoxLayout(size_hint_x=0.375)
+                mono_portion.add_widget(Widget())
+                mono_portion.add_widget(monogram_btn)
+                mono_portion.add_widget(Widget())
+                actions_container.add_widget(mono_portion)
 
-                sub_row_layout.add_widget(
-                    Label(text="", size_hint_x=0.2)
-                )  # Empty space to match header
+                # small action buttons on the right portion
+                actions_buttons = BoxLayout(size_hint_x=0.625, spacing=4)
+                edit_icon = IconOnlyButton(
+                    icon_type="edit",
+                    size=(44, 36),
+                    icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
+                )
+                edit_icon.bind(on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, p=popup: self.show_edit_substation_popup(sid, sname, loc, adate, div, p))
+                actions_buttons.add_widget(edit_icon)
+
+                delete_icon = IconOnlyButton(
+                    icon_type="delete",
+                    size=(44, 36),
+                    icon_color=(1, 0.0, 0.0, 1),
+                )
+                delete_icon.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: self.confirm_delete_substation(sid, sname, p))
+                actions_buttons.add_widget(delete_icon)
+
+                actions_container.add_widget(actions_buttons)
+                sub_row_layout.add_widget(actions_container)
                 grid.add_widget(sub_row_layout)
 
-                # Edit, Delete, and Maintenance History buttons
-                buttons_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
+                # Keep maintenance/history buttons grouped separately (larger, with pictograms)
+                buttons_layout = BoxLayout(size_hint_y=None, height=48, spacing=8)
 
-                edit_btn = Button(text="Επεξεργασία", size_hint_x=0.25)
-                edit_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, p=popup: (
-                        self.show_edit_substation_popup(sid, sname, loc, adate, div, p)
-                    )
+                maint_hist_btn = IconButton(
+                    text="Ιστορικό Συντήρησης",
+                    icon_type="maintenance",
+                    size_hint_x=0.5,
+                    theme=self.theme,
                 )
-                buttons_layout.add_widget(edit_btn)
-
-                maint_hist_btn = Button(text="Ιστορικό Συντ.", size_hint_x=0.25)
-                maint_hist_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
-                        self.show_substation_maintenance_history(sid, sname, p)
-                    )
-                )
+                maint_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_substation_maintenance_history(sid, sname, p)))
                 buttons_layout.add_widget(maint_hist_btn)
 
-                insp_hist_btn = Button(text="Ιστορικό Επιθ.", size_hint_x=0.25)
-                insp_hist_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
-                        self.show_substation_inspection_history(sid, sname, p)
-                    )
+                insp_hist_btn = IconButton(
+                    text="Ιστορικό Επιθεώρησης",
+                    icon_type="inspection",
+                    size_hint_x=0.5,
+                    theme=self.theme,
                 )
+                insp_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_substation_inspection_history(sid, sname, p)))
                 buttons_layout.add_widget(insp_hist_btn)
-
-                delete_sub_btn = Button(text="Διαγραφή", size_hint_x=0.25)
-                delete_sub_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
-                        self.confirm_delete_substation(sid, sname, p)
-                    )
-                )
-                buttons_layout.add_widget(delete_sub_btn)
 
                 grid.add_widget(buttons_layout)
 
-                # Add element button for this substation
-                add_elem_btn = Button(
-                    text="   + Προσθήκη Στοιχείου", size_hint_y=None, height=35
-                )
-                add_elem_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
-                        self.show_add_element_popup_for_substation(sid, sname, p)
-                    )
-                )
-                grid.add_widget(add_elem_btn)
+                # Action buttons row for add/ inactive / view (in one horizontal row)
+                btn_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
 
-                # Inactive elements button with count
+                add_elem_btn = Button(text="+ Προσθήκη Στοιχείου", size_hint_x=0.33)
+                add_elem_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_add_element_popup_for_substation(sid, sname, p)))
+                btn_row.add_widget(add_elem_btn)
+
                 inactive_count = inactive_count_map.get(sub_id, 0)
-                inactive_elem_btn = Button(
-                    text=f"   Ανενεργά Στοιχεία ({inactive_count})",
-                    size_hint_y=None,
-                    height=35,
-                )
-                inactive_elem_btn.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
-                        self.show_inactive_elements(sid, sname, p)
-                    )
-                )
-                grid.add_widget(inactive_elem_btn)
+                inactive_elem_btn = Button(text=f"Ανενεργά Στοιχεία ({inactive_count})", size_hint_x=0.33)
+                inactive_elem_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_inactive_elements(sid, sname, p)))
+                btn_row.add_widget(inactive_elem_btn)
 
                 if not show_elements:
-                    view_elements_btn = Button(
-                        text=f"   Εμφάνιση ενεργών στοιχείων ({elem_count})",
-                        size_hint_y=None,
-                        height=35,
-                    )
-                    view_elements_btn.bind(
-                        on_press=lambda x, sname=sub_name, p=popup: (
-                            self._display_substations(sname, p)
-                        )
-                    )
-                    grid.add_widget(view_elements_btn)
+                    view_elements_btn = Button(text=f"Εμφάνιση ενεργών στοιχείων ({elem_count})", size_hint_x=0.34)
+                    view_elements_btn.bind(on_press=lambda x, sname=sub_name, p=popup: (self._display_substations(sname, p)))
+                    btn_row.add_widget(view_elements_btn)
+
+                grid.add_widget(btn_row)
+
+                # If we're not viewing a single substation, skip fetching/displaying elements
+                if not show_elements:
+                    spacing_widget = Label(text="", size_hint_y=None, height=30)
+                    grid.add_widget(spacing_widget)
                     continue
 
                 # Elements section (only active elements)
@@ -4005,7 +4069,7 @@ class SubstationApp(App):
                 # Fetch model data from element_models table
                 query = """
                           SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
-                              e.voltage_level, e.manufacturer, e.manufacture_year, e.gate, e.is_main_switch,
+                              e.voltage_level, e.power_mva, e.manufacturer, e.manufacture_year, e.gate, e.is_main_switch,
                            em.breaker_category, em.model_name, em.manufacturer as model_manufacturer, 
                            em.maintenance_cycle, em.installation_space
                     FROM elements e 
@@ -4036,6 +4100,7 @@ class SubstationApp(App):
                             serial_number,
                             maintenance_date,
                             voltage_level,
+                            power_mva,
                             manufacturer,
                             manufacture_year,
                             gate,
@@ -4050,7 +4115,7 @@ class SubstationApp(App):
                         # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV line breakers, MV capacitor breakers, rest
                         if elem_type == "Διακόπτης ΥΤ":
                             return (1, elem_name)
-                        elif elem_type == "Μετασχηματιστής 150/20KV":
+                        elif self._is_transformer(elem_type):
                             return (2, elem_name)
                         elif elem_type == "Motor Drive":
                             return (3, elem_name)
@@ -4083,6 +4148,7 @@ class SubstationApp(App):
                             serial_number,
                             maintenance_date,
                             voltage_level,
+                            power_mva,
                             manufacturer,
                             manufacture_year,
                             gate,
@@ -4134,6 +4200,7 @@ class SubstationApp(App):
                                 serial_number,
                                 maintenance_date,
                                 voltage_level,
+                                power_mva,
                                 manufacturer,
                                 manufacture_year,
                                 gate,
@@ -4198,7 +4265,8 @@ class SubstationApp(App):
                                 if manufacture_year
                                 else ""
                             )
-                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
+                            power_display = f"{power_mva} MVA" if power_mva else "-"
+                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
 
                             # Create a horizontal layout for element and buttons
                             elem_layout = BoxLayout(size_hint_y=None, spacing=5)
@@ -4223,10 +4291,16 @@ class SubstationApp(App):
                             )
                             elem_layout.add_widget(elem_label)
 
-                            # Button container
-                            btn_box = BoxLayout(size_hint_x=0.25, spacing=3)
+                            # Button container (icon-only buttons: view, edit, delete)
+                            btn_box = BoxLayout(size_hint_x=0.25, spacing=6)
 
-                            edit_elem_btn = Button(text="Επεξ.", size_hint_x=0.5)
+                            view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("text", (0.12,0.12,0.12,1)))
+                            view_btn.size_hint_x = 0.33
+                            view_btn.bind(on_press=lambda x, eid=elem_id: (self._show_element_quick_view(eid)))
+                            btn_box.add_widget(view_btn)
+
+                            edit_elem_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)))
+                            edit_elem_btn.size_hint_x = 0.33
                             edit_elem_btn.bind(
                                 on_press=lambda x, eid=elem_id, sid=sub_id, sname=sub_name, p=popup: (
                                     self.show_edit_element_popup(eid, sid, p, sname)
@@ -4234,7 +4308,8 @@ class SubstationApp(App):
                             )
                             btn_box.add_widget(edit_elem_btn)
 
-                            delete_elem_btn = Button(text="Διαγρ.", size_hint_x=0.5)
+                            delete_elem_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1))
+                            delete_elem_btn.size_hint_x = 0.34
                             delete_elem_btn.bind(
                                 on_press=lambda x, eid=elem_id, ename=elem_name, sid=sub_id, sname=sub_name, p=popup: (
                                     self.confirm_delete_element(
@@ -4592,6 +4667,66 @@ class SubstationApp(App):
             import_substations_from_csv(self.conn, file_path, on_success, on_error)
         else:
             on_error("Μη υποστηριζόμενη μορφή αρχείου")
+
+    def _show_element_quick_view(self, element_id):
+        """Show a small popup with the element's key details (read-only)."""
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        from kivy.uix.button import Button
+
+        c = self.conn.cursor()
+        c.execute(
+            "SELECT name, element_type, serial_number, power_mva, manufacturer, manufacture_year, installation_space, maintenance_date FROM elements WHERE id=?",
+            (element_id,),
+        )
+        row = c.fetchone()
+        if not row:
+            show_message_popup("Σφάλμα", "Το στοιχείο δεν βρέθηκε.")
+            return
+
+        (
+            name,
+            elem_type,
+            serial_number,
+            power_mva,
+            manufacturer,
+            manufacture_year,
+            installation_space,
+            maintenance_date,
+        ) = row
+
+        power_display = f"{power_mva} MVA" if power_mva else "-"
+        lines = [
+            f"Όνομα: {name}",
+            f"Τύπος: {elem_type}",
+            f"S/N: {serial_number or '-'}",
+            f"Κατασκευαστής: {manufacturer or '-'} ({manufacture_year or '-'})",
+            f"Χώρος: {installation_space or '-'}",
+            f"Ισχύς: {power_display}",
+            f"Τελευταία Συντήρηση: {maintenance_date or '-'}",
+        ]
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+        for l in lines:
+            layout.add_widget(Label(text=l, size_hint_y=None, height=28))
+
+        btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        close_btn = Button(text="Κλείσιμο")
+
+        def _close(_x):
+            popup.dismiss()
+
+        close_btn.bind(on_press=_close)
+        btn_row.add_widget(Widget())
+        btn_row.add_widget(close_btn)
+        btn_row.add_widget(Widget())
+
+        layout.add_widget(btn_row)
+
+        popup = Popup(title="Προβολή Στοιχείου", size_hint=(0.6, 0.5))
+        popup.content = layout
+        popup.open()
 
     def _read_elements_file(self, file_path):
         """Read elements file, handling TEMPLATE_VERSION row if present
@@ -5284,7 +5419,7 @@ class SubstationApp(App):
         # Fetch element data
         c = self.conn.cursor()
         c.execute(
-            "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, is_main_switch, breaker_category FROM elements WHERE id=?",
+            "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, is_main_switch, breaker_category, power_mva FROM elements WHERE id=?",
             (element_id,),
         )
         element = c.fetchone()
@@ -5310,6 +5445,7 @@ class SubstationApp(App):
             gate,
             is_main_switch,
             breaker_category,
+            power_mva,
         ) = element
 
         popup = Popup(title=f"Επεξεργασία: {name}", size_hint=(0.9, 0.9))
@@ -5340,6 +5476,11 @@ class SubstationApp(App):
             text=current_voltage, values=voltage_options, size_hint_y=None, height=40
         )
         layout.add_widget(voltage_level_spinner)
+
+        # Rated power (Ονομαστική Ισχύς) - element attribute, editable here
+        layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+        rated_power_input = TextInput(text=(str(power_mva) if power_mva is not None else ""), size_hint_y=None, height=40, multiline=False)
+        layout.add_widget(rated_power_input)
 
         # Model selection
         # Breaker category filter (only for circuit breakers)
@@ -5656,11 +5797,18 @@ class SubstationApp(App):
             except Exception:
                 pass
 
+            # Prepare power_mva value from rated_power_input (nullable)
+            try:
+                rp_txt = rated_power_input.text.strip()
+                power_val_to_set = None if rp_txt == "" else float(rp_txt.replace(",", "."))
+            except Exception:
+                power_val_to_set = None
+
             c.execute(
                 """UPDATE elements SET 
                             name=?, serial_number=?, maintenance_date=?, voltage_level=?, manufacturer=?, model=?, model_version=?,
                             installation_space=?, operating_status=?, 
-                            maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, is_main_switch=?, breaker_category=?
+                            maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, is_main_switch=?, breaker_category=?, power_mva=?
                             WHERE id=?""",
                 (
                     name_val,
@@ -5678,6 +5826,7 @@ class SubstationApp(App):
                     gate_value,
                     new_is_main_switch,
                     breaker_category_value,
+                    power_val_to_set,
                     element_id,
                 ),
             )
@@ -6140,6 +6289,11 @@ class SubstationApp(App):
         )
         layout.add_widget(gate_spinner)
 
+        # Rated power (Ονομαστική Ισχύς) - optional attribute for any element
+        layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+        rated_power_input = TextInput(hint_text="π.χ. 50", size_hint_y=None, height=40, multiline=False)
+        layout.add_widget(rated_power_input)
+
         # Update gates when substation changes
         def on_substation_change(spinner, text):
             substation_id = self.substations_map[text]
@@ -6447,6 +6601,13 @@ class SubstationApp(App):
             if model_spinner.text in models_data:
                 model_id = models_data[model_spinner.text]["id"]
 
+            # Rated power handling
+            rated_power_val = ""
+            try:
+                rated_power_val = rated_power_input.text.strip()
+            except Exception:
+                rated_power_val = ""
+
             # Validate maintenance_cycle is a number
             maintenance_cycle = values.get("maintenance_cycle", "0")
             try:
@@ -6479,7 +6640,7 @@ class SubstationApp(App):
             )
 
             c.execute(
-                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     substation_id,
                     element_type,
@@ -6498,6 +6659,7 @@ class SubstationApp(App):
                     gate_value,
                     is_main_switch,
                     breaker_category_value,
+                    (None if rated_power_val == "" else float(rated_power_val.replace(",", "."))) if rated_power_val else None,
                 ),
             )
             self.conn.commit()
@@ -6591,6 +6753,11 @@ class SubstationApp(App):
             height=40,
         )
         input_layout.add_widget(gate_spinner)
+
+        # Rated power (Ονομαστική Ισχύς) - optional attribute for any element
+        input_layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+        rated_power_input = TextInput(hint_text="π.χ. 50", size_hint_y=None, height=40, multiline=False)
+        input_layout.add_widget(rated_power_input)
 
         # Update gates when substation changes
         def on_substation_change(spinner, text):
@@ -6982,7 +7149,7 @@ class SubstationApp(App):
             )
 
             c.execute(
-                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     selected_substation_id,
                     element_type,
@@ -7001,6 +7168,7 @@ class SubstationApp(App):
                     gate_value,
                     is_main_switch,
                     breaker_category_value,
+                    (None if rated_power_input.text.strip() == "" else float(rated_power_input.text.strip().replace(",", "."))),
                 ),
             )
             self.conn.commit()
@@ -7520,7 +7688,7 @@ class SubstationApp(App):
                 # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
                 if elem_type == "Διακόπτης ΥΤ":
                     return (1, elem_name)
-                elif elem_type == "Μετασχηματιστής 150/20KV":
+                elif self._is_transformer(elem_type):
                     return (2, elem_name)
                 elif elem_type == "Motor Drive":
                     return (3, elem_name)
@@ -7672,6 +7840,11 @@ class SubstationApp(App):
                         model_name = meta.get("model_name")
                         is_breaker = meta.get("is_breaker")
                         operations_count = meta.get("operations_count")
+
+                        # debug logging removed
+
+                        # Additional diagnostics: print transformer-detection result
+                        # transformer detection logging removed
 
                         is_hv_oil = (elem_type == "Διακόπτης ΥΤ" and breaker_category == "Ελαίου")
                         is_hv_sf6 = (elem_type == "Διακόπτης ΥΤ" and breaker_category == "SF6")
@@ -7941,6 +8114,175 @@ class SubstationApp(App):
                                 "resistance_raid": (raid_a_sf6, raid_b_sf6, raid_c_sf6),
                             }
 
+                        elif self._is_transformer(elem_type):
+                            try:
+                                # Fetch stored power (MVA) for this element
+                                try:
+                                    c = self.conn.cursor()
+                                    c.execute("SELECT power_mva FROM elements WHERE id=?", (eid,))
+                                    row = c.fetchone()
+                                    power_val = str(row[0]) if row and row[0] is not None else ""
+                                except Exception:
+                                    power_val = ""
+
+                                # power is element attribute; not editable in maintenance form
+
+                                # Category: ΧΕΙΡΙΣΜΟΙ
+                                details_container.add_widget(Label(text="ΧΕΙΡΙΣΜΟΙ", size_hint_y=None, height=25, bold=True))
+                                ops_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                                ops_row.add_widget(Label(text="Απαριθμητής ΣΑΤΥΦ:", size_hint_x=0.6))
+                                satyf_counter = TextInput(hint_text="Αριθμός Χειρισμών", multiline=False, size_hint_x=0.12)
+                                ops_row.add_widget(satyf_counter)
+                                ops_row.add_widget(Widget())
+                                details_container.add_widget(ops_row)
+
+                                # Category 1: ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ
+                                details_container.add_widget(Label(text="1. ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΔΙΑΡΡΟΕΣ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΑΚΙΔΕΣ", multiline=False, size_hint_y=None, height=30))
+
+                                # Category 2: ΛΑΔΙΑ Μ/Σ
+                                details_container.add_widget(Label(text="2. ΛΑΔΙΑ Μ/Σ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
+                                silica_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                                silica_row.add_widget(Label(text="ΣΙΛΙΚΑ:", size_hint_x=0.4))
+                                silica_spinner = Spinner(text="N/A", values=["OK", "NOT OK", "N/A"], size_hint_x=0.2)
+                                silica_row.add_widget(silica_spinner)
+                                silica_row.add_widget(Widget())
+                                details_container.add_widget(silica_row)
+
+                                # Category 3: ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ
+                                details_container.add_widget(Label(text="3. ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ", multiline=False, size_hint_y=None, height=30))
+
+                                # Category 4: ΣΩΜΑ Μ/Σ
+                                details_container.add_widget(Label(text="4. ΣΩΜΑ Μ/Σ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΣΤΕΓΑΝΟΠΟΙΗΣΗ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ BUCHOLZ", multiline=False, size_hint_y=None, height=30))
+
+                                # 7x7 table for temperature checks header and inputs (3x3 values with labels)
+                                details_container.add_widget(Label(text="ΈΛΕΓΧΟΣ ΘΕΡΜΟΣΤΟΙΧΕΙΩΝ (°C)", size_hint_y=None, height=25, bold=True))
+                                temp_header = BoxLayout(size_hint_y=None, height=30)
+                                temp_header.add_widget(Label(text="", size_hint_x=0.2))
+                                temp_header.add_widget(Label(text="OIL", size_hint_x=0.26))
+                                temp_header.add_widget(Label(text="X1", size_hint_x=0.26))
+                                temp_header.add_widget(Label(text="X3", size_hint_x=0.28))
+                                details_container.add_widget(temp_header)
+
+                                # Rows: FAN, ALARM, TRIP
+                                fan_row = BoxLayout(size_hint_y=None, height=32)
+                                fan_row.add_widget(Label(text="FAN", size_hint_x=0.2))
+                                fan_oil = TextInput(hint_text="", multiline=False)
+                                fan_x1 = TextInput(hint_text="", multiline=False)
+                                fan_x3 = TextInput(hint_text="", multiline=False)
+                                fan_row.add_widget(fan_oil)
+                                fan_row.add_widget(fan_x1)
+                                fan_row.add_widget(fan_x3)
+                                details_container.add_widget(fan_row)
+
+                                alarm_row = BoxLayout(size_hint_y=None, height=32)
+                                alarm_row.add_widget(Label(text="ALARM", size_hint_x=0.2))
+                                alarm_oil = TextInput(hint_text="", multiline=False)
+                                alarm_x1 = TextInput(hint_text="", multiline=False)
+                                alarm_x3 = TextInput(hint_text="", multiline=False)
+                                alarm_row.add_widget(alarm_oil)
+                                alarm_row.add_widget(alarm_x1)
+                                alarm_row.add_widget(alarm_x3)
+                                details_container.add_widget(alarm_row)
+
+                                trip_row = BoxLayout(size_hint_y=None, height=32)
+                                trip_row.add_widget(Label(text="TRIP", size_hint_x=0.2))
+                                trip_oil = TextInput(hint_text="", multiline=False)
+                                trip_x1 = TextInput(hint_text="", multiline=False)
+                                trip_x3 = TextInput(hint_text="", multiline=False)
+                                trip_row.add_widget(trip_oil)
+                                trip_row.add_widget(trip_x1)
+                                trip_row.add_widget(trip_x3)
+                                details_container.add_widget(trip_row)
+
+                                # Category 5: ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ
+                                details_container.add_widget(Label(text="5. ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΞΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΩΣΕΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΩΤΩΝ ΤΡΟΧΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΡΩΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER", multiline=False, size_hint_y=None, height=30))
+
+                                # Category 6: DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ
+                                details_container.add_widget(Label(text="6. DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΕΠΑΦΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΣΥΣΦΙΞΕΙΣ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΑΛΛΑΓΗ ΛΑΔΙΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ", multiline=False, size_hint_y=None, height=30))
+
+                                # Diverter resistance measurements (6 values: H1 x2, H2 x2, H3 x2)
+                                details_container.add_widget(Label(text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)", size_hint_y=None, height=25, bold=True))
+                                div_row1 = BoxLayout(size_hint_y=None, height=32)
+                                div_h1_a = TextInput(hint_text="H1-1", multiline=False)
+                                div_h1_b = TextInput(hint_text="H1-2", multiline=False)
+                                div_row1.add_widget(div_h1_a)
+                                div_row1.add_widget(div_h1_b)
+                                details_container.add_widget(div_row1)
+                                div_row2 = BoxLayout(size_hint_y=None, height=32)
+                                div_h2_a = TextInput(hint_text="H2-1", multiline=False)
+                                div_h2_b = TextInput(hint_text="H2-2", multiline=False)
+                                div_row2.add_widget(div_h2_a)
+                                div_row2.add_widget(div_h2_b)
+                                details_container.add_widget(div_row2)
+                                div_row3 = BoxLayout(size_hint_y=None, height=32)
+                                div_h3_a = TextInput(hint_text="H3-1", multiline=False)
+                                div_h3_b = TextInput(hint_text="H3-2", multiline=False)
+                                div_row3.add_widget(div_h3_a)
+                                div_row3.add_widget(div_h3_b)
+                                details_container.add_widget(div_row3)
+
+                                # Category 7: ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ
+                                details_container.add_widget(Label(text="7. ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΜΕΤΡΗΣΗ (Ω)", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΣΥΣΦΙΞΕΙΣ", multiline=False, size_hint_y=None, height=30))
+
+                                # Category 8-10: ΤΑΣΕΩΣ/ΕΝΤΑΣΕΩΣ/ΕΓΧΥΣΕΩΣ
+                                for idx, title in enumerate(["8. Μ/Σ ΤΑΣΕΩΣ", "9. Μ/Σ ΕΝΤΑΣΕΩΣ", "10. Μ/Σ ΕΓΧΥΣΕΩΣ"]):
+                                    details_container.add_widget(Label(text=title, size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=30))
+
+                                # Category 11: ΑΛΕΞΙΚΕΡΑΥΝΑ
+                                details_container.add_widget(Label(text="11. ΑΛΕΞΙΚΕΡΑΥΝΑ", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
+                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=30))
+
+                                # Category 12-13: Α/Ζ ΒΜΣ and Α/Ζ ΤΑΣΕΩΣ
+                                for title in ["12. Α/Ζ ΒΜΣ", "13. Α/Ζ ΤΑΣΕΩΣ"]:
+                                    details_container.add_widget(Label(text=title, size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
+
+                                # Expose transformer widgets for persistence
+                                measurements.setdefault("satyf_counter", satyf_counter)
+                                measurements.setdefault("silica", silica_spinner)
+                                measurements.setdefault("temp_fan", (fan_oil, fan_x1, fan_x3))
+                                measurements.setdefault("temp_alarm", (alarm_oil, alarm_x1, alarm_x3))
+                                measurements.setdefault("temp_trip", (trip_oil, trip_x1, trip_x3))
+                                measurements.setdefault("diverter_res", (div_h1_a, div_h1_b, div_h2_a, div_h2_b, div_h3_a, div_h3_b))
+                            except Exception as _ex:
+                                import traceback
+                                print(f"Error building transformer UI for element {eid}: {_ex}")
+                                traceback.print_exc()
+
                         elif is_breaker:
                             # Legacy breaker measurement UI (MV and other categories)
                             details_container.add_widget(
@@ -8193,180 +8535,181 @@ class SubstationApp(App):
                                 }
 
                             # Transformer 150/20kV maintenance form (per-element)
-                            if elem_type == "Μετασχηματιστής 150/20KV":
-                                # Fetch stored power (MVA) for this element
+                            if self._is_transformer(elem_type):
                                 try:
-                                    c = self.conn.cursor()
-                                    c.execute("SELECT power_mva FROM elements WHERE id=?", (eid,))
-                                    row = c.fetchone()
-                                    power_val = row[0] if row and row[0] is not None else 50
-                                except Exception:
-                                    power_val = 50
+                                    # Fetch stored power (MVA) for this element
+                                    try:
+                                        c = self.conn.cursor()
+                                        c.execute("SELECT power_mva FROM elements WHERE id=?", (eid,))
+                                        row = c.fetchone()
+                                        power_val = str(row[0]) if row and row[0] is not None else ""
+                                    except Exception:
+                                        power_val = ""
 
-                                # Power field (ΙΣΧΥΣ)
-                                power_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
-                                power_row.add_widget(Label(text="ΙΣΧΥΣ (MVA):", size_hint_x=0.4))
-                                power_input = TextInput(text=str(power_val), multiline=False, size_hint_x=0.2)
-                                power_row.add_widget(power_input)
-                                power_row.add_widget(Widget())
-                                details_container.add_widget(power_row)
+                                        # power is element attribute; not editable in maintenance form
 
-                                # Category: ΧΕΙΡΙΣΜΟΙ
-                                details_container.add_widget(Label(text="ΧΕΙΡΙΣΜΟΙ", size_hint_y=None, height=25, bold=True))
-                                ops_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
-                                ops_row.add_widget(Label(text="Απαριθμητής ΣΑΤΥΦ:", size_hint_x=0.6))
-                                satyf_counter = TextInput(hint_text="Αριθμός Χειρισμών", multiline=False, size_hint_x=0.12)
-                                ops_row.add_widget(satyf_counter)
-                                ops_row.add_widget(Widget())
-                                details_container.add_widget(ops_row)
+                                    # Category: ΧΕΙΡΙΣΜΟΙ
+                                    details_container.add_widget(Label(text="ΧΕΙΡΙΣΜΟΙ", size_hint_y=None, height=25, bold=True))
+                                    ops_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                                    ops_row.add_widget(Label(text="Απαριθμητής ΣΑΤΥΦ:", size_hint_x=0.6))
+                                    satyf_counter = TextInput(hint_text="Αριθμός Χειρισμών", multiline=False, size_hint_x=0.12)
+                                    ops_row.add_widget(satyf_counter)
+                                    ops_row.add_widget(Widget())
+                                    details_container.add_widget(ops_row)
 
-                                # Category 1: ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ
-                                details_container.add_widget(Label(text="1. ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΔΙΑΡΡΟΕΣ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΑΚΙΔΕΣ", multiline=False, size_hint_y=None, height=30))
+                                    # Category 1: ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ
+                                    details_container.add_widget(Label(text="1. ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΔΙΑΡΡΟΕΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΑΚΙΔΕΣ", multiline=False, size_hint_y=None, height=30))
 
-                                # Category 2: ΛΑΔΙΑ Μ/Σ
-                                details_container.add_widget(Label(text="2. ΛΑΔΙΑ Μ/Σ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
-                                silica_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
-                                silica_row.add_widget(Label(text="ΣΙΛΙΚΑ:", size_hint_x=0.4))
-                                silica_spinner = Spinner(text="OK", values=["OK", "NOT OK", "N/A"], size_hint_x=0.2)
-                                silica_row.add_widget(silica_spinner)
-                                silica_row.add_widget(Widget())
-                                details_container.add_widget(silica_row)
+                                    # Category 2: ΛΑΔΙΑ Μ/Σ
+                                    details_container.add_widget(Label(text="2. ΛΑΔΙΑ Μ/Σ", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
+                                    silica_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+                                    silica_row.add_widget(Label(text="ΣΙΛΙΚΑ:", size_hint_x=0.4))
+                                    silica_spinner = Spinner(text="N/A", values=["OK", "NOT OK", "N/A"], size_hint_x=0.2)
+                                    silica_row.add_widget(silica_spinner)
+                                    silica_row.add_widget(Widget())
+                                    details_container.add_widget(silica_row)
 
-                                # Category 3: ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ
-                                details_container.add_widget(Label(text="3. ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    # Category 3: ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ
+                                    details_container.add_widget(Label(text="3. ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ", multiline=False, size_hint_y=None, height=30))
 
-                                # Category 4: ΣΩΜΑ Μ/Σ
-                                details_container.add_widget(Label(text="4. ΣΩΜΑ Μ/Σ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΣΤΕΓΑΝΟΠΟΙΗΣΗ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ BUCHOLZ", multiline=False, size_hint_y=None, height=30))
+                                    # Category 4: ΣΩΜΑ Μ/Σ
+                                    details_container.add_widget(Label(text="4. ΣΩΜΑ Μ/Σ", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΣΤΕΓΑΝΟΠΟΙΗΣΗ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ BUCHOLZ", multiline=False, size_hint_y=None, height=30))
 
-                                # 7x7 table for temperature checks header and inputs (3x3 values with labels)
-                                details_container.add_widget(Label(text="ΈΛΕΓΧΟΣ ΘΕΡΜΟΣΤΟΙΧΕΙΩΝ (°C)", size_hint_y=None, height=25, bold=True))
-                                temp_header = BoxLayout(size_hint_y=None, height=30)
-                                temp_header.add_widget(Label(text="", size_hint_x=0.2))
-                                temp_header.add_widget(Label(text="OIL", size_hint_x=0.26))
-                                temp_header.add_widget(Label(text="X1", size_hint_x=0.26))
-                                temp_header.add_widget(Label(text="X3", size_hint_x=0.28))
-                                details_container.add_widget(temp_header)
+                                    # 7x7 table for temperature checks header and inputs (3x3 values with labels)
+                                    details_container.add_widget(Label(text="ΈΛΕΓΧΟΣ ΘΕΡΜΟΣΤΟΙΧΕΙΩΝ (°C)", size_hint_y=None, height=25, bold=True))
+                                    temp_header = BoxLayout(size_hint_y=None, height=30)
+                                    temp_header.add_widget(Label(text="", size_hint_x=0.2))
+                                    temp_header.add_widget(Label(text="OIL", size_hint_x=0.26))
+                                    temp_header.add_widget(Label(text="X1", size_hint_x=0.26))
+                                    temp_header.add_widget(Label(text="X3", size_hint_x=0.28))
+                                    details_container.add_widget(temp_header)
 
-                                # Rows: FAN, ALARM, TRIP
-                                fan_row = BoxLayout(size_hint_y=None, height=32)
-                                fan_row.add_widget(Label(text="FAN", size_hint_x=0.2))
-                                fan_oil = TextInput(hint_text="", multiline=False)
-                                fan_x1 = TextInput(hint_text="", multiline=False)
-                                fan_x3 = TextInput(hint_text="", multiline=False)
-                                fan_row.add_widget(fan_oil)
-                                fan_row.add_widget(fan_x1)
-                                fan_row.add_widget(fan_x3)
-                                details_container.add_widget(fan_row)
+                                    # Rows: FAN, ALARM, TRIP
+                                    fan_row = BoxLayout(size_hint_y=None, height=32)
+                                    fan_row.add_widget(Label(text="FAN", size_hint_x=0.2))
+                                    fan_oil = TextInput(hint_text="", multiline=False)
+                                    fan_x1 = TextInput(hint_text="", multiline=False)
+                                    fan_x3 = TextInput(hint_text="", multiline=False)
+                                    fan_row.add_widget(fan_oil)
+                                    fan_row.add_widget(fan_x1)
+                                    fan_row.add_widget(fan_x3)
+                                    details_container.add_widget(fan_row)
 
-                                alarm_row = BoxLayout(size_hint_y=None, height=32)
-                                alarm_row.add_widget(Label(text="ALARM", size_hint_x=0.2))
-                                alarm_oil = TextInput(hint_text="", multiline=False)
-                                alarm_x1 = TextInput(hint_text="", multiline=False)
-                                alarm_x3 = TextInput(hint_text="", multiline=False)
-                                alarm_row.add_widget(alarm_oil)
-                                alarm_row.add_widget(alarm_x1)
-                                alarm_row.add_widget(alarm_x3)
-                                details_container.add_widget(alarm_row)
+                                    alarm_row = BoxLayout(size_hint_y=None, height=32)
+                                    alarm_row.add_widget(Label(text="ALARM", size_hint_x=0.2))
+                                    alarm_oil = TextInput(hint_text="", multiline=False)
+                                    alarm_x1 = TextInput(hint_text="", multiline=False)
+                                    alarm_x3 = TextInput(hint_text="", multiline=False)
+                                    alarm_row.add_widget(alarm_oil)
+                                    alarm_row.add_widget(alarm_x1)
+                                    alarm_row.add_widget(alarm_x3)
+                                    details_container.add_widget(alarm_row)
 
-                                trip_row = BoxLayout(size_hint_y=None, height=32)
-                                trip_row.add_widget(Label(text="TRIP", size_hint_x=0.2))
-                                trip_oil = TextInput(hint_text="", multiline=False)
-                                trip_x1 = TextInput(hint_text="", multiline=False)
-                                trip_x3 = TextInput(hint_text="", multiline=False)
-                                trip_row.add_widget(trip_oil)
-                                trip_row.add_widget(trip_x1)
-                                trip_row.add_widget(trip_x3)
-                                details_container.add_widget(trip_row)
+                                    trip_row = BoxLayout(size_hint_y=None, height=32)
+                                    trip_row.add_widget(Label(text="TRIP", size_hint_x=0.2))
+                                    trip_oil = TextInput(hint_text="", multiline=False)
+                                    trip_x1 = TextInput(hint_text="", multiline=False)
+                                    trip_x3 = TextInput(hint_text="", multiline=False)
+                                    trip_row.add_widget(trip_oil)
+                                    trip_row.add_widget(trip_x1)
+                                    trip_row.add_widget(trip_x3)
+                                    details_container.add_widget(trip_row)
 
-                                # Category 5: ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ
-                                details_container.add_widget(Label(text="5. ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΞΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΩΣΕΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΩΤΩΝ ΤΡΟΧΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΡΩΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER", multiline=False, size_hint_y=None, height=30))
+                                    # Category 5: ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ
+                                    details_container.add_widget(Label(text="5. ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΞΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΩΣΕΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΩΤΩΝ ΤΡΟΧΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΡΩΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER", multiline=False, size_hint_y=None, height=30))
 
-                                # Category 6: DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ
-                                details_container.add_widget(Label(text="6. DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΕΠΑΦΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΣΥΣΦΙΞΕΙΣ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΑΛΛΑΓΗ ΛΑΔΙΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ", multiline=False, size_hint_y=None, height=30))
+                                    # Category 6: DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ
+                                    details_container.add_widget(Label(text="6. DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΕΠΑΦΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΣΥΣΦΙΞΕΙΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΑΛΛΑΓΗ ΛΑΔΙΩΝ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ", multiline=False, size_hint_y=None, height=30))
 
-                                # Diverter resistance measurements (6 values: H1 x2, H2 x2, H3 x2)
-                                details_container.add_widget(Label(text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)", size_hint_y=None, height=25, bold=True))
-                                div_row1 = BoxLayout(size_hint_y=None, height=32)
-                                div_h1_a = TextInput(hint_text="H1-1", multiline=False)
-                                div_h1_b = TextInput(hint_text="H1-2", multiline=False)
-                                div_row1.add_widget(div_h1_a)
-                                div_row1.add_widget(div_h1_b)
-                                details_container.add_widget(div_row1)
-                                div_row2 = BoxLayout(size_hint_y=None, height=32)
-                                div_h2_a = TextInput(hint_text="H2-1", multiline=False)
-                                div_h2_b = TextInput(hint_text="H2-2", multiline=False)
-                                div_row2.add_widget(div_h2_a)
-                                div_row2.add_widget(div_h2_b)
-                                details_container.add_widget(div_row2)
-                                div_row3 = BoxLayout(size_hint_y=None, height=32)
-                                div_h3_a = TextInput(hint_text="H3-1", multiline=False)
-                                div_h3_b = TextInput(hint_text="H3-2", multiline=False)
-                                div_row3.add_widget(div_h3_a)
-                                div_row3.add_widget(div_h3_b)
-                                details_container.add_widget(div_row3)
+                                    # Diverter resistance measurements (6 values: H1 x2, H2 x2, H3 x2)
+                                    details_container.add_widget(Label(text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)", size_hint_y=None, height=25, bold=True))
+                                    div_row1 = BoxLayout(size_hint_y=None, height=32)
+                                    div_h1_a = TextInput(hint_text="H1-1", multiline=False)
+                                    div_h1_b = TextInput(hint_text="H1-2", multiline=False)
+                                    div_row1.add_widget(div_h1_a)
+                                    div_row1.add_widget(div_h1_b)
+                                    details_container.add_widget(div_row1)
+                                    div_row2 = BoxLayout(size_hint_y=None, height=32)
+                                    div_h2_a = TextInput(hint_text="H2-1", multiline=False)
+                                    div_h2_b = TextInput(hint_text="H2-2", multiline=False)
+                                    div_row2.add_widget(div_h2_a)
+                                    div_row2.add_widget(div_h2_b)
+                                    details_container.add_widget(div_row2)
+                                    div_row3 = BoxLayout(size_hint_y=None, height=32)
+                                    div_h3_a = TextInput(hint_text="H3-1", multiline=False)
+                                    div_h3_b = TextInput(hint_text="H3-2", multiline=False)
+                                    div_row3.add_widget(div_h3_a)
+                                    div_row3.add_widget(div_h3_b)
+                                    details_container.add_widget(div_row3)
 
-                                # Category 7: ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ
-                                details_container.add_widget(Label(text="7. ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΜΕΤΡΗΣΗ (Ω)", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΣΥΣΦΙΞΕΙΣ", multiline=False, size_hint_y=None, height=30))
+                                    # Category 7: ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ
+                                    details_container.add_widget(Label(text="7. ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΜΕΤΡΗΣΗ (Ω)", multiline=False, size_hint_y=None, height=30))
+                                    details_container.add_widget(TextInput(hint_text="ΣΥΣΦΙΞΕΙΣ", multiline=False, size_hint_y=None, height=30))
 
-                                # Category 8-10: ΤΑΣΕΩΣ/ΕΝΤΑΣΕΩΣ/ΕΓΧΥΣΕΩΣ
-                                for idx, title in enumerate(["8. Μ/Σ ΤΑΣΕΩΣ", "9. Μ/Σ ΕΝΤΑΣΕΩΣ", "10. Μ/Σ ΕΓΧΥΣΕΩΣ"]):
-                                    details_container.add_widget(Label(text=title, size_hint_y=None, height=25, bold=True))
+                                    # Category 8-10: ΤΑΣΕΩΣ/ΕΝΤΑΣΕΩΣ/ΕΓΧΥΣΕΩΣ
+                                    for idx, title in enumerate(["8. Μ/Σ ΤΑΣΕΩΣ", "9. Μ/Σ ΕΝΤΑΣΕΩΣ", "10. Μ/Σ ΕΓΧΥΣΕΩΣ"]):
+                                        details_container.add_widget(Label(text=title, size_hint_y=None, height=25, bold=True))
+                                        details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
+                                        details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ", multiline=False, size_hint_y=None, height=30))
+                                        details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
+                                        details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=30))
+
+                                    # Category 11: ΑΛΕΞΙΚΕΡΑΥΝΑ
+                                    details_container.add_widget(Label(text="11. ΑΛΕΞΙΚΕΡΑΥΝΑ", size_hint_y=None, height=25, bold=True))
                                     details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
-                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ", multiline=False, size_hint_y=None, height=30))
                                     details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
                                     details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=30))
 
-                                # Category 11: ΑΛΕΞΙΚΕΡΑΥΝΑ
-                                details_container.add_widget(Label(text="11. ΑΛΕΞΙΚΕΡΑΥΝΑ", size_hint_y=None, height=25, bold=True))
-                                details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
-                                details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=30))
+                                    # Category 12-13: Α/Ζ ΒΜΣ and Α/Ζ ΤΑΣΕΩΣ
+                                    for title in ["12. Α/Ζ ΒΜΣ", "13. Α/Ζ ΤΑΣΕΩΣ"]:
+                                        details_container.add_widget(Label(text=title, size_hint_y=None, height=25, bold=True))
+                                        details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
+                                        details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ", multiline=False, size_hint_y=None, height=30))
+                                        details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
 
-                                # Category 12-13: Α/Ζ ΒΜΣ and Α/Ζ ΤΑΣΕΩΣ
-                                for title in ["12. Α/Ζ ΒΜΣ", "13. Α/Ζ ΤΑΣΕΩΣ"]:
-                                    details_container.add_widget(Label(text=title, size_hint_y=None, height=25, bold=True))
-                                    details_container.add_widget(TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=30))
-                                    details_container.add_widget(TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ", multiline=False, size_hint_y=None, height=30))
-                                    details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=30))
-
-                                # Expose transformer widgets for persistence
-                                measurements.setdefault("power_mva", power_input)
-                                measurements.setdefault("satyf_counter", satyf_counter)
-                                measurements.setdefault("silica", silica_spinner)
-                                measurements.setdefault("temp_fan", (fan_oil, fan_x1, fan_x3))
-                                measurements.setdefault("temp_alarm", (alarm_oil, alarm_x1, alarm_x3))
-                                measurements.setdefault("temp_trip", (trip_oil, trip_x1, trip_x3))
-                                measurements.setdefault("diverter_res", (div_h1_a, div_h1_b, div_h2_a, div_h2_b, div_h3_a, div_h3_b))
+                                    # Expose transformer widgets for persistence
+                                    measurements.setdefault("satyf_counter", satyf_counter)
+                                    measurements.setdefault("silica", silica_spinner)
+                                    measurements.setdefault("temp_fan", (fan_oil, fan_x1, fan_x3))
+                                    measurements.setdefault("temp_alarm", (alarm_oil, alarm_x1, alarm_x3))
+                                    measurements.setdefault("temp_trip", (trip_oil, trip_x1, trip_x3))
+                                    measurements.setdefault("diverter_res", (div_h1_a, div_h1_b, div_h2_a, div_h2_b, div_h3_a, div_h3_b))
+                                except Exception as _ex:
+                                    import traceback
+                                    print(f"Error building transformer UI for element {eid}: {_ex}")
+                                    traceback.print_exc()
 
                             # Build measurements dict according to branch. For HV oil breakers
                             # we only include the oil-specific widgets added above; for other
                             # breakers include the legacy insulation/contact fields.
+                            # For breakers include breaker-specific measurement widgets.
+                            # Do not overwrite `measurements` for transformers (they are
+                            # handled above and will already contain transformer widgets).
                             if is_hv_oil or is_hv_sf6:
                                 try:
                                     measurements.setdefault("ops_count", ops_count_input)
@@ -8376,7 +8719,8 @@ class SubstationApp(App):
                                 measurements.setdefault("sf6_leakage", sf6_leakage_input)
                                 measurements.setdefault("sf6_leak_methodology", sf6_methodology_input)
                                 measurements.setdefault("vidar", vidar_widgets)
-                            else:
+                            elif is_breaker:
+                                # Legacy breaker measurement UI (populate only for breakers)
                                 measurements = {
                                     "ins_closed_fa": ins_closed_fa,
                                     "ins_closed_fa_unit": ins_closed_fa_unit,
@@ -8409,18 +8753,22 @@ class SubstationApp(App):
                         # saved details_container
 
                     def ensure_details(elem_box=elem_box, eid=elem_id):
+                        # ensure_details debug removed
                         build_details_for(eid)
                         dc = element_widgets.get(eid, {}).get("details_container")
+                        # ensure_details found debug removed
                         if dc is not None and dc not in elem_box.children:
+                            # details_container child inspection debug removed
                             elem_box.add_widget(dc)
 
                     def toggle_details(_checkbox_instance, value, elem_box=elem_box, eid=elem_id):
-                        if value:
-                            ensure_details(elem_box, eid)
-                        else:
-                            dc = element_widgets.get(eid, {}).get("details_container")
-                            if dc is not None and dc in elem_box.children:
-                                elem_box.remove_widget(dc)
+                                        # toggle_details debug removed
+                                        if value:
+                                            ensure_details(elem_box, eid)
+                                        else:
+                                            dc = element_widgets.get(eid, {}).get("details_container")
+                                            if dc is not None and dc in elem_box.children:
+                                                elem_box.remove_widget(dc)
 
                     checkbox.bind(active=toggle_details)
 
@@ -8752,6 +9100,50 @@ class SubstationApp(App):
                                 except Exception:
                                     vidar_vals[key] = None
 
+                    # Build extra JSON for arbitrary/new form fields (transformer, etc.)
+                    extra = {}
+                    try:
+                        if measurements.get("power_mva"):
+                            t = measurements["power_mva"].text.strip()
+                            if t:
+                                extra["power_mva"] = t
+                    except Exception:
+                        pass
+                    try:
+                        if measurements.get("satyf_counter"):
+                            extra["satyf_counter"] = (
+                                measurements["satyf_counter"].text.strip()
+                            )
+                    except Exception:
+                        pass
+                    try:
+                        if measurements.get("silica"):
+                            extra["silica"] = measurements["silica"].text
+                    except Exception:
+                        pass
+                    try:
+                        if measurements.get("temp_fan"):
+                            extra["temp_fan"] = [w.text.strip() for w in measurements["temp_fan"]]
+                    except Exception:
+                        pass
+                    try:
+                        if measurements.get("temp_alarm"):
+                            extra["temp_alarm"] = [w.text.strip() for w in measurements["temp_alarm"]]
+                    except Exception:
+                        pass
+                    try:
+                        if measurements.get("temp_trip"):
+                            extra["temp_trip"] = [w.text.strip() for w in measurements["temp_trip"]]
+                    except Exception:
+                        pass
+                    try:
+                        if measurements.get("diverter_res"):
+                            extra["diverter_res"] = [w.text.strip() for w in measurements["diverter_res"]]
+                    except Exception:
+                        pass
+
+                    data_json = json.dumps(extra, ensure_ascii=False) if extra else None
+
                     c.execute(
                         """INSERT INTO maintenance_elements 
                         (maintenance_id, element_id, element_comments,
@@ -8765,8 +9157,8 @@ class SubstationApp(App):
                          operations_count,
                         sf6_leakage_kg, sf6_leak_methodology,
                          sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
-                         vidar_fa, vidar_fb, vidar_fc)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         vidar_fa, vidar_fb, vidar_fc, data_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             maintenance_id,
                             elem_id,
@@ -8801,6 +9193,7 @@ class SubstationApp(App):
                             vidar_vals.get("vidar_fa"),
                             vidar_vals.get("vidar_fb"),
                             vidar_vals.get("vidar_fc"),
+                            data_json,
                         ),
                     )
 
@@ -8810,10 +9203,32 @@ class SubstationApp(App):
                             "UPDATE elements SET operations_count=? WHERE id=?",
                             (ops_count, elem_id),
                         )
+                    # Update element's power_mva if provided
+                    try:
+                        if measurements.get("power_mva"):
+                            t = measurements["power_mva"].text.strip()
+                            if t:
+                                try:
+                                    pval = float(t.replace(",", "."))
+                                    c.execute("UPDATE elements SET power_mva=? WHERE id=?", (pval, elem_id))
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
                 else:  # Other element types without measurements
+                    # Still allow storing extra JSON if present
+                    extra = {}
+                    try:
+                        if measurements and measurements.get("power_mva"):
+                            t = measurements["power_mva"].text.strip()
+                            if t:
+                                extra["power_mva"] = t
+                    except Exception:
+                        pass
+                    data_json = json.dumps(extra, ensure_ascii=False) if extra else None
                     c.execute(
-                        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
-                        (maintenance_id, elem_id, widgets["comments"].text.strip()),
+                        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments, data_json) VALUES (?, ?, ?, ?)",
+                        (maintenance_id, elem_id, widgets["comments"].text.strip(), data_json),
                     )
 
                 # Update element's maintenance_date

@@ -6,6 +6,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
+from kivy.uix.image import Image
 
 
 Window  # ensure Window is imported for callers that expect it
@@ -155,6 +156,58 @@ class IconWidget(Widget):
                     width=line_w,
                 )
                 Ellipse(pos=(x + w * 0.46, y + h * 0.68), size=(w * 0.08, h * 0.08))
+            elif self.icon_type == "edit":
+                # clearer pencil / edit icon: body, tip, and eraser
+                body_w = w * 0.6
+                body_h = h * 0.18
+                body_x = x + w * 0.18
+                body_y = y + h * 0.36
+                # pencil body (slanted)
+                Line(points=[body_x, body_y, body_x + body_w, body_y + body_h * 2], width=max(1.0, line_w))
+                # tip (triangle)
+                tip_pts = [body_x + body_w, body_y + body_h * 2, body_x + body_w + w * 0.12, body_y + body_h * 2 - h * 0.08, body_x + body_w, body_y + body_h * 2 - h * 0.06]
+                Line(points=tip_pts, width=max(1.0, line_w))
+                # outline for tip
+                Line(points=[body_x + body_w + w * 0.12, body_y + body_h * 2 - h * 0.08, body_x + body_w, body_y + body_h * 2 - h * 0.06], width=max(0.8, line_w * 0.8))
+                # eraser at the back
+                eraser_w = w * 0.14
+                eraser_h = body_h
+                Rectangle(pos=(body_x - eraser_w * 0.9, body_y - eraser_h * 0.2), size=(eraser_w, eraser_h))
+                # divide line between eraser and body
+                Line(points=[body_x - eraser_w * 0.9 + 2, body_y - eraser_h * 0.2 + 2, body_x - eraser_w * 0.9 + 2, body_y - eraser_h * 0.2 + eraser_h - 2], width=max(0.8, line_w * 0.8))
+            elif self.icon_type == "delete":
+                # clearer trash can icon: lid, can body, and slats
+                lid_h = h * 0.12
+                lid_x = x + w * 0.22
+                lid_w = w * 0.56
+                lid_y = y + h * 0.72
+                # lid
+                Line(rectangle=(lid_x, lid_y, lid_w, lid_h), width=max(1.0, line_w))
+                # handle
+                Line(points=[lid_x + lid_w * 0.4, lid_y + lid_h + h * 0.02, lid_x + lid_w * 0.6, lid_y + lid_h + h * 0.02], width=max(1.0, line_w))
+                # can body
+                body_x = x + w * 0.26
+                body_y = y + h * 0.18
+                body_w = w * 0.48
+                body_h = h * 0.52
+                Line(rectangle=(body_x, body_y, body_w, body_h), width=max(1.0, line_w))
+                # vertical slats inside can
+                for i in range(1, 4):
+                    sx = body_x + (body_w * i / 5.0)
+                    Line(points=[sx, body_y + body_h * 0.12, sx, body_y + body_h - body_h * 0.06], width=max(0.8, line_w * 0.6))
+            elif self.icon_type == "eye":
+                # simple eye icon: outer eye shape and pupil
+                cx = x + w * 0.5
+                cy = y + h * 0.5
+                rx = w * 0.42
+                ry = h * 0.28
+                # outer eye arc (approximated with ellipse and lines)
+                Line(ellipse=(cx - rx, cy - ry, rx * 2, ry * 2), width=max(1.0, line_w))
+                # cover top and bottom to suggest almond shape
+                Line(points=[cx - rx, cy, cx, cy + ry * 0.9, cx + rx, cy], width=max(1.0, line_w))
+                Line(points=[cx - rx, cy, cx, cy - ry * 0.9, cx + rx, cy], width=max(1.0, line_w))
+                # pupil
+                Ellipse(pos=(cx - rx * 0.25, cy - ry * 0.25), size=(rx * 0.5, ry * 0.5))
 
 
 class ShiftSelectableTextInput(TextInput):
@@ -184,6 +237,7 @@ class IconButton(ButtonBehavior, BoxLayout):
 
     text = StringProperty("")
     icon_type = StringProperty("database")
+    source = StringProperty(None)
     bg_color = ListProperty([0.05, 0.18, 0.36, 1])
     bg_color_down = ListProperty([0.03, 0.12, 0.25, 1])
     text_color = ListProperty([1, 1, 1, 1])
@@ -200,15 +254,23 @@ class IconButton(ButtonBehavior, BoxLayout):
         self.spacing = 10
         self.padding = (12, 8)
 
-        self.icon = IconWidget(
-            icon_type=self.icon_type, icon_color=self.text_color, size_hint=(None, None)
-        )
-        self.icon.size = (23, 23)
+        # Use an Image if `source` is provided, otherwise draw vector icon
+        if self.source:
+            self.icon = Image(source=self.source, size_hint=(None, None))
+            self.icon.allow_stretch = True
+            self.icon.keep_ratio = True
+            self.icon.size = (35, 35)
+        else:
+            self.icon = IconWidget(
+                icon_type=self.icon_type, icon_color=self.text_color, size_hint=(None, None)
+            )
+            self.icon.size = (23, 23)
         self.icon.pos_hint = {"center_y": 0.5}
         self.label = Label(
-            text=self.text, color=self.text_color, halign="left", valign="middle"
+            text=self.text, color=self.text_color, halign="center", valign="middle"
         )
-        self.label.font_size = "26sp"
+        # reduce base font size by ~20%
+        self.label.font_size = "21sp"
         self.label.bind(size=self._sync_text_size)
 
         self.add_widget(self.icon)
@@ -223,14 +285,16 @@ class IconButton(ButtonBehavior, BoxLayout):
         self.bind(size=self._update_icon_size)
         self.bind(text=self._update_text)
         self.bind(icon_type=self._update_icon)
+        self.bind(source=self._on_source)
         self.bind(text_color=self._update_colors)
 
     def _sync_text_size(self, _instance, _value):
         self.label.text_size = (self.label.width, self.label.height)
 
     def _update_icon_size(self, *_args):
-        icon_dim = max(22, int(self.height * 0.6))
-        icon_dim = int(icon_dim * 0.64)
+        # increase icon size by ~50% compared to previous sizing heuristic
+        icon_dim = max(33, int(self.height * 0.6))
+        icon_dim = int(icon_dim * 0.96)
         self.icon.size = (icon_dim, icon_dim)
 
     def _update_icon_pos(self, *_args):
@@ -244,7 +308,34 @@ class IconButton(ButtonBehavior, BoxLayout):
         self.label.text = self.text
 
     def _update_icon(self, *_args):
-        self.icon.icon_type = self.icon_type
+        # only update vector icon type if we are using IconWidget
+        if isinstance(self.icon, IconWidget):
+            self.icon.icon_type = self.icon_type
+
+    def _on_source(self, _instance, new_source):
+        # Swap between Image and IconWidget depending on `source`.
+        try:
+            was_index = list(self.children).index(self.label)  # label is present; icon is before it
+        except Exception:
+            was_index = 0
+        # remove existing icon
+        if self.icon:
+            try:
+                self.remove_widget(self.icon)
+            except Exception:
+                pass
+        if new_source:
+            self.icon = Image(source=new_source, size_hint=(None, None))
+            self.icon.allow_stretch = True
+            self.icon.keep_ratio = True
+            self.icon.size = (23, 23)
+        else:
+            self.icon = IconWidget(
+                icon_type=self.icon_type, icon_color=self.text_color, size_hint=(None, None)
+            )
+            self.icon.size = (23, 23)
+        # add icon back before the label
+        self.add_widget(self.icon, index=was_index)
 
     def _update_colors(self, *_args):
         self.label.color = self.text_color
@@ -255,3 +346,150 @@ class IconButton(ButtonBehavior, BoxLayout):
 
     def on_release(self):
         self._bg_color_inst.rgba = self.bg_color
+
+
+class IconOnlyButton(ButtonBehavior, BoxLayout):
+    """Compact icon-only button using vector IconWidget or an image source."""
+
+    icon_type = StringProperty("database")
+    source = StringProperty(None)
+    icon_color = ListProperty([0.2, 0.6, 1, 1])
+    tooltip = StringProperty("")
+
+    def __init__(self, **kwargs):
+        # allow caller to pass size via kwargs
+        size = kwargs.pop("size", (40, 40))
+        # allow explicit tooltip override
+        tooltip_text = kwargs.pop("tooltip", None)
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.size = size
+        self.orientation = "horizontal"
+        self.padding = (2, 2)
+
+        if self.source:
+            self.icon = Image(source=self.source, size_hint=(None, None))
+            self.icon.allow_stretch = True
+            self.icon.keep_ratio = True
+        else:
+            self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.icon_color, size_hint=(None, None))
+
+        # initial icon sizing
+        dim = max(24, int(self.height * 0.85))
+        self.icon.size = (dim, dim)
+        self.icon.pos_hint = {"center_y": 0.5}
+        self.add_widget(self.icon)
+
+        self.bind(size=self._update_icon_size)
+        self.bind(icon_type=self._update_icon_type)
+        self.bind(source=self._on_source)
+        self.bind(icon_color=self._update_icon_color)
+        # tooltip support: default Greek labels for common icons
+        default_tooltips = {
+            "edit": "Επεξεργασία",
+            "delete": "Διαγραφή",
+            "eye": "Προβολή Στοιχείου",
+            "maintenance": "Ιστορικό Συντήρησης",
+            "inspection": "Ιστορικό Επιθεώρησης",
+        }
+        if tooltip_text:
+            self.tooltip = tooltip_text
+        else:
+            self.tooltip = default_tooltips.get(self.icon_type, "")
+
+        self._tooltip_widget = None
+        Window.bind(mouse_pos=self._on_mouse_pos)
+
+    def _update_icon_size(self, *_args):
+        dim = max(24, int(self.height * 0.85))
+        self.icon.size = (dim, dim)
+
+    def _update_icon_type(self, *_args):
+        if isinstance(self.icon, IconWidget):
+            self.icon.icon_type = self.icon_type
+
+    def _on_source(self, _inst, new_source):
+        try:
+            self.remove_widget(self.icon)
+        except Exception:
+            pass
+        if new_source:
+            self.icon = Image(source=new_source, size_hint=(None, None))
+            self.icon.allow_stretch = True
+            self.icon.keep_ratio = True
+        else:
+            self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.icon_color, size_hint=(None, None))
+        self._update_icon_size()
+        self.add_widget(self.icon)
+
+    def _update_icon_color(self, *_args):
+        if isinstance(self.icon, IconWidget):
+            self.icon.icon_color = self.icon_color
+
+    def _on_mouse_pos(self, _window, pos):
+        # show tooltip near mouse when hovering over this widget
+        try:
+            if not self.get_root_window():
+                return
+        except Exception:
+            return
+
+        # convert window coords to local widget coords for collide test
+        try:
+            local = self.to_widget(*pos)
+        except Exception:
+            local = pos
+
+        inside = self.collide_point(*local)
+        if inside and self.tooltip:
+            if not self._tooltip_widget:
+                lbl = Label(text=self.tooltip, size_hint=(None, None), markup=False)
+                # force texture update to get size
+                try:
+                    lbl.texture_update()
+                except Exception:
+                    pass
+                w = lbl.texture_size[0] + 12 if hasattr(lbl, "texture_size") else 100
+                h = lbl.texture_size[1] + 8 if hasattr(lbl, "texture_size") else 24
+                lbl.size = (w, h)
+                # position at top-right of cursor, with fallback below if space insufficient
+                x = pos[0] + 12
+                y = pos[1] + 12
+                # clamp to window
+                win_w, win_h = Window.size
+                if x + w > win_w:
+                    x = win_w - w - 6
+                if y + h > win_h:
+                    # not enough space above: place below cursor
+                    y = pos[1] - h - 12
+                if y < 6:
+                    y = 6
+                lbl.pos = (x, y)
+                lbl.canvas.ask_update()
+                try:
+                    Window.add_widget(lbl)
+                except Exception:
+                    # fallback: ignore tooltip if can't add to Window
+                    return
+                self._tooltip_widget = lbl
+            else:
+                # update position: prefer top-right of cursor, fallback below if necessary
+                lbl = self._tooltip_widget
+                w, h = lbl.size
+                x = pos[0] + 12
+                y = pos[1] + 12
+                win_w, win_h = Window.size
+                if x + w > win_w:
+                    x = win_w - w - 6
+                if y + h > win_h:
+                    y = pos[1] - h - 12
+                if y < 6:
+                    y = 6
+                lbl.pos = (x, y)
+        else:
+            if self._tooltip_widget:
+                try:
+                    Window.remove_widget(self._tooltip_widget)
+                except Exception:
+                    pass
+                self._tooltip_widget = None
