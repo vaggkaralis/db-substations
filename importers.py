@@ -107,6 +107,20 @@ def import_substations_from_excel(
         on_error("pandas δεν είναι εγκατεστημένο!")
         return
 
+    # sanitize incoming file path to guard against stray surrounding quotes
+    try:
+        if isinstance(file_path, str):
+            _qchars = '"\'\u2018\u2019\u201C\u201D\u2032\u2033'
+            fp = file_path.strip()
+            # strip matching quote characters from both ends
+            while fp and fp[0] in _qchars:
+                fp = fp[1:]
+            while fp and fp[-1] in _qchars:
+                fp = fp[:-1]
+            file_path = fp
+    except Exception:
+        pass
+
     try:
         cursor = conn.cursor()
         df_sub = pd.read_excel(file_path, sheet_name="Substations")
@@ -157,6 +171,19 @@ def import_substations_from_csv(
     if pd is None:
         on_error("pandas δεν είναι εγκατεστημένο!")
         return
+
+    # sanitize incoming file path to guard against stray surrounding quotes
+    try:
+        if isinstance(file_path, str):
+            _qchars = '"\'\u2018\u2019\u201C\u201D\u2032\u2033'
+            fp = file_path.strip()
+            while fp and fp[0] in _qchars:
+                fp = fp[1:]
+            while fp and fp[-1] in _qchars:
+                fp = fp[:-1]
+            file_path = fp
+    except Exception:
+        pass
 
     try:
         cursor = conn.cursor()
@@ -216,6 +243,19 @@ def import_elements_from_excel(
     if pd is None:
         on_error("pandas δεν είναι εγκατεστημένο!")
         return
+
+    # sanitize incoming file path to guard against stray surrounding quotes
+    try:
+        if isinstance(file_path, str):
+            _qchars = '"\'\u2018\u2019\u201C\u201D\u2032\u2033'
+            fp = file_path.strip()
+            while fp and fp[0] in _qchars:
+                fp = fp[1:]
+            while fp and fp[-1] in _qchars:
+                fp = fp[:-1]
+            file_path = fp
+    except Exception:
+        pass
 
     try:
         cursor = conn.cursor()
@@ -605,6 +645,19 @@ def import_elements_from_csv(
     if pd is None:
         on_error("pandas δεν είναι εγκατεστημένο!")
         return
+
+    # sanitize incoming file path to guard against stray surrounding quotes
+    try:
+        if isinstance(file_path, str):
+            _qchars = '"\'\u2018\u2019\u201C\u201D\u2032\u2033'
+            fp = file_path.strip()
+            while fp and fp[0] in _qchars:
+                fp = fp[1:]
+            while fp and fp[-1] in _qchars:
+                fp = fp[:-1]
+            file_path = fp
+    except Exception:
+        pass
 
     try:
         cursor = conn.cursor()
