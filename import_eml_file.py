@@ -4,8 +4,12 @@ Import a single maintenance email from a .eml file into SQLite.
 
 import argparse
 
+import logging
+
 from email_eml_parser import parse_eml_file
 from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def main():
@@ -29,10 +33,10 @@ def main():
     )
 
     if success:
-        print(f"OK:{result}")
+        logging.info("OK:%s", result)
         raise SystemExit(0)
 
-    print(f"ERROR:{result}")
+    logging.error("ERROR:%s", result)
     raise SystemExit(2)
 
 

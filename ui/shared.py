@@ -1,4 +1,4 @@
-from kivy.core.window import Window
+﻿from kivy.core.window import Window
 from kivy.uix.widget import Widget
 from kivy.properties import StringProperty, ListProperty
 from kivy.graphics import Color, Line, Ellipse, Rectangle
@@ -7,6 +7,25 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.image import Image
+
+# FloatLayout is optional in test environments where Kivy isn't installed.
+try:
+    from kivy.uix.floatlayout import FloatLayout
+except Exception:
+    class FloatLayout:
+        """Minimal stub for environments without kivy.uix.floatlayout.
+
+        Provides the small API surface used by tooltip overlay code.
+        """
+
+        def __init__(self, *a, **k):
+            pass
+
+        def add_widget(self, widget):
+            return None
+
+        def remove_widget(self, widget):
+            return None
 
 
 Window  # ensure Window is imported for callers that expect it
@@ -386,11 +405,11 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         self.bind(icon_color=self._update_icon_color)
         # tooltip support: default Greek labels for common icons
         default_tooltips = {
-            "edit": "Επεξεργασία",
-            "delete": "Διαγραφή",
-            "eye": "Προβολή Στοιχείου",
-            "maintenance": "Ιστορικό Συντήρησης",
-            "inspection": "Ιστορικό Επιθεώρησης",
+            "edit": "Ξ•Ο€ΞµΞΎΞµΟΞ³Ξ±ΟƒΞ―Ξ±",
+            "delete": "Ξ”ΞΉΞ±Ξ³ΟΞ±Ο†Ξ®",
+            "eye": "Ξ ΟΞΏΞ²ΞΏΞ»Ξ® Ξ£Ο„ΞΏΞΉΟ‡ΞµΞ―ΞΏΟ…",
+            "maintenance": "Ξ™ΟƒΟ„ΞΏΟΞΉΞΊΟ Ξ£Ο…Ξ½Ο„Ξ®ΟΞ·ΟƒΞ·Ο‚",
+            "inspection": "Ξ™ΟƒΟ„ΞΏΟΞΉΞΊΟ Ξ•Ο€ΞΉΞΈΞµΟΟΞ·ΟƒΞ·Ο‚",
         }
         if tooltip_text:
             self.tooltip = tooltip_text
@@ -442,6 +461,7 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
 
         inside = self.collide_point(*local)
         if inside and self.tooltip:
+            # If no tooltip widget yet, create and add it
             if not self._tooltip_widget:
                 lbl = Label(text=self.tooltip, size_hint=(None, None), markup=False)
                 # force texture update to get size
@@ -466,11 +486,37 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                     y = 6
                 lbl.pos = (x, y)
                 lbl.canvas.ask_update()
+                # Prefer adding tooltip to an app-level overlay if available
+                added = False
                 try:
-                    Window.add_widget(lbl)
+                    from kivy.app import App
+
+                    app = App.get_running_app()
+                    root = app.root if app else None
+                    overlay = None
+                    if root:
+                        overlay = getattr(root, "_tooltip_overlay", None)
+                        if overlay is None:
+                            try:
+                                overlay = FloatLayout(size_hint=(1, 1))
+                                overlay.disabled = True
+                                root.add_widget(overlay)
+                                setattr(root, "_tooltip_overlay", overlay)
+                            except Exception:
+                                overlay = None
+                    if overlay:
+                        overlay.add_widget(lbl)
+                        added = True
                 except Exception:
-                    # fallback: ignore tooltip if can't add to Window
-                    return
+                    added = False
+
+                if not added:
+                    try:
+                        Window.add_widget(lbl)
+                        added = True
+                    except Exception:
+                        return
+
                 self._tooltip_widget = lbl
             else:
                 # update position: prefer top-right of cursor, fallback below if necessary
@@ -487,9 +533,22 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                     y = 6
                 lbl.pos = (x, y)
         else:
+            # hide/remove existing tooltip if present
             if self._tooltip_widget:
                 try:
-                    Window.remove_widget(self._tooltip_widget)
+                    # remove from whichever parent we added it to
+                    parent = getattr(self._tooltip_widget, "parent", None)
+                    if parent is not None:
+                        try:
+                            parent.remove_widget(self._tooltip_widget)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            Window.remove_widget(self._tooltip_widget)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 self._tooltip_widget = None
+

@@ -9,11 +9,14 @@ import sqlite3
 import sys
 import os
 import random
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 DB = sys.argv[1] if len(sys.argv) > 1 else "substations_backup.db"
 
 if not os.path.exists(DB):
-    print("Database not found:", DB)
+    logging.error('Database not found: %s', DB)
     sys.exit(2)
 
 try:
@@ -41,13 +44,15 @@ allowed_breakers_all = list(BREAKER_CATEGORY_MAPPINGS.keys()) if BREAKER_CATEGOR
 con = sqlite3.connect(DB)
 cur = con.cursor()
 
+
 def fetch_elements():
     cur.execute("SELECT rowid, id, name, element_type, breaker_category FROM elements")
     return cur.fetchall()
 
+
 elements = fetch_elements()
 if not elements:
-    print("No elements found in database.")
+    logging.info('No elements found in database.')
     con.close()
     sys.exit(0)
 
@@ -71,7 +76,7 @@ for row in elements:
         cur.execute("UPDATE elements SET id=? WHERE rowid=?", (new_id, rowid))
         eid = new_id
         changed += 1
-        print(f"Assigned id={new_id} to element rowid={rowid} name={name}")
+        logging.info('Assigned id=%s to element rowid=%s name=%s', new_id, rowid, name)
     # Uniqueness (collect)
     if eid in assigned_ids:
         # Rare: duplicate id, assign new
@@ -80,7 +85,7 @@ for row in elements:
         cur.execute("UPDATE elements SET id=? WHERE rowid=?", (new_id, rowid))
         eid = new_id
         changed += 1
-        print(f"Reassigned duplicate id -> id={new_id} for element {name} (rowid={rowid})")
+        logging.info('Reassigned duplicate id -> id=%s for element %s (rowid=%s)', new_id, name, rowid)
     assigned_ids.add(eid)
 
     # Validate element_type
@@ -88,7 +93,7 @@ for row in elements:
         new_type = random.choice(allowed_element_types)
         cur.execute("UPDATE elements SET element_type=? WHERE id=?", (new_type, eid))
         changed += 1
-        print(f"Fixed element_type for id={eid} from '{elem_type}' -> '{new_type}'")
+        logging.info("Fixed element_type for id=%s from '%s' -> '%s'", eid, elem_type, new_type)
         elem_type = new_type
 
     # Validate breaker_category according to element type
@@ -97,11 +102,11 @@ for row in elements:
         new_breaker = random.choice(allowed_for_type)
         cur.execute("UPDATE elements SET breaker_category=? WHERE id=?", (new_breaker, eid))
         changed += 1
-        print(f"Fixed breaker_category for id={eid} from '{breaker}' -> '{new_breaker}'")
+        logging.info("Fixed breaker_category for id=%s from '%s' -> '%s'", eid, breaker, new_breaker)
 
 con.commit()
-print(f"Completed repairs. Total changes: {changed}")
+logging.info('Completed repairs. Total changes: %s', changed)
 con.close()
 
 if changed == 0:
-    print("No repairs needed.")
+    logging.info('No repairs needed.')

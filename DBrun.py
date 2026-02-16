@@ -26,6 +26,7 @@ try:
     import kivy
     # Ensure the requested Kivy version before loading submodules
     kivy.require("2.3.0")
+    import logging
 
     # Dynamically import Kivy submodules (avoid static imports after code)
     App = importlib.import_module("kivy.app").App
@@ -121,6 +122,8 @@ except Exception:
                 cb(0)
             except Exception:
                 pass
+    import logging
+    logging.basicConfig()
 from validation import (
     is_interconnection_gate,
     validate_gate_assignment,
@@ -348,16 +351,21 @@ class SubstationApp(App):
         Window.bind(on_key_down=self._handle_tab_navigation)
         Window.bind(on_request_close=self._handle_request_close)
 
-        loading_label = Label(text="Φόρτωση...", font_size="22sp")
-        self.root_layout.add_widget(loading_label)
+        self.loading_label = Label(text="Φόρτωση...", font_size="22sp")
+        self.root_layout.add_widget(self.loading_label)
 
         Clock.schedule_once(self._finish_build, 0)
         return self.root_layout
 
     def _finish_build(self, *_args):
         layout = self.root_layout
-        layout.clear_widgets()
-
+        # remove the temporary loading label added during build()
+        try:
+            if hasattr(self, "loading_label") and self.loading_label in layout.children:
+                layout.remove_widget(self.loading_label)
+                del self.loading_label
+        except Exception:
+            pass
         self._add_logo_to_layout(layout, height=120, reserve=True)
 
         # Top-right small app info button
@@ -7841,6 +7849,9 @@ class SubstationApp(App):
                         is_breaker = meta.get("is_breaker")
                         operations_count = meta.get("operations_count")
 
+                        # Ensure optional widgets exist in local scope to avoid NameError
+                        ops_count_input = None
+
                         # debug logging removed
 
                         # Additional diagnostics: print transformer-detection result
@@ -8279,9 +8290,8 @@ class SubstationApp(App):
                                 measurements.setdefault("temp_trip", (trip_oil, trip_x1, trip_x3))
                                 measurements.setdefault("diverter_res", (div_h1_a, div_h1_b, div_h2_a, div_h2_b, div_h3_a, div_h3_b))
                             except Exception as _ex:
-                                import traceback
-                                print(f"Error building transformer UI for element {eid}: {_ex}")
-                                traceback.print_exc()
+                                import traceback, logging
+                                logging.exception(f"Error building transformer UI for element {eid}: {_ex}")
 
                         elif is_breaker:
                             # Legacy breaker measurement UI (MV and other categories)
@@ -8699,10 +8709,9 @@ class SubstationApp(App):
                                     measurements.setdefault("temp_alarm", (alarm_oil, alarm_x1, alarm_x3))
                                     measurements.setdefault("temp_trip", (trip_oil, trip_x1, trip_x3))
                                     measurements.setdefault("diverter_res", (div_h1_a, div_h1_b, div_h2_a, div_h2_b, div_h3_a, div_h3_b))
-                                except Exception as _ex:
-                                    import traceback
-                                    print(f"Error building transformer UI for element {eid}: {_ex}")
-                                    traceback.print_exc()
+                                except Exception:
+                                    import logging
+                                    logging.exception('Error building transformer UI for element %s', eid)
 
                             # Build measurements dict according to branch. For HV oil breakers
                             # we only include the oil-specific widgets added above; for other

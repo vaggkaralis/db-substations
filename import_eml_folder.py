@@ -5,8 +5,12 @@ Import maintenance emails from .eml files in a folder.
 import argparse
 import os
 
+import logging
+
 from email_eml_parser import parse_eml_file
 from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def _iter_eml_files(folder, recursive):
@@ -79,11 +83,12 @@ def main():
                     os.replace(path, target)
         except Exception:
             failed += 1
+            logging.exception('Failed importing %s', path)
             if failed_folder:
                 target = os.path.join(failed_folder, os.path.basename(path))
                 os.replace(path, target)
 
-    print(f"Imported: {processed}, Failed: {failed}")
+    logging.info('Imported: %s, Failed: %s', processed, failed)
 
 
 if __name__ == "__main__":

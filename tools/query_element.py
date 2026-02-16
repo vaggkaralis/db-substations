@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import sqlite3
 import sys
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 name = sys.argv[1] if len(sys.argv) > 1 else 'Ρ-15'
 sub = sys.argv[2] if len(sys.argv) > 2 else None
@@ -13,8 +16,8 @@ else:
     cur.execute("SELECT id,name,element_type,breaker_category,substation_id FROM elements WHERE name LIKE ? COLLATE NOCASE", (f'%{name}%',))
 rows = cur.fetchall()
 if not rows:
-    print('No rows found')
+    logging.info('No rows found')
 else:
     for r in rows:
-        print(r)
+        logging.info('%s', r)
 con.close()

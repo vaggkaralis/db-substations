@@ -30,6 +30,7 @@ import os
 import unicodedata
 import json
 from datetime import datetime
+import logging
 
 
 class MaintenanceReportGenerator:
@@ -37,11 +38,11 @@ class MaintenanceReportGenerator:
 
     def __init__(self, conn):
         self.conn = conn
-        print("\n" + "=" * 80)
-        print("PDF REPORT GENERATOR INITIALIZATION")
-        print("=" * 80)
+        logging.info("%s", "\n" + "=" * 80)
+        logging.info("PDF REPORT GENERATOR INITIALIZATION")
+        logging.info("%s", "=" * 80)
         self.setup_fonts()
-        print("=" * 80 + "\n")
+        logging.info("%s", "=" * 80 + "\n")
 
     def setup_fonts(self):
         """Setup fonts for Greek text support"""
@@ -94,22 +95,22 @@ class MaintenanceReportGenerator:
                             if font_path == bundled_font
                             else os.path.basename(font_path)
                         )
-                        print(f"✅ Using font for Greek text: {font_name}")
-                        print(f"   Path: {font_path}")
+                        logging.info("Using font for Greek text: %s", font_name)
+                        logging.info("   Path: %s", font_path)
                         return
                     except Exception as e:
-                        print(f"❌ Failed to register {font_path}: {e}")
+                        logging.exception('Failed to register %s', font_path)
                         continue
 
             # If no font found, use Helvetica (limited Greek support)
-            print(
-                "WARNING: No suitable Greek font found, using Helvetica (limited support)"
+            logging.warning(
+                "No suitable Greek font found, using Helvetica (limited support)"
             )
             self.greek_font = "Helvetica"
 
-        except Exception as e:
+        except Exception:
             # Fallback to Helvetica
-            print(f"Error setting up fonts: {e}")
+            logging.exception('Error setting up fonts')
             self.greek_font = "Helvetica"
 
     def normalize_text(self, text):
@@ -131,7 +132,7 @@ class MaintenanceReportGenerator:
         else:
             self._debug_count = 1
         if self._debug_count <= 3 and len(normalized) > 5:
-            print(f"DEBUG normalize_text: '{text[:30]}' -> '{normalized[:30]}'")
+            logging.debug("normalize_text: '%s' -> '%s'", text[:30], normalized[:30])
         return normalized
 
     def normalize_table_data(self, data):

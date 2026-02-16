@@ -2,15 +2,20 @@ import shutil
 import sqlite3
 import os
 import datetime
+import logging
 
 from settings import DB_PATH
+
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+
 
 def backup_db(path):
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     bak = f"{path}.backup.{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.bak"
     shutil.copy2(path, bak)
-    print('backup created', bak)
+    logging.info('backup created %s', bak)
     return bak
 
 
@@ -32,8 +37,9 @@ def normalize():
         "UPDATE elements SET breaker_category='Ελαίου' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='Διακόπτης ΜΤ'"
     )
     conn.commit()
-    print('rows updated:', conn.total_changes)
+    logging.info('rows updated: %s', conn.total_changes)
     conn.close()
+
 
 if __name__ == '__main__':
     normalize()
