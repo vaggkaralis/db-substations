@@ -1,4 +1,6 @@
 from typing import Callable
+import os
+import traceback
 
 try:
     import pandas as pd
@@ -123,7 +125,20 @@ def import_substations_from_excel(
 
     try:
         cursor = conn.cursor()
-        df_sub = pd.read_excel(file_path, sheet_name="Substations")
+        try:
+            df_sub = pd.read_excel(file_path, sheet_name="Substations")
+        except Exception as exc:
+            tb = traceback.format_exc()
+            details = (
+                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"Path: {repr(file_path)}\n"
+                f"Exists: {os.path.exists(file_path)}\n"
+                f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Traceback:\n{tb}"
+            )
+            on_error(details)
+            return
         count = 0
         duplicates = []
 
@@ -187,7 +202,20 @@ def import_substations_from_csv(
 
     try:
         cursor = conn.cursor()
-        df_sub = pd.read_csv(file_path)
+        try:
+            df_sub = pd.read_csv(file_path)
+        except Exception as exc:
+            tb = traceback.format_exc()
+            details = (
+                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"Path: {repr(file_path)}\n"
+                f"Exists: {os.path.exists(file_path)}\n"
+                f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Traceback:\n{tb}"
+            )
+            on_error(details)
+            return
         count = 0
         duplicates = []
 
@@ -259,7 +287,20 @@ def import_elements_from_excel(
 
     try:
         cursor = conn.cursor()
-        df_elem = pd.read_excel(file_path, sheet_name="Elements")
+        try:
+            df_elem = pd.read_excel(file_path, sheet_name="Elements")
+        except Exception as exc:
+            tb = traceback.format_exc()
+            details = (
+                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"Path: {repr(file_path)}\n"
+                f"Exists: {os.path.exists(file_path)}\n"
+                f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Traceback:\n{tb}"
+            )
+            on_error(details)
+            return
 
         # Validate template version
         is_valid, version_error = _validate_template_version(df_elem)
@@ -661,7 +702,20 @@ def import_elements_from_csv(
 
     try:
         cursor = conn.cursor()
-        df_elem = pd.read_csv(file_path)
+        try:
+            df_elem = pd.read_csv(file_path)
+        except Exception as exc:
+            tb = traceback.format_exc()
+            details = (
+                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"Path: {repr(file_path)}\n"
+                f"Exists: {os.path.exists(file_path)}\n"
+                f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Traceback:\n{tb}"
+            )
+            on_error(details)
+            return
 
         # Validate template version
         is_valid, version_error = _validate_template_version(df_elem)
