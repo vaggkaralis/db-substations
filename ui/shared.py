@@ -405,11 +405,11 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         self.bind(icon_color=self._update_icon_color)
         # tooltip support: default Greek labels for common icons
         default_tooltips = {
-            "edit": "Ξ•Ο€ΞµΞΎΞµΟΞ³Ξ±ΟƒΞ―Ξ±",
-            "delete": "Ξ”ΞΉΞ±Ξ³ΟΞ±Ο†Ξ®",
-            "eye": "Ξ ΟΞΏΞ²ΞΏΞ»Ξ® Ξ£Ο„ΞΏΞΉΟ‡ΞµΞ―ΞΏΟ…",
-            "maintenance": "Ξ™ΟƒΟ„ΞΏΟΞΉΞΊΟ Ξ£Ο…Ξ½Ο„Ξ®ΟΞ·ΟƒΞ·Ο‚",
-            "inspection": "Ξ™ΟƒΟ„ΞΏΟΞΉΞΊΟ Ξ•Ο€ΞΉΞΈΞµΟΟΞ·ΟƒΞ·Ο‚",
+            "edit": "Επεξεργασία",
+            "delete": "Διαγραφή",
+            "eye": "Προβολή",
+            "maintenance": "Συντήρηση",
+            "inspection": "Επιθεώρηση",
         }
         if tooltip_text:
             self.tooltip = tooltip_text
@@ -486,34 +486,32 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                     y = 6
                 lbl.pos = (x, y)
                 lbl.canvas.ask_update()
-                # Prefer adding tooltip to an app-level overlay if available
-                added = False
+                # Add tooltip to Window to avoid affecting root layout sizing.
                 try:
-                    from kivy.app import App
-
-                    app = App.get_running_app()
-                    root = app.root if app else None
-                    overlay = None
-                    if root:
-                        overlay = getattr(root, "_tooltip_overlay", None)
-                        if overlay is None:
-                            try:
-                                overlay = FloatLayout(size_hint=(1, 1))
-                                overlay.disabled = True
-                                root.add_widget(overlay)
-                                setattr(root, "_tooltip_overlay", overlay)
-                            except Exception:
-                                overlay = None
-                    if overlay:
-                        overlay.add_widget(lbl)
-                        added = True
+                    Window.add_widget(lbl)
+                    added = True
                 except Exception:
+                    # Fallback: try an app-level overlay if Window doesn't accept widgets
                     added = False
-
-                if not added:
                     try:
-                        Window.add_widget(lbl)
-                        added = True
+                        from kivy.app import App
+
+                        app = App.get_running_app()
+                        root = app.root if app else None
+                        overlay = None
+                        if root:
+                            overlay = getattr(root, "_tooltip_overlay", None)
+                            if overlay is None:
+                                try:
+                                    overlay = FloatLayout(size_hint=(1, 1))
+                                    overlay.disabled = True
+                                    root.add_widget(overlay)
+                                    setattr(root, "_tooltip_overlay", overlay)
+                                except Exception:
+                                    overlay = None
+                        if overlay:
+                            overlay.add_widget(lbl)
+                            added = True
                     except Exception:
                         return
 
