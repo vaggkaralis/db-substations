@@ -171,7 +171,7 @@ def find_best_match(
     return None
 
 
-def detect_column_mismatches(df_columns: List[str]) -> Dict[str, any]:
+def detect_column_mismatches(df_columns: List[str], df=None) -> Dict[str, any]:
     """
     Detect mismatched columns in imported data.
 
@@ -185,7 +185,17 @@ def detect_column_mismatches(df_columns: List[str]) -> Dict[str, any]:
     """
     matched = {}
     unmatched_import = []
-    unmatched_required = list(COLUMN_MAPPINGS.keys())
+    # Only a subset of canonical columns are strictly required for an import.
+    # Maintenance cycle is computed automatically and should not be mandatory.
+    REQUIRED_CANONICAL = [
+        "Substation Name",
+        "Element Type",
+        "Name",
+        "Serial Number",
+        "Gate",
+        "Operating Status",
+    ]
+    unmatched_required = list(REQUIRED_CANONICAL)
     suggestions = {}
 
     for import_col in df_columns:
@@ -215,6 +225,44 @@ def detect_column_mismatches(df_columns: List[str]) -> Dict[str, any]:
                 unmatched_import.append(import_col_clean)
             else:
                 unmatched_import.append(import_col_clean)
+
+    # If a DataFrame was provided, detect whether any rows indicate breaker elements
+    # and in that case require the breaker-type column (`Τύπος Διακόπτη`) if absent.
+    try:
+        need_breaker_type = False
+        if df is not None and pd is not None:
+            # Find the import column that maps to Element Type (if any)
+            elem_col = None
+            for col in df.columns:
+                if col in [v for variants in COLUMN_MAPPINGS.get("Element Type", []) for v in variants]:
+                    elem_col = col
+                    break
+
+            # Fallback: look for a column whose name looks like Element Type
+            if elem_col is None:
+                for col in df.columns:
+                    if any(k.lower() in str(col).lower() for k in ["τύπος", "type", "element"]):
+                        elem_col = col
+                        break
+
+            if elem_col is not None:
+                # Scan a sample of values for breaker indicators
+                sample_vals = df[elem_col].dropna().astype(str).head(200).tolist()
+                for v in sample_vals:
+                    if "διακόπτη" in v.lower() or "breaker" in v.lower():
+                        need_breaker_type = True
+                        break
+                    # Try fuzzy match against known element types
+                    match = find_best_match(v, ELEMENT_TYPE_MAPPINGS, threshold=0.6)
+                    if match and match[0] in ("Διακόπτης ΥΤ", "Διακόπτης ΜΤ"):
+                        need_breaker_type = True
+                        break
+
+        if need_breaker_type and "Τύπος Διακόπτη" not in df_columns and "Τύπος Διακόπτη" not in unmatched_required:
+            unmatched_required.append("Τύπος Διακόπτη")
+    except Exception:
+        # Non-fatal: if detection fails, don't change required list
+        pass
 
     return {
         "matched": matched,

@@ -43,11 +43,21 @@ def ask_open_file(title: str = "Select file", filetypes=None):
 
     Uses tkinter when available; returns None if unavailable or cancelled.
     """
+    # Prefer Windows API dialog when available (more consistent on Windows).
+    try:
+        win_fp = _win32_get_open_filename(title=title, filetypes=filetypes)
+        if win_fp:
+            return win_fp
+    except Exception:
+        # ignore and fallback to tkinter
+        pass
+
     try:
         import tkinter as _tk
         from tkinter import filedialog as _fd
     except Exception:
-        raise ImportError("tkinter not available")
+        # tkinter not available; return None
+        return None
 
     _root = _tk.Tk()
     _root.withdraw()
@@ -59,4 +69,87 @@ def ask_open_file(title: str = "Select file", filetypes=None):
             _root.destroy()
         except Exception:
             pass
+    # If tkinter returned nothing but Windows API might still work, try it again
+    if not fp:
+        try:
+            win_fp = _win32_get_open_filename(title=title, filetypes=filetypes)
+            if win_fp:
+                return win_fp
+        except Exception:
+            pass
     return fp or None
+
+
+# Windows native fallback using comdlg32 (GetOpenFileNameW) when tkinter is
+# not available or problematic. This avoids importing Kivy and keeps a modern
+# Windows file dialog.
+def _win32_get_open_filename(title: str = "Select file", filetypes=None):
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return None
+
+    # Only on Windows
+    import sys
+
+    if sys.platform != "win32":
+        return None
+
+    # Build filter string for GetOpenFileNameW: pairs separated by '\0', end with '\0\0'
+    if filetypes:
+        parts = []
+        for desc, pattern in filetypes:
+            parts.append(f"{desc}\0{pattern}")
+        filter_str = "\0".join(parts) + "\0\0"
+    else:
+        filter_str = "All Files\0*.*\0\0"
+
+    # Define OPENFILENAMEW structure (sufficient subset)
+    class OPENFILENAMEW(ctypes.Structure):
+        _fields_ = [
+            ("lStructSize", wintypes.DWORD),
+            ("hwndOwner", wintypes.HWND),
+            ("hInstance", wintypes.HINSTANCE),
+            ("lpstrFilter", wintypes.LPCWSTR),
+            ("lpstrCustomFilter", wintypes.LPWSTR),
+            ("nMaxCustFilter", wintypes.DWORD),
+            ("nFilterIndex", wintypes.DWORD),
+            ("lpstrFile", wintypes.LPWSTR),
+            ("nMaxFile", wintypes.DWORD),
+            ("lpstrFileTitle", wintypes.LPWSTR),
+            ("nMaxFileTitle", wintypes.DWORD),
+            ("lpstrInitialDir", wintypes.LPCWSTR),
+            ("lpstrTitle", wintypes.LPCWSTR),
+            ("Flags", wintypes.DWORD),
+            ("nFileOffset", wintypes.WORD),
+            ("nFileExtension", wintypes.WORD),
+            ("lpstrDefExt", wintypes.LPCWSTR),
+            ("lCustData", wintypes.LPARAM),
+            ("lpfnHook", wintypes.LPVOID),
+            ("lpTemplateName", wintypes.LPCWSTR),
+            ("pvReserved", wintypes.LPVOID),
+            ("dwReserved", wintypes.DWORD),
+            ("FlagsEx", wintypes.DWORD),
+        ]
+
+    buffer_size = 1024
+    buffer = ctypes.create_unicode_buffer(buffer_size)
+
+    ofn = OPENFILENAMEW()
+    ofn.lStructSize = ctypes.sizeof(OPENFILENAMEW)
+    ofn.lpstrFilter = filter_str
+    ofn.lpstrFile = ctypes.cast(buffer, wintypes.LPWSTR)
+    ofn.nMaxFile = buffer_size
+    ofn.lpstrTitle = title
+    # OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER
+    ofn.Flags = 0x00001000 | 0x00000800 | 0x00000800
+
+    try:
+        res = ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn))
+    except Exception:
+        return None
+
+    if res:
+        return buffer.value
+    return None

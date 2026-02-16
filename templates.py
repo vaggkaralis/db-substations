@@ -82,7 +82,6 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
             "Gate",
             "Model Name",
             "Model Manufacturer",
-            "Model Maintenance Cycle",
             "Model Installation Space",
         ]
         for col, header in enumerate(headers, 1):
@@ -120,7 +119,6 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
                 "ΠΥΛΗ 1",
                 "SF6-400",
                 "ABB",
-                12,
                 "Εσωτερικού",
             ),
             (
@@ -135,7 +133,6 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
                 "ΠΥΛΗ 1",
                 "GEAFOL",
                 "Siemens",
-                24,
                 "Εξωτερικού",
             ),
         ]

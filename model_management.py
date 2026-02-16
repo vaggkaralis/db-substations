@@ -132,9 +132,33 @@ def show_models_management(app_instance):
                                 breaker_cat,
                                 manual_pdf,
                             ) = model
-                            if breaker_cat and breaker_cat in breaker_groups:
-                                breaker_groups[breaker_cat].append(model)
-                            else:
+                            assigned = False
+                            if breaker_cat:
+                                bval = str(breaker_cat).strip()
+                                # Exact case-insensitive match
+                                for key in list(breaker_groups.keys()):
+                                    try:
+                                        if key and bval.lower() == str(key).lower():
+                                            breaker_groups[key].append(model)
+                                            assigned = True
+                                            break
+                                    except Exception:
+                                        continue
+                                # Try normalized alphanumeric match (e.g., 'SF6' vs 'SF 6')
+                                if not assigned:
+                                    def _norm(s):
+                                        return "".join(ch for ch in str(s).lower() if ch.isalnum())
+
+                                    nb = _norm(bval)
+                                    for key in list(breaker_groups.keys()):
+                                        try:
+                                            if key and nb == _norm(key):
+                                                breaker_groups[key].append(model)
+                                                assigned = True
+                                                break
+                                        except Exception:
+                                            continue
+                            if not assigned:
                                 breaker_groups["Άλλο"].append(model)
 
                         # Display each breaker type group

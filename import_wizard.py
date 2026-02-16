@@ -41,8 +41,8 @@ class ColumnMappingPopup:
         self.column_mapping = {}
         self.spinners = {}
 
-        # Detect mismatches
-        self.mismatch_info = detect_column_mismatches(df_columns)
+        # Detect mismatches (pass DataFrame so validator can detect breaker rows)
+        self.mismatch_info = detect_column_mismatches(df_columns, df)
 
         # Auto-assign matched columns
         self.column_mapping = self.mismatch_info["matched"].copy()

@@ -15,7 +15,6 @@ REQUIRED_COLUMNS = [
     "Substation Name",
     "Element Type",
     "Name",
-    "Serial Number",
     "Gate",
     "Operating Status",
 ]
@@ -35,6 +34,65 @@ def _clean_value(value):
     if pd is None:
         return value
     return str(value).strip() if pd.notna(value) else ""
+
+
+# Column synonyms to tolerate English/Greek/header variants
+COLUMN_SYNONYMS = {
+    "Substation Name": [
+        "Substation Name",
+        "Substation",
+        "Υποσταθμός",
+        "Υποσταθμιο",
+        "Υποσταθμός Όνομα",
+        "Όνομα Υποσταθμού",
+    ],
+    "Element Type": ["Element Type", "Type", "Τύπος Στοιχείου", "Τύπος"],
+    "Name": ["Name", "Όνομα", "Name (Στοιχείο)"],
+    "Gate": ["Gate", "Πύλη", "Gate (Πύλη)"],
+    "Operating Status": [
+        "Operating Status",
+        "Status",
+        "Κατάσταση",
+        "Κατάσταση Λειτουργίας",
+    ],
+    "Serial Number": ["Serial Number", "S/N", "Serial", "Αριθμός Σειράς"],
+    "Maintenance Date": ["Maintenance Date", "Τελευταία Συντήρηση", "Last Maintenance"],
+    "Model Name": ["Model Name", "Model", "Μοντέλο"],
+    "Model Manufacturer": ["Model Manufacturer", "Manufacturer", "Κατασκευαστής Μοντέλου", "Μοντέλο Κατασκευαστής"],
+    "Model Installation Space": ["Model Installation Space", "Installation Space", "Χώρος Εγκατάστασης", "Installation"] ,
+    "Breaker Role": ["Breaker Role", "Role", "Ρόλος Διακόπτη"],
+    "Τύπος Διακόπτη": ["Τύπος Διακόπτη", "Breaker Type", "BreakerType", "Breaker", "Τυπος Διακοπτη", "Breaker Type (τύπος)"],
+}
+
+
+def _map_columns(df):
+    """Rename dataframe columns in-place (returns df) mapping common synonyms
+    to canonical column names used across import routines.
+    Matching is case-insensitive and trims whitespace.
+    """
+    if df is None:
+        return df
+    cols = list(df.columns)
+    mapped = {}
+    lower_map = {c.lower().strip(): c for c in cols}
+    for canonical, variants in COLUMN_SYNONYMS.items():
+        found = None
+        for v in variants:
+            key = v.lower().strip()
+            if key in lower_map:
+                found = lower_map[key]
+                break
+        # also try direct exact canonical if present
+        if not found and canonical in cols:
+            found = canonical
+        if found:
+            mapped[found] = canonical
+    if mapped:
+        try:
+            df = df.rename(columns=mapped)
+        except Exception:
+            pass
+    return df
 
 
 def _validate_template_version(df) -> tuple[bool, str]:
@@ -125,8 +183,35 @@ def import_substations_from_excel(
 
     try:
         cursor = conn.cursor()
+        # Try primary sheet name first, fall back to searching sheets for required columns
+        df_sub = None
         try:
             df_sub = pd.read_excel(file_path, sheet_name="Substations")
+        except ValueError:
+            try:
+                all_sheets = pd.read_excel(file_path, sheet_name=None)
+                chosen = None
+                for name, df in all_sheets.items():
+                    cols = [str(c) for c in df.columns]
+                    if all(col in cols for col in ["Name"]):
+                        df_sub = df
+                        chosen = name
+                        break
+                if chosen is None:
+                    on_error(f"Worksheet named 'Substations' not found and no suitable sheet detected. Available sheets: {list(all_sheets.keys())}")
+                    return
+            except Exception as exc2:
+                tb = traceback.format_exc()
+                details = (
+                    f"Σφάλμα κατά τον έλεγχο αρχείου: {exc2}\n"
+                    f"Path: {repr(file_path)}\n"
+                    f"Exists: {os.path.exists(file_path)}\n"
+                    f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
+                    f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                    f"Traceback:\n{tb}"
+                )
+                on_error(details)
+                return
         except Exception as exc:
             tb = traceback.format_exc()
             details = (
@@ -287,8 +372,35 @@ def import_elements_from_excel(
 
     try:
         cursor = conn.cursor()
+        # Try the 'Elements' sheet; if missing, search for a sheet that contains the required columns
+        df_elem = None
         try:
             df_elem = pd.read_excel(file_path, sheet_name="Elements")
+        except ValueError:
+            try:
+                all_sheets = pd.read_excel(file_path, sheet_name=None)
+                chosen = None
+                for name, df in all_sheets.items():
+                    cols = [str(c) for c in df.columns]
+                    if all(col in cols for col in REQUIRED_COLUMNS):
+                        df_elem = df
+                        chosen = name
+                        break
+                if chosen is None:
+                    on_error(f"Worksheet named 'Elements' not found and no sheet contains required columns. Available sheets: {list(all_sheets.keys())}")
+                    return
+            except Exception as exc2:
+                tb = traceback.format_exc()
+                details = (
+                    f"Σφάλμα κατά τον έλεγχο αρχείου: {exc2}\n"
+                    f"Path: {repr(file_path)}\n"
+                    f"Exists: {os.path.exists(file_path)}\n"
+                    f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
+                    f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                    f"Traceback:\n{tb}"
+                )
+                on_error(details)
+                return
         except Exception as exc:
             tb = traceback.format_exc()
             details = (
@@ -317,7 +429,13 @@ def import_elements_from_excel(
             ):
                 df_elem = df_elem.iloc[1:].reset_index(drop=True)
 
-        # Validate all required columns exist
+        # Map common header variants to canonical column names used below
+        try:
+            df_elem = _map_columns(df_elem)
+        except Exception:
+            pass
+
+        # Validate all required columns exist (after mapping synonyms)
         missing_cols = [col for col in REQUIRED_COLUMNS if col not in df_elem.columns]
         if missing_cols:
             on_error(
@@ -366,7 +484,21 @@ def import_elements_from_excel(
                 if pd.notna(row.get("Τύπος Διακόπτη", ""))
                 else ""
             )
-            (
+            # Normalize breaker category to canonical values for storage and grouping
+            normalized_breaker_category = None
+            try:
+                from import_validator import validate_breaker_category
+
+                if breaker_type:
+                    match = validate_breaker_category(breaker_type)
+                    normalized_breaker_category = match[0] if match and match[0] else (
+                        breaker_type.strip() or None
+                    )
+                else:
+                    normalized_breaker_category = None
+            except Exception:
+                normalized_breaker_category = breaker_type.strip() if breaker_type else None
+            breaker_role = (
                 str(row.get("Breaker Role", "")).strip()
                 if pd.notna(row.get("Breaker Role", ""))
                 else ""
@@ -380,6 +512,16 @@ def import_elements_from_excel(
             model_manufacturer = (
                 str(row.get("Model Manufacturer", "")).strip()
                 if pd.notna(row.get("Model Manufacturer", ""))
+                else ""
+            )
+            model_installation_space = (
+                str(row.get("Model Installation Space", "")).strip()
+                if pd.notna(row.get("Model Installation Space", ""))
+                else ""
+            )
+            model_installation_space = (
+                str(row.get("Model Installation Space", "")).strip()
+                if pd.notna(row.get("Model Installation Space", ""))
                 else ""
             )
 
@@ -439,7 +581,7 @@ def import_elements_from_excel(
                         # All other element types default to 6 years
                         maintenance_cycle_int = 6
                     name_str = str(name)
-                    serial_str = str(serial_number) if pd.notna(serial_number) else ""
+                    serial_str = (str(serial_number) if pd.notna(serial_number) else "").strip()
 
                     # Look up element_model_id if model info provided. Use multiple
                     # fallbacks to be robust to existing DB rows.
@@ -479,10 +621,30 @@ def import_elements_from_excel(
                         elif model_name:
                             # create model using provided model_manufacturer (may be empty)
                             try:
-                                cursor.execute(
-                                    "INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?, ?, ?)",
-                                    (elem_category, model_name, model_manufacturer or ""),
-                                )
+                                # Detect available columns in element_models and insert accordingly
+                                try:
+                                    cursor.execute("PRAGMA table_info(element_models)")
+                                    em_cols = [r[1] for r in cursor.fetchall()]
+                                except Exception:
+                                    em_cols = []
+
+                                insert_cols = ["element_category", "model_name", "manufacturer"]
+                                insert_vals = [elem_category, model_name, model_manufacturer or ""]
+                                if "maintenance_cycle" in em_cols:
+                                    insert_cols.append("maintenance_cycle")
+                                    insert_vals.append(maintenance_cycle_int if maintenance_cycle_int else None)
+                                if "installation_space" in em_cols:
+                                    insert_cols.append("installation_space")
+                                    insert_vals.append(model_installation_space or "")
+                                if "breaker_category" in em_cols:
+                                    insert_cols.append("breaker_category")
+                                    insert_vals.append(
+                                        normalized_breaker_category if normalized_breaker_category else None
+                                    )
+
+                                placeholders = ",".join(["?"] * len(insert_cols))
+                                sql = f"INSERT INTO element_models ({','.join(insert_cols)}) VALUES ({placeholders})"
+                                cursor.execute(sql, tuple(insert_vals))
                                 element_model_id = cursor.lastrowid
                             except Exception:
                                 element_model_id = None
@@ -533,6 +695,25 @@ def import_elements_from_excel(
                         elem_type_str = "Διακόπτης ΜΤ"
                         is_main_switch = 0
 
+                    # Map breaker role to is_main_switch for MV breakers; HV breakers are always main
+                    if elem_type_str in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                        # HV breakers are ALWAYS main
+                        if elem_type_str == "Διακόπτης ΥΤ":
+                            is_main_switch = 1
+                        else:
+                            # MV breakers: map from Breaker Role column
+                            if breaker_role == "Κεντρικός":
+                                is_main_switch = 1
+                            elif breaker_role == "Διασυνδετικός":
+                                is_main_switch = 2
+                            elif breaker_role == "Διακόπτης Πυκνωτών":
+                                is_main_switch = 3
+                            elif breaker_role == "Γραμμής":
+                                is_main_switch = 0
+                            else:
+                                # Empty or unknown defaults to line breaker
+                                is_main_switch = 0
+
                     # Determine whether the elements table has a maintenance_cycle column
                     try:
                         cursor.execute("PRAGMA table_info(elements)")
@@ -556,7 +737,7 @@ def import_elements_from_excel(
                                     manufacturer_value if manufacturer_value is not None else "",
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    breaker_type if breaker_type else None,
+                                    normalized_breaker_category if normalized_breaker_category else None,
                                     maintenance_cycle_int,
                                     element_model_id,
                                     operating_status,
@@ -577,7 +758,7 @@ def import_elements_from_excel(
                                     manufacturer_value if manufacturer_value is not None else "",
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    breaker_type if breaker_type else None,
+                                    normalized_breaker_category if normalized_breaker_category else None,
                                     element_model_id,
                                     operating_status,
                                     existing[0],
@@ -605,7 +786,7 @@ def import_elements_from_excel(
                                     manufacturer_value if manufacturer_value is not None else "",
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    breaker_type if breaker_type else None,
+                                    normalized_breaker_category if normalized_breaker_category else None,
                                     maintenance_cycle_int,
                                     element_model_id,
                                     operating_status,
@@ -628,7 +809,7 @@ def import_elements_from_excel(
                                     manufacturer_value if manufacturer_value is not None else "",
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    breaker_type if breaker_type else None,
+                                    normalized_breaker_category if normalized_breaker_category else None,
                                     element_model_id,
                                     operating_status,
                                 ),
@@ -822,7 +1003,7 @@ def import_elements_from_csv(
                 if result:
                     sub_id = result[0]
                     name_str = str(name)
-                    serial_str = str(serial_number) if pd.notna(serial_number) else ""
+                    serial_str = (str(serial_number) if pd.notna(serial_number) else "").strip()
 
                     # Look up element_model_id if model info provided
                     element_model_id = None
@@ -845,10 +1026,28 @@ def import_elements_from_csv(
                                     elem_type_for_model = (
                                         str(element_type) if pd.notna(element_type) else ""
                                     )
-                                    cursor.execute(
-                                        "INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?, ?, ?)",
-                                        (elem_type_for_model, model_name, model_manufacturer or ""),
-                                    )
+                                    # Detect available columns in element_models and insert accordingly
+                                    try:
+                                        cursor.execute("PRAGMA table_info(element_models)")
+                                        em_cols = [r[1] for r in cursor.fetchall()]
+                                    except Exception:
+                                        em_cols = []
+
+                                    insert_cols = ["element_category", "model_name", "manufacturer"]
+                                    insert_vals = [elem_type_for_model, model_name, model_manufacturer or ""]
+                                    if "maintenance_cycle" in em_cols:
+                                        insert_cols.append("maintenance_cycle")
+                                        insert_vals.append(maintenance_cycle_int if maintenance_cycle_int else None)
+                                    if "installation_space" in em_cols:
+                                        insert_cols.append("installation_space")
+                                        insert_vals.append(model_installation_space or "")
+                                    if "breaker_category" in em_cols:
+                                        insert_cols.append("breaker_category")
+                                        insert_vals.append(breaker_type if breaker_type else None)
+
+                                    placeholders = ",".join(["?"] * len(insert_cols))
+                                    sql = f"INSERT INTO element_models ({','.join(insert_cols)}) VALUES ({placeholders})"
+                                    cursor.execute(sql, tuple(insert_vals))
                                     element_model_id = cursor.lastrowid
                                 except Exception:
                                     element_model_id = None

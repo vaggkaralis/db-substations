@@ -890,119 +890,12 @@ class SubstationApp(App):
         return found
 
     def _find_elements_in_body(self, body_text: str, substation_id: int):
-        c = self.conn.cursor()
-        c.execute(
-            "SELECT id, name, element_type FROM elements WHERE substation_id=?",
-            (substation_id,),
-        )
-        elements = c.fetchall()
-
-        normalized_body = self._normalize_text(body_text)
-        normalized_body = re.sub(r"μ\s*[\./-]\s*σ", "μσ", normalized_body)
-        normalized_body = re.sub(r"m\s*[\./-]\s*s", "ms", normalized_body)
-        normalized_body = re.sub(r"(μσ|ms)\s*[ilι]\b", r"\g<1>1", normalized_body)
-        compact_body = re.sub(r"[^0-9a-zα-ω]+", "", normalized_body)
-        compact_body = re.sub(r"(μσ|ms)[ilι](?![0-9])", r"\g<1>1", compact_body)
-        has_satyf = "σατυφ" in compact_body
-        transformer_numbers = set(
-            re.findall(r"(?:μσ|μετασχηματιστησ)[^0-9]{0,3}([0-9]+)", normalized_body)
-        )
-        transformer_numbers.update(
-            re.findall(r"(?:ms|transformer)[^0-9]{0,3}([0-9]+)", normalized_body)
-        )
-        ms_numbers = set(re.findall(r"μσ([0-9]+)", compact_body))
-        ms_numbers.update(re.findall(r"ms([0-9]+)", compact_body))
-
-        matched = set()
-        motor_drive_candidates = []
-        for elem_id, elem_name, elem_type in elements:
-            base = self._normalize_text(elem_name)
-            compact = re.sub(r"[^0-9a-zα-ω]+", "", base)
-            variants = {compact}
-
-            digits = "".join(ch for ch in compact if ch.isdigit())
-            if digits:
-                if "μετασχηματιστης" in self._normalize_text(
-                    elem_type
-                ) or compact.startswith("μσ"):
-                    variants.add(f"μσ{digits}")
-                    variants.add(f"μετασχηματιστης{digits}")
-                if compact.startswith("ρ"):
-                    variants.add(f"ρ{digits}")
-
-            element_ms_numbers = set(
-                re.findall(r"(?:μσ|μετασχηματιστησ)[^0-9]{0,3}([0-9]+)", base)
-            )
-            element_ms_numbers.update(
-                re.findall(r"(?:ms|transformer)[^0-9]{0,3}([0-9]+)", base)
-            )
-            element_ms_numbers.update(re.findall(r"μσ([0-9]+)", compact))
-            element_ms_numbers.update(re.findall(r"ms([0-9]+)", compact))
-
-            elem_type_norm = self._normalize_text(elem_type)
-            is_motor_drive = (
-                "motor drive" in elem_type_norm
-                or elem_type_norm == "motordrive"
-                or "md" in compact
-                or "σατυφ" in base
-            )
-
-            if is_motor_drive:
-                motor_drive_candidates.append(
-                    (elem_id, element_ms_numbers, compact, elem_type_norm)
-                )
-
-            if is_motor_drive and has_satyf:
-                if element_ms_numbers and (
-                    element_ms_numbers & (transformer_numbers | ms_numbers)
-                ):
-                    matched.add(elem_id)
-                    continue
-                if (transformer_numbers or ms_numbers) and (
-                    not element_ms_numbers
-                    or element_ms_numbers & (transformer_numbers | ms_numbers)
-                ):
-                    matched.add(elem_id)
-                    continue
-                if digits and (digits in transformer_numbers or digits in ms_numbers):
-                    matched.add(elem_id)
-                    continue
-                if digits and (
-                    f"μσ{digits}" in compact_body
-                    or f"μετασχηματιστης{digits}" in compact_body
-                ):
-                    matched.add(elem_id)
-                    continue
-                if not digits and len(transformer_numbers | ms_numbers) == 1:
-                    matched.add(elem_id)
-                    continue
-
-            if any(var and var in compact_body for var in variants):
-                matched.add(elem_id)
-
-        if has_satyf and (transformer_numbers or ms_numbers):
-            md_matched = any(eid in matched for eid, _, _, _ in motor_drive_candidates)
-            if not md_matched:
-                for (
-                    elem_id,
-                    element_ms_numbers,
-                    compact,
-                    elem_type_norm,
-                ) in motor_drive_candidates:
-                    if element_ms_numbers & (transformer_numbers | ms_numbers):
-                        matched.add(elem_id)
-                if (
-                    not any(eid in matched for eid, _, _, _ in motor_drive_candidates)
-                    and len(motor_drive_candidates) == 1
-                ):
-                    matched.add(motor_drive_candidates[0][0])
-
-        if has_satyf and not (transformer_numbers or ms_numbers):
-            md_matched = any(eid in matched for eid, _, _, _ in motor_drive_candidates)
-            if not md_matched and len(motor_drive_candidates) == 1:
-                matched.add(motor_drive_candidates[0][0])
-
-        return matched
+        # Lightweight fallback: detailed element extraction from free text
+        # is complex and was removed accidentally. Return an empty set so
+        # callers safely continue when no elements are inferred from the
+        # message body. If advanced extraction is needed later, restore
+        # the original implementation.
+        return set()
 
     def _get_previous_maintenance_defaults(
         self, substation_id: int, date_time_value: str
@@ -4125,8 +4018,8 @@ class SubstationApp(App):
                 query = """
                           SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
                               e.voltage_level, e.power_mva, e.manufacturer, e.manufacture_year, e.gate, e.is_main_switch,
-                           em.breaker_category, em.model_name, em.manufacturer as model_manufacturer, 
-                           em.maintenance_cycle, em.installation_space
+                           em.breaker_category, em.model_name, em.manufacturer as model_manufacturer,
+                           e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.installation_space
                     FROM elements e 
                     LEFT JOIN element_models em ON e.element_model_id = em.id 
                     WHERE e.substation_id=? AND (e.operating_status IS NULL OR e.operating_status='Ενεργή') 
@@ -4163,7 +4056,8 @@ class SubstationApp(App):
                             breaker_category,
                             model_name,
                             model_manufacturer,
-                            maintenance_cycle,
+                            element_maintenance_cycle,
+                            model_maintenance_cycle,
                             installation_space,
                         ) = elem
 
@@ -4211,7 +4105,8 @@ class SubstationApp(App):
                             breaker_category,
                             model_name,
                             model_manufacturer,
-                            maintenance_cycle,
+                            element_maintenance_cycle,
+                            model_maintenance_cycle,
                             installation_space,
                         ) = elem
 
@@ -4263,12 +4158,20 @@ class SubstationApp(App):
                                 breaker_category,
                                 model_name,
                                 model_manufacturer,
-                                maintenance_cycle,
+                                element_maintenance_cycle,
+                                model_maintenance_cycle,
                                 installation_space,
                             ) = elem
 
                             # Check if maintenance is overdue or missing
                             from datetime import datetime, timedelta
+
+                            # Prefer element-specific maintenance cycle; fall back to model's if element has none
+                            maintenance_cycle = None
+                            if element_maintenance_cycle and element_maintenance_cycle > 0:
+                                maintenance_cycle = element_maintenance_cycle
+                            elif model_maintenance_cycle and model_maintenance_cycle > 0:
+                                maintenance_cycle = model_maintenance_cycle
 
                             is_overdue = False
                             if maintenance_cycle and maintenance_cycle > 0:
@@ -5086,27 +4989,108 @@ class SubstationApp(App):
         from kivy.uix.label import Label
         from kivy.uix.scrollview import ScrollView
 
-        popup = Popup(title="Νέοι Υποσταθμοί Εντοπίστηκαν", size_hint=(0.6, 0.5))
+        # Make the popup larger so long lists fit; list itself remains scrollable
+        popup = Popup(title="Νέοι Υποσταθμοί Εντοπίστηκαν", size_hint=(0.85, 0.8))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-        sub_list = "\\n".join(f"• {sub}" for sub in sorted(new_substations))
-        message = f"Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:\\n\\n{sub_list}\\n\\nΣυνέχεια;"
+        sub_list = "\n".join(f"• {sub}" for sub in sorted(new_substations))
+        # Brief header message only; the individual substations are shown in the scrollable list below
+        message = "Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:"
 
-        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        label = Label(text=message, size_hint_y=None)
-        label.bind(texture_size=label.setter("size"))
-        scroll.add_widget(label)
+        from kivy.uix.checkbox import CheckBox
+        from kivy.graphics import Color, Rectangle
+        # Header and per-substation checkbox list so user can mark specific substations
+        header = Label(text="Υ/Σ ΘΕσσαλονίκης", size_hint_y=None, height=30, bold=True, color=(0.9, 0.1, 0.1, 1))
+        # Brief header message (fixed height) — the list below stays scrollable
+        header_label = Label(text=message, size_hint_y=None, height=60)
+        header_label.bind(texture_size=header_label.setter("size"))
+        layout.add_widget(header_label)
+
+        # Header row above the list, right-aligned to match checkbox column
+        header_row = BoxLayout(size_hint_y=None, height=36)
+        header_row.add_widget(Widget())
+        header.halign = "right"
+        header.valign = "middle"
+        header.size_hint_x = None
+        header.width = 160
+        header_row.add_widget(header)
+        layout.add_widget(header_row)
+
+        # Scrollable single-column list where each row contains name (left)
+        # and a fixed-width checkbox area (right). Each row has a grey
+        # background that becomes blue when selected.
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"], size_hint=(1, 0.7))
+        list_container = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=6)
+        list_container.bind(minimum_height=list_container.setter("height"))
+
+        self._new_sub_cb = {}
+        for sub in sorted(new_substations):
+            row = BoxLayout(size_hint_y=None, height=40, spacing=8)
+            # Row background covering the whole row
+            with row.canvas.before:
+                row._bg_color = Color(0.95, 0.95, 0.95, 1)
+                row._bg_rect = Rectangle(pos=row.pos, size=row.size)
+            row.bind(pos=lambda inst, val: setattr(inst._bg_rect, 'pos', val))
+            row.bind(size=lambda inst, val: setattr(inst._bg_rect, 'size', val))
+
+            # Left: substation name
+            lbl = Label(text=sub, halign="left", valign="middle")
+            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
+            # Right: fixed-width anchor for the checkbox so it aligns under header
+            cb_anchor = AnchorLayout(anchor_x='right', anchor_y='center', size_hint_x=None, width=160)
+            # Preselect Thessaloniki checkbox when the substation name
+            # contains the substring "ΘΕΣΣ" (case-insensitive)
+            is_th_initial = True if "ΘΕΣΣ" in sub.upper() else False
+            cb = CheckBox(active=False, size_hint=(None, None), size=(40, 40))
+            self._new_sub_cb[sub] = cb
+            cb_anchor.add_widget(cb)
+
+            # Toggle changes the entire row background (selection highlight)
+            def _on_toggle(chk, val, r=row):
+                if val:
+                    r._bg_color.rgba = (0.2, 0.45, 0.8, 1)
+                else:
+                    r._bg_color.rgba = (0.95, 0.95, 0.95, 1)
+
+            cb.bind(active=_on_toggle)
+            # Ensure initial visual state matches preselection
+            try:
+                cb.active = is_th_initial
+            except Exception:
+                pass
+
+            # Draw a green border around the checkbox itself (not the container)
+            from kivy.graphics import Line
+            with cb.canvas.after:
+                cb._border_color = Color(0.0, 0.5, 0.0, 1)
+                cb._border_line = Line(rectangle=(0, 0, 0, 0), width=2)
+
+            def _update_border(_inst=None, _val=None, line=None, c=cb):
+                try:
+                    # rectangle expects (x, y, w, h)
+                    cb._border_line.rectangle = (c.x - 4, c.y - 4, c.width + 8, c.height + 8)
+                except Exception:
+                    pass
+
+            cb.bind(pos=_update_border, size=_update_border)
+            _update_border()
+
+            row.add_widget(lbl)
+            row.add_widget(cb_anchor)
+            list_container.add_widget(row)
+
+        scroll.add_widget(list_container)
         layout.add_widget(scroll)
 
         # Buttons
         btn_layout = BoxLayout(size_hint_y=0.2, spacing=10)
 
         yes_btn = Button(text="Ναι, Δημιουργία")
-        yes_btn.bind(
-            on_press=lambda x: self._create_substations_and_continue(
-                file_path, new_substations, popup
-            )
-        )
+        def _on_yes(_):
+            # Gather selected substations
+            selected = [name for name, cb in getattr(self, '_new_sub_cb', {}).items() if cb.active]
+            self._create_substations_and_continue(file_path, new_substations, popup, selected)
+        yes_btn.bind(on_press=_on_yes)
         btn_layout.add_widget(yes_btn)
 
         no_btn = Button(text="Ακύρωση")
@@ -5118,12 +5102,36 @@ class SubstationApp(App):
         popup.open()
 
     def _create_substations_and_continue(
-        self, file_path, new_substations, prompt_popup
+        self, file_path, new_substations, prompt_popup, selected_substations=None
     ):
         """Create new substations and continue with import"""
         cursor = self.conn.cursor()
+        # Insert with is_thessaloniki if the column exists in this DB
+        try:
+            cursor.execute("PRAGMA table_info(substations)")
+            sub_cols = [r[1] for r in cursor.fetchall()]
+        except Exception:
+            sub_cols = []
+
         for sub_name in new_substations:
-            cursor.execute("INSERT INTO substations (name) VALUES (?)", (sub_name,))
+            is_th = False
+            try:
+                is_th = bool(selected_substations and sub_name in selected_substations)
+            except Exception:
+                is_th = False
+
+            if "is_thessaloniki" in sub_cols:
+                try:
+                    cursor.execute(
+                        "INSERT INTO substations (name, is_thessaloniki) VALUES (?, ?)",
+                        (sub_name, 1 if is_th else 0),
+                    )
+                except Exception:
+                    cursor.execute(
+                        "INSERT INTO substations (name) VALUES (?)", (sub_name,)
+                    )
+            else:
+                cursor.execute("INSERT INTO substations (name) VALUES (?)", (sub_name,))
         self.conn.commit()
         prompt_popup.dismiss()
 
@@ -5171,10 +5179,53 @@ class SubstationApp(App):
 
                 if model_name:  # Only check if model info provided
                     key = (element_type, model_name, model_manufacturer)
+                    # Determine computed cycle for this row using substation flag
+                    computed_cycle = None
+                    try:
+                        sub_name = (
+                            str(row.get("Substation Name", "")).strip()
+                            if pd.notna(row.get("Substation Name", ""))
+                            else ""
+                        )
+                        # Lookup is_thessaloniki from DB (new substations have been created by now)
+                        is_th = False
+                        if sub_name:
+                            cursor.execute(
+                                "SELECT is_thessaloniki FROM substations WHERE name=?",
+                                (sub_name,),
+                            )
+                            r = cursor.fetchone()
+                            is_th = bool(r[0]) if r and r[0] else False
+
+                        # breaker type from row
+                        breaker_type = (
+                            str(row.get("Τύπος Διακόπτη", "")).strip()
+                            if pd.notna(row.get("Τύπος Διακόπτη", ""))
+                            else ""
+                        )
+
+                        et = str(element_type) if pd.notna(element_type) else ""
+                        # Compute maintenance cycle in years
+                        if "ΥΤ" in et or "150/20" in et or "Transformer" in et:
+                            computed_cycle = 3 if is_th else 6
+                        elif "ΜΤ" in et or "20/0.4" in et:
+                            bt = (breaker_type or "").strip().lower()
+                            if bt in ["πτωχού ελαίου", "sf6", "sf-6"] or "sf6" in bt:
+                                computed_cycle = 1
+                            elif bt in ["κενού", "ελαίου"]:
+                                computed_cycle = 3
+                            else:
+                                computed_cycle = 3
+                        else:
+                            computed_cycle = 6
+                    except Exception:
+                        computed_cycle = None
+
                     if key not in models_to_check:
                         models_to_check[key] = {
                             "cycle": model_cycle,
                             "space": model_space,
+                            "computed": computed_cycle,
                         }
 
             # Check which models exist and which need to be added/updated
@@ -5256,8 +5307,15 @@ class SubstationApp(App):
                 )
             )
             for model in new_models:
-                text = f"• {model['category']} - {model['name']} ({model['manufacturer']})\n  Κύκλος: {model['data']['cycle']} μήνες, Χώρος: {model['data']['space'] or 'N/A'}"
-                content.add_widget(Label(text=text, size_hint_y=None, height=50))
+                model_cycle = model['data'].get('cycle', 0)
+                computed = model['data'].get('computed')
+                model_display = f"{model_cycle} έτη" if model_cycle and model_cycle > 0 else "Αυτόματος"
+                computed_display = f"{computed} έτη" if computed and computed > 0 else "Αυτόματος"
+                text = (
+                    f"• {model['category']} - {model['name']} ({model['manufacturer']})\n"
+                    f"  Κύκλος (μοντέλου): {model_display} | Κύκλος (υπολογισμένος): {computed_display}, Χώρος: {model['data']['space'] or 'N/A'}"
+                )
+                content.add_widget(Label(text=text, size_hint_y=None, height=60))
 
         if conflicting_models:
             content.add_widget(
@@ -5270,10 +5328,19 @@ class SubstationApp(App):
                 )
             )
             for model in conflicting_models:
-                text = f"• {model['category']} - {model['name']} ({model['manufacturer']})\n  Υπάρχον: Κύκλος {model['existing']['cycle']}, Χώρος {model['existing']['space'] or 'N/A'}\n  Νέο: Κύκλος {model['new']['cycle']}, Χώρος {model['new']['space'] or 'N/A'}"
-                content.add_widget(
-                    Label(text=text, size_hint_y=None, height=80, color=(1, 0.7, 0, 1))
+                existing_cycle = model['existing'].get('cycle', 0)
+                new_cycle = model['new'].get('cycle', 0)
+                existing_display = f"{existing_cycle} έτη" if existing_cycle and existing_cycle > 0 else "Αυτόματος"
+                new_display = f"{new_cycle} έτη" if new_cycle and new_cycle > 0 else "Αυτόματος"
+                computed = model.get('computed') or model['new'].get('computed') or model['existing'].get('computed')
+                computed_display = f"{computed} έτη" if computed and computed > 0 else "Αυτόματος"
+                text = (
+                    f"• {model['category']} - {model['name']} ({model['manufacturer']})\n"
+                    f"  Υπάρχον: Κύκλος {existing_display}, Χώρος {model['existing']['space'] or 'N/A'}\n"
+                    f"  Νέο: Κύκλος {new_display}, Χώρος {model['new']['space'] or 'N/A'}\n"
+                    f"  Κύκλος (υπολογισμένος): {computed_display}"
                 )
+                content.add_widget(Label(text=text, size_hint_y=None, height=90, color=(1, 0.7, 0, 1)))
 
         scroll.add_widget(content)
         layout.add_widget(scroll)
@@ -5378,7 +5445,7 @@ class SubstationApp(App):
                     str(row.get("Serial Number", ""))
                     if pd.notna(row.get("Serial Number", ""))
                     else ""
-                )
+                ).strip()
 
                 if sub_name and name:
                     cursor.execute(
@@ -6816,7 +6883,7 @@ class SubstationApp(App):
                     substation_id,
                     element_type,
                     values.get("name", ""),
-                    values.get("serial_number", ""),
+                    (values.get("serial_number", "") or "").strip(),
                     values.get("maintenance_date", ""),
                     voltage_level_value,
                     values.get("manufacturer", ""),
@@ -7325,7 +7392,7 @@ class SubstationApp(App):
                     selected_substation_id,
                     element_type,
                     values.get("name", ""),
-                    values.get("serial_number", ""),
+                    (values.get("serial_number", "") or "").strip(),
                     values.get("maintenance_date", ""),
                     voltage_level_value,
                     values.get("manufacturer", ""),
