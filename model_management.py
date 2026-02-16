@@ -3,6 +3,7 @@ Model Management UI Functions for Element Models
 """
 
 import os
+from popups import ask_open_file
 
 
 def show_models_management(app_instance):
@@ -786,6 +787,40 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
     from kivy.uix.textinput import TextInput
     from kivy.uix.filechooser import FileChooserListView
     from popups import show_message_popup
+
+    # Try native desktop dialog first
+    allow_fallback = False
+    try:
+        fp = ask_open_file(title="Select Manual PDF", filetypes=(("PDF files", "*.pdf"),))
+    except ImportError:
+        allow_fallback = True
+        fp = None
+    except Exception:
+        fp = None
+
+    if fp:
+        if not os.path.exists(fp):
+            show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+            return
+        if not fp.lower().endswith(".pdf"):
+            show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο PDF!")
+            return
+        c = app_instance.conn.cursor()
+        c.execute(
+            "UPDATE models SET manual_pdf=? WHERE id=?",
+            (fp, model_id),
+        )
+        app_instance.conn.commit()
+        if parent_popup:
+            try:
+                parent_popup.dismiss()
+            except Exception:
+                pass
+        return
+
+    if not allow_fallback:
+        # user cancelled native dialog -> do nothing
+        return
 
     popup = Popup(title="Επιλογή Manual PDF", size_hint=(0.9, 0.9))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)

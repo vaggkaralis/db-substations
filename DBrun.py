@@ -1,4 +1,4 @@
-import webbrowser
+﻿import webbrowser
 import os
 import re
 import subprocess
@@ -20,6 +20,7 @@ from model_management import show_models_management
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from import_wizard import ColumnMappingPopup, DataValidationPopup
 from email_eml_parser import parse_eml_file
+from popups import ask_open_file
 
 import importlib
 try:
@@ -673,16 +674,62 @@ class SubstationApp(App):
         menu_popup.open()
 
     def _show_import_maintenance_email_dialog(self, parent_popup=None):
+        # Prefer native Windows file dialog when available: open it and import directly.
+        allow_fallback = False
+        try:
+            fp = ask_open_file(title="Select .eml file", filetypes=(("EML files", "*.eml"),))
+        except ImportError:
+            # tkinter not available -> show in-app chooser
+            allow_fallback = True
+            fp = None
+        except Exception:
+            # treat other unexpected errors as cancellation
+            fp = None
+
+        if fp:
+            try:
+                if parent_popup:
+                    parent_popup.dismiss()
+            except Exception:
+                pass
+            self._import_maintenance_from_email_file(fp)
+            return
+
+        if not allow_fallback:
+            # User cancelled native dialog — do not open in-app selector
+            return
+
         popup = Popup(title="Εισαγωγή Συντήρησης από E-mail", size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         path_label = Label(text="Διαδρομή αρχείου (.eml):", size_hint_y=0.1)
         layout.add_widget(path_label)
 
-        path_input = TextInput(
-            hint_text="Διαδρομή αρχείου .eml", size_hint_y=0.12, multiline=False
-        )
-        layout.add_widget(path_input)
+        # Row with path input and native chooser button (attempts tkinter)
+        path_row = BoxLayout(orientation="horizontal", size_hint_y=0.12, spacing=8)
+        path_input = TextInput(hint_text="Διαδρομή αρχείου .eml", multiline=False)
+
+        def _choose_file_native(_instance=None):
+            try:
+                fp = ask_open_file(title="Select .eml file", filetypes=(("EML files", "*.eml"),))
+            except ImportError:
+                show_message_popup(
+                    "Σφάλμα",
+                    "Δεν είναι δυνατή η εμφάνιση εγγενούς διαλόγου αρχείων. Χρησιμοποιήστε τον επιλεγέα της εφαρμογής.",
+                )
+                return
+            except Exception:
+                return
+
+            if fp:
+                path_input.text = fp
+
+        choose_btn = Button(text="Επιλογή αρχείου...", size_hint_x=None, width=180)
+        choose_btn.bind(on_press=_choose_file_native)
+
+        path_row.add_widget(path_input)
+        path_row.add_widget(choose_btn)
+        layout.add_widget(path_row)
 
         layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
         chooser = FileChooserListView(filters=["*.eml"], path=os.path.dirname(__file__))
@@ -3337,16 +3384,16 @@ class SubstationApp(App):
         menu_popup.open()
 
     def _show_import_substations_from_menu(self, menu_popup):
-        menu_popup.dismiss()
-        self.show_import_substations_dialog(None)
+        # Keep the intermediate menu open; only dismiss on successful import.
+        self.show_import_substations_dialog(menu_popup)
 
     def _show_import_elements_from_menu(self, menu_popup):
-        menu_popup.dismiss()
-        self.show_import_elements_dialog(None)
+        # Keep the intermediate menu open; only dismiss on successful import.
+        self.show_import_elements_dialog(menu_popup)
 
     def _show_import_android_changes_from_menu(self, menu_popup):
-        menu_popup.dismiss()
-        self.show_import_android_changes_dialog(None)
+        # Keep the intermediate menu open; only dismiss on successful import.
+        self.show_import_android_changes_dialog(menu_popup)
 
     def show_add_menu(self, instance):
         # Show intermediate menu for adding substation or element
@@ -4370,13 +4417,36 @@ class SubstationApp(App):
         title = "Template Υποσταθμών" if success else "Σφάλμα"
         show_message_popup(title, message)
 
-    def _create_file_import_dialog(self, title, import_callback):
+    def _create_file_import_dialog(self, title, import_callback, parent_popup=None):
         """Generic file import dialog for substations and elements
 
         Args:
             title: Popup title
             import_callback: Function to call with file_path when import is confirmed
         """
+        # Prefer native dialog first (desktop). If a file is chosen, call back immediately.
+        allow_fallback = False
+        try:
+            fp = ask_open_file(title=title, filetypes=(("Excel/CSV", "*.xlsx;*.csv"),))
+        except ImportError:
+            allow_fallback = True
+            fp = None
+        except Exception:
+            fp = None
+
+        if fp:
+            # If a native file was chosen, dismiss the parent menu then import.
+            if parent_popup:
+                try:
+                    parent_popup.dismiss()
+                except Exception:
+                    pass
+            import_callback(fp)
+            return
+        if not allow_fallback:
+            # user cancelled native dialog -> do not open in-app selector
+            return
+
         popup = Popup(title=title, size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -4416,8 +4486,18 @@ class SubstationApp(App):
                 show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
                 return
 
-            import_callback(file_path)
+            # perform import and then dismiss popups on success
+            try:
+                import_callback(file_path)
+            except Exception as e:
+                show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής:\n{str(e)}")
+                return
             popup.dismiss()
+            if parent_popup:
+                try:
+                    parent_popup.dismiss()
+                except Exception:
+                    pass
 
         import_btn = Button(text="Εισαγωγή")
         import_btn.bind(on_press=lambda x: import_file())
@@ -4449,6 +4529,40 @@ class SubstationApp(App):
             show_message_popup("Σφάλμα", f"Αποτυχία ανοίγματος PDF:\n{str(e)}")
 
     def _select_monogram_pdf(self, substation_id, parent_popup=None, filter_name=None):
+        allow_fallback = False
+        try:
+            fp = ask_open_file(title="Select monogram PDF", filetypes=(("PDF files", "*.pdf"),))
+        except ImportError:
+            allow_fallback = True
+            fp = None
+        except Exception:
+            fp = None
+
+        if fp:
+            if not os.path.exists(fp):
+                show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+                return
+            if not fp.lower().endswith(".pdf"):
+                show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο PDF!")
+                return
+            c = self.conn.cursor()
+            c.execute(
+                "UPDATE substations SET monogram_pdf=? WHERE id=?",
+                (fp, substation_id),
+            )
+            self.conn.commit()
+            if parent_popup:
+                try:
+                    parent_popup.dismiss()
+                except Exception:
+                    pass
+            self._display_substations(filter_name)
+            return
+
+        if not allow_fallback:
+            # user cancelled native dialog -> do nothing
+            return
+
         popup = Popup(title="Επιλογή Μονογραμμικού PDF", size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -4516,22 +4630,48 @@ class SubstationApp(App):
         title = "Template Στοιχείων" if success else "Σφάλμα"
         show_message_popup(title, message)
 
-    def show_import_substations_dialog(self, instance):
+    def show_import_substations_dialog(self, instance_or_parent_popup):
+        parent_popup = None if isinstance(instance_or_parent_popup, type(None)) else instance_or_parent_popup
         self._create_file_import_dialog(
-            "Εισαγωγή υποσταθμών από αρχείο", self.import_substations_from_file
+            "Εισαγωγή υποσταθμών από αρχείο", self.import_substations_from_file, parent_popup=parent_popup
         )
 
-    def show_import_elements_dialog(self, instance):
+    def show_import_elements_dialog(self, instance_or_parent_popup):
+        parent_popup = None if isinstance(instance_or_parent_popup, type(None)) else instance_or_parent_popup
         self._create_file_import_dialog(
-            "Εισαγωγή στοιχείων από αρχείο", self.import_elements_from_file
+            "Εισαγωγή στοιχείων από αρχείο", self.import_elements_from_file, parent_popup=parent_popup
         )
 
-    def show_import_android_changes_dialog(self, instance):
+    def show_import_android_changes_dialog(self, instance_or_parent_popup):
+        parent_popup = None if isinstance(instance_or_parent_popup, type(None)) else instance_or_parent_popup
         self._create_android_changes_import_dialog(
-            "Εισαγωγή αλλαγών από Android", self.import_android_changes_from_file
+            "Εισαγωγή αλλαγών από Android", self.import_android_changes_from_file, parent_popup=parent_popup
         )
 
-    def _create_android_changes_import_dialog(self, title, import_callback):
+    def _create_android_changes_import_dialog(self, title, import_callback, parent_popup=None):
+        # Prefer native dialog when available (desktop). If selected, import immediately.
+        allow_fallback = False
+        try:
+            fp = ask_open_file(title=title, filetypes=(("JSONL/JSON", "*.jsonl;*.json"),))
+        except ImportError:
+            allow_fallback = True
+            fp = None
+        except Exception:
+            fp = None
+
+        if fp:
+            # Dismiss parent menu only on success
+            if parent_popup:
+                try:
+                    parent_popup.dismiss()
+                except Exception:
+                    pass
+            import_callback(fp)
+            return
+        if not allow_fallback:
+            # user cancelled native dialog -> do not open in-app selector
+            return
+
         popup = Popup(title=title, size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -4570,8 +4710,17 @@ class SubstationApp(App):
                 show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
                 return
 
-            import_callback(file_path)
+            try:
+                import_callback(file_path)
+            except Exception as e:
+                show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής:\n{str(e)}")
+                return
             popup.dismiss()
+            if parent_popup:
+                try:
+                    parent_popup.dismiss()
+                except Exception:
+                    pass
 
         import_btn = Button(text="Εισαγωγή")
         import_btn.bind(on_press=lambda x: import_file())
@@ -7881,6 +8030,9 @@ class SubstationApp(App):
 
                         # Initialize measurements structure and container placeholders
                         measurements = {}
+
+                        # Common ops counter input (reused across breaker/transformer UIs)
+                        ops_count_input = TextInput(text="", size_hint_x=0.12, multiline=False)
 
                         # Prepare containers for special measurements
                         sf6_widgets = {}

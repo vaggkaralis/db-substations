@@ -36,3 +36,27 @@ def show_message_popup(title: str, message: str, callback=None) -> None:
 
     popup.content = layout
     popup.open()
+
+
+def ask_open_file(title: str = "Select file", filetypes=None):
+    """Show a native open-file dialog and return the selected path or None.
+
+    Uses tkinter when available; returns None if unavailable or cancelled.
+    """
+    try:
+        import tkinter as _tk
+        from tkinter import filedialog as _fd
+    except Exception:
+        raise ImportError("tkinter not available")
+
+    _root = _tk.Tk()
+    _root.withdraw()
+    try:
+        ft = list(filetypes) if filetypes else [("All files", "*.*")]
+        fp = _fd.askopenfilename(title=title, filetypes=ft)
+    finally:
+        try:
+            _root.destroy()
+        except Exception:
+            pass
+    return fp or None
