@@ -8986,63 +8986,67 @@ class SubstationApp(App):
 
                     measurements = widgets["measurements"] or {}
                     if measurements:
-                        if data.get("ins_closed_fa") is not None:
-                            measurements["ins_closed_fa"].text = str(
-                                data.get("ins_closed_fa")
-                            )
-                        measurements["ins_closed_fa_unit"].text = data.get(
-                            "ins_closed_fa_unit", "GΩ"
-                        )
-                        if data.get("ins_closed_fb") is not None:
-                            measurements["ins_closed_fb"].text = str(
-                                data.get("ins_closed_fb")
-                            )
-                        measurements["ins_closed_fb_unit"].text = data.get(
-                            "ins_closed_fb_unit", "GΩ"
-                        )
-                        if data.get("ins_closed_fc") is not None:
-                            measurements["ins_closed_fc"].text = str(
-                                data.get("ins_closed_fc")
-                            )
-                        measurements["ins_closed_fc_unit"].text = data.get(
-                            "ins_closed_fc_unit", "GΩ"
-                        )
+                        # Safely set measurement widget texts only when the widget exists
+                        w = measurements.get("ins_closed_fa")
+                        if data.get("ins_closed_fa") is not None and w:
+                            w.text = str(data.get("ins_closed_fa"))
+                        w = measurements.get("ins_closed_fa_unit")
+                        if w:
+                            w.text = data.get("ins_closed_fa_unit", "GΩ")
 
-                        if data.get("ins_open_fa") is not None:
-                            measurements["ins_open_fa"].text = str(
-                                data.get("ins_open_fa")
-                            )
-                        measurements["ins_open_fa_unit"].text = data.get(
-                            "ins_open_fa_unit", "GΩ"
-                        )
-                        if data.get("ins_open_fb") is not None:
-                            measurements["ins_open_fb"].text = str(
-                                data.get("ins_open_fb")
-                            )
-                        measurements["ins_open_fb_unit"].text = data.get(
-                            "ins_open_fb_unit", "GΩ"
-                        )
-                        if data.get("ins_open_fc") is not None:
-                            measurements["ins_open_fc"].text = str(
-                                data.get("ins_open_fc")
-                            )
-                        measurements["ins_open_fc_unit"].text = data.get(
-                            "ins_open_fc_unit", "GΩ"
-                        )
+                        w = measurements.get("ins_closed_fb")
+                        if data.get("ins_closed_fb") is not None and w:
+                            w.text = str(data.get("ins_closed_fb"))
+                        w = measurements.get("ins_closed_fb_unit")
+                        if w:
+                            w.text = data.get("ins_closed_fb_unit", "GΩ")
 
-                        if data.get("cont_fa") is not None:
-                            measurements["cont_fa"].text = str(data.get("cont_fa"))
-                        if data.get("cont_fb") is not None:
-                            measurements["cont_fb"].text = str(data.get("cont_fb"))
-                        if data.get("cont_fc") is not None:
-                            measurements["cont_fc"].text = str(data.get("cont_fc"))
+                        w = measurements.get("ins_closed_fc")
+                        if data.get("ins_closed_fc") is not None and w:
+                            w.text = str(data.get("ins_closed_fc"))
+                        w = measurements.get("ins_closed_fc_unit")
+                        if w:
+                            w.text = data.get("ins_closed_fc_unit", "GΩ")
 
-                        if data.get("ops_count") is not None:
-                            measurements["ops_count"].text = str(data.get("ops_count"))
+                        w = measurements.get("ins_open_fa")
+                        if data.get("ins_open_fa") is not None and w:
+                            w.text = str(data.get("ins_open_fa"))
+                        w = measurements.get("ins_open_fa_unit")
+                        if w:
+                            w.text = data.get("ins_open_fa_unit", "GΩ")
 
-                        if measurements.get("sf6"):
-                            for key, widget in measurements["sf6"].items():
-                                if data["sf6"].get(key) is not None:
+                        w = measurements.get("ins_open_fb")
+                        if data.get("ins_open_fb") is not None and w:
+                            w.text = str(data.get("ins_open_fb"))
+                        w = measurements.get("ins_open_fb_unit")
+                        if w:
+                            w.text = data.get("ins_open_fb_unit", "GΩ")
+
+                        w = measurements.get("ins_open_fc")
+                        if data.get("ins_open_fc") is not None and w:
+                            w.text = str(data.get("ins_open_fc"))
+                        w = measurements.get("ins_open_fc_unit")
+                        if w:
+                            w.text = data.get("ins_open_fc_unit", "GΩ")
+
+                        w = measurements.get("cont_fa")
+                        if data.get("cont_fa") is not None and w:
+                            w.text = str(data.get("cont_fa"))
+                        w = measurements.get("cont_fb")
+                        if data.get("cont_fb") is not None and w:
+                            w.text = str(data.get("cont_fb"))
+                        w = measurements.get("cont_fc")
+                        if data.get("cont_fc") is not None and w:
+                            w.text = str(data.get("cont_fc"))
+
+                        w = measurements.get("ops_count")
+                        if data.get("ops_count") is not None and w:
+                            w.text = str(data.get("ops_count"))
+
+                        sf6_widgets = measurements.get("sf6")
+                        if sf6_widgets:
+                            for key, widget in sf6_widgets.items():
+                                if data.get("sf6") and data["sf6"].get(key) is not None:
                                     widget.text = str(data["sf6"].get(key))
 
                         if (
@@ -9060,9 +9064,10 @@ class SubstationApp(App):
                                 data.get("sf6_leak_methodology")
                             )
 
-                        if measurements.get("vidar"):
-                            for key, widget in measurements["vidar"].items():
-                                if data["vidar"].get(key) is not None:
+                        vidar_widgets = measurements.get("vidar")
+                        if vidar_widgets:
+                            for key, widget in vidar_widgets.items():
+                                if data.get("vidar") and data["vidar"].get(key) is not None:
                                     widget.text = str(data["vidar"].get(key))
 
         # Load initial elements
@@ -9215,21 +9220,23 @@ class SubstationApp(App):
                         except Exception:
                             return None
 
-                    # Parse operations count
+                    # Parse operations count (guard widget presence)
                     ops_count = None
                     try:
-                        ops_count = (
-                            int(measurements["ops_count"].text)
-                            if measurements["ops_count"].text.strip()
-                            else None
-                        )
+                        ops_w = measurements.get("ops_count")
+                        if ops_w and getattr(ops_w, "text", None) and ops_w.text.strip():
+                            try:
+                                ops_count = int(ops_w.text)
+                            except Exception:
+                                ops_count = None
                     except Exception:
-                        pass
+                        ops_count = None
 
                     # Parse SF6 measurements if present
                     sf6_vals = {}
-                    if measurements["sf6"]:
-                        for key, widget in measurements["sf6"].items():
+                    sf6_widgets = measurements.get("sf6")
+                    if sf6_widgets:
+                        for key, widget in sf6_widgets.items():
                             sf6_vals[key] = parse_float(widget.text)
 
                     sf6_leakage_val = None
@@ -9251,8 +9258,9 @@ class SubstationApp(App):
 
                     # Parse VIDAR (vacuum) measurements when present
                     vidar_vals = {}
-                    if measurements.get("vidar"):
-                        for key, widget in measurements["vidar"].items():
+                    vidar_widgets = measurements.get("vidar")
+                    if vidar_widgets:
+                        for key, widget in vidar_widgets.items():
                             try:
                                 vidar_vals[key] = float(widget.text) if widget.text.strip() else None
                             except Exception:
@@ -9305,6 +9313,36 @@ class SubstationApp(App):
 
                     data_json = json.dumps(extra, ensure_ascii=False) if extra else None
 
+                    # Safely extract measurement values to avoid KeyError when widgets are absent
+                    def _m_text(k):
+                        w = measurements.get(k)
+                        return w.text if w and getattr(w, "text", None) is not None else None
+
+                    def _m_float(k):
+                        w = measurements.get(k)
+                        if not w or not getattr(w, "text", None):
+                            return None
+                        try:
+                            return parse_float(w.text)
+                        except Exception:
+                            return None
+
+                    ins_closed_fa_val = _m_float("ins_closed_fa")
+                    ins_closed_fa_unit = _m_text("ins_closed_fa_unit")
+                    ins_closed_fb_val = _m_float("ins_closed_fb")
+                    ins_closed_fb_unit = _m_text("ins_closed_fb_unit")
+                    ins_closed_fc_val = _m_float("ins_closed_fc")
+                    ins_closed_fc_unit = _m_text("ins_closed_fc_unit")
+                    ins_open_fa_val = _m_float("ins_open_fa")
+                    ins_open_fa_unit = _m_text("ins_open_fa_unit")
+                    ins_open_fb_val = _m_float("ins_open_fb")
+                    ins_open_fb_unit = _m_text("ins_open_fb_unit")
+                    ins_open_fc_val = _m_float("ins_open_fc")
+                    ins_open_fc_unit = _m_text("ins_open_fc_unit")
+                    cont_fa_val = _m_float("cont_fa")
+                    cont_fb_val = _m_float("cont_fb")
+                    cont_fc_val = _m_float("cont_fc")
+
                     c.execute(
                         """INSERT INTO maintenance_elements 
                         (maintenance_id, element_id, element_comments,
@@ -9324,21 +9362,21 @@ class SubstationApp(App):
                             maintenance_id,
                             elem_id,
                             widgets["comments"].text.strip(),
-                            parse_float(measurements["ins_closed_fa"].text),
-                            measurements["ins_closed_fa_unit"].text,
-                            parse_float(measurements["ins_closed_fb"].text),
-                            measurements["ins_closed_fb_unit"].text,
-                            parse_float(measurements["ins_closed_fc"].text),
-                            measurements["ins_closed_fc_unit"].text,
-                            parse_float(measurements["ins_open_fa"].text),
-                            measurements["ins_open_fa_unit"].text,
-                            parse_float(measurements["ins_open_fb"].text),
-                            measurements["ins_open_fb_unit"].text,
-                            parse_float(measurements["ins_open_fc"].text),
-                            measurements["ins_open_fc_unit"].text,
-                            parse_float(measurements["cont_fa"].text),
-                            parse_float(measurements["cont_fb"].text),
-                            parse_float(measurements["cont_fc"].text),
+                            ins_closed_fa_val,
+                            ins_closed_fa_unit,
+                            ins_closed_fb_val,
+                            ins_closed_fb_unit,
+                            ins_closed_fc_val,
+                            ins_closed_fc_unit,
+                            ins_open_fa_val,
+                            ins_open_fa_unit,
+                            ins_open_fb_val,
+                            ins_open_fb_unit,
+                            ins_open_fc_val,
+                            ins_open_fc_unit,
+                            cont_fa_val,
+                            cont_fb_val,
+                            cont_fc_val,
                             ops_count,
                             sf6_leakage_val,
                             sf6_leak_methodology_val,
