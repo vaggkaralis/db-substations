@@ -20,8 +20,8 @@ def test_android_change_import():
         )
         sub_id = cur.lastrowid
         cur.execute(
-            "INSERT INTO elements (substation_id, element_type, name) VALUES (?, ?, ?)",
-            (sub_id, "Διακόπτης ΜΤ", "Elem1"),
+            "INSERT INTO elements (substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?)",
+            (sub_id, "Διακόπτης ΜΤ", "Elem1", "SF6"),
         )
         elem_id = cur.lastrowid
         conn.commit()

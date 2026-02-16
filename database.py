@@ -151,6 +151,77 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     # Add breaker_category column to elements table
     cursor.execute("PRAGMA table_info(elements)")
     elem_columns = [column[1] for column in cursor.fetchall()]
+
+    # Ensure database-level constraint: for circuit breakers (Διακόπτης ΥΤ/Διακόπτης ΜΤ)
+    # breaker_category must be non-empty. We implement this by creating a new
+    # `elements` table with a CHECK constraint and migrating existing data if the
+    # current table does not already have the constraint.
+    try:
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='elements'")
+        tbl_sql_row = cursor.fetchone()
+        tbl_sql = tbl_sql_row[0] if tbl_sql_row and tbl_sql_row[0] else ""
+    except Exception:
+        tbl_sql = ""
+
+    # Detect whether a suitable CHECK already exists (simple substring check).
+    need_migration = True
+    if tbl_sql and "TRIM(breaker_category)" in tbl_sql and "CHECK" in tbl_sql:
+        need_migration = False
+
+    if need_migration:
+        try:
+            cursor.execute("PRAGMA table_info(elements)")
+            existing_cols = [r[1] for r in cursor.fetchall()]
+
+            # Create new table with the desired schema and CHECK constraint
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS elements_new (
+                    id INTEGER PRIMARY KEY,
+                    substation_id INTEGER,
+                    element_type TEXT,
+                    name TEXT,
+                    serial_number TEXT,
+                    maintenance_date TEXT,
+                    voltage_level TEXT,
+                    manufacturer TEXT,
+                    model TEXT DEFAULT "",
+                    gate TEXT DEFAULT "",
+                    breaker_category TEXT DEFAULT "",
+                    installation_space TEXT DEFAULT "",
+                    operating_status TEXT DEFAULT 'Ενεργή',
+                    maintenance_cycle INTEGER DEFAULT 0,
+                    element_model_id INTEGER,
+                    manufacture_year TEXT DEFAULT "",
+                    model_version TEXT DEFAULT "",
+                    power_mva REAL,
+                    is_main_switch INTEGER DEFAULT 0,
+                    operations_count INTEGER DEFAULT 0,
+                    FOREIGN KEY(substation_id) REFERENCES substations(id),
+                    CHECK((element_type NOT IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')) OR (breaker_category IS NOT NULL AND TRIM(breaker_category) != ''))
+                )
+            ''')
+
+            # Copy columns that exist in the old table into the new table
+            cols_to_copy = [c for c in [
+                'id','substation_id','element_type','name','serial_number','maintenance_date',
+                'voltage_level','manufacturer','model','gate','breaker_category','installation_space',
+                'operating_status','maintenance_cycle','element_model_id','manufacture_year',
+                'model_version','power_mva','is_main_switch','operations_count'
+            ] if c in existing_cols]
+
+            if cols_to_copy:
+                cols_list = ",".join(cols_to_copy)
+                cursor.execute(f"INSERT INTO elements_new ({cols_list}) SELECT {cols_list} FROM elements")
+
+            cursor.execute("DROP TABLE elements")
+            cursor.execute("ALTER TABLE elements_new RENAME TO elements")
+            conn.commit()
+        except Exception:
+            # If migration fails, ensure we don't crash init_db; leave existing table as-is
+            try:
+                conn.rollback()
+            except Exception:
+                pass
     if "breaker_category" not in elem_columns:
         try:
             cursor.execute(
