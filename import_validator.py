@@ -40,7 +40,6 @@ COLUMN_MAPPINGS = {
         "Model Manufacturer",
         "Model Mfg",
         "Κατασκευαστής Μοντέλου",
-        "Manufacturer",
     ],
     "Model Installation Space": [
         "Model Installation Space",

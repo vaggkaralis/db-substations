@@ -69,13 +69,13 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
         ws.cell(row=1, column=1).font = Font(italic=True, color="999999")
         ws.row_dimensions[1].height = 15
 
+        # The template requires model information; the element `manufacturer` is derived from the model.
         headers = [
             "Substation Name",
             "Element Type",
             "Name",
             "Serial Number",
             "Maintenance Date",
-            "Manufacturer",
             "Τύπος Διακόπτη",
             "Breaker Role",
             "Operating Status",
@@ -114,7 +114,6 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
                 "Main Breaker",
                 "SN-001",
                 "2025-01-20",
-                "ABB",
                 "SF6",
                 "Κεντρικός",
                 "Ενεργή",
@@ -130,7 +129,6 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
                 "Transformer 1",
                 "SN-002",
                 "2025-01-18",
-                "Siemens",
                 "",
                 "",
                 "Ενεργή",

@@ -277,7 +277,9 @@ def import_elements_from_excel(
             else:
                 voltage_level = ""
 
-            manufacturer = row.get("Manufacturer", "")
+            # The element's `manufacturer` should be derived from the element model when possible.
+            # Keep the import template focused on `Model Name` and `Model Manufacturer`.
+            manufacturer = None
             breaker_type = (
                 str(row.get("Τύπος Διακόπτη", "")).strip()
                 if pd.notna(row.get("Τύπος Διακόπτη", ""))
@@ -349,6 +351,20 @@ def import_elements_from_excel(
                         if model_result:
                             element_model_id = model_result[0]
 
+                    # Look up manufacturer from model if we have an element_model_id
+                    manufacturer_value = None
+                    if element_model_id:
+                        cursor.execute(
+                            "SELECT manufacturer FROM element_models WHERE id=?",
+                            (element_model_id,)
+                        )
+                        mrow = cursor.fetchone()
+                        if mrow and mrow[0] is not None:
+                            manufacturer_value = str(mrow[0]).strip()
+                    # If no model manufacturer found, fall back to the provided Model Manufacturer column
+                    if not manufacturer_value and model_manufacturer:
+                        manufacturer_value = model_manufacturer
+
                     # Check for duplicate
                     cursor.execute(
                         "SELECT id FROM elements WHERE substation_id=? AND name=? AND serial_number=?",
@@ -390,7 +406,7 @@ def import_elements_from_excel(
                                     else ""
                                 ),
                                 str(voltage_level) if pd.notna(voltage_level) else "",
-                                str(manufacturer) if pd.notna(manufacturer) else "",
+                                manufacturer_value if manufacturer_value is not None else "",
                                 str(gate) if gate else "",
                                 is_main_switch,
                                 breaker_type if breaker_type else None,
@@ -416,7 +432,7 @@ def import_elements_from_excel(
                                     else ""
                                 ),
                                 str(voltage_level) if pd.notna(voltage_level) else "",
-                                str(manufacturer) if pd.notna(manufacturer) else "",
+                                manufacturer_value if manufacturer_value is not None else "",
                                 str(gate) if gate else "",
                                 is_main_switch,
                                 breaker_type if breaker_type else None,
