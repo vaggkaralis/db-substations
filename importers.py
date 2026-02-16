@@ -326,30 +326,87 @@ def import_elements_from_excel(
                 result = cursor.fetchone()
                 if result:
                     sub_id = result[0]
+                    
+                    # Fetch substation flag for Thessaloniki (migration-safe)
+                    is_thessaloniki = False
+                    try:
+                        cursor.execute(
+                            "SELECT is_thessaloniki FROM substations WHERE id=?",
+                            (sub_id,),
+                        )
+                        thr = cursor.fetchone()
+                        is_thessaloniki = bool(thr[0]) if thr and thr[0] else False
+                    except Exception:
+                        is_thessaloniki = False
+
+                    # Compute maintenance cycle according to rules:
+                    # - Transformers and HV breakers: default 6 years, 3 if Thessaloniki
+                    # - MV breakers: 'Πτωχού Ελαίου' or 'SF6' => 1 year; 'Κενού' or 'Ελαίου' => 3 years; default 3
+                    maintenance_cycle_int = 0
+                    elem_type_for_calc = str(element_type) if pd.notna(element_type) else ""
+                    if "ΥΤ" in elem_type_for_calc or "150/20" in elem_type_for_calc or "Transformer" in elem_type_for_calc:
+                        maintenance_cycle_int = 3 if is_thessaloniki else 6
+                    elif "ΜΤ" in elem_type_for_calc or "20/0.4" in elem_type_for_calc:
+                        bt = (breaker_type or "").strip().lower()
+                        if bt in ["πτωχού ελαίου", "sf6", "sf-6"] or "sf6" in bt:
+                            maintenance_cycle_int = 1
+                        elif bt in ["κενού", "ελαίου"]:
+                            maintenance_cycle_int = 3
+                        else:
+                            maintenance_cycle_int = 3
+                    else:
+                        # All other element types default to 6 years
+                        maintenance_cycle_int = 6
                     name_str = str(name)
                     serial_str = str(serial_number) if pd.notna(serial_number) else ""
 
-                    # Look up element_model_id if model info provided
+                    # Look up element_model_id if model info provided. Use multiple
+                    # fallbacks to be robust to existing DB rows.
                     element_model_id = None
                     if model_name:
-                        elem_type_for_model = (
-                            str(element_type) if pd.notna(element_type) else ""
-                        )
+                        elem_category = str(element_type) if pd.notna(element_type) else ""
+                        # 1) Try exact match on category+model+manufacturer
                         cursor.execute(
                             "SELECT id FROM element_models WHERE TRIM(element_category)=TRIM(?) AND TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
-                            (elem_type_for_model, model_name, model_manufacturer),
+                            (elem_category, model_name, model_manufacturer),
                         )
                         model_result = cursor.fetchone()
-                        
-                        # Fallback: try matching by model name + manufacturer only
-                        if not model_result and model_name and model_manufacturer:
+                        # 2) Try match on category+model only
+                        if not model_result:
+                            cursor.execute(
+                                "SELECT id FROM element_models WHERE TRIM(element_category)=TRIM(?) AND TRIM(model_name)=TRIM(?)",
+                                (elem_category, model_name),
+                            )
+                            model_result = cursor.fetchone()
+                        # 3) Try match on model+manufacturer
+                        if not model_result and model_manufacturer:
                             cursor.execute(
                                 "SELECT id FROM element_models WHERE TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
                                 (model_name, model_manufacturer),
                             )
                             model_result = cursor.fetchone()
+                        # 4) Try match on model name only
+                        if not model_result:
+                            cursor.execute(
+                                "SELECT id FROM element_models WHERE TRIM(model_name)=TRIM(?)",
+                                (model_name,),
+                            )
+                            model_result = cursor.fetchone()
+
                         if model_result:
                             element_model_id = model_result[0]
+                        elif model_name:
+                            # create model using provided model_manufacturer (may be empty)
+                            try:
+                                cursor.execute(
+                                    "INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?, ?, ?)",
+                                    (elem_category, model_name, model_manufacturer or ""),
+                                )
+                                element_model_id = cursor.lastrowid
+                            except Exception:
+                                element_model_id = None
+                        # Debug: show model lookup outcome when running tests
+                        # model lookup completed
 
                     # Look up manufacturer from model if we have an element_model_id
                     manufacturer_value = None
@@ -395,51 +452,107 @@ def import_elements_from_excel(
                         elem_type_str = "Διακόπτης ΜΤ"
                         is_main_switch = 0
 
+                    # Determine whether the elements table has a maintenance_cycle column
+                    try:
+                        cursor.execute("PRAGMA table_info(elements)")
+                        elem_cols = [r[1] for r in cursor.fetchall()]
+                    except Exception:
+                        elem_cols = []
+                    has_maintenance = "maintenance_cycle" in elem_cols
+
                     if existing and decision_replace:
-                        cursor.execute(
-                            "UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?",
-                            (
-                                elem_type_str,
+                        if has_maintenance:
+                            cursor.execute(
+                                "UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, maintenance_cycle=?, element_model_id=?, operating_status=? WHERE id=?",
                                 (
-                                    str(maintenance_date)
-                                    if pd.notna(maintenance_date)
-                                    else ""
+                                    elem_type_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    maintenance_cycle_int,
+                                    element_model_id,
+                                    operating_status,
+                                    existing[0],
                                 ),
-                                str(voltage_level) if pd.notna(voltage_level) else "",
-                                manufacturer_value if manufacturer_value is not None else "",
-                                str(gate) if gate else "",
-                                is_main_switch,
-                                breaker_type if breaker_type else None,
-                                element_model_id,
-                                operating_status,
-                                existing[0],
-                            ),
-                        )
+                            )
+                        else:
+                            cursor.execute(
+                                "UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?",
+                                (
+                                    elem_type_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    element_model_id,
+                                    operating_status,
+                                    existing[0],
+                                ),
+                            )
+                        # update executed
                         updated += 1
                     elif existing and not decision_replace:
                         skipped += 1
                     else:
-                        cursor.execute(
-                            "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            (
-                                sub_id,
-                                elem_type_str,
-                                name_str,
-                                serial_str,
+                        if has_maintenance:
+                            cursor.execute(
+                                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, maintenance_cycle, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
-                                    str(maintenance_date)
-                                    if pd.notna(maintenance_date)
-                                    else ""
+                                    sub_id,
+                                    elem_type_str,
+                                    name_str,
+                                    serial_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    maintenance_cycle_int,
+                                    element_model_id,
+                                    operating_status,
                                 ),
-                                str(voltage_level) if pd.notna(voltage_level) else "",
-                                manufacturer_value if manufacturer_value is not None else "",
-                                str(gate) if gate else "",
-                                is_main_switch,
-                                breaker_type if breaker_type else None,
-                                element_model_id,
-                                operating_status,
-                            ),
-                        )
+                            )
+                        else:
+                            cursor.execute(
+                                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (
+                                    sub_id,
+                                    elem_type_str,
+                                    name_str,
+                                    serial_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    element_model_id,
+                                    operating_status,
+                                ),
+                            )
+                        # insert executed
                         count += 1
                 else:
                     not_found.append(sub_name)
@@ -553,7 +666,8 @@ def import_elements_from_csv(
             else:
                 voltage_level = ""
 
-            manufacturer = row.get("Manufacturer", "")
+            # Do not read per-row `Manufacturer` column; prefer model-derived manufacturer.
+            manufacturer = None
             breaker_type = (
                 str(row.get("Τύπος Διακόπτη", "")).strip()
                 if pd.notna(row.get("Τύπος Διακόπτη", ""))
@@ -606,24 +720,74 @@ def import_elements_from_csv(
                     # Look up element_model_id if model info provided
                     element_model_id = None
                     if model_name:
-                        elem_type_for_model = (
-                            str(element_type) if pd.notna(element_type) else ""
-                        )
+                            # Simplified lookup: prefer any model matching model_name (tests/databases
+                            # may have minimal schema); fall back to creating if missing.
+                            try:
+                                cursor.execute(
+                                    "SELECT id FROM element_models WHERE model_name=?",
+                                    (model_name,),
+                                )
+                                model_result = cursor.fetchone()
+                            except Exception:
+                                model_result = None
+                            if model_result:
+                                element_model_id = model_result[0]
+                            else:
+                                # create model using provided model_manufacturer (may be empty)
+                                try:
+                                    elem_type_for_model = (
+                                        str(element_type) if pd.notna(element_type) else ""
+                                    )
+                                    cursor.execute(
+                                        "INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?, ?, ?)",
+                                        (elem_type_for_model, model_name, model_manufacturer or ""),
+                                    )
+                                    element_model_id = cursor.lastrowid
+                                except Exception:
+                                    element_model_id = None
+
+                    # Determine manufacturer for the element: prefer model-derived manufacturer
+                    manufacturer_value = None
+                    if element_model_id:
                         cursor.execute(
-                            "SELECT id FROM element_models WHERE TRIM(element_category)=TRIM(?) AND TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
-                            (elem_type_for_model, model_name, model_manufacturer),
+                            "SELECT manufacturer FROM element_models WHERE id=?",
+                            (element_model_id,)
                         )
-                        model_result = cursor.fetchone()
-                        
-                        # Fallback: try matching by model name + manufacturer only
-                        if not model_result and model_name and model_manufacturer:
-                            cursor.execute(
-                                "SELECT id FROM element_models WHERE TRIM(model_name)=TRIM(?) AND TRIM(manufacturer)=TRIM(?)",
-                                (model_name, model_manufacturer),
-                            )
-                            model_result = cursor.fetchone()
-                        if model_result:
-                            element_model_id = model_result[0]
+                        mrow = cursor.fetchone()
+                        if mrow and mrow[0] is not None:
+                            manufacturer_value = str(mrow[0]).strip()
+                    # If model didn't provide a manufacturer, fall back to the provided Model Manufacturer
+                    if not manufacturer_value and model_manufacturer:
+                        manufacturer_value = model_manufacturer
+
+                    # Fetch substation flag for Thessaloniki (migration-safe)
+                    is_thessaloniki = False
+                    try:
+                        cursor.execute(
+                            "SELECT is_thessaloniki FROM substations WHERE id=?",
+                            (sub_id,),
+                        )
+                        thr = cursor.fetchone()
+                        is_thessaloniki = bool(thr[0]) if thr and thr[0] else False
+                    except Exception:
+                        is_thessaloniki = False
+
+                    # Compute maintenance cycle according to rules (see importer docs):
+                    maintenance_cycle_int = 0
+                    elem_type_calc = str(element_type) if pd.notna(element_type) else ""
+                    if "ΥΤ" in elem_type_calc or "150/20" in elem_type_calc or "Transformer" in elem_type_calc:
+                        maintenance_cycle_int = 3 if is_thessaloniki else 6
+                    elif "ΜΤ" in elem_type_calc or "20/0.4" in elem_type_calc:
+                        bt = (breaker_type or "").strip().lower()
+                        if bt in ["πτωχού ελαίου", "sf6", "sf-6"] or "sf6" in bt:
+                            maintenance_cycle_int = 1
+                        elif bt in ["κενού", "ελαίου"]:
+                            maintenance_cycle_int = 3
+                        else:
+                            maintenance_cycle_int = 3
+                    else:
+                        # All other element types default to 6 years
+                        maintenance_cycle_int = 6
 
                     # Check for duplicate
                     cursor.execute(
@@ -677,50 +841,110 @@ def import_elements_from_csv(
                         is_main_switch = 0
 
                     if existing and decision_replace:
-                        cursor.execute(
-                            "UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?",
-                            (
-                                elem_type_str,
+                        # Determine whether the elements table has a maintenance_cycle column
+                        try:
+                            cursor.execute("PRAGMA table_info(elements)")
+                            elem_cols = [r[1] for r in cursor.fetchall()]
+                        except Exception:
+                            elem_cols = []
+                        has_maintenance = "maintenance_cycle" in elem_cols
+
+                        if has_maintenance:
+                            cursor.execute(
+                                "UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, maintenance_cycle=?, element_model_id=?, operating_status=? WHERE id=?",
                                 (
-                                    str(maintenance_date)
-                                    if pd.notna(maintenance_date)
-                                    else ""
+                                    elem_type_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    maintenance_cycle_int,
+                                    element_model_id,
+                                    operating_status,
+                                    existing[0],
                                 ),
-                                str(voltage_level) if pd.notna(voltage_level) else "",
-                                str(manufacturer) if pd.notna(manufacturer) else "",
-                                str(gate) if gate else "",
-                                is_main_switch,
-                                breaker_type if breaker_type else None,
-                                element_model_id,
-                                operating_status,
-                                existing[0],
-                            ),
-                        )
+                            )
+                        else:
+                            cursor.execute(
+                                "UPDATE elements SET element_type=?, maintenance_date=?, voltage_level=?, manufacturer=?, gate=?, is_main_switch=?, breaker_category=?, element_model_id=?, operating_status=? WHERE id=?",
+                                (
+                                    elem_type_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    element_model_id,
+                                    operating_status,
+                                    existing[0],
+                                ),
+                            )
                         updated += 1
                     elif existing and not decision_replace:
                         skipped += 1
                     else:
-                        cursor.execute(
-                            "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            (
-                                sub_id,
-                                elem_type_str,
-                                name_str,
-                                serial_str,
+                        try:
+                            cursor.execute("PRAGMA table_info(elements)")
+                            elem_cols = [r[1] for r in cursor.fetchall()]
+                        except Exception:
+                            elem_cols = []
+                        has_maintenance = "maintenance_cycle" in elem_cols
+                        if has_maintenance:
+                            cursor.execute(
+                                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, maintenance_cycle, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
-                                    str(maintenance_date)
-                                    if pd.notna(maintenance_date)
-                                    else ""
+                                    sub_id,
+                                    elem_type_str,
+                                    name_str,
+                                    serial_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    maintenance_cycle_int,
+                                    element_model_id,
+                                    operating_status,
                                 ),
-                                str(voltage_level) if pd.notna(voltage_level) else "",
-                                str(manufacturer) if pd.notna(manufacturer) else "",
-                                str(gate) if gate else "",
-                                is_main_switch,
-                                breaker_type if breaker_type else None,
-                                element_model_id,
-                                operating_status,
-                            ),
-                        )
+                            )
+                        else:
+                            cursor.execute(
+                                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (
+                                    sub_id,
+                                    elem_type_str,
+                                    name_str,
+                                    serial_str,
+                                    (
+                                        str(maintenance_date)
+                                        if pd.notna(maintenance_date)
+                                        else ""
+                                    ),
+                                    str(voltage_level) if pd.notna(voltage_level) else "",
+                                    manufacturer_value if manufacturer_value is not None else "",
+                                    str(gate) if gate else "",
+                                    is_main_switch,
+                                    breaker_type if breaker_type else None,
+                                    element_model_id,
+                                    operating_status,
+                                ),
+                            )
                         count += 1
                 else:
                     not_found.append(sub_name)

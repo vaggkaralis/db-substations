@@ -133,6 +133,13 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             )
         except Exception:
             pass
+    if "is_thessaloniki" not in sub_columns:
+        try:
+            cursor.execute(
+                'ALTER TABLE substations ADD COLUMN is_thessaloniki INTEGER DEFAULT 0'
+            )
+        except Exception:
+            pass
     if "last_maintenance" not in sub_columns:
         try:
             cursor.execute(

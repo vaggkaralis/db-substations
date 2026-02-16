@@ -4441,6 +4441,13 @@ class SubstationApp(App):
                     parent_popup.dismiss()
                 except Exception:
                     pass
+            # sanitize path: strip surrounding whitespace and quotes that may be
+            # returned by some native dialogs or pasted by the user
+            try:
+                if isinstance(fp, str):
+                    fp = fp.strip().strip('\"\'')
+            except Exception:
+                pass
             import_callback(fp)
             return
         if not allow_fallback:
@@ -4475,6 +4482,13 @@ class SubstationApp(App):
                 if path_input.text.strip()
                 else (chooser.selection[0] if chooser.selection else None)
             )
+
+            # sanitize user-provided path from input or chooser selection
+            try:
+                if isinstance(file_path, str):
+                    file_path = file_path.strip().strip('"\'')
+            except Exception:
+                pass
 
             if not file_path:
                 show_message_popup(
