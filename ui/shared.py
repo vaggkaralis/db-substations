@@ -552,3 +552,4 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                     pass
                 self._tooltip_widget = None
 
+
