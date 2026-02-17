@@ -642,13 +642,7 @@ def import_elements_from_excel(
                                         normalized_breaker_category if normalized_breaker_category else None
                                     )
 
-                                # Debug logging to help diagnose why model INSERT may not run
-                                try:
-                                    print(
-                                        f"[IMPORT-DEBUG] row={row_num} model_name={model_name!r} model_manufacturer={model_manufacturer!r} normalized_breaker_category={normalized_breaker_category!r} em_cols={em_cols} insert_cols={insert_cols} insert_vals={insert_vals}"
-                                    )
-                                except Exception:
-                                    pass
+                                # (debug prints removed)
 
                                 placeholders = ",".join(["?"] * len(insert_cols))
                                 sql = f"INSERT INTO element_models ({','.join(insert_cols)}) VALUES ({placeholders})"
@@ -1053,13 +1047,7 @@ def import_elements_from_csv(
                                         insert_cols.append("breaker_category")
                                         insert_vals.append(breaker_type if breaker_type else None)
 
-                                    # Debug logging to help diagnose why model INSERT may not run (CSV path)
-                                    try:
-                                        print(
-                                            f"[IMPORT-DEBUG-CSV] row={row_num} model_name={model_name!r} model_manufacturer={model_manufacturer!r} breaker_type={breaker_type!r} em_cols={em_cols} insert_cols={insert_cols} insert_vals={insert_vals}"
-                                        )
-                                    except Exception:
-                                        pass
+                                    # (debug prints removed)
 
                                     placeholders = ",".join(["?"] * len(insert_cols))
                                     sql = f"INSERT INTO element_models ({','.join(insert_cols)}) VALUES ({placeholders})"
