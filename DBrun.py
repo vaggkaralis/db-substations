@@ -5222,10 +5222,30 @@ class SubstationApp(App):
                         computed_cycle = None
 
                     if key not in models_to_check:
+                        # Normalize breaker category for model grouping (if present)
+                        try:
+                            breaker_type_raw = (
+                                str(row.get("Τύπος Διακόπτη", "")).strip()
+                                if pd.notna(row.get("Τύπος Διακόπτη", ""))
+                                else ""
+                            )
+                        except Exception:
+                            breaker_type_raw = ""
+                        normalized_bc = None
+                        try:
+                            from import_validator import validate_breaker_category
+
+                            if breaker_type_raw:
+                                match = validate_breaker_category(breaker_type_raw)
+                                normalized_bc = match[0] if match and match[0] else None
+                        except Exception:
+                            normalized_bc = breaker_type_raw or None
+
                         models_to_check[key] = {
                             "cycle": model_cycle,
                             "space": model_space,
                             "computed": computed_cycle,
+                            "breaker_category": normalized_bc,
                         }
 
             # Check which models exist and which need to be added/updated
@@ -5396,32 +5416,65 @@ class SubstationApp(App):
         """Apply model changes and continue with element import"""
         cursor = self.conn.cursor()
 
+        # Detect available columns in element_models so we can include breaker_category when present
+        try:
+            cursor.execute("PRAGMA table_info(element_models)")
+            em_cols = [r[1] for r in cursor.fetchall()]
+        except Exception:
+            em_cols = []
+
         # Add new models
         for model in new_models:
-            cursor.execute(
-                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space) VALUES (?, ?, ?, ?, ?)",
-                (
-                    model["category"],
-                    model["name"],
-                    model["manufacturer"],
-                    model["data"]["cycle"],
-                    model["data"]["space"],
-                ),
-            )
+            if "breaker_category" in em_cols:
+                cursor.execute(
+                    "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        model["category"],
+                        model["name"],
+                        model["manufacturer"],
+                        model["data"]["cycle"],
+                        model["data"]["space"],
+                        model["data"].get("breaker_category") if model.get("data") else None,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        model["category"],
+                        model["name"],
+                        model["manufacturer"],
+                        model["data"]["cycle"],
+                        model["data"]["space"],
+                    ),
+                )
 
         # Update conflicting models if user chose to
         if update_conflicts:
             for model in conflicting_models:
-                cursor.execute(
-                    "UPDATE element_models SET maintenance_cycle=?, installation_space=? WHERE element_category=? AND model_name=? AND manufacturer=?",
-                    (
-                        model["new"]["cycle"],
-                        model["new"]["space"],
-                        model["category"],
-                        model["name"],
-                        model["manufacturer"],
-                    ),
-                )
+                if "breaker_category" in em_cols:
+                    cursor.execute(
+                        "UPDATE element_models SET maintenance_cycle=?, installation_space=?, breaker_category=? WHERE element_category=? AND model_name=? AND manufacturer=?",
+                        (
+                            model["new"]["cycle"],
+                            model["new"]["space"],
+                            model.get("new", {}).get("breaker_category"),
+                            model["category"],
+                            model["name"],
+                            model["manufacturer"],
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE element_models SET maintenance_cycle=?, installation_space=? WHERE element_category=? AND model_name=? AND manufacturer=?",
+                        (
+                            model["new"]["cycle"],
+                            model["new"]["space"],
+                            model["category"],
+                            model["name"],
+                            model["manufacturer"],
+                        ),
+                    )
 
         self.conn.commit()
         prompt_popup.dismiss()
