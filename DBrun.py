@@ -5000,7 +5000,7 @@ class SubstationApp(App):
         from kivy.uix.checkbox import CheckBox
         from kivy.graphics import Color, Rectangle
         # Header and per-substation checkbox list so user can mark specific substations
-        header = Label(text="Υ/Σ ΘΕσσαλονίκης", size_hint_y=None, height=30, bold=True, color=(0.9, 0.1, 0.1, 1))
+        header = Label(text="Υ/Σ Θεσσαλονίκης", size_hint_y=None, height=30, bold=True, color=(0.9, 0.1, 0.1, 1))
         # Brief header message (fixed height) — the list below stays scrollable
         header_label = Label(text=message, size_hint_y=None, height=60)
         header_label.bind(texture_size=header_label.setter("size"))
@@ -5426,13 +5426,25 @@ class SubstationApp(App):
         # Add new models
         for model in new_models:
             if "breaker_category" in em_cols:
+                # Prefer explicit model cycle if provided (>0), otherwise use computed cycle
+                mcycle = None
+                try:
+                    raw_cycle = model.get("data", {}).get("cycle")
+                    computed = model.get("data", {}).get("computed")
+                    if raw_cycle and int(raw_cycle) > 0:
+                        mcycle = int(raw_cycle)
+                    elif computed and int(computed) > 0:
+                        mcycle = int(computed)
+                except Exception:
+                    mcycle = None
+
                 cursor.execute(
                     "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category) VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         model["category"],
                         model["name"],
                         model["manufacturer"],
-                        model["data"]["cycle"],
+                        mcycle,
                         model["data"]["space"],
                         model["data"].get("breaker_category") if model.get("data") else None,
                     ),
@@ -5453,10 +5465,22 @@ class SubstationApp(App):
         if update_conflicts:
             for model in conflicting_models:
                 if "breaker_category" in em_cols:
+                    # Prefer explicit model cycle if provided, otherwise use computed
+                    mcycle = None
+                    try:
+                        raw_cycle = model.get("new", {}).get("cycle")
+                        computed = model.get("new", {}).get("computed")
+                        if raw_cycle and int(raw_cycle) > 0:
+                            mcycle = int(raw_cycle)
+                        elif computed and int(computed) > 0:
+                            mcycle = int(computed)
+                    except Exception:
+                        mcycle = None
+
                     cursor.execute(
                         "UPDATE element_models SET maintenance_cycle=?, installation_space=?, breaker_category=? WHERE element_category=? AND model_name=? AND manufacturer=?",
                         (
-                            model["new"]["cycle"],
+                            mcycle,
                             model["new"]["space"],
                             model.get("new", {}).get("breaker_category"),
                             model["category"],
