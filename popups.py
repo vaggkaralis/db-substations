@@ -44,12 +44,15 @@ def ask_open_file(title: str = "Select file", filetypes=None):
     Uses tkinter when available; returns None if unavailable or cancelled.
     """
     # Prefer Windows API dialog when available (more consistent on Windows).
+    # If Win32 API is present we call it and respect the user's choice (including
+    # cancel). Only when the Win32 call is not available (raises) do we fall
+    # back to tkinter. This avoids opening multiple dialogs in sequence.
     try:
         win_fp = _win32_get_open_filename(title=title, filetypes=filetypes)
-        if win_fp:
-            return win_fp
+        # If we were able to call the Win32 dialog, return its result (string or None)
+        return win_fp or None
     except Exception:
-        # ignore and fallback to tkinter
+        # Win32 API not available; try tkinter fallback
         pass
 
     try:
@@ -69,14 +72,7 @@ def ask_open_file(title: str = "Select file", filetypes=None):
             _root.destroy()
         except Exception:
             pass
-    # If tkinter returned nothing but Windows API might still work, try it again
-    if not fp:
-        try:
-            win_fp = _win32_get_open_filename(title=title, filetypes=filetypes)
-            if win_fp:
-                return win_fp
-        except Exception:
-            pass
+
     return fp or None
 
 
