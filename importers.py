@@ -414,6 +414,8 @@ def import_elements_from_excel(
             on_error(details)
             return
 
+        # debug logging removed
+
         # Validate template version
         is_valid, version_error = _validate_template_version(df_elem)
         if not is_valid:
@@ -451,9 +453,12 @@ def import_elements_from_excel(
         not_found = []
 
         for idx, row in df_elem.iterrows():
+            # debug logging removed
             row_num = (
                 idx + 3
             )  # +3 because Excel is 1-indexed, has version row and header row
+
+            # debug logging removed
 
             # Validate required fields for this row
             is_valid, field_errors = _validate_required_fields(df_elem, row_num, row)
@@ -484,6 +489,48 @@ def import_elements_from_excel(
                 if pd.notna(row.get("Τύπος Διακόπτη", ""))
                 else ""
             )
+            # Normalize breaker category for CSV
+            normalized_breaker_category = None
+            try:
+                from import_validator import validate_breaker_category
+
+                if breaker_type:
+                    match = validate_breaker_category(breaker_type)
+                    normalized_breaker_category = match[0] if match and match[0] else (
+                        breaker_type.strip() or None
+                    )
+                else:
+                    normalized_breaker_category = None
+            except Exception:
+                normalized_breaker_category = breaker_type.strip() if breaker_type else None
+            # Normalize breaker category for CSV path
+            normalized_breaker_category = None
+            try:
+                from import_validator import validate_breaker_category
+
+                if breaker_type:
+                    match = validate_breaker_category(breaker_type)
+                    normalized_breaker_category = match[0] if match and match[0] else (
+                        breaker_type.strip() or None
+                    )
+                else:
+                    normalized_breaker_category = None
+            except Exception:
+                normalized_breaker_category = breaker_type.strip() if breaker_type else None
+            # Normalize breaker category for CSV path (same logic as Excel import)
+            normalized_breaker_category = None
+            try:
+                from import_validator import validate_breaker_category
+
+                if breaker_type:
+                    match = validate_breaker_category(breaker_type)
+                    normalized_breaker_category = match[0] if match and match[0] else (
+                        breaker_type.strip() or None
+                    )
+                else:
+                    normalized_breaker_category = None
+            except Exception:
+                normalized_breaker_category = breaker_type.strip() if breaker_type else None
             # Normalize breaker category to canonical values for storage and grouping
             normalized_breaker_category = None
             try:
@@ -503,6 +550,20 @@ def import_elements_from_excel(
                 if pd.notna(row.get("Breaker Role", ""))
                 else ""
             )
+            # Normalize breaker category for CSV
+            normalized_breaker_category = None
+            try:
+                from import_validator import validate_breaker_category
+
+                if breaker_type:
+                    match = validate_breaker_category(breaker_type)
+                    normalized_breaker_category = match[0] if match and match[0] else (
+                        breaker_type.strip() or None
+                    )
+                else:
+                    normalized_breaker_category = None
+            except Exception:
+                normalized_breaker_category = breaker_type.strip() if breaker_type else None
             gate = row.get("Gate", "") if pd.notna(row.get("Gate", "")) else ""
             model_name = (
                 str(row.get("Model Name", "")).strip()
@@ -512,6 +573,26 @@ def import_elements_from_excel(
             model_manufacturer = (
                 str(row.get("Model Manufacturer", "")).strip()
                 if pd.notna(row.get("Model Manufacturer", ""))
+                else ""
+            )
+            model_installation_space = (
+                str(row.get("Model Installation Space", "")).strip()
+                if pd.notna(row.get("Model Installation Space", ""))
+                else ""
+            )
+            model_installation_space = (
+                str(row.get("Model Installation Space", "")).strip()
+                if pd.notna(row.get("Model Installation Space", ""))
+                else ""
+            )
+            model_installation_space = (
+                str(row.get("Model Installation Space", "")).strip()
+                if pd.notna(row.get("Model Installation Space", ""))
+                else ""
+            )
+            model_installation_space = (
+                str(row.get("Model Installation Space", "")).strip()
+                if pd.notna(row.get("Model Installation Space", ""))
                 else ""
             )
             model_installation_space = (
@@ -549,6 +630,7 @@ def import_elements_from_excel(
                 result = cursor.fetchone()
                 if result:
                     sub_id = result[0]
+                    # debug log removed
                     
                     # Fetch substation flag for Thessaloniki (migration-safe)
                     is_thessaloniki = False
@@ -571,8 +653,13 @@ def import_elements_from_excel(
                         maintenance_cycle_int = 3 if is_thessaloniki else 6
                     elif "ΜΤ" in elem_type_for_calc or "20/0.4" in elem_type_for_calc:
                         bt = (breaker_type or "").strip().lower()
+                        inst_space = (model_installation_space or "").strip().lower()
+                        # MV breakers: SF6 inside -> 1 year, SF6 outside -> 3 years
                         if bt in ["πτωχού ελαίου", "sf6", "sf-6"] or "sf6" in bt:
-                            maintenance_cycle_int = 1
+                            if inst_space and ("εξωτερ" in inst_space or "outside" in inst_space):
+                                maintenance_cycle_int = 3
+                            else:
+                                maintenance_cycle_int = 1
                         elif bt in ["κενού", "ελαίου"]:
                             maintenance_cycle_int = 3
                         else:
@@ -632,7 +719,21 @@ def import_elements_from_excel(
                                 insert_vals = [elem_category, model_name, model_manufacturer or ""]
                                 if "maintenance_cycle" in em_cols:
                                     insert_cols.append("maintenance_cycle")
-                                    insert_vals.append(maintenance_cycle_int if maintenance_cycle_int else None)
+                                    # Transformer models always use a 6-year model cycle; elements may use 3 when Thessaloniki
+                                    try:
+                                        is_transformer_model = False
+                                        cat = elem_category or ""
+                                        if isinstance(cat, str):
+                                            is_transformer_model = (
+                                                "ΥΤ" in cat or "150/20" in cat or "Transformer" in cat or "Μετασχηματιστής" in cat or cat.startswith("Μ/Σ")
+                                            )
+                                    except Exception:
+                                        is_transformer_model = False
+
+                                    if is_transformer_model:
+                                        insert_vals.append(6)
+                                    else:
+                                        insert_vals.append(maintenance_cycle_int if maintenance_cycle_int else None)
                                 if "installation_space" in em_cols:
                                     insert_cols.append("installation_space")
                                     insert_vals.append(model_installation_space or "")
@@ -667,21 +768,90 @@ def import_elements_from_excel(
                     if not manufacturer_value and model_manufacturer:
                         manufacturer_value = model_manufacturer
 
-                    # Check for duplicate
+                    # Check for duplicate (by substation, name, serial)
+                    # debug log removed
                     cursor.execute(
                         "SELECT id FROM elements WHERE substation_id=? AND name=? AND serial_number=?",
                         (sub_id, name_str, serial_str),
                     )
                     existing = cursor.fetchone()
 
+                    # If there's a duplicate but one of the two is inactive, import both
+                    # by renaming the inactive one to include the suffix " (Ανενεργός)".
                     decision_replace = False
                     if existing:
-                        if on_duplicate:
-                            decision_replace = bool(
-                                on_duplicate(str(sub_name), name_str, serial_str)
+                        try:
+                            existing_id = existing[0]
+                            cursor.execute(
+                                "SELECT operating_status, name FROM elements WHERE id=?",
+                                (existing_id,),
                             )
+                            er = cursor.fetchone()
+                            existing_status = er[0] if er and er[0] is not None else ""
+                            existing_name_db = er[1] if er and er[1] is not None else name_str
+                        except Exception:
+                            existing_status = ""
+                            existing_name_db = name_str
+
+                        # Normalize statuses to Greek form for comparison
+                        if existing_status == "Inactive":
+                            existing_status = "Ανενεργή"
+                        if operating_status == "Inactive":
+                            operating_status = "Ανενεργή"
+
+                        # If exactly one of the two is inactive, ensure the inactive one gets the suffix
+                        if (
+                            (existing_status == "Ανενεργή") != (operating_status == "Ανενεργή")
+                        ):
+                            suffix = " (Ανενεργός)"
+                            # If the existing DB row is inactive, rename it and allow insertion
+                            if existing_status == "Ανενεργή":
+                                new_name = existing_name_db + suffix
+                                # avoid collision: increment suffix if needed
+                                candidate = new_name
+                                i = 1
+                                while True:
+                                    cursor.execute(
+                                        "SELECT id FROM elements WHERE substation_id=? AND name=?",
+                                        (sub_id, candidate),
+                                    )
+                                    if cursor.fetchone():
+                                        i += 1
+                                        candidate = f"{new_name} {i}"
+                                    else:
+                                        break
+                                cursor.execute(
+                                    "UPDATE elements SET name=? WHERE id=?",
+                                    (candidate, existing_id),
+                                )
+                                # treat as no existing so the incoming row will be inserted
+                                existing = None
+                            else:
+                                # existing is active and incoming is inactive: rename incoming
+                                base = name_str
+                                candidate = base + suffix
+                                i = 1
+                                while True:
+                                    cursor.execute(
+                                        "SELECT id FROM elements WHERE substation_id=? AND name=?",
+                                        (sub_id, candidate),
+                                    )
+                                    if cursor.fetchone():
+                                        i += 1
+                                        candidate = f"{base} {suffix} {i}"
+                                    else:
+                                        break
+                                name_str = candidate
+                                # proceed to insert as a distinct element
+                                existing = None
                         else:
-                            decision_replace = False
+                            # regular duplicate handling via callback/skip
+                            if on_duplicate:
+                                decision_replace = bool(
+                                    on_duplicate(str(sub_name), name_str, serial_str)
+                                )
+                            else:
+                                decision_replace = False
 
                     # Normalize element type and determine if element is a main switch
                     elem_type_str = str(element_type) if pd.notna(element_type) else ""
@@ -772,6 +942,7 @@ def import_elements_from_excel(
                         skipped += 1
                     else:
                         if has_maintenance:
+                            # debug log removed
                             cursor.execute(
                                 "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, maintenance_cycle, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
@@ -795,6 +966,7 @@ def import_elements_from_excel(
                                 ),
                             )
                         else:
+                            # debug log removed
                             cursor.execute(
                                 "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
@@ -885,6 +1057,7 @@ def import_elements_from_csv(
 
     try:
         cursor = conn.cursor()
+        # debug log removed
         try:
             df_elem = pd.read_csv(file_path)
         except Exception as exc:
@@ -1014,14 +1187,16 @@ def import_elements_from_csv(
                             # may have minimal schema); fall back to creating if missing.
                             try:
                                 cursor.execute(
-                                    "SELECT id FROM element_models WHERE model_name=?",
+                                    "SELECT id FROM element_models WHERE TRIM(model_name)=TRIM(?)",
                                     (model_name,),
                                 )
                                 model_result = cursor.fetchone()
+                                # debug log removed
                             except Exception:
                                 model_result = None
                             if model_result:
                                 element_model_id = model_result[0]
+                                # debug log removed
                             else:
                                 # create model using provided model_manufacturer (may be empty)
                                 try:
@@ -1039,13 +1214,30 @@ def import_elements_from_csv(
                                     insert_vals = [elem_type_for_model, model_name, model_manufacturer or ""]
                                     if "maintenance_cycle" in em_cols:
                                         insert_cols.append("maintenance_cycle")
-                                        insert_vals.append(maintenance_cycle_int if maintenance_cycle_int else None)
+                                        # Transformer models always use a 6-year model cycle; elements may use 3 when Thessaloniki
+                                        try:
+                                            is_transformer_model = False
+                                            cat = elem_type_for_model or ""
+                                            if isinstance(cat, str):
+                                                is_transformer_model = (
+                                                    "ΥΤ" in cat or "150/20" in cat or "Transformer" in cat or "Μετασχηματιστής" in cat or cat.startswith("Μ/Σ")
+                                                )
+                                        except Exception:
+                                            is_transformer_model = False
+
+                                        if is_transformer_model:
+                                            insert_vals.append(6)
+                                        else:
+                                            insert_vals.append(maintenance_cycle_int if maintenance_cycle_int else None)
                                     if "installation_space" in em_cols:
                                         insert_cols.append("installation_space")
-                                        insert_vals.append(model_installation_space or "")
+                                        try:
+                                            insert_vals.append(model_installation_space or "")
+                                        except NameError:
+                                            insert_vals.append((row.get("Model Installation Space", "") or ""))
                                     if "breaker_category" in em_cols:
                                         insert_cols.append("breaker_category")
-                                        insert_vals.append(breaker_type if breaker_type else None)
+                                        insert_vals.append(normalized_breaker_category if normalized_breaker_category else None)
 
                                     # (debug prints removed)
 
@@ -1053,6 +1245,7 @@ def import_elements_from_csv(
                                     sql = f"INSERT INTO element_models ({','.join(insert_cols)}) VALUES ({placeholders})"
                                     cursor.execute(sql, tuple(insert_vals))
                                     element_model_id = cursor.lastrowid
+                                    # debug log removed
                                 except Exception:
                                     element_model_id = None
 
@@ -1089,8 +1282,16 @@ def import_elements_from_csv(
                         maintenance_cycle_int = 3 if is_thessaloniki else 6
                     elif "ΜΤ" in elem_type_calc or "20/0.4" in elem_type_calc:
                         bt = (breaker_type or "").strip().lower()
+                        try:
+                            inst_space = (model_installation_space or "").strip().lower()
+                        except NameError:
+                            inst_space = (row.get("Model Installation Space", "") or "").strip().lower()
+                        # MV breakers: SF6 inside -> 1 year, SF6 outside -> 3 years
                         if bt in ["πτωχού ελαίου", "sf6", "sf-6"] or "sf6" in bt:
-                            maintenance_cycle_int = 1
+                            if inst_space and ("εξωτερ" in inst_space or "outside" in inst_space):
+                                maintenance_cycle_int = 3
+                            else:
+                                maintenance_cycle_int = 1
                         elif bt in ["κενού", "ελαίου"]:
                             maintenance_cycle_int = 3
                         else:
@@ -1099,47 +1300,93 @@ def import_elements_from_csv(
                         # All other element types default to 6 years
                         maintenance_cycle_int = 6
 
-                    # Check for duplicate
+                    # Check for duplicate (by substation, name, serial)
                     cursor.execute(
                         "SELECT id FROM elements WHERE substation_id=? AND name=? AND serial_number=?",
                         (sub_id, name_str, serial_str),
                     )
                     existing = cursor.fetchone()
 
+                    # If there's a duplicate but one of the two is inactive, import both
+                    # by renaming the inactive one to include the suffix " (Ανενεργός)".
                     decision_replace = False
                     if existing:
-                        if on_duplicate:
-                            decision_replace = bool(
-                                on_duplicate(str(sub_name), name_str, serial_str)
+                        try:
+                            existing_id = existing[0]
+                            cursor.execute(
+                                "SELECT operating_status, name FROM elements WHERE id=?",
+                                (existing_id,),
                             )
-                        else:
-                            decision_replace = False
+                            er = cursor.fetchone()
+                            existing_status = er[0] if er and er[0] is not None else ""
+                            existing_name_db = er[1] if er and er[1] is not None else name_str
+                        except Exception:
+                            existing_status = ""
+                            existing_name_db = name_str
 
-                            # Normalize element type and determine breaker role
+                        # Normalize statuses to Greek form for comparison
+                        if existing_status == "Inactive":
+                            existing_status = "Ανενεργή"
+                        if operating_status == "Inactive":
+                            operating_status = "Ανενεργή"
+
+                        # If exactly one of the two is inactive, ensure the inactive one gets the suffix
+                        if (
+                            (existing_status == "Ανενεργή") != (operating_status == "Ανενεργή")
+                        ):
+                            suffix = " (Ανενεργός)"
+                            # If the existing DB row is inactive, rename it and allow insertion
+                            if existing_status == "Ανενεργή":
+                                new_name = existing_name_db + suffix
+                                # avoid collision: increment suffix if needed
+                                candidate = new_name
+                                i = 1
+                                while True:
+                                    cursor.execute(
+                                        "SELECT id FROM elements WHERE substation_id=? AND name=?",
+                                        (sub_id, candidate),
+                                    )
+                                    if cursor.fetchone():
+                                        i += 1
+                                        candidate = f"{new_name} {i}"
+                                    else:
+                                        break
+                                cursor.execute(
+                                    "UPDATE elements SET name=? WHERE id=?",
+                                    (candidate, existing_id),
+                                )
+                                # treat as no existing so the incoming row will be inserted
+                                existing = None
+                            else:
+                                # existing is active and incoming is inactive: rename incoming
+                                base = name_str
+                                candidate = base + suffix
+                                i = 1
+                                while True:
+                                    cursor.execute(
+                                        "SELECT id FROM elements WHERE substation_id=? AND name=?",
+                                        (sub_id, candidate),
+                                    )
+                                    if cursor.fetchone():
+                                        i += 1
+                                        candidate = f"{base} {suffix} {i}"
+                                    else:
+                                        break
+                                name_str = candidate
+                                # proceed to insert as a distinct element
+                                existing = None
+                                # regular duplicate handling via callback/skip
+                                if on_duplicate:
+                                    decision_replace = bool(
+                                        on_duplicate(str(sub_name), name_str, serial_str)
+                                    )
+                                else:
+                                    decision_replace = False
+
+                    # Normalize element type and determine if element is a main switch
                     elem_type_str = str(element_type) if pd.notna(element_type) else ""
-
-                    # Map breaker role to is_main_switch
-                    # 0=Γραμμής, 1=Κεντρικός, 2=Διασυνδετικός, 3=Διακόπτης Πυκνωτών
-                    is_main_switch = 0  # Default to line breaker
-
-                    if elem_type_str in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-                        # HV breakers are ALWAYS main breakers
-                        if elem_type_str == "Διακόπτης ΥΤ":
-                            is_main_switch = 1
-                        # MV breakers: map from Breaker Role column
-                        elif breaker_role == "Κεντρικός":
-                            is_main_switch = 1
-                        elif breaker_role == "Διασυνδετικός":
-                            is_main_switch = 2
-                        elif breaker_role == "Διακόπτης Πυκνωτών":
-                            is_main_switch = 3
-                        elif breaker_role == "Γραμμής":
-                            is_main_switch = 0
-                        else:
-                            # Empty breaker role defaults to line breaker for MV
-                            is_main_switch = 0
-
-                    # Convert old element type formats (backward compatibility)
+                    is_main_switch = 0
+                    # Convert old element types to new format
                     if elem_type_str == "Κεντρικός Διακόπτης ΥΤ":
                         elem_type_str = "Διακόπτης ΥΤ"
                         is_main_switch = 1
@@ -1149,6 +1396,33 @@ def import_elements_from_csv(
                     elif elem_type_str == "Διακόπτης Φορτίου Γραμμής ΜΤ":
                         elem_type_str = "Διακόπτης ΜΤ"
                         is_main_switch = 0
+
+                    # Map breaker role to is_main_switch for MV breakers; HV breakers are always main
+                    if elem_type_str in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                        # HV breakers are ALWAYS main
+                        if elem_type_str == "Διακόπτης ΥΤ":
+                            is_main_switch = 1
+                        else:
+                            # MV breakers: map from Breaker Role column
+                            if breaker_role == "Κεντρικός":
+                                is_main_switch = 1
+                            elif breaker_role == "Διασυνδετικός":
+                                is_main_switch = 2
+                            elif breaker_role == "Διακόπτης Πυκνωτών":
+                                is_main_switch = 3
+                            elif breaker_role == "Γραμμής":
+                                is_main_switch = 0
+                            else:
+                                # Empty or unknown defaults to line breaker
+                                is_main_switch = 0
+
+                    # Determine whether the elements table has a maintenance_cycle column
+                    try:
+                        cursor.execute("PRAGMA table_info(elements)")
+                        elem_cols = [r[1] for r in cursor.fetchall()]
+                    except Exception:
+                        elem_cols = []
+                    has_maintenance = "maintenance_cycle" in elem_cols
 
                     if existing and decision_replace:
                         # Determine whether the elements table has a maintenance_cycle column
@@ -1211,49 +1485,53 @@ def import_elements_from_csv(
                             elem_cols = []
                         has_maintenance = "maintenance_cycle" in elem_cols
                         if has_maintenance:
+                            params = (
+                                sub_id,
+                                elem_type_str,
+                                name_str,
+                                serial_str,
+                                (
+                                    str(maintenance_date)
+                                    if pd.notna(maintenance_date)
+                                    else ""
+                                ),
+                                str(voltage_level) if pd.notna(voltage_level) else "",
+                                manufacturer_value if manufacturer_value is not None else "",
+                                str(gate) if gate else "",
+                                is_main_switch,
+                                breaker_type if breaker_type else None,
+                                maintenance_cycle_int,
+                                element_model_id,
+                                operating_status,
+                            )
+                            # debug log removed
                             cursor.execute(
                                 "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, maintenance_cycle, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (
-                                    sub_id,
-                                    elem_type_str,
-                                    name_str,
-                                    serial_str,
-                                    (
-                                        str(maintenance_date)
-                                        if pd.notna(maintenance_date)
-                                        else ""
-                                    ),
-                                    str(voltage_level) if pd.notna(voltage_level) else "",
-                                    manufacturer_value if manufacturer_value is not None else "",
-                                    str(gate) if gate else "",
-                                    is_main_switch,
-                                    breaker_type if breaker_type else None,
-                                    maintenance_cycle_int,
-                                    element_model_id,
-                                    operating_status,
-                                ),
+                                params,
                             )
                         else:
+                            params = (
+                                sub_id,
+                                elem_type_str,
+                                name_str,
+                                serial_str,
+                                (
+                                    str(maintenance_date)
+                                    if pd.notna(maintenance_date)
+                                    else ""
+                                ),
+                                str(voltage_level) if pd.notna(voltage_level) else "",
+                                manufacturer_value if manufacturer_value is not None else "",
+                                str(gate) if gate else "",
+                                is_main_switch,
+                                breaker_type if breaker_type else None,
+                                element_model_id,
+                                operating_status,
+                            )
+                            # debug log removed
                             cursor.execute(
                                 "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, gate, is_main_switch, breaker_category, element_model_id, operating_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (
-                                    sub_id,
-                                    elem_type_str,
-                                    name_str,
-                                    serial_str,
-                                    (
-                                        str(maintenance_date)
-                                        if pd.notna(maintenance_date)
-                                        else ""
-                                    ),
-                                    str(voltage_level) if pd.notna(voltage_level) else "",
-                                    manufacturer_value if manufacturer_value is not None else "",
-                                    str(gate) if gate else "",
-                                    is_main_switch,
-                                    breaker_type if breaker_type else None,
-                                    element_model_id,
-                                    operating_status,
-                                ),
+                                params,
                             )
                         count += 1
                 else:

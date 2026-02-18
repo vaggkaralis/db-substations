@@ -196,9 +196,18 @@ def show_models_management(app_instance):
                                     header = BoxLayout(
                                         size_hint_y=None, height=30, spacing=5
                                     )
+                                    try:
+                                        c.execute(
+                                            "SELECT COUNT(*) FROM elements WHERE element_model_id=?",
+                                            (model_id,),
+                                        )
+                                        usage_count = c.fetchone()[0] or 0
+                                    except Exception:
+                                        usage_count = 0
+
                                     header.add_widget(
                                         Label(
-                                            text=f"    {model_name}",
+                                            text=f"    {model_name} ({usage_count})",
                                             bold=True,
                                             size_hint_x=0.55,
                                         )
@@ -254,7 +263,21 @@ def show_models_management(app_instance):
                                     model_box.add_widget(header)
 
                                     # Details
-                                    details_text = f"    Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle} έτη | Χώρος: {space or '-'}"
+                                    # Determine if any element using this model had its cycle changed due to Thessaloniki
+                                    try:
+                                        c.execute(
+                                            "SELECT 1 FROM elements e JOIN substations s ON e.substation_id = s.id WHERE e.element_model_id = ? AND s.is_thessaloniki=1 AND COALESCE(e.maintenance_cycle, -999) != COALESCE((SELECT maintenance_cycle FROM element_models WHERE id=?), -999) LIMIT 1",
+                                            (model_id, model_id),
+                                        )
+                                        thess_star = True if c.fetchone() else False
+                                    except Exception:
+                                        thess_star = False
+
+                                    cycle_display = f"{cycle}" if cycle is not None else "-"
+                                    if thess_star:
+                                        cycle_display = f"{cycle_display}*"
+
+                                    details_text = f"    Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'}"
                                     details = Label(
                                         text=details_text, size_hint_y=None, height=30
                                     )
@@ -282,8 +305,17 @@ def show_models_management(app_instance):
 
                             # Header
                             header = BoxLayout(size_hint_y=None, height=30, spacing=5)
+                            try:
+                                c.execute(
+                                    "SELECT COUNT(*) FROM elements WHERE element_model_id=?",
+                                    (model_id,),
+                                )
+                                usage_count = c.fetchone()[0] or 0
+                            except Exception:
+                                usage_count = 0
+
                             header.add_widget(
-                                Label(text=f"{model_name}", bold=True, size_hint_x=0.55)
+                                Label(text=f"{model_name} ({usage_count})", bold=True, size_hint_x=0.55)
                             )
 
                             # Buttons
@@ -330,7 +362,20 @@ def show_models_management(app_instance):
                             model_box.add_widget(header)
 
                             # Details
-                            details_text = f"Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle} έτη | Χώρος: {space or '-'}"
+                            try:
+                                c.execute(
+                                    "SELECT 1 FROM elements e JOIN substations s ON e.substation_id = s.id WHERE e.element_model_id = ? AND s.is_thessaloniki=1 AND COALESCE(e.maintenance_cycle, -999) != COALESCE((SELECT maintenance_cycle FROM element_models WHERE id=?), -999) LIMIT 1",
+                                    (model_id, model_id),
+                                )
+                                thess_star = True if c.fetchone() else False
+                            except Exception:
+                                thess_star = False
+
+                            cycle_display = f"{cycle}" if cycle is not None else "-"
+                            if thess_star:
+                                cycle_display = f"{cycle_display}*"
+
+                            details_text = f"Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'}"
                             if breaker_cat:
                                 details_text += f" | Κατηγορία: {breaker_cat}"
                             details = Label(
@@ -1047,7 +1092,7 @@ def show_model_usages(app_instance, model_id, model_name):
 
                 substation_header = Label(
                     text=f"[b][size=18]{substation_name}[/size][/b]",
-                    size_hint_x=0.7,
+                    size_hint_x=0.6,
                     markup=True,
                     halign="left",
                     valign="middle",
@@ -1055,8 +1100,32 @@ def show_model_usages(app_instance, model_id, model_name):
                 substation_header.bind(size=substation_header.setter("text_size"))
                 substation_header_layout.add_widget(substation_header)
 
+                # If substation is Thessaloniki, show a red filled label next to the name
+                try:
+                    c.execute(
+                        "SELECT is_thessaloniki FROM substations WHERE id=?",
+                        (substation_id,),
+                    )
+                    row = c.fetchone()
+                    is_th = bool(row[0]) if row and row[0] else False
+                except Exception:
+                    is_th = False
+
+                if is_th:
+                    th_label = Button(
+                        text="Υ/Σ Θεσσαλονίκης",
+                        size_hint_x=0.2,
+                        background_color=(1, 0, 0, 1),
+                        color=(1, 1, 1, 1),
+                        background_normal="",
+                        background_down="",
+                    )
+                    # keep as a visual tag (no-op) but not disabled so text color remains bright
+                    th_label.bind(on_press=lambda *a: None)
+                    substation_header_layout.add_widget(th_label)
+
                 # Add button to jump to substation elements view
-                jump_btn = Button(text="Μετάβαση στον Υποσταθμό", size_hint_x=0.3)
+                jump_btn = Button(text="Μετάβαση στον Υποσταθμό", size_hint_x=0.2)
                 jump_btn.bind(
                     on_press=lambda x, sname=substation_name, p=popup: (
                         jump_to_substation(app_instance, sname, p)

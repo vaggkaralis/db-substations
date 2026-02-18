@@ -3720,14 +3720,39 @@ class SubstationApp(App):
                 division,
                 monogram_pdf,
             ) in substations:
-                # Substation title in bigger letters
+                # Substation title in bigger letters with optional Thessaloniki tag
+                sub_title_layout = BoxLayout(size_hint_y=None, height=45, spacing=8)
                 substation_title = Label(
                     text=f"[b][size=22]{sub_name}[/size][/b]",
-                    size_hint_y=None,
-                    height=45,
+                    size_hint_x=0.85,
                     markup=True,
                 )
-                grid.add_widget(substation_title)
+                sub_title_layout.add_widget(substation_title)
+
+                try:
+                    c.execute(
+                        "SELECT is_thessaloniki FROM substations WHERE id=?",
+                        (sub_id,),
+                    )
+                    r = c.fetchone()
+                    is_th = bool(r[0]) if r and r[0] else False
+                except Exception:
+                    is_th = False
+
+                if is_th:
+                    th_tag = Button(
+                        text="Υ/Σ Θεσσαλονίκης",
+                        size_hint_x=0.15,
+                        background_color=(1, 0, 0, 1),
+                        color=(1, 1, 1, 1),
+                        background_normal="",
+                        background_down="",
+                    )
+                    # Keep as visual tag; make it a no-op so it isn't dimmed by disabled state
+                    th_tag.bind(on_press=lambda *a: None)
+                    sub_title_layout.add_widget(th_tag)
+
+                grid.add_widget(sub_title_layout)
 
                 # (removed accidental top-line raw info display)
 
@@ -5210,8 +5235,13 @@ class SubstationApp(App):
                             computed_cycle = 3 if is_th else 6
                         elif "ΜΤ" in et or "20/0.4" in et:
                             bt = (breaker_type or "").strip().lower()
+                            inst_space_l = (model_space or "").strip().lower()
+                            # MV SF6: inside => 1 year, outside => 3 years
                             if bt in ["πτωχού ελαίου", "sf6", "sf-6"] or "sf6" in bt:
-                                computed_cycle = 1
+                                if inst_space_l and ("εξωτερ" in inst_space_l or "outside" in inst_space_l):
+                                    computed_cycle = 3
+                                else:
+                                    computed_cycle = 1
                             elif bt in ["κενού", "ελαίου"]:
                                 computed_cycle = 3
                             else:
@@ -5426,15 +5456,30 @@ class SubstationApp(App):
         # Add new models
         for model in new_models:
             if "breaker_category" in em_cols:
-                # Prefer explicit model cycle if provided (>0), otherwise use computed cycle
+                # Transformer models always have a model maintenance cycle of 6 years.
+                is_transformer = False
+                try:
+                    cat = model.get("category") or ""
+                    if isinstance(cat, str):
+                        is_transformer = (
+                            "ΥΤ" in cat or "150/20" in cat or "Transformer" in cat or "Μετασχηματιστής" in cat or cat.startswith("Μ/Σ")
+                        )
+                except Exception:
+                    is_transformer = False
+
+                # Prefer explicit model cycle if provided (>0), otherwise use computed cycle;
+                # but if this is a transformer model, the model cycle is forced to 6.
                 mcycle = None
                 try:
-                    raw_cycle = model.get("data", {}).get("cycle")
-                    computed = model.get("data", {}).get("computed")
-                    if raw_cycle and int(raw_cycle) > 0:
-                        mcycle = int(raw_cycle)
-                    elif computed and int(computed) > 0:
-                        mcycle = int(computed)
+                    if is_transformer:
+                        mcycle = 6
+                    else:
+                        raw_cycle = model.get("data", {}).get("cycle")
+                        computed = model.get("data", {}).get("computed")
+                        if raw_cycle and int(raw_cycle) > 0:
+                            mcycle = int(raw_cycle)
+                        elif computed and int(computed) > 0:
+                            mcycle = int(computed)
                 except Exception:
                     mcycle = None
 
@@ -5450,13 +5495,38 @@ class SubstationApp(App):
                     ),
                 )
             else:
+                # When breaker_category column is absent, behave similarly but without breaker info
+                is_transformer = False
+                try:
+                    cat = model.get("category") or ""
+                    if isinstance(cat, str):
+                        is_transformer = (
+                            "ΥΤ" in cat or "150/20" in cat or "Transformer" in cat or "Μετασχηματιστής" in cat or cat.startswith("Μ/Σ")
+                        )
+                except Exception:
+                    is_transformer = False
+
+                mcycle = None
+                try:
+                    if is_transformer:
+                        mcycle = 6
+                    else:
+                        raw_cycle = model.get("data", {}).get("cycle")
+                        computed = model.get("data", {}).get("computed")
+                        if raw_cycle and int(raw_cycle) > 0:
+                            mcycle = int(raw_cycle)
+                        elif computed and int(computed) > 0:
+                            mcycle = int(computed)
+                except Exception:
+                    mcycle = None
+
                 cursor.execute(
                     "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space) VALUES (?, ?, ?, ?, ?)",
                     (
                         model["category"],
                         model["name"],
                         model["manufacturer"],
-                        model["data"]["cycle"],
+                        mcycle,
                         model["data"]["space"],
                     ),
                 )
@@ -5465,15 +5535,28 @@ class SubstationApp(App):
         if update_conflicts:
             for model in conflicting_models:
                 if "breaker_category" in em_cols:
-                    # Prefer explicit model cycle if provided, otherwise use computed
+                    # Transformer models always use a 6-year model cycle; otherwise prefer explicit or computed
+                    is_transformer = False
+                    try:
+                        cat = model.get("category") or ""
+                        if isinstance(cat, str):
+                            is_transformer = (
+                                "ΥΤ" in cat or "150/20" in cat or "Transformer" in cat or "Μετασχηματιστής" in cat or cat.startswith("Μ/Σ")
+                            )
+                    except Exception:
+                        is_transformer = False
+
                     mcycle = None
                     try:
-                        raw_cycle = model.get("new", {}).get("cycle")
-                        computed = model.get("new", {}).get("computed")
-                        if raw_cycle and int(raw_cycle) > 0:
-                            mcycle = int(raw_cycle)
-                        elif computed and int(computed) > 0:
-                            mcycle = int(computed)
+                        if is_transformer:
+                            mcycle = 6
+                        else:
+                            raw_cycle = model.get("new", {}).get("cycle")
+                            computed = model.get("new", {}).get("computed")
+                            if raw_cycle and int(raw_cycle) > 0:
+                                mcycle = int(raw_cycle)
+                            elif computed and int(computed) > 0:
+                                mcycle = int(computed)
                     except Exception:
                         mcycle = None
 
@@ -5489,10 +5572,26 @@ class SubstationApp(App):
                         ),
                     )
                 else:
+                    # No breaker_category column: still enforce transformer model cycle 6 when applicable
+                    is_transformer = False
+                    try:
+                        cat = model.get("category") or ""
+                        if isinstance(cat, str):
+                            is_transformer = (
+                                "ΥΤ" in cat or "150/20" in cat or "Transformer" in cat or "Μετασχηματιστής" in cat or cat.startswith("Μ/Σ")
+                            )
+                    except Exception:
+                        is_transformer = False
+
+                    if is_transformer:
+                        mcycle = 6
+                    else:
+                        mcycle = model.get("new", {}).get("cycle")
+
                     cursor.execute(
                         "UPDATE element_models SET maintenance_cycle=?, installation_space=? WHERE element_category=? AND model_name=? AND manufacturer=?",
                         (
-                            model["new"]["cycle"],
+                            mcycle,
                             model["new"]["space"],
                             model["category"],
                             model["name"],
