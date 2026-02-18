@@ -4044,7 +4044,7 @@ class SubstationApp(App):
                           SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
                               e.voltage_level, e.power_mva, e.manufacturer, e.manufacture_year, e.gate, e.is_main_switch,
                            em.breaker_category, em.model_name, em.manufacturer as model_manufacturer,
-                           e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.installation_space
+                           e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.power_mva as model_power_mva, em.installation_space
                     FROM elements e 
                     LEFT JOIN element_models em ON e.element_model_id = em.id 
                     WHERE e.substation_id=? AND (e.operating_status IS NULL OR e.operating_status='Ενεργή') 
@@ -4083,6 +4083,7 @@ class SubstationApp(App):
                             model_manufacturer,
                             element_maintenance_cycle,
                             model_maintenance_cycle,
+                            model_power_mva,
                             installation_space,
                         ) = elem
 
@@ -4132,6 +4133,7 @@ class SubstationApp(App):
                             model_manufacturer,
                             element_maintenance_cycle,
                             model_maintenance_cycle,
+                            model_power_mva,
                             installation_space,
                         ) = elem
 
@@ -4185,6 +4187,7 @@ class SubstationApp(App):
                                 model_manufacturer,
                                 element_maintenance_cycle,
                                 model_maintenance_cycle,
+                                model_power_mva,
                                 installation_space,
                             ) = elem
 
@@ -4248,7 +4251,8 @@ class SubstationApp(App):
                                 if manufacture_year
                                 else ""
                             )
-                            power_display = f"{power_mva} MVA" if power_mva else "-"
+                            effective_power = model_power_mva if (model_power_mva is not None) else power_mva
+                            power_display = f"{effective_power} MVA" if effective_power else "-"
                             elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
 
                             # Create a horizontal layout for element and buttons
@@ -4776,7 +4780,7 @@ class SubstationApp(App):
 
         c = self.conn.cursor()
         c.execute(
-            "SELECT name, element_type, serial_number, power_mva, manufacturer, manufacture_year, installation_space, maintenance_date FROM elements WHERE id=?",
+            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, em.power_mva AS model_power_mva FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
             (element_id,),
         )
         row = c.fetchone()
@@ -4793,9 +4797,11 @@ class SubstationApp(App):
             manufacture_year,
             installation_space,
             maintenance_date,
+            model_power_mva,
         ) = row
 
-        power_display = f"{power_mva} MVA" if power_mva else "-"
+        effective_power = model_power_mva if (model_power_mva is not None) else power_mva
+        power_display = f"{effective_power} MVA" if effective_power else "-"
         lines = [
             f"Όνομα: {name}",
             f"Τύπος: {elem_type}",
@@ -5893,7 +5899,18 @@ class SubstationApp(App):
 
         # Rated power (Ονομαστική Ισχύς) - element attribute, editable here
         layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
-        rated_power_input = TextInput(text=(str(power_mva) if power_mva is not None else ""), size_hint_y=None, height=40, multiline=False)
+        # Prefer model-rated power if the element is linked to a model
+        model_power_val = None
+        try:
+            if model_id:
+                c.execute("SELECT power_mva FROM element_models WHERE id=?", (model_id,))
+                mr = c.fetchone()
+                if mr and mr[0] is not None:
+                    model_power_val = mr[0]
+        except Exception:
+            model_power_val = None
+
+        rated_power_input = TextInput(text=(str(model_power_val) if model_power_val is not None else (str(power_mva) if power_mva is not None else "")), size_hint_y=None, height=40, multiline=False)
         layout.add_widget(rated_power_input)
 
         # Model selection
@@ -6245,6 +6262,14 @@ class SubstationApp(App):
                 ),
             )
             self.conn.commit()
+            # If the user provided a rated power and a model is selected, persist the
+            # rated power on the model (model-level attribute) so future elements use it.
+            try:
+                if new_model_id and power_val_to_set is not None:
+                    c.execute("UPDATE element_models SET power_mva=? WHERE id=?", (power_val_to_set, new_model_id))
+                    self.conn.commit()
+            except Exception:
+                pass
             popup.dismiss()
             parent_popup.dismiss()
             if grandparent_popup:
@@ -7077,6 +7102,16 @@ class SubstationApp(App):
                 ),
             )
             self.conn.commit()
+            # If a model was selected and a rated power was provided, persist it
+            # on the model so future elements inherit the model-rated power.
+            try:
+                if model_id and rated_power_val:
+                    rp_val = None if rated_power_val == "" else float(rated_power_val.replace(",", "."))
+                    if rp_val is not None:
+                        c.execute("UPDATE element_models SET power_mva=? WHERE id=?", (rp_val, model_id))
+                        self.conn.commit()
+            except Exception:
+                pass
 
             popup.dismiss()
             show_message_popup(
@@ -7586,6 +7621,15 @@ class SubstationApp(App):
                 ),
             )
             self.conn.commit()
+            # Persist rated power to model if a model was selected and a value provided
+            try:
+                rp_text = rated_power_input.text.strip()
+                rp_val = None if rp_text == "" else float(rp_text.replace(",", "."))
+                if model_id and rp_val is not None:
+                    c.execute("UPDATE element_models SET power_mva=? WHERE id=?", (rp_val, model_id))
+                    self.conn.commit()
+            except Exception:
+                pass
 
             popup.dismiss()
             parent_popup.dismiss()
@@ -8539,9 +8583,13 @@ class SubstationApp(App):
                                 # Fetch stored power (MVA) for this element
                                 try:
                                     c = self.conn.cursor()
-                                    c.execute("SELECT power_mva FROM elements WHERE id=?", (eid,))
+                                    c.execute("SELECT e.power_mva, em.power_mva FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?", (eid,))
                                     row = c.fetchone()
-                                    power_val = str(row[0]) if row and row[0] is not None else ""
+                                    # prefer model power if present
+                                    if row:
+                                        power_val = str(row[1]) if row[1] is not None else (str(row[0]) if row[0] is not None else "")
+                                    else:
+                                        power_val = ""
                                 except Exception:
                                     power_val = ""
 
@@ -8959,9 +9007,12 @@ class SubstationApp(App):
                                     # Fetch stored power (MVA) for this element
                                     try:
                                         c = self.conn.cursor()
-                                        c.execute("SELECT power_mva FROM elements WHERE id=?", (eid,))
+                                        c.execute("SELECT e.power_mva, em.power_mva FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?", (eid,))
                                         row = c.fetchone()
-                                        power_val = str(row[0]) if row and row[0] is not None else ""
+                                        if row:
+                                            power_val = str(row[1]) if row[1] is not None else (str(row[0]) if row[0] is not None else "")
+                                        else:
+                                            power_val = ""
                                     except Exception:
                                         power_val = ""
 

@@ -627,6 +627,13 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             cursor.execute("ALTER TABLE element_models ADD COLUMN sf6_capacity_kg REAL")
         except Exception:
             pass
+    # Add rated power (power_mva) to element_models so the model can carry the
+    # transformer's rated power. Elements will read from the model when present.
+    if "power_mva" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN power_mva REAL")
+        except Exception:
+            pass
     if "model_version" not in model_columns:
         try:
             cursor.execute(

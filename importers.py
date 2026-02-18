@@ -62,6 +62,7 @@ COLUMN_SYNONYMS = {
     "Model Installation Space": ["Model Installation Space", "Installation Space", "Χώρος Εγκατάστασης", "Installation"] ,
     "Breaker Role": ["Breaker Role", "Role", "Ρόλος Διακόπτη"],
     "Τύπος Διακόπτη": ["Τύπος Διακόπτη", "Breaker Type", "BreakerType", "Breaker", "Τυπος Διακοπτη", "Breaker Type (τύπος)"],
+    "Rated Power": ["Rated Power", "Power", "Power MVA", "Power (MVA)", "Ισχύς", "Ονομαστική Ισχύς", "ΙΣΧΥΣ"],
 }
 
 
@@ -742,6 +743,25 @@ def import_elements_from_excel(
                                     insert_vals.append(
                                         normalized_breaker_category if normalized_breaker_category else None
                                     )
+                                # If the element_models table supports a rated-power column,
+                                # capture the power value from the imported row and persist it
+                                # on the model rather than (or in addition to) the element.
+                                power_val = None
+                                try:
+                                    pv = (
+                                        row.get("Rated Power", "")
+                                        or row.get("Power", "")
+                                        or row.get("Power MVA", "")
+                                        or row.get("Ισχύς", "")
+                                        or row.get("Ονομαστική Ισχύς", "")
+                                    )
+                                    if pd is not None and pd.notna(pv) and str(pv).strip() != "":
+                                        power_val = float(str(pv).strip().replace(",", "."))
+                                except Exception:
+                                    power_val = None
+                                if "power_mva" in em_cols:
+                                    insert_cols.append("power_mva")
+                                    insert_vals.append(power_val)
 
                                 # (debug prints removed)
 
@@ -1238,6 +1258,24 @@ def import_elements_from_csv(
                                     if "breaker_category" in em_cols:
                                         insert_cols.append("breaker_category")
                                         insert_vals.append(normalized_breaker_category if normalized_breaker_category else None)
+
+                                    # Capture rated power from the CSV/Excel row and store on model if available
+                                    power_val = None
+                                    try:
+                                        pv = (
+                                            row.get("Rated Power", "")
+                                            or row.get("Power", "")
+                                            or row.get("Power MVA", "")
+                                            or row.get("Ισχύς", "")
+                                            or row.get("Ονομαστική Ισχύς", "")
+                                        )
+                                        if pd is not None and pd.notna(pv) and str(pv).strip() != "":
+                                            power_val = float(str(pv).strip().replace(",", "."))
+                                    except Exception:
+                                        power_val = None
+                                    if "power_mva" in em_cols:
+                                        insert_cols.append("power_mva")
+                                        insert_vals.append(power_val)
 
                                     # (debug prints removed)
 

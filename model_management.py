@@ -18,7 +18,7 @@ def show_models_management(app_instance):
 
     c = app_instance.conn.cursor()
     c.execute(
-        "SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, manual_pdf FROM element_models ORDER BY element_category, model_name"
+        "SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, manual_pdf, power_mva FROM element_models ORDER BY element_category, model_name"
     )
     models = c.fetchall()
 
@@ -87,6 +87,7 @@ def show_models_management(app_instance):
                     space,
                     breaker_cat,
                     manual_pdf,
+                    power_mva,
                 ) = model
                 if category not in categories:
                     categories[category] = []
@@ -131,6 +132,7 @@ def show_models_management(app_instance):
                                 space,
                                 breaker_cat,
                                 manual_pdf,
+                                power_mva,
                             ) = model
                             assigned = False
                             if breaker_cat:
@@ -184,6 +186,7 @@ def show_models_management(app_instance):
                                     space,
                                     breaker_cat,
                                     manual_pdf,
+                                    power_mva,
                                 ) in breaker_models:
                                     model_box = BoxLayout(
                                         size_hint_y=None,
@@ -277,7 +280,21 @@ def show_models_management(app_instance):
                                     if thess_star:
                                         cycle_display = f"{cycle_display}*"
 
-                                    details_text = f"    Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'}"
+                                    # Determine display power: prefer model power, else infer most common element power, else '-'
+                                    try:
+                                        if power_mva is not None:
+                                            display_power = power_mva
+                                        else:
+                                            c.execute(
+                                                "SELECT power_mva, COUNT(*) as cnt FROM elements WHERE element_model_id=? AND power_mva IS NOT NULL GROUP BY power_mva ORDER BY cnt DESC LIMIT 1",
+                                                (model_id,),
+                                            )
+                                            rr = c.fetchone()
+                                            display_power = rr[0] if rr else None
+                                    except Exception:
+                                        display_power = None
+                                    display_power_str = f"{display_power} MVA" if display_power is not None else "-"
+                                    details_text = f"    Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'} | Ισχ.: {display_power_str}"
                                     details = Label(
                                         text=details_text, size_hint_y=None, height=30
                                     )
@@ -295,6 +312,7 @@ def show_models_management(app_instance):
                             space,
                             breaker_cat,
                             manual_pdf,
+                            power_mva,
                         ) in category_models:
                             model_box = BoxLayout(
                                 size_hint_y=None,
@@ -315,8 +333,23 @@ def show_models_management(app_instance):
                                 usage_count = 0
 
                             header.add_widget(
-                                Label(text=f"{model_name} ({usage_count})", bold=True, size_hint_x=0.55)
+                                Label(text=f"{model_name} ({usage_count})", bold=True, size_hint_x=0.45)
                             )
+                            # Header power: prefer model power, else infer from elements, else '-'
+                            try:
+                                if power_mva is not None:
+                                    header_power = power_mva
+                                else:
+                                    c.execute(
+                                        "SELECT power_mva, COUNT(*) as cnt FROM elements WHERE element_model_id=? AND power_mva IS NOT NULL GROUP BY power_mva ORDER BY cnt DESC LIMIT 1",
+                                        (model_id,),
+                                    )
+                                    _r = c.fetchone()
+                                    header_power = _r[0] if _r else None
+                            except Exception:
+                                header_power = None
+                            header_power_str = f"{header_power} MVA" if header_power is not None else "-"
+                            header.add_widget(Label(text=(f"Ισχ.: {header_power_str}"), size_hint_x=0.10))
 
                             # Buttons
                             btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
@@ -375,7 +408,8 @@ def show_models_management(app_instance):
                             if thess_star:
                                 cycle_display = f"{cycle_display}*"
 
-                            details_text = f"Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'}"
+                            power_info = f" | Ονομαστική Ισχύς: {power_mva} MVA" if power_mva is not None else ""
+                            details_text = f"Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'}{power_info}"
                             if breaker_cat:
                                 details_text += f" | Κατηγορία: {breaker_cat}"
                             details = Label(
@@ -481,6 +515,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     )
     layout.add_widget(manufacturer_input)
 
+    # Rated power (MVA)
+    layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+    power_input = TextInput(
+        hint_text="MVA", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(power_input)
+
     # Maintenance cycle
     layout.add_widget(
         Label(text="Κύκλος Συντήρησης (έτη):", size_hint_y=None, height=30)
@@ -560,6 +601,15 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
             return
 
+        # parse rated power
+        power_val = None
+        if power_input.text.strip():
+            try:
+                power_val = float(power_input.text.strip())
+            except ValueError:
+                show_message_popup("Σφάλμα", "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
+                return
+
         breaker_cat = (
             breaker_spinner.text
             if category_spinner.text in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]
@@ -585,7 +635,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         c = app_instance.conn.cursor()
         try:
             c.execute(
-                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     category_spinner.text,
                     model_name_input.text.strip(),
@@ -594,6 +644,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     space_spinner.text,
                     breaker_cat,
                     sf6_capacity_val,
+                        power_val,
                 ),
             )
             app_instance.conn.commit()
@@ -642,7 +693,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     c = app_instance.conn.cursor()
     c.execute(
-        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg FROM element_models WHERE id=?",
+        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva FROM element_models WHERE id=?",
         (model_id,),
     )
     model = c.fetchone()
@@ -651,7 +702,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         show_message_popup("Σφάλμα", "Το μοντέλο δεν βρέθηκε!")
         return
 
-    category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity = model
+    category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity, power_mva = model
 
     popup = Popup(title=f"Επεξεργασία: {model_name}", size_hint=(0.8, 0.8))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -678,6 +729,16 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         text=manufacturer or "", size_hint_y=None, height=40, multiline=False
     )
     layout.add_widget(manufacturer_input)
+
+    # Rated power (MVA)
+    layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+    power_input = TextInput(
+        text=str(power_mva) if power_mva is not None else "",
+        size_hint_y=None,
+        height=40,
+        multiline=False,
+    )
+    layout.add_widget(power_input)
 
     # Maintenance cycle
     layout.add_widget(
@@ -751,6 +812,15 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
             return
 
+        # parse rated power
+        power_val = None
+        if power_input.text.strip():
+            try:
+                power_val = float(power_input.text.strip())
+            except ValueError:
+                show_message_popup("Σφάλμα", "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
+                return
+
         breaker_cat_val = breaker_spinner.text if breaker_spinner else ""
 
         sf6_capacity_val = None
@@ -773,7 +843,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
         # Update the model
         c.execute(
-            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=? WHERE id=?",
+            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=? WHERE id=?",
             (
                 model_name_input.text.strip(),
                 manufacturer_input.text.strip(),
@@ -781,6 +851,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 space_spinner.text,
                 breaker_cat_val,
                 sf6_capacity_val,
+                power_val,
                 model_id,
             ),
         )
@@ -789,12 +860,13 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         new_model_display = model_name_input.text.strip()
 
         c.execute(
-            "UPDATE elements SET model=?, manufacturer=?, maintenance_cycle=?, installation_space=? WHERE element_model_id=?",
+            "UPDATE elements SET model=?, manufacturer=?, maintenance_cycle=?, installation_space=?, power_mva=? WHERE element_model_id=?",
             (
                 new_model_display,
                 manufacturer_input.text.strip(),
                 cycle_val,
                 space_spinner.text,
+                power_val,
                 model_id,
             ),
         )
@@ -1064,6 +1136,13 @@ def show_model_usages(app_instance, model_id, model_name):
 
         # Group by substation
         current_substation = None
+        # Fetch model rated power once
+        try:
+            c.execute("SELECT power_mva FROM element_models WHERE id=?", (model_id,))
+            _row = c.fetchone()
+            model_power_val = _row[0] if _row and _row[0] is not None else None
+        except Exception:
+            model_power_val = None
         for elem_data in usages:
             (
                 elem_id,
@@ -1175,8 +1254,9 @@ def show_model_usages(app_instance, model_id, model_name):
             sn_label.bind(size=sn_label.setter("text_size"))
             elem_box.add_widget(sn_label)
 
-            # Manufacturer, installation space, operating status
-            details_text = f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | Κατάστ.: {operating_status or 'Ενεργή'}"
+            # Manufacturer, installation space, operating status, model power (format like substation details)
+            display_power_str = f"{model_power_val} MVA" if model_power_val is not None else "-"
+            details_text = f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | Κατάστ.: {operating_status or 'Ενεργή'} | Ισχ.: {display_power_str}"
             details_label = Label(
                 text=details_text,
                 size_hint_y=None,
