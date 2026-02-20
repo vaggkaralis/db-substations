@@ -236,7 +236,7 @@ class SubstationAndroidApp(App):
         self._prompt_local_db_path()
 
     def _prompt_local_db_path(self):
-        popup = Popup(title="Άνοιγμα Τοπικής Βάσης", size_hint=(0.9, 0.4))
+        popup = Popup(title=S["MESSAGES"].get("OPEN_LOCAL_DB_TITLE", "Άνοιγμα Τοπικής Βάσης"), size_hint=(0.9, 0.4))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
         layout.add_widget(Label(text="Δώσε πλήρες path του αρχείου .db"))
         default_path = ANDROID_DEFAULT_DB_PATH
@@ -244,7 +244,7 @@ class SubstationAndroidApp(App):
         layout.add_widget(path_input)
 
         chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
-        choose_btn = Button(text="Αναζήτηση αρχείου")
+        choose_btn = Button(text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου"))
         choose_btn.disabled = not (filechooser or FileChooserListView)
 
         def open_picker():
@@ -362,7 +362,7 @@ class SubstationAndroidApp(App):
             layout.add_widget(file_chooser)
 
         buttons = BoxLayout(size_hint_y=0.3, spacing=10)
-        open_btn = Button(text="Άνοιγμα")
+        open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
         open_btn.bind(
             on_press=lambda _x: (
                 popup.dismiss(),
@@ -900,7 +900,7 @@ class SubstationAndroidApp(App):
                     copy_btn.bind(on_press=_copy_path)
                     # Open folder button (Android intent when available)
                     open_btn = Button(
-                        text="Άνοιγμα φακέλου", size_hint_x=None, width=140
+                        text=S["MESSAGES"].get("OPEN_FOLDER", "Άνοιγμα φακέλου"), size_hint_x=None, width=140
                     )
 
                     def _open_folder(_):
@@ -925,7 +925,7 @@ class SubstationAndroidApp(App):
                                 import traceback as _tb
 
                                 self.show_error(
-                                    f"Άνοιγμα φακέλου απέτυχε: {_tb.format_exc()}"
+                                    f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {_tb.format_exc()}"
                                 )
                             except Exception:
                                 pass
@@ -1127,7 +1127,7 @@ class SubstationAndroidApp(App):
                 # Surface error to the user so the stack/exception is visible in-app
                 import traceback as _tb
 
-                self.show_error(f"Άνοιγμα φακέλου απέτυχε: {_tb.format_exc()}")
+                self.show_error(f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {_tb.format_exc()}")
             except Exception:
                 pass
             try:
@@ -1160,7 +1160,7 @@ class SubstationAndroidApp(App):
                 text=f"File: {change_log_path}\nExists: {exists}  Size: {size} bytes",
             )
             btns = BoxLayout(size_hint_y=None, height=48, spacing=8)
-            open_btn = Button(text="Άνοιγμα φακέλου")
+            open_btn = Button(text=S["MESSAGES"].get("OPEN_FOLDER", "Άνοιγμα φακέλου"))
 
             def _on_open(_):
                 try:
@@ -1168,7 +1168,7 @@ class SubstationAndroidApp(App):
                 except Exception as e:
                     # Surface error to the user and then fallback to clipboard
                     try:
-                        self.show_error(f"Άνοιγμα φακέλου απέτυχε: {e}")
+                        self.show_error(f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {e}")
                     except Exception:
                         pass
                     try:
@@ -1508,7 +1508,7 @@ class SubstationAndroidApp(App):
         )
         button_layout.add_widget(inspect_btn)
 
-        add_elem_btn = Button(text="+ Στοιχείο")
+        add_elem_btn = Button(text="+ " + S["BUTTONS"]["ADD"] + " Στοιχείου")
         add_elem_btn.bind(on_press=lambda x: self.show_add_element_popup(substation_id))
         button_layout.add_widget(add_elem_btn)
 
@@ -1579,7 +1579,7 @@ class SubstationAndroidApp(App):
 
     def show_add_substation_popup(self, instance):
         """Show popup to add a new substation"""
-        popup = Popup(title="Προσθήκη Υποσταθμού", size_hint=(0.95, 0.7))
+        popup = Popup(title=S["MESSAGES"].get("ADD_SUBSTATION_TITLE", "Προσθήκη Υποσταθμού"), size_hint=(0.95, 0.7))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
@@ -1641,7 +1641,7 @@ class SubstationAndroidApp(App):
 
     def show_add_element_popup(self, substation_id):
         """Show popup to add a new element"""
-        popup = Popup(title="Προσθήκη Στοιχείου", size_hint=(0.95, 0.9))
+        popup = Popup(title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"), size_hint=(0.95, 0.9))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Scrollable input area
@@ -1834,8 +1834,8 @@ class SubstationAndroidApp(App):
         # Maintenance Type
         content_layout.add_widget(wrapped_label("Τύπος Συντήρησης:"))
         maint_type_spinner = Spinner(
-            text="Επαναληπτική συντήρηση",
-            values=["Επαναληπτική συντήρηση", "Βλάβη", "Οπτικός έλεγχος"],
+            text=S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"),
+            values=S.get("MESSAGES", {}).get("MAINTENANCE_TYPES", ["Επαναληπτική συντήρηση", "Βλάβη", "Οπτικός έλεγχος"]),
             size_hint_y=None,
             height=56,
         )

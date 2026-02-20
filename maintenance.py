@@ -288,7 +288,7 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     prefill = {
         "substation_id": substation_id,
         "substation_name": substation_name,
-        "maintenance_type": "Επαναληπτική συντήρηση",
+        "maintenance_type": S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"),
         "date_time": date_time_value,
         "overall_comments": body,
         "responsible_id": responsible_id,

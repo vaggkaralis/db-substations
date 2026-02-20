@@ -61,7 +61,7 @@ def show_add_element_popup(app, instance):
     from kivy.uix.spinner import Spinner
     from kivy.uix.scrollview import ScrollView
 
-    popup = Popup(title="Προσθήκη Στοιχείου", size_hint=(0.8, 0.9))
+    popup = Popup(title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"), size_hint=(0.8, 0.9))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     # Create scrollable area for inputs
@@ -481,7 +481,7 @@ def show_add_element_popup(app, instance):
     add_btn.bind(on_press=lambda x: add_element())
     buttons_layout.add_widget(add_btn)
 
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 
@@ -1091,7 +1091,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
     from kivy.uix.spinner import Spinner
     from kivy.uix.textinput import TextInput
 
-    popup = Popup(title="Προσθήκη Στοιχείου", size_hint=(0.8, 0.9))
+    popup = Popup(title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"), size_hint=(0.8, 0.9))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])

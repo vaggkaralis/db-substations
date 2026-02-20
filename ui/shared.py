@@ -469,8 +469,9 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                     lbl.texture_update()
                 except Exception:
                     pass
-                w = lbl.texture_size[0] + 12 if hasattr(lbl, "texture_size") else 100
-                h = lbl.texture_size[1] + 8 if hasattr(lbl, "texture_size") else 24
+                # give a slightly larger horizontal/vertical margin to avoid clipping
+                w = lbl.texture_size[0] + 24 if hasattr(lbl, "texture_size") else 100
+                h = lbl.texture_size[1] + 12 if hasattr(lbl, "texture_size") else 24
                 lbl.size = (w, h)
                 # position at top-right of cursor, with fallback below if space insufficient
                 x = pos[0] + 12
@@ -486,6 +487,33 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                     y = 6
                 lbl.pos = (x, y)
                 lbl.canvas.ask_update()
+                # schedule a post-layout update to recompute texture-derived size/position
+                try:
+                    from kivy.clock import Clock
+
+                    def _refresh_tooltip(dt):
+                        try:
+                            lbl.texture_update()
+                        except Exception:
+                            pass
+                        w2 = lbl.texture_size[0] + 24 if hasattr(lbl, "texture_size") else lbl.width
+                        h2 = lbl.texture_size[1] + 12 if hasattr(lbl, "texture_size") else lbl.height
+                        lbl.size = (w2, h2)
+                        # reposition with same clamping logic
+                        x2 = pos[0] + 12
+                        y2 = pos[1] + 12
+                        win_w, win_h = Window.size
+                        if x2 + w2 > win_w:
+                            x2 = win_w - w2 - 6
+                        if y2 + h2 > win_h:
+                            y2 = pos[1] - h2 - 12
+                        if y2 < 6:
+                            y2 = 6
+                        lbl.pos = (x2, y2)
+
+                    Clock.schedule_once(_refresh_tooltip, 0)
+                except Exception:
+                    pass
                 # Add tooltip to Window to avoid affecting root layout sizing.
                 try:
                     Window.add_widget(lbl)

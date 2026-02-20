@@ -1002,30 +1002,12 @@ class SubstationApp(App):
         version = self._get_app_version()
 
         app_dir = os.path.dirname(__file__)
-        info_text_plain = (
-            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\n"
-            f"Έκδοση: {version}\n\n"
-            "Λειτουργίες εφαρμογής:\n"
-            "• Προβολή και διαχείριση βάσης υποσταθμών\n"
-            "• Προσθήκη/επεξεργασία/διαγραφή υποσταθμών και στοιχείων\n"
-            "• Κατηγορίες διακοπτών (SF6/Ελαίου/Πτωχού Ελαίου)\n"
-            "• Διαχείριση τύπων στοιχείων (μοντέλα/κατασκευαστές/κύκλοι)\n"
-            "• Καταχώρηση συντηρήσεων\n"
-            "• Εισαγωγή συντήρησης από e-mail (.eml)\n"
-            "• Ιστορικό συντηρήσεων (όλων/ανά υποσταθμό)\n"
-            "• Μετρήσεις διακοπτών (μόνωση/διέλευση/χειρισμοί)\n"
-            "• Ποιότητα αερίου SF6 & διαρροές (kg)\n"
-            "• Διαχείριση SF6 (αναφορά διαρροών ανά έτος)\n"
-            "• Εξαγωγή Excel αναφορών SF6 (σύνοψη & ανά υποσταθμό)\n"
-            "• Εκτύπωση PDF αναφορών συντήρησης\n"
-            "• Επιθεωρήσεις (καταχώρηση/προβολή/ιστορικό)\n"
-            "• Αιτήσεις απομόνωσης\n"
-            "• Εισαγωγή υποσταθμών/στοιχείων από CSV/Excel\n"
-            "• Αναφορές PDF & Excel\n\n"
-            f"Φάκελος εφαρμογής: {app_dir}"
-        )
+        info_text_plain = S["MESSAGES"].get(
+            "APP_INFO_BODY",
+            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\nΈκδοση: {version}\n\nΦάκελος εφαρμογής: {app_dir}"
+        ).format(version=version, app_dir=app_dir)
 
-        popup = Popup(title="Πληροφορίες Εφαρμογής", size_hint=(0.7, 0.6))
+        popup = Popup(title=S["MESSAGES"].get("APP_INFO_TITLE", "Πληροφορίες Εφαρμογής"), size_hint=(0.7, 0.6))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         info_field = ShiftSelectableTextInput(
@@ -4891,7 +4873,7 @@ class SubstationApp(App):
                 callback=lambda: self._display_substations(substation_name),
             )
 
-        add_btn = Button(text="Προσθήκη")
+        add_btn = Button(text=S["BUTTONS"]["ADD"])
         add_btn.bind(on_press=lambda x: add_element())
         buttons_layout.add_widget(add_btn)
 
@@ -5075,13 +5057,13 @@ class SubstationApp(App):
         maint_type_default = (
             maintenance_record[4]
             if maintenance_record and maintenance_record[4]
-            else "Επαναληπτική συντήρηση"
+            else S["MESSAGES"]["MAINT_TYPE_DEFAULT"]
         )
         if not maintenance_id and prefill_data.get("maintenance_type"):
             maint_type_default = prefill_data.get("maintenance_type")
         maintenance_type_spinner = Spinner(
             text=maint_type_default,
-            values=["Επαναληπτική συντήρηση", "Βλάβη", "Οπτικός έλεγχος"],
+            values=S["MESSAGES"]["MAINTENANCE_TYPES"],
             size_hint_y=None,
             height=35,
         )
@@ -6662,17 +6644,20 @@ class SubstationApp(App):
                 substation_id, substation_name, popup
             )
 
-        add_element_btn = Button(text=S["BUTTONS"]["ADD"] + " Στοιχείο", size_hint_x=None)
+        add_element_btn = Button(text=S["BUTTONS"]["ADD"] + " Στοιχείου", size_hint_x=None)
         add_element_btn.bind(on_press=lambda x: add_element_from_maintenance())
 
         def _resize_add_button(*_args):
             min_width = Window.width * 0.3
-            text_width = add_element_btn.texture_size[0] + 40
+            # add a slightly larger margin to avoid a single-character clipping
+            text_width = add_element_btn.texture_size[0] + 60
             add_element_btn.width = max(min_width, text_width)
 
         add_element_btn.bind(texture_size=lambda *_: _resize_add_button())
         Window.bind(size=lambda *_: _resize_add_button())
-        _resize_add_button()
+        # schedule one resize after layout so initial texture metrics are correct
+        from kivy.clock import Clock
+        Clock.schedule_once(lambda dt: _resize_add_button(), 0)
 
         add_element_row.add_widget(Widget())
         add_element_row.add_widget(add_element_btn)
@@ -7343,7 +7328,7 @@ class SubstationApp(App):
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Add Maintenance button at the top
-        add_maint_btn = Button(text="+ Προσθήκη Νέας Συντήρησης", size_hint_y=0.1)
+        add_maint_btn = Button(text=S["BUTTONS"].get("ADD_MAINTENANCE", "+ Προσθήκη Νέας Συντήρησης"), size_hint_y=0.1)
         add_maint_btn.bind(
             on_press=lambda x: self.show_maintenance_menu_for_substation(
                 substation_id, substation_name, popup

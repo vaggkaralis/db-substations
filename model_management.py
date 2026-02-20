@@ -27,7 +27,7 @@ def show_models_management(app_instance):
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     # Add model button
-    add_btn = Button(text="+ Προσθήκη Νέου Μοντέλου", size_hint_y=0.1)
+    add_btn = Button(text=S["BUTTONS"].get("ADD_MODEL", "+ Προσθήκη Νέου Μοντέλου"), size_hint_y=0.1)
     add_btn.bind(on_press=lambda x: show_add_model_popup(app_instance, popup))
     main_layout.add_widget(add_btn)
 
@@ -231,7 +231,7 @@ def show_models_management(app_instance):
                                     manual_label = (
                                         "Manual"
                                         if manual_pdf and os.path.exists(manual_pdf)
-                                        else "Προσθήκη Manual"
+                                        else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                                     )
                                     manual_btn = Button(
                                         text=manual_label, size_hint_x=0.25
@@ -366,7 +366,7 @@ def show_models_management(app_instance):
                             manual_label = (
                                 "Manual"
                                 if manual_pdf and os.path.exists(manual_pdf)
-                                else "Προσθήκη Manual"
+                                else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                             )
                             manual_btn = Button(text=manual_label, size_hint_x=0.25)
                             manual_btn.bind(
@@ -465,7 +465,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     from kivy.uix.scrollview import ScrollView
     from popups import show_message_popup
 
-    popup = Popup(title="Προσθήκη Νέου Μοντέλου", size_hint=(0.8, 0.8))
+    popup = Popup(title=S["MESSAGES"].get("ADD_MODEL_TITLE", "Προσθήκη Νέου Μοντέλου"), size_hint=(0.8, 0.8))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -956,7 +956,7 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
     layout.add_widget(path_label)
 
     path_input = TextInput(
-        hint_text="Διαδρομή αρχείου", size_hint_y=0.12, multiline=False
+        hint_text=S.get("MESSAGES", {}).get("FILE_PATH_HINT", "Διαδρομή αρχείου"), size_hint_y=0.12, multiline=False
     )
     layout.add_widget(path_input)
 

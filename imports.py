@@ -63,10 +63,10 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     # Path input
-    path_label = Label(text="Διαδρομή αρχείου:", size_hint_y=0.1)
+    path_label = Label(text=S.get("MESSAGES", {}).get("FILE_PATH_LABEL", "Διαδρομή αρχείου:"), size_hint_y=0.1)
     layout.add_widget(path_label)
 
-    path_input = TextInput(hint_text="Διαδρομή αρχείου", size_hint_y=0.15, multiline=False)
+    path_input = TextInput(hint_text=S.get("MESSAGES", {}).get("FILE_PATH_HINT", "Διαδρομή αρχείου"), size_hint_y=0.15, multiline=False)
     layout.add_widget(path_input)
 
     # File chooser with default path

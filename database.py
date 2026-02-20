@@ -376,7 +376,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if "maintenance_type" not in maint_columns:
         try:
             cursor.execute(
-                'ALTER TABLE maintenance ADD COLUMN maintenance_type TEXT DEFAULT "Επαναληπτική συντήρηση"'
+                'ALTER TABLE maintenance ADD COLUMN maintenance_type TEXT DEFAULT "' + S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση") + '"'
             )
         except Exception:
             pass
