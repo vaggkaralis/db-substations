@@ -1766,17 +1766,9 @@ class SubstationAndroidApp(App):
 
     def delete_element(self, element_id):
         """Delete an element"""
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.7, 0.35))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        layout.add_widget(
-            Label(text="Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το στοιχείο;")
-        )
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def do_delete():
-            confirm_popup.dismiss()
             try:
                 self._append_change_log("delete", "elements", {"id": element_id})
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
@@ -1794,33 +1786,20 @@ class SubstationAndroidApp(App):
             except Exception as e:
                 self.show_error(f"Local DB error: {str(e)}")
 
-        yes_btn = Button(text="Ναι")
-        yes_btn.bind(on_press=lambda x: do_delete())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="Όχι")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το στοιχείο;",
+            yes_callback=do_delete,
+            yes_color=(1, 0, 0, 1),
+            yes_text="ΝΑΙ",
+            no_text="ΟΧΙ",
+        )
 
     def delete_substation(self, substation_id):
         """Delete a substation"""
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.7, 0.35))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        layout.add_widget(
-            Label(
-                text="Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτόν τον υποσταθμό και τα στοιχεία του;"
-            )
-        )
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def do_delete():
-            confirm_popup.dismiss()
             try:
                 self._append_change_log("delete", "substations", {"id": substation_id})
                 success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
@@ -1838,17 +1817,14 @@ class SubstationAndroidApp(App):
             except Exception as e:
                 self.show_error(f"Local DB error: {str(e)}")
 
-        yes_btn = Button(text="Ναι")
-        yes_btn.bind(on_press=lambda x: do_delete())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="Όχι")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτόν τον υποσταθμό και τα στοιχεία του;",
+            yes_callback=do_delete,
+            yes_color=(1, 0, 0, 1),
+            yes_text="ΝΑΙ",
+            no_text="ΟΧΙ",
+        )
 
     def show_maintenance_menu(self, substation_id, substation):
         """Show maintenance recording interface"""

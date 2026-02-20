@@ -635,164 +635,53 @@ class SubstationApp(App):
         return True
 
     def show_maintenance_menu_popup(self, instance=None):
-        """Show maintenance main menu with entry + global history."""
-        menu_popup = Popup(title="Συντηρήσεις", size_hint=(0.6, 0.4))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        self._add_logo_to_layout(layout, height=70)
-
-        layout.add_widget(Label(text="Επιλέξτε ενέργεια:", size_hint_y=0.2))
-
-        add_btn = Button(text="Καταχώρηση Συντήρησης", size_hint_y=0.3)
-        add_btn.bind(
-            on_press=lambda x: self.show_maintenance_menu(parent_popup=menu_popup)
-        )
-        layout.add_widget(add_btn)
-
-        import_email_btn = Button(
-            text="Εισαγωγή συντήρησης από e-mail", size_hint_y=0.3
-        )
-        import_email_btn.bind(
-            on_press=lambda x: self._show_import_maintenance_email_dialog(menu_popup)
-        )
-        layout.add_widget(import_email_btn)
-
-        # Export maintenances (Excel)
+        # Delegated implementation in maintenance.py
+        from maintenance import show_maintenance_menu_popup as _m
+        ui = {
+            "Popup": Popup,
+            "BoxLayout": BoxLayout,
+            "Label": Label,
+            "Button": Button,
+            "TextInput": TextInput,
+            "FileChooserListView": FileChooserListView,
+            "Spinner": Spinner,
+            "ask_open_file": ask_open_file,
+            "show_message_popup": show_message_popup,
+            "parse_eml_file": parse_eml_file,
+        }
         try:
+            # provide export helper if available
             from excel_io import export_maintenances_per_substation
 
-            export_maint_btn = Button(text="Εξαγωγή Συντηρήσεων (Excel)", size_hint_y=0.3)
-            export_maint_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_maintenances_per_substation(self.conn)))
-            layout.add_widget(export_maint_btn)
+            ui["export_maintenances_per_substation"] = export_maintenances_per_substation
         except Exception:
-            pass
+            ui["export_maintenances_per_substation"] = None
 
-        history_btn = Button(text="Ιστορικό Συντηρήσεων", size_hint_y=0.3)
-        history_btn.bind(
-            on_press=lambda x: (
-                menu_popup.dismiss(),
-                self.show_maintenance_history(None),
-            )
-        )
-        layout.add_widget(history_btn)
-
-        cancel_btn = Button(text="Ακύρωση", size_hint_y=0.2)
-        cancel_btn.bind(on_press=menu_popup.dismiss)
-        layout.add_widget(cancel_btn)
-
-        menu_popup.content = layout
-        menu_popup.open()
+        return _m(self, ui)
 
     def _show_import_maintenance_email_dialog(self, parent_popup=None):
-        # Prefer native Windows file dialog when available: open it and import directly.
-        allow_fallback = False
-        try:
-            fp = ask_open_file(title="Select .eml file", filetypes=(("EML files", "*.eml"),))
-        except ImportError:
-            # tkinter not available -> show in-app chooser
-            allow_fallback = True
-            fp = None
-        except Exception:
-            # treat other unexpected errors as cancellation
-            fp = None
-
-        if fp:
-            try:
-                if parent_popup:
-                    parent_popup.dismiss()
-            except Exception:
-                pass
-            self._import_maintenance_from_email_file(fp)
-            return
-
-        if not allow_fallback:
-            # User cancelled native dialog — do not open in-app selector
-            return
-
-        popup = Popup(title="Εισαγωγή Συντήρησης από E-mail", size_hint=(0.9, 0.9))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        path_label = Label(text="Διαδρομή αρχείου (.eml):", size_hint_y=0.1)
-        layout.add_widget(path_label)
-
-        # Row with path input and native chooser button (attempts tkinter)
-        path_row = BoxLayout(orientation="horizontal", size_hint_y=0.12, spacing=8)
-        path_input = TextInput(hint_text="Διαδρομή αρχείου .eml", multiline=False)
-
-        def _choose_file_native(_instance=None):
-            try:
-                fp = ask_open_file(title="Select .eml file", filetypes=(("EML files", "*.eml"),))
-            except ImportError:
-                show_message_popup(
-                    "Σφάλμα",
-                    "Δεν είναι δυνατή η εμφάνιση εγγενούς διαλόγου αρχείων. Χρησιμοποιήστε τον επιλεγέα της εφαρμογής.",
-                )
-                return
-            except Exception:
-                return
-
-            if fp:
-                path_input.text = fp
-
-        choose_btn = Button(text="Επιλογή αρχείου...", size_hint_x=None, width=180)
-        choose_btn.bind(on_press=_choose_file_native)
-
-        path_row.add_widget(path_input)
-        path_row.add_widget(choose_btn)
-        layout.add_widget(path_row)
-
-        layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
-        chooser = FileChooserListView(filters=["*.eml"], path=os.path.dirname(__file__))
-        layout.add_widget(chooser)
-
-        buttons_layout = BoxLayout(size_hint_y=0.12, spacing=10)
-
-        def import_email_file():
-            file_path = (
-                path_input.text.strip()
-                if path_input.text.strip()
-                else (chooser.selection[0] if chooser.selection else None)
-            )
-
-            if not file_path:
-                show_message_popup(
-                    "Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
-                )
-                return
-
-            if not os.path.exists(file_path):
-                show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
-                return
-
-            if not file_path.lower().endswith(".eml"):
-                show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο .eml!")
-                return
-
-            popup.dismiss()
-            if parent_popup:
-                parent_popup.dismiss()
-            self._import_maintenance_from_email_file(file_path)
-
-        import_btn = Button(text="Εισαγωγή")
-        import_btn.bind(on_press=lambda x: import_email_file())
-        buttons_layout.add_widget(import_btn)
-
-        cancel_btn = Button(text="Ακύρωση")
-        cancel_btn.bind(on_press=popup.dismiss)
-        buttons_layout.add_widget(cancel_btn)
-
-        layout.add_widget(buttons_layout)
-        popup.content = layout
-        popup.open()
+        from maintenance import _show_import_maintenance_email_dialog as _m
+        ui = {
+            "Popup": Popup,
+            "BoxLayout": BoxLayout,
+            "Label": Label,
+            "Button": Button,
+            "TextInput": TextInput,
+            "FileChooserListView": FileChooserListView,
+            "Spinner": Spinner,
+            "ask_open_file": ask_open_file,
+            "show_message_popup": show_message_popup,
+            "parse_eml_file": parse_eml_file,
+        }
+        return _m(self, ui, parent_popup)
 
     def _import_maintenance_from_email_file(self, file_path):
-        try:
-            payload = parse_eml_file(file_path)
-        except Exception as exc:
-            show_message_popup("Σφάλμα", f"Αποτυχία ανάγνωσης .eml:\n{str(exc)}")
-            return
-
-        self._open_maintenance_from_email_payload(payload)
+        from maintenance import _import_maintenance_from_email_file as _m
+        ui = {
+            "parse_eml_file": parse_eml_file,
+            "show_message_popup": show_message_popup,
+        }
+        return _m(self, ui, file_path)
 
     def _normalize_text(self, value: str) -> str:
         if not value:
@@ -910,151 +799,24 @@ class SubstationApp(App):
     def _get_previous_maintenance_defaults(
         self, substation_id: int, date_time_value: str
     ):
-        c = self.conn.cursor()
-        c.execute(
-            """
-            SELECT id, maintenance_type, overall_comments, responsible_id
-            FROM maintenance
-            WHERE substation_id = ? AND date_time < ?
-            ORDER BY date_time DESC
-            LIMIT 1
-            """,
-            (substation_id, date_time_value),
-        )
-        row = c.fetchone()
-        if not row:
-            return {}
-
-        maintenance_id, maint_type, comments, responsible_id = row
-
-        c.execute(
-            "SELECT person_id, role FROM maintenance_people WHERE maintenance_id=?",
-            (maintenance_id,),
-        )
-        people_rows = c.fetchall()
-        crew_ids = {pid for pid, role in people_rows if role == "crew"}
-        if not responsible_id:
-            for pid, role in people_rows:
-                if role == "responsible":
-                    responsible_id = pid
-                    break
-
-        c.execute(
-            "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
-            (maintenance_id,),
-        )
-        element_ids = {row[0] for row in c.fetchall()}
-
-        return {
-            "maintenance_type": maint_type,
-            "overall_comments": comments,
-            "responsible_id": responsible_id,
-            "crew_ids": crew_ids,
-            "element_ids": element_ids,
-        }
+        from maintenance import _get_previous_maintenance_defaults as _m
+        return _m(self, substation_id, date_time_value)
 
     def _open_maintenance_from_email_payload(self, payload, forced_substation=None):
-        subject = payload.get("subject", "")
-        body = payload.get("body", "")
-        sender_name = payload.get("sender_name", "")
-        received_at = payload.get("received_at", "")
-
-        c = self.conn.cursor()
-        c.execute("SELECT id, name FROM substations ORDER BY name")
-        substations = c.fetchall()
-        if not substations:
-            show_message_popup("Σφάλμα", "Δεν υπάρχουν υποσταθμοί!")
-            return
-
-        substation = None
-        if forced_substation:
-            for sub_id, sub_name in substations:
-                if sub_name == forced_substation:
-                    substation = (sub_id, sub_name)
-                    break
-        if not substation:
-            substation = self._find_substation_in_text(subject, substations)
-        if not substation:
-            substation = self._find_substation_in_text(body, substations)
-        if not substation:
-            self._prompt_substation_selection(substations, payload)
-            return
-
-        substation_id, substation_name = substation
-
-        c.execute(
-            "SELECT COUNT(*) FROM elements WHERE substation_id=?", (substation_id,)
-        )
-        if c.fetchone()[0] == 0:
-            self._prompt_add_elements_then_continue(
-                substation_id, substation_name, payload
-            )
-            return
-
-        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE")
-        people = c.fetchall()
-        if not people:
-            show_message_popup(
-                "Σφάλμα",
-                "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
-            )
-            return
-
-        responsible_id = self._match_person_by_sender(sender_name, people)
-        crew_ids = self._find_people_in_body(
-            body, people, exclude_ids={responsible_id} if responsible_id else set()
-        )
-
-        element_ids = self._find_elements_in_body(body, substation_id)
-        incomplete_elements = set(element_ids)
-
-        date_time_value = ""
-        if received_at:
-            try:
-                dt = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
-                date_time_value = dt.strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                date_time_value = ""
-        if not date_time_value:
-            date_time_value = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-        prefill = {
-            "substation_id": substation_id,
-            "substation_name": substation_name,
-            "maintenance_type": "Επαναληπτική συντήρηση",
-            "date_time": date_time_value,
-            "overall_comments": body,
-            "responsible_id": responsible_id,
-            "crew_ids": crew_ids,
-            "element_ids": element_ids,
-            "incomplete_elements": incomplete_elements,
+        from maintenance import open_maintenance_from_email_payload as _m
+        ui = {
+            "Popup": Popup,
+            "BoxLayout": BoxLayout,
+            "Label": Label,
+            "Button": Button,
+            "TextInput": TextInput,
+            "FileChooserListView": FileChooserListView,
+            "Spinner": Spinner,
+            "ask_open_file": ask_open_file,
+            "show_message_popup": show_message_popup,
+            "parse_eml_file": parse_eml_file,
         }
-
-        prev = self._get_previous_maintenance_defaults(substation_id, date_time_value)
-        if prev:
-            if not prefill["responsible_id"] and prev.get("responsible_id"):
-                prefill["responsible_id"] = prev.get("responsible_id")
-            if not prefill["crew_ids"] and prev.get("crew_ids"):
-                prefill["crew_ids"] = prev.get("crew_ids")
-            if not prefill["element_ids"] and prev.get("element_ids"):
-                prefill["element_ids"] = prev.get("element_ids")
-                prefill["incomplete_elements"] = set(prefill["element_ids"])
-            if not prefill["maintenance_type"] and prev.get("maintenance_type"):
-                prefill["maintenance_type"] = prev.get("maintenance_type")
-            if not prefill["overall_comments"] and prev.get("overall_comments"):
-                prefill["overall_comments"] = prev.get("overall_comments")
-
-        if not prefill["responsible_id"]:
-            self._prompt_responsible_selection(people, prefill)
-            return
-
-        self.show_maintenance_menu(
-            preselected_substation_name=substation_name,
-            parent_popup=None,
-            maintenance_id=None,
-            after_save_callback=None,
-            prefill_data=prefill,
-        )
+        return _m(self, ui, payload, forced_substation)
 
     def _prompt_substation_selection(self, substations, payload):
         popup = Popup(title="Ο υποσταθμός δε βρέθηκε", size_hint=(0.7, 0.5))
@@ -1373,422 +1135,16 @@ class SubstationApp(App):
         return "-"
 
     def _get_sf6_report_data(self, year: str):
-        c = self.conn.cursor()
-        year_prefix = f"{year}%"
-
-        c.execute(
-            """
-                 SELECT m.date_time, s.name, e.name, e.element_type, me.sf6_leakage_kg,
-                     me.sf6_leak_methodology, p.name
-            FROM maintenance_elements me
-            JOIN maintenance m ON me.maintenance_id = m.id
-            JOIN elements e ON me.element_id = e.id
-            JOIN substations s ON m.substation_id = s.id
-            LEFT JOIN people p ON m.responsible_id = p.id
-            WHERE e.breaker_category = 'SF6'
-              AND m.date_time LIKE ?
-              AND me.sf6_leakage_kg IS NOT NULL
-              AND me.sf6_leakage_kg > 0
-            ORDER BY m.date_time ASC
-            """,
-            (year_prefix,),
-        )
-        leak_rows = c.fetchall()
-
-        total_leakage = 0.0
-        rows = []
-        for (
-            date_time,
-            sub_name,
-            elem_name,
-            elem_type,
-            leakage,
-            methodology,
-            responsible_name,
-        ) in leak_rows:
-            total_leakage += leakage
-            rows.append(
-                {
-                    "date_time": date_time or "-",
-                    "substation": sub_name or "-",
-                    "element": elem_name or "-",
-                    "leakage": leakage,
-                    "methodology": methodology or "",
-                    "responsible": responsible_name or "-",
-                }
-            )
-
-        substation_rows = {}
-        for row in rows:
-            substation_rows.setdefault(row["substation"], []).append(row)
-
-        c.execute("""
-            SELECT
-                COUNT(*),
-                SUM(COALESCE(em.sf6_capacity_kg, 0))
-            FROM elements e
-            LEFT JOIN element_models em ON e.element_model_id = em.id
-            WHERE e.operating_status = 'Ενεργή'
-              AND e.breaker_category = 'SF6'
-              AND e.element_type IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')
-            """)
-        counts = c.fetchone()
-        total_elements = counts[0] or 0
-        installed_sf6 = counts[1] or 0.0
-
-        c.execute("""
-            SELECT COUNT(*), COUNT(DISTINCT s.id)
-            FROM elements e
-            JOIN substations s ON e.substation_id = s.id
-            WHERE e.operating_status = 'Ενεργή'
-              AND e.breaker_category = 'SF6'
-              AND e.element_type IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')
-            """)
-        active_counts = c.fetchone()
-        active_elements = active_counts[0] or 0
-        active_substations = active_counts[1] or 0
-
-        c.execute("""
-            SELECT s.name, SUM(COALESCE(em.sf6_capacity_kg, 0))
-            FROM elements e
-            JOIN substations s ON e.substation_id = s.id
-            LEFT JOIN element_models em ON e.element_model_id = em.id
-            WHERE e.operating_status = 'Ενεργή'
-              AND e.breaker_category = 'SF6'
-              AND e.element_type IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')
-            GROUP BY s.name
-            """)
-        substation_installed = {row[0]: (row[1] or 0.0) for row in c.fetchall()}
-
-        percentage = (total_leakage / installed_sf6 * 100) if installed_sf6 else 0.0
-
-        return {
-            "total_leakage": total_leakage,
-            "installed_sf6": installed_sf6,
-            "percentage": percentage,
-            "total_elements": total_elements,
-            "active_elements": active_elements,
-            "active_substations": active_substations,
-            "rows": rows,
-            "substation_rows": substation_rows,
-            "substation_installed": substation_installed,
-        }
+        from reports import _get_sf6_report_data as _f
+        return _f(self, year)
 
     def _export_sf6_excel(self, year: str):
-        try:
-            from openpyxl import Workbook
-            from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
-        except Exception as exc:
-            raise RuntimeError(
-                "Δεν βρέθηκε το πακέτο openpyxl. Εγκαταστήστε το για εξαγωγή Excel."
-            ) from exc
-
-        data = self._get_sf6_report_data(year)
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Σύνοψη"
-
-        grey_fill = PatternFill(fill_type="solid", fgColor="D9D9D9")
-        blue_fill = PatternFill(fill_type="solid", fgColor="1F4E79")
-        white_font = Font(color="FFFFFF", bold=True)
-        bold_font = Font(bold=True)
-        thin = Side(style="thin")
-        border = Border(left=thin, right=thin, top=thin, bottom=thin)
-        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-        summary_titles = [
-            "ΣΥΝΟΛΙΚΗ ΕΓΚΑΤΕΣΤΗΜΕΝΗ ΠΟΣΟΤΗΤΑ (kg)",
-            f"ΔΙΑΡΡΟΕΣ {year} (kg)",
-            f"ΠΟΣΟΣΤΟ ΔΙΑΡΡΟΩΝ {year}",
-        ]
-        summary_values = [
-            f"{data['installed_sf6']:.2f}",
-            f"{data['total_leakage']:.2f}",
-            f"{data['percentage']:.2f}%",
-        ]
-
-        for col_idx, title in enumerate(summary_titles, start=1):
-            cell = ws.cell(row=1, column=col_idx, value=title)
-            cell.fill = grey_fill
-            cell.font = bold_font
-            cell.alignment = center
-            cell.border = border
-
-            val_cell = ws.cell(row=2, column=col_idx, value=summary_values[col_idx - 1])
-            val_cell.alignment = center
-            val_cell.border = border
-
-        ws.row_dimensions[1].height = 30
-        ws.row_dimensions[2].height = 24
-
-        for col in range(1, 4):
-            ws.column_dimensions[chr(64 + col)].width = 35
-
-        substation_sums = []
-        for substation, rows in data["substation_rows"].items():
-            total = sum([r.get("leakage") or 0 for r in rows])
-            if total > 0:
-                substation_sums.append((substation, total))
-
-        start_row = 4
-        if substation_sums:
-            ws.cell(row=start_row, column=1, value="Υποσταθμός").font = bold_font
-            ws.cell(row=start_row, column=2, value="Σύνολο Διαρροών (kg)").font = (
-                bold_font
-            )
-            for col_idx in (1, 2):
-                cell = ws.cell(row=start_row, column=col_idx)
-                cell.alignment = center
-                cell.border = border
-
-            row_ptr = start_row + 1
-            for substation, total in sorted(substation_sums, key=lambda x: x[0] or ""):
-                ws.cell(row=row_ptr, column=1, value=substation or "-").border = border
-                ws.cell(row=row_ptr, column=2, value=f"{total:.2f}").border = border
-                ws.cell(row=row_ptr, column=1).alignment = center
-                ws.cell(row=row_ptr, column=2).alignment = center
-                row_ptr += 1
-
-        for substation, rows in data["substation_rows"].items():
-            sheet_title = substation[:31] if substation else "Υποσταθμός"
-            if sheet_title in wb.sheetnames:
-                suffix = 1
-                base = sheet_title[:28]
-                while f"{base}_{suffix}" in wb.sheetnames:
-                    suffix += 1
-                sheet_title = f"{base}_{suffix}"
-
-            ws_sub = wb.create_sheet(title=sheet_title)
-            ws_sub.merge_cells("A1:J1")
-            title_cell = ws_sub["A1"]
-            title_cell.value = "ΠΙΝΑΚΑΣ 4: ΠΗΓΗ ΕΚΠΟΜΠΩΝ ΑΠΌ ΕΞΟΠΛΙΣΜΟ ΧΡΗΣΗΣ SF6"
-            title_cell.alignment = center
-
-            for col_idx in range(1, 11):
-                cell = ws_sub.cell(row=1, column=col_idx)
-                cell.fill = blue_fill
-                cell.font = white_font
-                cell.alignment = center
-                cell.border = border
-
-            headers = [
-                "Α/Α",
-                "ΒΟΚ ή ΠΕΡΙΟΧΗ",
-                "ΕΓΚΑΤΑΣΤΑΣΗ (Πχ. Όνομα Υ/Σ)",
-                "ΜΟΝΑΔΑ ΜΕΤΡΗΣΗΣ",
-                "ΠΛΗΡΩΣΗ Ή ΑΝΤΙΚΑΤΑΣΤΑΣΗ (ΜΕΘΟΔΟΛΟΓΙΑ)",
-                "ΣΥΝΟΛΙΚΗ ΕΓΚΑΤΕΣΤΗΜΕΝΗ ΠΟΣΟΤΗΤΑ (kg)",
-                "ΠΟΣΟΤΗΤΑ ΔΙΑΡΡΟΩΝ (kg)",
-                "ΗΜ/ΝΙΑ",
-                "ΥΠΕΥΘΥΝΟΣ ΣΥΝΕΡΓΕΙΟΥ",
-                "ΥΠΟΓΡΑΦΗ",
-            ]
-
-            for col_idx, header in enumerate(headers, start=1):
-                cell = ws_sub.cell(row=2, column=col_idx, value=header)
-                cell.font = bold_font
-                cell.alignment = center
-                cell.border = border
-
-            installed_sub = data["substation_installed"].get(substation, 0.0)
-            start_row = 3
-            for idx, row in enumerate(rows, start=1):
-                values = [
-                    idx,
-                    "ΔΕΕΔ",
-                    substation,
-                    "kg",
-                    row.get("methodology", "") or "",
-                    f"{installed_sub:.2f}",
-                    f"{row['leakage']:.2f}",
-                    row["date_time"],
-                    row.get("responsible", "-") or "-",
-                    "",
-                ]
-                for col_idx, value in enumerate(values, start=1):
-                    cell = ws_sub.cell(row=start_row, column=col_idx, value=value)
-                    cell.alignment = Alignment(
-                        horizontal="center", vertical="center", wrap_text=True
-                    )
-                    cell.border = border
-                start_row += 1
-
-            ws_sub.row_dimensions[1].height = 30
-            ws_sub.row_dimensions[2].height = 28
-            for col_idx in range(1, 11):
-                ws_sub.column_dimensions[chr(64 + col_idx)].width = 22
-
-        reports_dir = os.path.join(os.path.dirname(__file__), "reports")
-        os.makedirs(reports_dir, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(reports_dir, f"SF6_Leakages_{year}_{timestamp}.xlsx")
-        wb.save(output_path)
-        return output_path
+        from reports import _export_sf6_excel as _f
+        return _f(self, year)
 
     def show_sf6_management_popup(self, instance=None):
-        """Show SF6 leakage management report popup."""
-        c = self.conn.cursor()
-        c.execute(
-            "SELECT DISTINCT substr(date_time, 1, 4) FROM maintenance WHERE date_time IS NOT NULL AND date_time != '' ORDER BY 1 DESC"
-        )
-        years = [row[0] for row in c.fetchall() if row[0] and row[0].isdigit()]
-        if not years:
-            years = [str(datetime.now().year)]
-
-        popup = Popup(title="Διαχείριση SF6", size_hint=(0.95, 0.9))
-        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        control_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
-        control_row.add_widget(Label(text="Έτος:", size_hint_x=0.15))
-        year_spinner = Spinner(
-            text=years[0], values=years, size_hint_x=0.25, size_hint_y=None, height=35
-        )
-        control_row.add_widget(year_spinner)
-
-        refresh_btn = Button(text="Ανανέωση", size_hint_x=0.2)
-        control_row.add_widget(refresh_btn)
-        print_btn = Button(text="Εκτύπωση", size_hint_x=0.2)
-        control_row.add_widget(print_btn)
-        excel_btn = Button(text="Excel", size_hint_x=0.2)
-        control_row.add_widget(excel_btn)
-        main_layout.add_widget(control_row)
-
-        summary_label = Label(text="", size_hint_y=None, height=60)
-        summary_label.bind(
-            width=lambda inst, val: setattr(inst, "text_size", (val, None)),
-            texture_size=lambda inst, val: setattr(inst, "height", val[1] + 10),
-        )
-        main_layout.add_widget(summary_label)
-
-        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        table_layout = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
-        table_layout.bind(minimum_height=table_layout.setter("height"))
-        scroll.add_widget(table_layout)
-        main_layout.add_widget(scroll)
-
-        def render_report(year_value: str):
-            table_layout.clear_widgets()
-            data = self._get_sf6_report_data(year_value)
-            total_leakage = data["total_leakage"]
-            installed_sf6 = data["installed_sf6"]
-            percentage = data["percentage"]
-            data["total_elements"]
-            active_elements = data["active_elements"]
-            active_substations = data["active_substations"]
-
-            summary_text = (
-                f"Εγκατεστημένο SF6 (ενεργά): {installed_sf6:.2f} kg | "
-                f"Ενεργά στοιχεία SF6: {active_elements} | Υποσταθμοί με SF6: {active_substations}\n"
-                f"Έτος: {year_value} | Διαρροές: {total_leakage:.2f} kg | Ποσοστό: {percentage:.2f}%"
-            )
-            summary_label.text = summary_text
-
-            header = GridLayout(cols=4, size_hint_y=None, height=30)
-            header.add_widget(Label(text="Ημερομηνία", bold=True))
-            header.add_widget(Label(text="Υποσταθμός", bold=True))
-            header.add_widget(Label(text="Στοιχείο", bold=True))
-            header.add_widget(Label(text="Διαρροή (kg)", bold=True))
-            table_layout.add_widget(header)
-
-            if not data["rows"]:
-                table_layout.add_widget(
-                    Label(
-                        text="Δεν υπάρχουν καταχωρήσεις διαρροών για το έτος.",
-                        size_hint_y=None,
-                        height=30,
-                    )
-                )
-                return
-
-            for row in data["rows"]:
-                rlayout = GridLayout(cols=4, size_hint_y=None, height=30)
-                rlayout.add_widget(Label(text=row["date_time"] or "-"))
-                rlayout.add_widget(Label(text=row["substation"] or "-"))
-                rlayout.add_widget(Label(text=row["element"] or "-"))
-                leakage_text = (
-                    "-" if row["leakage"] is None else f"{row['leakage']:.2f}"
-                )
-                rlayout.add_widget(Label(text=leakage_text))
-                table_layout.add_widget(rlayout)
-
-        def handle_print(*_args):
-            try:
-                pdf_path = generate_sf6_leak_report(self.conn, year_spinner.text)
-                confirm_popup = Popup(title="PDF Δημιουργήθηκε", size_hint=(0.6, 0.4))
-                layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-                layout.add_widget(
-                    Label(text=f"Το PDF δημιουργήθηκε:\n{pdf_path}", size_hint_y=0.6)
-                )
-                buttons = BoxLayout(size_hint_y=0.4, spacing=10)
-
-                def open_pdf():
-                    if sys.platform == "win32":
-                        os.startfile(pdf_path)
-                    elif sys.platform == "darwin":
-                        subprocess.call(["open", pdf_path])
-                    else:
-                        subprocess.call(["xdg-open", pdf_path])
-                    confirm_popup.dismiss()
-
-                open_btn = Button(text="Άνοιγμα PDF")
-                open_btn.bind(on_press=lambda _x: open_pdf())
-                close_btn = Button(text="Κλείσιμο")
-                close_btn.bind(on_press=confirm_popup.dismiss)
-                buttons.add_widget(open_btn)
-                buttons.add_widget(close_btn)
-                layout.add_widget(buttons)
-                confirm_popup.content = layout
-                confirm_popup.open()
-            except Exception as exc:
-                show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας PDF:\n{str(exc)}")
-
-        def handle_excel(*_args):
-            try:
-                excel_path = self._export_sf6_excel(year_spinner.text)
-                confirm_popup = Popup(title="Excel Δημιουργήθηκε", size_hint=(0.6, 0.4))
-                layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-                layout.add_widget(
-                    Label(
-                        text=f"Το Excel δημιουργήθηκε:\n{excel_path}", size_hint_y=0.6
-                    )
-                )
-                buttons = BoxLayout(size_hint_y=0.4, spacing=10)
-
-                def open_excel():
-                    if sys.platform == "win32":
-                        os.startfile(excel_path)
-                    elif sys.platform == "darwin":
-                        subprocess.call(["open", excel_path])
-                    else:
-                        subprocess.call(["xdg-open", excel_path])
-                    confirm_popup.dismiss()
-
-                open_btn = Button(text="Άνοιγμα Excel")
-                open_btn.bind(on_press=lambda _x: open_excel())
-                close_btn = Button(text="Κλείσιμο")
-                close_btn.bind(on_press=confirm_popup.dismiss)
-                buttons.add_widget(open_btn)
-                buttons.add_widget(close_btn)
-                layout.add_widget(buttons)
-                confirm_popup.content = layout
-                confirm_popup.open()
-            except Exception as exc:
-                show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας Excel:\n{str(exc)}")
-
-        refresh_btn.bind(on_press=lambda _x: render_report(year_spinner.text))
-        year_spinner.bind(text=lambda _s, _t: render_report(year_spinner.text))
-        print_btn.bind(on_press=handle_print)
-        excel_btn.bind(on_press=handle_excel)
-
-        render_report(year_spinner.text)
-
-        close_btn = Button(text="Κλείσιμο", size_hint_y=None, height=40)
-        close_btn.bind(on_press=popup.dismiss)
-        main_layout.add_widget(close_btn)
-
-        popup.content = main_layout
-        popup.open()
+        from reports import show_sf6_management_popup as _f
+        return _f(self, instance)
 
     def _format_maintenance_date(self, date_time_str):
         """Format maintenance date to DD/MM/YYYY for naming."""
@@ -1887,34 +1243,22 @@ class SubstationApp(App):
             )
             return
 
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.6, 0.3))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        warning_label = Label(
-            text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
-            size_hint_y=0.5,
-        )
-        layout.add_widget(warning_label)
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def confirm_delete():
-            confirm_popup.dismiss()
             c.execute("DELETE FROM people WHERE id=?", (person_id,))
             self.conn.commit()
             if refresh_cb:
                 refresh_cb()
 
-        yes_btn = Button(text="ΝΑΙ", color=(1, 0, 0, 1))
-        yes_btn.bind(on_press=lambda x: confirm_delete())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="ΟΧΙ")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
+            yes_callback=confirm_delete,
+            yes_color=(1, 0, 0, 1),
+            yes_text="ΝΑΙ",
+            no_text="ΟΧΙ",
+        )
 
     def _migrate_people_name_columns(self):
         """Add `given_name` and `surname` columns to `people` if missing and populate them.
@@ -2166,216 +1510,24 @@ class SubstationApp(App):
         webbrowser.open(f"{mailto}?subject={subject_encoded}&body={body_encoded}")
 
     def show_inspection_menu_popup(self, instance=None):
-        """Show inspections main menu with import + history."""
-        menu_popup = Popup(title="Επιθεωρήσεις", size_hint=(0.6, 0.4))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        self._add_logo_to_layout(layout, height=70)
-
-        layout.add_widget(Label(text="Επιλέξτε ενέργεια:", size_hint_y=0.2))
-
-        add_btn = Button(text="Καταχώρηση Επιθεώρησης", size_hint_y=0.3)
-        add_btn.bind(
-            on_press=lambda x: (
-                menu_popup.dismiss(),
-                self.show_inspection_entry_popup(None),
-            )
-        )
-        layout.add_widget(add_btn)
-
-        import_btn = Button(text="Εισαγωγή Επιθεώρησης από Αρχείο", size_hint_y=0.3)
-        import_btn.bind(
-            on_press=lambda x: (
-                menu_popup.dismiss(),
-                self.show_import_inspections_dialog(None),
-            )
-        )
-        layout.add_widget(import_btn)
-
-        # Export inspections (Excel) moved here from the import menu
-        try:
-            from excel_io import export_inspections_per_substation
-
-            export_insp_btn = Button(text="Εξαγωγή Επιθεωρήσεων (Excel)", size_hint_y=0.3)
-            export_insp_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_inspections_per_substation(self.conn)))
-            layout.add_widget(export_insp_btn)
-        except Exception:
-            # excel_io not available; skip button
-            pass
-
-        history_btn = Button(text="Ιστορικό Επιθεωρήσεων", size_hint_y=0.3)
-        history_btn.bind(
-            on_press=lambda x: (
-                menu_popup.dismiss(),
-                self.show_inspection_history(None),
-            )
-        )
-        layout.add_widget(history_btn)
-
-        cancel_btn = Button(text="Ακύρωση", size_hint_y=0.2)
-        cancel_btn.bind(on_press=menu_popup.dismiss)
-        layout.add_widget(cancel_btn)
-
-        menu_popup.content = layout
-        menu_popup.open()
+        from inspections import show_inspection_menu_popup_delegate
+        return show_inspection_menu_popup_delegate(self, instance)
 
     def show_import_inspections_dialog(self, instance):
-        self._create_file_import_dialog(
-            "Εισαγωγή επιθεωρήσεων από αρχείο", self.import_inspections_from_file
-        )
+        from inspections import show_import_inspections_dialog_delegate
+        return show_import_inspections_dialog_delegate(self, instance)
 
     def _read_inspection_template_columns(self):
-        """Read inspection template columns if available."""
-        template_path = os.path.join(
-            os.path.dirname(__file__), "επιθεωρήσεις_template.xlsx"
-        )
-        if not os.path.exists(template_path):
-            return self._get_inspection_fallback_fields()
-
-        def is_valid_label(value):
-            text = str(value).strip()
-            if not text or text.lower() in {"nan", "none"}:
-                return False
-            lower = text.lower()
-            if lower.startswith("unnamed"):
-                return False
-            if "σελ" in lower or "page" in lower:
-                return False
-            if "version:" in lower or "template_version" in lower:
-                return False
-            if not re.search(r"[A-Za-zΑ-Ωα-ω]", text):
-                return False
-            return True
-
-        try:
-            import pandas as pd
-
-            df_peek = pd.read_excel(template_path, nrows=1, header=None)
-            first_cell = str(df_peek.iloc[0, 0]) if len(df_peek) > 0 else ""
-            if "Version:" in first_cell or "TEMPLATE_VERSION:" in first_cell:
-                df = pd.read_excel(template_path, skiprows=1, nrows=0)
-            else:
-                df = pd.read_excel(template_path, nrows=0)
-            cols_raw = [c for c in list(df.columns) if str(c).strip()]
-            cols = [str(c).strip() for c in cols_raw if is_valid_label(c)]
-            if cols and (len(cols) >= 5 or len(cols) >= max(1, len(cols_raw) // 2)):
-                return cols
-        except Exception:
-            pass
-
-        # Fallback: read header row with openpyxl
-        try:
-            from openpyxl import load_workbook
-
-            wb = load_workbook(template_path, read_only=True, data_only=True)
-            ws = wb.active
-            rows = list(ws.iter_rows(values_only=True, min_row=1, max_row=2))
-            if not rows:
-                return []
-            header_row = rows[0]
-            if (
-                header_row
-                and isinstance(header_row[0], str)
-                and (
-                    "Version:" in header_row[0] or "TEMPLATE_VERSION:" in header_row[0]
-                )
-            ):
-                header_row = rows[1] if len(rows) > 1 else None
-            if not header_row:
-                return []
-            header_cols_raw = [
-                c for c in header_row if c is not None and str(c).strip()
-            ]
-            header_cols = [str(c).strip() for c in header_cols_raw if is_valid_label(c)]
-            if header_cols and (
-                len(header_cols) >= 5
-                or len(header_cols) >= max(1, len(header_cols_raw) // 2)
-            ):
-                return header_cols
-        except Exception:
-            pass
-
-        # Fallback: read form labels from layout (first non-empty in A-D)
-        try:
-            from openpyxl import load_workbook
-
-            wb = load_workbook(template_path, read_only=True, data_only=True)
-            ws = wb.active
-            fields = []
-            for row in ws.iter_rows(values_only=True, min_row=1, max_row=200):
-                for cell in row:
-                    if not isinstance(cell, str):
-                        continue
-                    label = cell.strip()
-                    if not label:
-                        continue
-                    label_lower = label.lower()
-                    if "πιν" in label_lower or "παρατηρ" in label_lower:
-                        continue
-                    if not is_valid_label(label):
-                        continue
-                    if label not in fields:
-                        fields.append(label)
-            if fields:
-                return fields
-        except Exception:
-            pass
-
-        return self._get_inspection_fallback_fields()
+        from inspections import _read_inspection_template_columns as _f
+        return _f()
 
     def _get_inspection_fallback_fields(self):
-        """Fallback inspection fields based on the standard report template."""
-        return [
-            "Υποσταθμός",
-            "Αρ. Δελτίου",
-            "Μήνας",
-            "Ονομ. Επιθεωρητή",
-            "Περιοχή",
-            "Ημέρα",
-            "Έτος",
-            "Ημερομηνία",
-            {"type": "section", "title": "1. Έλεγχος Χώρων ΥΣ"},
-            "Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)",
-            "Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ",
-            "Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)",
-            "Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)",
-            "Έλεγχος μέσων πυρόσβεσης γενικά",
-            {"type": "section", "title": "2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV"},
-            "Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)",
-            "Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ",
-            "Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV",
-            "Έλεγχος λειτουργίας ανεμιστήρων Μ/Σ",
-            "Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)",
-            "Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)",
-            "Οπτικός έλεγχος τηκτών πυκνωτών",
-            "Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV",
-            "Λήψη φωτογραφίας όταν απαιτείται",
-            {"type": "section", "title": "3α. Υπαίθριες πύλες 20 kV"},
-            "Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)",
-            "Οπτικός έλεγχος των πυλών, A/Z και γενικά του ικριώματος για τυχόν φωλιές από πτηνά, σπασίματα, μονωτήρες, κλαδιά, σύρματα κλπ",
-            {"type": "section", "title": "3β. Πίνακες 20 kV"},
-            "Παρατηρήσεις (3β. Πίνακες 20 kV)",
-            "Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών",
-            "Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων",
-            {"type": "section", "title": "4. Κτίριο χειρισμών & Τ.Α.Σ."},
-            "Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)",
-            "Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή",
-            "Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC",
-            "Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών",
-            {"type": "section", "title": "5. Αποζεύκτες Γραμμών"},
-            "Παρατηρήσεις (5. Αποζεύκτες Γραμμών)",
-            'Οπτικός έλεγχος των ΑΠ/Ζ και των "γεφυρών" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)',
-            {"type": "section", "title": "6. PC ΧΕΙΡΙΣΜΩΝ"},
-            "Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)",
-            "Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)",
-            "Τροφοδοσία υπολογιστή",
-            {"type": "section", "title": "7. Απόψεις"},
-            "Απόψεις - Προτάσεις",
-        ]
+        from inspections import _get_inspection_fallback_fields as _f
+        return _f()
 
     def _is_inspection_meta_column(self, col_name, keywords):
-        col_text = str(col_name).strip().lower()
-        return any(key in col_text for key in keywords)
+        from inspections import _detect_inspection_column as _f
+        return bool(_f([col_name], keywords))
 
     def show_inspection_entry_popup(
         self, instance=None, preselected_substation_name=None, parent_popup=None
@@ -2782,278 +1934,28 @@ class SubstationApp(App):
         popup.open()
 
     def _detect_inspection_column(self, columns, keywords):
-        for col in columns:
-            col_text = str(col).strip().lower()
-            for key in keywords:
-                if key in col_text:
-                    return col
-        return None
+        from inspections import _detect_inspection_column as _f
+        return _f(columns, keywords)
 
     def _format_inspection_value(self, value):
-        if value is None:
-            return ""
-        try:
-            import math
-
-            if isinstance(value, float) and math.isnan(value):
-                return ""
-        except Exception:
-            pass
-
-        if hasattr(value, "to_pydatetime"):
-            try:
-                value = value.to_pydatetime()
-            except Exception:
-                pass
-
-        if isinstance(value, datetime):
-            return value.strftime("%Y-%m-%d")
-
-        if isinstance(value, float) and value.is_integer():
-            value = int(value)
-
-        return str(value).strip()
+        from inspections import _format_inspection_value as _f
+        return _f(value)
 
     def _parse_inspection_date(self, value):
-        if value is None:
-            return ""
-        if hasattr(value, "to_pydatetime"):
-            try:
-                value = value.to_pydatetime()
-            except Exception:
-                pass
-        if isinstance(value, datetime):
-            return value.strftime("%Y-%m-%d")
-
-        text = str(value).strip()
-        if not text:
-            return ""
-
-        for fmt in (
-            "%Y-%m-%d",
-            "%Y-%m-%d %H:%M",
-            "%d/%m/%Y",
-            "%d/%m/%Y %H:%M",
-            "%d-%m-%Y",
-            "%Y/%m/%d",
-        ):
-            try:
-                return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
-            except Exception:
-                pass
-
-        return text
+        from inspections import _parse_inspection_date as _f
+        return _f(value)
 
     def _derive_month_key(self, date_str):
-        if not date_str:
-            return datetime.now().strftime("%Y-%m")
-
-        for fmt in (
-            "%Y-%m-%d",
-            "%Y-%m-%d %H:%M",
-            "%d/%m/%Y",
-            "%d/%m/%Y %H:%M",
-            "%d-%m-%Y",
-            "%Y/%m/%d",
-        ):
-            try:
-                return datetime.strptime(date_str, fmt).strftime("%Y-%m")
-            except Exception:
-                pass
-
-        if len(date_str) >= 7 and date_str[4] == "-":
-            return date_str[:7]
-
-        return datetime.now().strftime("%Y-%m")
+        from inspections import _derive_month_key as _f
+        return _f(date_str)
 
     def import_inspections_from_file(self, file_path):
-        import pandas as pd
-
-        try:
-            if file_path.endswith(".xlsx"):
-                df = pd.read_excel(file_path)
-            elif file_path.endswith(".csv"):
-                df = pd.read_csv(file_path)
-            else:
-                show_message_popup("Σφάλμα", "Μη υποστηριζόμενη μορφή αρχείου")
-                return
-        except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά την ανάγνωση αρχείου: {e}")
-            return
-
-        if df.empty:
-            show_message_popup("Σφάλμα", "Το αρχείο δεν περιέχει δεδομένα.")
-            return
-
-        columns = list(df.columns)
-        date_col = self._detect_inspection_column(columns, ["ημερομην", "ημ/ν", "date"])
-        substation_col = self._detect_inspection_column(
-            columns, ["υποσταθ", "substation"]
-        )
-
-        inserted = 0
-        created_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-        c = self.conn.cursor()
-
-        for _, row in df.iterrows():
-            if row.isna().all():
-                continue
-
-            date_value = row.get(date_col) if date_col else None
-            inspection_date = self._parse_inspection_date(
-                date_value
-            ) or datetime.now().strftime("%Y-%m-%d")
-            month_key = self._derive_month_key(inspection_date)
-
-            substation_name = ""
-            if substation_col:
-                substation_name = self._format_inspection_value(row.get(substation_col))
-
-            substation_id = None
-            if substation_name:
-                c.execute("SELECT id FROM substations WHERE name=?", (substation_name,))
-                sub_row = c.fetchone()
-                substation_id = sub_row[0] if sub_row else None
-
-            fields = []
-            for col in columns:
-                value = row.get(col)
-                if pd.isna(value):
-                    value = ""
-                fields.append(
-                    {"label": str(col), "value": self._format_inspection_value(value)}
-                )
-
-            data_json = json.dumps({"fields": fields}, ensure_ascii=False)
-
-            c.execute(
-                """
-                INSERT INTO inspections (
-                    substation_id, substation_name, inspection_date,
-                    month_key, data_json, source_file, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    substation_id,
-                    substation_name,
-                    inspection_date,
-                    month_key,
-                    data_json,
-                    os.path.basename(file_path),
-                    created_at,
-                ),
-            )
-            inserted += 1
-
-        self.conn.commit()
-        show_message_popup(
-            "Εισαγωγή Επιθεωρήσεων",
-            f"Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).",
-            callback=lambda: self.show_inspection_history(None),
-        )
+        from inspections import import_inspections_from_file as _f
+        return _f(self, file_path)
 
     def show_inspection_history(self, instance=None):
-        """Show inspections list grouped by month."""
-        font_kwargs = self._get_ui_font_kwargs()
-        c = self.conn.cursor()
-        c.execute("SELECT DISTINCT month_key FROM inspections ORDER BY month_key DESC")
-        months = [row[0] for row in c.fetchall() if row[0]]
-
-        if not months:
-            show_message_popup("Πληροφορία", "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις")
-            return
-
-        popup = Popup(title="Ιστορικό Επιθεωρήσεων", size_hint=(0.95, 0.9))
-        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        top_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
-        top_bar.add_widget(Label(text="Μήνας:", size_hint_x=0.2))
-        month_spinner = Spinner(text=months[0], values=months, size_hint_x=0.4)
-        top_bar.add_widget(month_spinner)
-
-        add_btn = Button(text="Καταχώρηση", size_hint_x=0.2)
-        add_btn.bind(on_press=lambda x: self.show_inspection_entry_popup(None))
-        top_bar.add_widget(add_btn)
-
-        import_btn = Button(text="Εισαγωγή από Αρχείο", size_hint_x=0.2)
-        import_btn.bind(on_press=lambda x: self.show_import_inspections_dialog(None))
-        top_bar.add_widget(import_btn)
-        main_layout.add_widget(top_bar)
-
-        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        list_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
-        list_layout.bind(minimum_height=list_layout.setter("height"))
-
-        def load_month(month_key):
-            list_layout.clear_widgets()
-            c.execute(
-                """
-                SELECT id, substation_name, inspection_date, data_json
-                FROM inspections
-                WHERE month_key = ?
-                ORDER BY inspection_date DESC
-            """,
-                (month_key,),
-            )
-            rows = c.fetchall()
-
-            if not rows:
-                list_layout.add_widget(
-                    Label(
-                        text="Δεν υπάρχουν επιθεωρήσεις για τον μήνα αυτό.",
-                        size_hint_y=None,
-                        height=30,
-                    )
-                )
-                return
-
-            for insp_id, substation_name, inspection_date, _data_json in rows:
-                card = BoxLayout(
-                    orientation="horizontal", size_hint_y=None, height=40, spacing=5
-                )
-                card.add_widget(
-                    Label(
-                        text=f"{substation_name} | Ημερομηνία: {inspection_date}",
-                        size_hint_x=0.6,
-                    )
-                )
-
-                buttons_box = BoxLayout(size_hint_x=0.4, spacing=5)
-                view_btn = Button(text="Εμφ.", size_hint_x=0.34, **font_kwargs)
-                pdf_btn = Button(text="PDF", size_hint_x=0.33, **font_kwargs)
-                email_btn = Button(text="Email", size_hint_x=0.33)
-                view_btn.bind(
-                    on_press=lambda x, iid=insp_id: self.show_inspection_details(iid)
-                )
-                pdf_btn.bind(
-                    on_press=lambda x, iid=insp_id, sname=substation_name: (
-                        self.generate_inspection_pdf(iid, sname)
-                    )
-                )
-                email_btn.bind(
-                    on_press=lambda x, iid=insp_id: self.send_inspection_email_report(
-                        iid
-                    )
-                )
-                buttons_box.add_widget(view_btn)
-                buttons_box.add_widget(pdf_btn)
-                buttons_box.add_widget(email_btn)
-                card.add_widget(buttons_box)
-
-                list_layout.add_widget(card)
-
-        load_month(month_spinner.text)
-        month_spinner.bind(text=lambda _spinner, text: load_month(text))
-
-        scroll.add_widget(list_layout)
-        main_layout.add_widget(scroll)
-
-        close_btn = Button(text="Κλείσιμο", size_hint_y=0.1)
-        close_btn.bind(on_press=popup.dismiss)
-        main_layout.add_widget(close_btn)
-
-        popup.content = main_layout
-        popup.open()
+        from inspections import show_inspection_history_delegate as _f
+        return _f(self, instance)
 
     def get_available_gates(self, substation_id, is_interconnection=None):
         """Get available gates (ΠΥΛΗ) based on existing transformers in the substation
@@ -3124,15 +2026,15 @@ class SubstationApp(App):
         )
         layout.add_widget(import_android_btn)
 
-        # Export full DB button
+        # Export full DB button (delegated to reports.py)
         try:
-            from excel_io import export_full_db
+            from reports import export_full_db_ui
 
             export_db_btn = Button(text="Εξαγωγή Βάσης (Excel)", size_hint_y=0.2)
-            export_db_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_full_db(self.conn)))
+            export_db_btn.bind(on_press=lambda x: export_full_db_ui(self, menu_popup))
             layout.add_widget(export_db_btn)
         except Exception:
-            # excel_io not available - skip adding the button
+            # reports not available - skip adding the button
             pass
 
         # Separator
@@ -4337,21 +3239,8 @@ class SubstationApp(App):
         popup.open()
 
     def _open_monogram_pdf(self, pdf_path):
-        if not pdf_path or not os.path.exists(pdf_path):
-            show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
-            return
-        try:
-            import subprocess
-            import sys
-
-            if sys.platform == "win32":
-                os.startfile(pdf_path)
-            elif sys.platform == "darwin":
-                subprocess.call(["open", pdf_path])
-            else:
-                subprocess.call(["xdg-open", pdf_path])
-        except Exception as e:
-            show_message_popup("Σφάλμα", f"Αποτυχία ανοίγματος PDF:\n{str(e)}")
+        from reports import open_file as _open
+        return _open(pdf_path, not_found_message="Το αρχείο δεν βρέθηκε!", error_prefix="Αποτυχία ανοίγματος PDF:\n")
 
     def _select_monogram_pdf(self, substation_id, parent_popup=None, filter_name=None):
         allow_fallback = False
@@ -6187,39 +5076,17 @@ class SubstationApp(App):
         substation_name=None,
     ):
         """Show confirmation popup before deleting an element"""
-        from kivy.uix.popup import Popup
-        from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.button import Button
-        from kivy.uix.label import Label
-
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.6, 0.3))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        warning_label = Label(
-            text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο στοιχείο "{element_name}";',
-            size_hint_y=0.5,
-        )
-        layout.add_widget(warning_label)
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def confirm():
-            confirm_popup.dismiss()
-            self.delete_element(
-                element_id, substation_id, parent_popup, substation_name
-            )
+            self.delete_element(element_id, substation_id, parent_popup, substation_name)
 
-        yes_btn = Button(text="ΝΑΙ", color=(1, 0, 0, 1))
-        yes_btn.bind(on_press=lambda x: confirm())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="ΟΧΙ")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο στοιχείο "{element_name}";',
+            yes_callback=confirm,
+            yes_color=(1, 0, 0, 1),
+        )
 
     def delete_element(
         self, element_id, substation_id, parent_popup, substation_name=None
@@ -6385,32 +5252,19 @@ class SubstationApp(App):
 
     def confirm_delete_substation(self, substation_id, substation_name, parent_popup):
         """Confirm before deleting a substation and its elements."""
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.65, 0.35))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        warning_label = Label(
-            text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτον υποσταθμό "{substation_name}"\nκαι ΟΛΑ τα στοιχεία του;',
-            size_hint_y=0.6,
-        )
-        layout.add_widget(warning_label)
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def confirm():
-            confirm_popup.dismiss()
             self.delete_substation(substation_id, parent_popup)
 
-        yes_btn = Button(text="ΝΑΙ", color=(1, 0, 0, 1))
-        yes_btn.bind(on_press=lambda x: confirm())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="ΟΧΙ")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτον υποσταθμό "{substation_name}"\nκαι ΟΛΑ τα στοιχεία του;',
+            yes_callback=confirm,
+            yes_color=(1, 0, 0, 1),
+            yes_text="ΝΑΙ",
+            no_text="ΟΧΙ",
+        )
 
     def delete_substation(self, substation_id, parent_popup):
         c = self.conn.cursor()
@@ -10177,214 +9031,12 @@ class SubstationApp(App):
     def show_substation_inspection_history(
         self, substation_id, substation_name, parent_display_popup=None
     ):
-        """Show inspection history for a specific substation."""
-        font_kwargs = self._get_ui_font_kwargs()
-        c = self.conn.cursor()
-        c.execute(
-            """
-            SELECT id, inspection_date, data_json
-            FROM inspections
-            WHERE substation_id = ?
-            ORDER BY inspection_date DESC
-        """,
-            (substation_id,),
-        )
-        inspection_records = c.fetchall()
-
-        popup = Popup(
-            title=f"Ιστορικό Επιθεωρήσεων: {substation_name}", size_hint=(0.95, 0.9)
-        )
-        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        add_insp_btn = Button(text="+ Προσθήκη Νέας Επιθεώρησης", size_hint_y=0.1)
-        add_insp_btn.bind(
-            on_press=lambda x: self.show_inspection_entry_popup(
-                None, substation_name, popup
-            )
-        )
-        main_layout.add_widget(add_insp_btn)
-
-        if not inspection_records:
-            no_records_label = Label(
-                text=f'Δεν υπάρχουν καταχωρημένες επιθεωρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
-                size_hint_y=0.7,
-            )
-            main_layout.add_widget(no_records_label)
-        else:
-            scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-            grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
-            grid.bind(minimum_height=grid.setter("height"))
-
-            for insp_id, inspection_date, data_json in inspection_records:
-                card = BoxLayout(
-                    orientation="horizontal", size_hint_y=None, height=40, spacing=5
-                )
-                card.add_widget(
-                    Label(text=f"Ημερομηνία: {inspection_date}", size_hint_x=0.6)
-                )
-
-                buttons_box = BoxLayout(size_hint_x=0.4, spacing=5)
-                view_btn = Button(text="Εμφ.", size_hint_x=0.34, **font_kwargs)
-                pdf_btn = Button(text="PDF", size_hint_x=0.33, **font_kwargs)
-                email_btn = Button(text="Email", size_hint_x=0.33)
-                view_btn.bind(
-                    on_press=lambda x, iid=insp_id: self.show_inspection_details(iid)
-                )
-                pdf_btn.bind(
-                    on_press=lambda x, iid=insp_id: self.generate_inspection_pdf(
-                        iid, substation_name
-                    )
-                )
-                email_btn.bind(
-                    on_press=lambda x, iid=insp_id: self.send_inspection_email_report(
-                        iid
-                    )
-                )
-                buttons_box.add_widget(view_btn)
-                buttons_box.add_widget(pdf_btn)
-                buttons_box.add_widget(email_btn)
-                card.add_widget(buttons_box)
-
-                grid.add_widget(card)
-
-            scroll.add_widget(grid)
-            main_layout.add_widget(scroll)
-
-        close_btn = Button(text="Κλείσιμο", size_hint_y=0.1)
-        close_btn.bind(on_press=popup.dismiss)
-        main_layout.add_widget(close_btn)
-
-        popup.content = main_layout
-        popup.open()
+        from inspections import show_substation_inspection_history_delegate as _f
+        return _f(self, substation_id, substation_name, parent_display_popup)
 
     def show_inspection_details(self, inspection_id):
-        """Display inspection details inside the app."""
-        c = self.conn.cursor()
-        c.execute(
-            """
-            SELECT substation_name, inspection_date, data_json
-            FROM inspections
-            WHERE id = ?
-        """,
-            (inspection_id,),
-        )
-        row = c.fetchone()
-
-        if not row:
-            show_message_popup("Σφάλμα", "Δεν βρέθηκε η επιθεώρηση.")
-            return
-
-        substation_name, inspection_date, data_json = row
-
-        try:
-            data = json.loads(data_json or "{}")
-        except Exception:
-            data = {}
-        fields = data.get("fields", [])
-
-        popup = Popup(title="Προβολή Επιθεώρησης", size_hint=(0.95, 0.9))
-        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        header_text = (
-            f"Υποσταθμός: {substation_name or '-'} | Ημερομηνία: {inspection_date}"
-        )
-        main_layout.add_widget(Label(text=header_text, size_hint_y=None, height=30))
-
-        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        content = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=10)
-        content.bind(minimum_height=content.setter("height"))
-
-        def make_wrapped_label(text, size_hint_x):
-            lbl = Label(text=text, size_hint_x=size_hint_x, size_hint_y=None)
-            lbl.bind(width=lambda inst, val: setattr(inst, "text_size", (val, None)))
-            lbl.bind(
-                texture_size=lambda inst, val: setattr(inst, "height", max(30, val[1]))
-            )
-            return lbl
-
-        def build_inspection_sections():
-            fallback = self._get_inspection_fallback_fields()
-            sections = []
-            current_title = "Στοιχεία Επιθεώρησης"
-            current_labels = []
-            for item in fallback:
-                if isinstance(item, dict) and item.get("type") == "section":
-                    if current_labels:
-                        sections.append((current_title, list(current_labels)))
-                    current_title = item.get("title", "")
-                    current_labels = []
-                elif isinstance(item, str):
-                    current_labels.append(item)
-            if current_labels:
-                sections.append((current_title, list(current_labels)))
-            label_to_section = {}
-            for title, labels in sections:
-                for label in labels:
-                    label_to_section[label] = title
-            return sections, label_to_section
-
-        if not fields:
-            content.add_widget(
-                Label(
-                    text="Δεν υπάρχουν διαθέσιμα δεδομένα επιθεώρησης.",
-                    size_hint_y=None,
-                    height=30,
-                )
-            )
-        else:
-            sections, label_to_section = build_inspection_sections()
-            section_items = {title: [] for title, _labels in sections}
-            other_items = []
-
-            for field in fields:
-                if not isinstance(field, dict):
-                    continue
-                label = field.get("label", "")
-                if label in label_to_section:
-                    section_items[label_to_section[label]].append(field)
-                else:
-                    other_items.append(field)
-
-            for title, _labels in sections:
-                items = section_items.get(title) or []
-                if not items:
-                    continue
-                section_title = Label(
-                    text=f"[b]{title}[/b]", markup=True, size_hint_y=None, height=26
-                )
-                content.add_widget(section_title)
-                grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
-                grid.bind(minimum_height=grid.setter("height"))
-                for field in items:
-                    label = field.get("label", "")
-                    value = field.get("value", "")
-                    grid.add_widget(make_wrapped_label(str(label), 0.35))
-                    grid.add_widget(make_wrapped_label(str(value), 0.65))
-                content.add_widget(grid)
-
-            if other_items:
-                section_title = Label(
-                    text="[b]Λοιπά[/b]", markup=True, size_hint_y=None, height=26
-                )
-                content.add_widget(section_title)
-                grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
-                grid.bind(minimum_height=grid.setter("height"))
-                for field in other_items:
-                    label = field.get("label", "")
-                    value = field.get("value", "")
-                    grid.add_widget(make_wrapped_label(str(label), 0.35))
-                    grid.add_widget(make_wrapped_label(str(value), 0.65))
-                content.add_widget(grid)
-
-        scroll.add_widget(content)
-        main_layout.add_widget(scroll)
-
-        close_btn = Button(text="Κλείσιμο", size_hint_y=None, height=40)
-        close_btn.bind(on_press=popup.dismiss)
-        main_layout.add_widget(close_btn)
-
-        popup.content = main_layout
-        popup.open()
+        from inspections import show_inspection_details_delegate as _f
+        return _f(self, inspection_id)
 
     def show_maintenance_element_details(
         self, maintenance_id, element_id, element_name
@@ -10704,90 +9356,24 @@ class SubstationApp(App):
         popup.open()
 
     def generate_pdf_report(self, maintenance_id, element_id, element_name):
-        """Generate PDF maintenance report for a circuit breaker"""
-        try:
-            # Generate the PDF
-            pdf_path = generate_maintenance_report(
-                self.conn, maintenance_id, element_id
-            )
-
-            # Show success message and offer to open
-            from kivy.uix.popup import Popup
-            from kivy.uix.boxlayout import BoxLayout
-            from kivy.uix.button import Button
-            from kivy.uix.label import Label
-
-            confirm_popup = Popup(title="PDF Δημιουργήθηκε", size_hint=(0.6, 0.4))
-            layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-            msg_label = Label(
-                text=f'Το αρχείο PDF για το στοιχείο "{element_name}"\nδημιουργήθηκε επιτυχώς!',
-                size_hint_y=0.5,
-            )
-            layout.add_widget(msg_label)
-
-            path_label = Label(
-                text=f"Αποθηκεύτηκε στο:\n{pdf_path}", size_hint_y=0.3, font_size="10sp"
-            )
-            layout.add_widget(path_label)
-
-            buttons_layout = BoxLayout(size_hint_y=0.2, spacing=10)
-
-            def open_pdf():
-                import subprocess
-                import sys
-
-                if sys.platform == "win32":
-                    os.startfile(pdf_path)
-                elif sys.platform == "darwin":
-                    subprocess.call(["open", pdf_path])
-                else:
-                    subprocess.call(["xdg-open", pdf_path])
-                confirm_popup.dismiss()
-
-            open_btn = Button(text="Άνοιγμα PDF")
-            open_btn.bind(on_press=lambda x: open_pdf())
-            buttons_layout.add_widget(open_btn)
-
-            close_btn = Button(text="Κλείσιμο")
-            close_btn.bind(on_press=confirm_popup.dismiss)
-            buttons_layout.add_widget(close_btn)
-
-            layout.add_widget(buttons_layout)
-            confirm_popup.content = layout
-            confirm_popup.open()
-
-        except Exception as e:
-            show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας PDF:\n{str(e)}")
+        from reports import generate_pdf_report as _f
+        return _f(self, maintenance_id, element_id, element_name)
 
     def confirm_delete_maintenance(self, maintenance_id, parent_popup):
         """Confirm before deleting a maintenance record."""
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.6, 0.3))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        warning_label = Label(
-            text="Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση;",
-            size_hint_y=0.6,
-        )
-        layout.add_widget(warning_label)
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def confirm():
-            confirm_popup.dismiss()
             self.delete_maintenance(maintenance_id, parent_popup)
 
-        yes_btn = Button(text="ΝΑΙ", color=(1, 0, 0, 1))
-        yes_btn.bind(on_press=lambda x: confirm())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="ΟΧΙ")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση;",
+            yes_callback=confirm,
+            yes_color=(1, 0, 0, 1),
+            yes_text="ΝΑΙ",
+            no_text="ΟΧΙ",
+        )
 
     def delete_maintenance(self, maintenance_id, parent_popup):
         """Delete a maintenance record and update related last maintenance dates"""
@@ -10870,19 +9456,9 @@ class SubstationApp(App):
         parent_display_popup=None,
     ):
         """Confirm before deleting a maintenance record for a substation."""
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.6, 0.3))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        warning_label = Label(
-            text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτη συντήρηση του υποσταθμού "{substation_name}";',
-            size_hint_y=0.6,
-        )
-        layout.add_widget(warning_label)
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def confirm():
-            confirm_popup.dismiss()
             self.delete_maintenance_for_substation(
                 maintenance_id,
                 parent_popup,
@@ -10891,17 +9467,14 @@ class SubstationApp(App):
                 parent_display_popup,
             )
 
-        yes_btn = Button(text="ΝΑΙ", color=(1, 0, 0, 1))
-        yes_btn.bind(on_press=lambda x: confirm())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="ΟΧΙ")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτη συντήρηση του υποσταθμού "{substation_name}";',
+            yes_callback=confirm,
+            yes_color=(1, 0, 0, 1),
+            yes_text="ΝΑΙ",
+            no_text="ΟΧΙ",
+        )
 
     def delete_maintenance_for_substation(
         self,
@@ -11565,41 +10138,35 @@ class SubstationApp(App):
             )
 
         def delete_request():
-            # Confirmation
-            confirm_popup = Popup(title="Επιβεβαίωση", size_hint=(0.5, 0.3))
-            confirm_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-            confirm_layout.add_widget(
-                Label(
-                    text="Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτήν την αίτηση απομόνωσης;"
-                )
-            )
-
-            confirm_buttons = BoxLayout(size_hint_y=0.3, spacing=10)
+            from reports import show_confirm
 
             def do_delete():
                 c.execute("DELETE FROM isolation_requests WHERE id=?", (req_id,))
                 self.conn.commit()
-                confirm_popup.dismiss()
-                popup.dismiss()
-                parent_popup.dismiss()
+                try:
+                    popup.dismiss()
+                except Exception:
+                    pass
+                try:
+                    parent_popup.dismiss()
+                except Exception:
+                    pass
+                from popups import show_message_popup
+
                 show_message_popup(
                     "Επιτυχία",
                     "Η αίτηση διαγράφηκε!",
                     callback=lambda: self.show_isolation_requests(None),
                 )
 
-            yes_btn = Button(text="Ναι")
-            yes_btn.bind(on_press=lambda x: do_delete())
-            confirm_buttons.add_widget(yes_btn)
-
-            no_btn = Button(text="Όχι")
-            no_btn.bind(on_press=confirm_popup.dismiss)
-            confirm_buttons.add_widget(no_btn)
-
-            confirm_layout.add_widget(confirm_buttons)
-            confirm_popup.content = confirm_layout
-            confirm_popup.open()
+            show_confirm(
+                "Επιβεβαίωση",
+                "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτήν την αίτηση απομόνωσης;",
+                yes_callback=do_delete,
+                yes_text="Ναι",
+                no_text="Όχι",
+                yes_color=(1, 0, 0, 1),
+            )
 
         update_btn = Button(text="Ενημέρωση")
         update_btn.bind(on_press=lambda x: update_request())

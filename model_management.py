@@ -901,23 +901,8 @@ def _handle_manual_pdf(app_instance, model_id, manual_pdf, parent_popup=None):
 
 
 def _open_manual_pdf(pdf_path):
-    from popups import show_message_popup
-
-    if not pdf_path or not os.path.exists(pdf_path):
-        show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
-        return
-    try:
-        import subprocess
-        import sys
-
-        if sys.platform == "win32":
-            os.startfile(pdf_path)
-        elif sys.platform == "darwin":
-            subprocess.call(["open", pdf_path])
-        else:
-            subprocess.call(["xdg-open", pdf_path])
-    except Exception as exc:
-        show_message_popup("Σφάλμα", f"Αποτυχία ανοίγματος PDF:\n{str(exc)}")
+    from reports import open_file as _open
+    return _open(pdf_path, not_found_message="Το αρχείο δεν βρέθηκε!", error_prefix="Αποτυχία ανοίγματος PDF:\n")
 
 
 def _select_manual_pdf(app_instance, model_id, parent_popup=None):
@@ -1046,39 +1031,22 @@ def delete_model(app_instance, model_id, parent_popup):
         )
         return
 
-    confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.6, 0.3))
-    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        from reports import show_confirm
 
-    warning_label = Label(
-        text="Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το μοντέλο;",
-        size_hint_y=0.6,
-    )
-    layout.add_widget(warning_label)
+        def confirm():
+            c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
+            app_instance.conn.commit()
+            parent_popup.dismiss()
+            from popups import show_message_popup
 
-    buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+            show_message_popup("Ολοκληρώθηκε", "Το μοντέλο διαγράφηκε επιτυχώς!")
 
-    def confirm():
-        confirm_popup.dismiss()
-        c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
-        app_instance.conn.commit()
-        parent_popup.dismiss()
-        show_message_popup(
-            "Ολοκληρώθηκε",
-            "Το μοντέλο διαγράφηκε!",
-            callback=lambda: show_models_management(app_instance),
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το μοντέλο;",
+            yes_callback=confirm,
+            yes_color=(1, 0, 0, 1),
         )
-
-    yes_btn = Button(text="ΝΑΙ", color=(1, 0, 0, 1))
-    yes_btn.bind(on_press=lambda x: confirm())
-    buttons_layout.add_widget(yes_btn)
-
-    no_btn = Button(text="ΟΧΙ")
-    no_btn.bind(on_press=confirm_popup.dismiss)
-    buttons_layout.add_widget(no_btn)
-
-    layout.add_widget(buttons_layout)
-    confirm_popup.content = layout
-    confirm_popup.open()
 
 
 def jump_to_substation(app_instance, substation_name, current_popup):

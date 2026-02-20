@@ -233,31 +233,20 @@ class PeopleManager:
             show_message_popup("Πληροφορία", "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.")
             return
 
-        confirm_popup = Popup(title="Επιβεβαίωση Διαγραφής", size_hint=(0.6, 0.3))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        warning_label = Label(text=f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";', size_hint_y=0.5)
-        layout.add_widget(warning_label)
-
-        buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
+        from reports import show_confirm
 
         def confirm_delete():
-            confirm_popup.dismiss()
             c.execute("DELETE FROM people WHERE id=?", (person_id,))
             self.app.conn.commit()
             if refresh_cb:
                 refresh_cb()
 
-        yes_btn = Button(text="ΝΑΙ", color=(1, 0, 0, 1))
-        yes_btn.bind(on_press=lambda x: confirm_delete())
-        buttons_layout.add_widget(yes_btn)
-
-        no_btn = Button(text="ΟΧΙ")
-        no_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(no_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
+        show_confirm(
+            "Επιβεβαίωση Διαγραφής",
+            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
+            yes_callback=confirm_delete,
+            yes_color=(1, 0, 0, 1),
+        )
 
     def _migrate_people_name_columns(self):
         c = self.app.conn.cursor()
