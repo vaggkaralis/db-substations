@@ -2,7 +2,53 @@ import os
 from strings import STRINGS as S
 
 
-def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["TITLES"]["IMPORT_MENU"]):
+def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["TITLES"]["IMPORT_MENU"], filetypes=None, chooser_filters=None):
+    # Prefer native Windows file chooser when available; fall back to Kivy chooser.
+    from popups import show_message_popup
+
+    if os.name == "nt":
+        try:
+            import tkinter as _tk
+            from tkinter import filedialog as _filedialog
+
+            root = _tk.Tk()
+            root.withdraw()
+            ft = list(filetypes) if filetypes else [
+                ("Excel files", "*.xlsx *.xls"),
+                ("CSV files", "*.csv"),
+                ("All files", "*.*"),
+            ]
+            file_path = _filedialog.askopenfilename(title=title, filetypes=ft)
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+            # If user cancelled the native dialog, silently return (no message).
+            if not file_path:
+                return
+            if not os.path.exists(file_path):
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"])
+                return
+
+            try:
+                import_callback(file_path)
+            except Exception as e:
+                show_message_popup(S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}")
+                return
+
+            if parent_popup:
+                try:
+                    parent_popup.dismiss()
+                except Exception:
+                    pass
+
+            return
+        except Exception:
+            # If tkinter isn't available or fails, fall back to Kivy chooser below.
+            pass
+
+    # Fallback: build a Kivy popup with FileChooser
     try:
         from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
@@ -11,10 +57,7 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
         from kivy.uix.textinput import TextInput
         from kivy.uix.filechooser import FileChooserListView
     except Exception:
-        # Test environment may provide shims; let imports fail at runtime if missing
         Popup = BoxLayout = Label = Button = TextInput = FileChooserListView = object
-
-    from popups import show_message_popup
 
     popup = Popup(title=title, size_hint=(0.9, 0.9))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -28,7 +71,7 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
 
     # File chooser with default path
     layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
-    chooser = FileChooserListView(filters=["*.xlsx", "*.csv"], path=os.path.dirname(__file__))
+    chooser = FileChooserListView(filters=(chooser_filters or ["*.xlsx", "*.csv"]), path=os.path.dirname(__file__))
     layout.add_widget(chooser)
 
     # Buttons
@@ -163,8 +206,14 @@ def show_import_android_changes_dialog(app, instance_or_parent_popup=None):
 
     def import_callback(file_path):
         app.import_android_changes_from_file(file_path)
-
-    _open_file_chooser_and_import(app, parent_popup, import_callback, title="Εισαγωγή αλλαγών από Android")
+    _open_file_chooser_and_import(
+        app,
+        parent_popup,
+        import_callback,
+        title="Εισαγωγή αλλαγών από Android",
+        filetypes=(("JSON files", "*.json"),),
+        chooser_filters=["*.json"],
+    )
 """
 Delegating wrappers for import-related UI functions in `DBrun.py`.
 """

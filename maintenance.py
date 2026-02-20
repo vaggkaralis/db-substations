@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from strings import STRINGS as S
 
 def _make_ui_dict(ui):
     # ensure keys exist even if some are None

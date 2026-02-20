@@ -2,6 +2,7 @@ import os
 import re
 import json
 from datetime import datetime
+from strings import STRINGS as S
 
 def _get_inspection_fallback_fields():
     return [
@@ -290,7 +291,17 @@ def handle_inspection_history(app, instance=None):
         count = row[0] if row else 0
         from popups import show_message_popup
 
-        show_message_popup("Ιστορικό Επιθεώρησης", f"{count} εγγραφές επιθεώρησης")
+        # If there are no inspections yet, offer to create one directly
+        # instead of only showing a count message. This makes the UI
+        # discoverable for users who expect to add the first inspection.
+        if count == 0:
+            show_message_popup(
+                "Ιστορικό Επιθεώρησης",
+                "Δεν υπάρχουν καταχωρημένες επιθεώρήσεις. Θέλετε να δημιουργήσετε μία;",
+                callback=lambda: getattr(app, "show_inspection_entry_popup")(None),
+            )
+        else:
+            show_message_popup("Ιστορικό Επιθεώρησης", f"{count} εγγραφές επιθεώρησης")
     except Exception:
         # Give up silently to avoid crashing the app in this fallback.
         return None
