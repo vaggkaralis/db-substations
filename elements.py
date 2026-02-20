@@ -35,7 +35,7 @@ def show_add_element_popup(app, instance):
     substations = c.fetchall()
 
     if not substations:
-        show_message_popup(S["TITLES"]["ERROR"], "Δεν υπάρχουν υποσταθμοί!")
+        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["NO_SUBSTATIONS"])
         return
 
     # Get active people for responsible/crew selection
@@ -44,7 +44,7 @@ def show_add_element_popup(app, instance):
     if not people:
         show_message_popup(
             S["TITLES"]["ERROR"],
-            "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
+            S["MESSAGES"]["NO_PEOPLE"],
             callback=lambda: app.show_people_management(None),
         )
         return
@@ -346,7 +346,8 @@ def show_add_element_popup(app, instance):
             else field_inputs["name"].text
         )
         if not name_val:
-            show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε όνομα στοιχείου!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_ELEMENT_NAME"])
+            
             return
 
         values = {
@@ -523,8 +524,8 @@ def confirm_delete_element(app, element_id, element_name, substation_id, parent_
         delete_element(app, element_id, substation_id, parent_popup, substation_name)
 
     show_confirm(
-        "Επιβεβαίωση Διαγραφής",
-        f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο στοιχείο "{element_name}"?','"',
+        S["TITLES"].get("INFO", "Επιβεβαίωση"),
+        f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο στοιχείο "{element_name}"?',
         yes_callback=confirm,
         yes_color=(1, 0, 0, 1),
     )
@@ -543,17 +544,12 @@ def delete_element(app, element_id, substation_id, parent_popup, substation_name
 
     c.execute("DELETE FROM elements WHERE id=?", (element_id,))
     app.conn.commit()
-
     if substation_name:
         app._display_substations(substation_name, reuse_popup=parent_popup, prev_scroll_y=prev_scroll)
-        from popups import show_message_popup
-
-        show_message_popup("Ολοκληρώθηκε", "Το στοιχείο διαγράφηκε!")
     else:
         app._display_substations(None, reuse_popup=parent_popup, prev_scroll_y=prev_scroll)
-        from popups import show_message_popup
-
-        show_message_popup("Ολοκληρώθηκε", "Το στοιχείο διαγράφηκε!")
+    from popups import show_message_popup
+    show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["ITEM_DELETED"])
 
 
 def show_inactive_elements(app, substation_id, substation_name, parent_popup):
@@ -671,7 +667,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     element = c.fetchone()
 
     if not element:
-        show_message_popup(S["TITLES"]["ERROR"], "Το στοιχείο δεν βρέθηκε!")
+        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["ELEMENT_NOT_FOUND"])
         return
 
     (

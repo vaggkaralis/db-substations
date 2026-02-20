@@ -3149,20 +3149,18 @@ class SubstationApp(App):
                 pass
 
             if not file_path:
-                show_message_popup(
-                    "Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
-                )
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_PATH"])
                 return
 
             if not os.path.exists(file_path):
-                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"])
                 return
 
             # perform import and then dismiss popups on success
             try:
                 import_callback(file_path)
             except Exception as e:
-                show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία εισαγωγής:\n{str(e)}")
+                show_message_popup(S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}")
                 return
             popup.dismiss()
             if parent_popup:
