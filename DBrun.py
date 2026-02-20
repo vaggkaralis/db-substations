@@ -399,7 +399,7 @@ class SubstationApp(App):
         )
         self.maintenance_btn.bind(on_press=self.show_maintenance_menu_popup)
         self.inspection_btn = IconButton(
-            text="Επιθεωρήσεις", icon_type="inspection", theme=self.theme
+            text=S["BUTTONS"]["INSPECTIONS"], icon_type="inspection", theme=self.theme
         )
         self.inspection_btn.bind(on_press=self.show_inspection_menu_popup)
         self.isolation_btn = IconButton(

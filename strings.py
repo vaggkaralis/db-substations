@@ -15,6 +15,7 @@ STRINGS = {
         "APPLY": "Εφαρμογή",
         "BACKUP_APPLY": "Backup & Εφαρμογή",
         "CLOSE": "Κλείσιμο",
+        "INSPECTIONS": "Επιθεωρήσεις",
         "SAVE": "Αποθήκευση",
         "DELETE": "Διαγραφή",
         "UPDATE": "Ενημέρωση",
