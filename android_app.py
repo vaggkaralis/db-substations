@@ -58,6 +58,7 @@ try:
     GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
     Button = importlib.import_module("kivy.uix.button").Button
     Label = importlib.import_module("kivy.uix.label").Label
+    from popups import show_message_popup
     TextInput = importlib.import_module("kivy.uix.textinput").TextInput
     Popup = importlib.import_module("kivy.uix.popup").Popup
     ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
@@ -1602,18 +1603,7 @@ class SubstationAndroidApp(App):
                     "insert", "substations", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
-                success_layout = BoxLayout(
-                    orientation="vertical", padding=10, spacing=10
-                )
-                success_layout.add_widget(
-                    Label(text="Η αλλαγή καταγράφηκε στο change log.")
-                )
-                ok_btn = Button(text="OK", size_hint_y=0.3)
-                ok_btn.bind(on_press=success_popup.dismiss)
-                success_layout.add_widget(ok_btn)
-                success_popup.content = success_layout
-                success_popup.open()
+                show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append substation to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -1736,18 +1726,7 @@ class SubstationAndroidApp(App):
                     "insert", "elements", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
-                success_layout = BoxLayout(
-                    orientation="vertical", padding=10, spacing=10
-                )
-                success_layout.add_widget(
-                    Label(text="Η αλλαγή καταγράφηκε στο change log.")
-                )
-                ok_btn = Button(text="OK", size_hint_y=0.3)
-                ok_btn.bind(on_press=success_popup.dismiss)
-                success_layout.add_widget(ok_btn)
-                success_popup.content = success_layout
-                success_popup.open()
+                show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append element to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -1769,22 +1748,11 @@ class SubstationAndroidApp(App):
         from reports import show_confirm
 
         def do_delete():
-            try:
-                self._append_change_log("delete", "elements", {"id": element_id})
-                success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
-                success_layout = BoxLayout(
-                    orientation="vertical", padding=10, spacing=10
-                )
-                success_layout.add_widget(
-                    Label(text="Η αλλαγή καταγράφηκε στο change log.")
-                )
-                ok_btn = Button(text="OK", size_hint_y=0.3)
-                ok_btn.bind(on_press=success_popup.dismiss)
-                success_layout.add_widget(ok_btn)
-                success_popup.content = success_layout
-                success_popup.open()
-            except Exception as e:
-                self.show_error(f"Local DB error: {str(e)}")
+                try:
+                    self._append_change_log("delete", "elements", {"id": element_id})
+                    show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
+                except Exception as e:
+                    self.show_error(f"Local DB error: {str(e)}")
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",
@@ -1800,22 +1768,11 @@ class SubstationAndroidApp(App):
         from reports import show_confirm
 
         def do_delete():
-            try:
-                self._append_change_log("delete", "substations", {"id": substation_id})
-                success_popup = Popup(title="Επιτυχία", size_hint=(0.85, 0.45))
-                success_layout = BoxLayout(
-                    orientation="vertical", padding=10, spacing=10
-                )
-                success_layout.add_widget(
-                    Label(text="Η αλλαγή καταγράφηκε στο change log.")
-                )
-                ok_btn = Button(text="OK", size_hint_y=0.3)
-                ok_btn.bind(on_press=success_popup.dismiss)
-                success_layout.add_widget(ok_btn)
-                success_popup.content = success_layout
-                success_popup.open()
-            except Exception as e:
-                self.show_error(f"Local DB error: {str(e)}")
+                try:
+                    self._append_change_log("delete", "substations", {"id": substation_id})
+                    show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
+                except Exception as e:
+                    self.show_error(f"Local DB error: {str(e)}")
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",

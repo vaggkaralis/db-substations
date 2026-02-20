@@ -15,7 +15,7 @@ from importers import (
     import_substations_from_excel,
 )
 from popups import show_message_popup
-from templates import create_elements_template, create_substations_template
+from reports import create_elements_template, create_substations_template
 from model_management import show_models_management
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from import_wizard import ColumnMappingPopup, DataValidationPopup
