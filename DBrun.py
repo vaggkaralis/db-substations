@@ -347,7 +347,7 @@ class SubstationApp(App):
         return list(self.BREAKER_CATEGORIES_ALL)
 
     def build(self):
-        self.title = "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ"
+        self.title = S["MESSAGES"].get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ")
         self._apply_theme()
         self.root_layout = BoxLayout(orientation="vertical")
         Window.bind(on_key_down=self._handle_tab_navigation)
@@ -376,7 +376,7 @@ class SubstationApp(App):
         )
         top_bar.add_widget(Widget())
         self.app_info_btn = Button(
-            text="Πληρ. Εφαρμ.",
+            text=S["MESSAGES"].get("APP_INFO_SHORT", "Πληρ. Εφαρμ."),
             size_hint=(None, None),
             height=30,
             width=130,
@@ -387,15 +387,15 @@ class SubstationApp(App):
         layout.add_widget(top_bar)
 
         self.show_btn = IconButton(
-            text="Εμφάνιση βάσης υποσταθμών", icon_type="database", theme=self.theme
+            text=S["MESSAGES"].get("SHOW_DB_BUTTON", "Εμφάνιση βάσης υποσταθμών"), icon_type="database", theme=self.theme
         )
         self.show_btn.bind(on_press=self.show_records)
         self.import_btn = IconButton(
-            text="Εισαγωγή από αρχείο", icon_type="import", theme=self.theme
+            text=S["TITLES"].get("IMPORT_MENU", "Εισαγωγή από αρχείο"), icon_type="import", theme=self.theme
         )
         self.import_btn.bind(on_press=self.show_import_menu)
         self.maintenance_btn = IconButton(
-            text="Συντηρήσεις", icon_type="maintenance", theme=self.theme
+            text=S["MESSAGES"].get("MAINTENANCE_BUTTON", S["MESSAGES"].get("MAINTENANCES", "Συντηρήσεις")), icon_type="maintenance", theme=self.theme
         )
         self.maintenance_btn.bind(on_press=self.show_maintenance_menu_popup)
         self.inspection_btn = IconButton(
@@ -1095,7 +1095,7 @@ class SubstationApp(App):
         buttons_layout = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=40, spacing=10
         )
-        copy_btn = Button(text="Αντιγραφή")
+        copy_btn = Button(text=S["BUTTONS"].get("COPY", "Αντιγραφή"))
         copy_btn.bind(
             on_press=lambda *_: Clipboard.copy(
                 info_field.selection_text or info_text_plain
