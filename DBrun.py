@@ -403,19 +403,19 @@ class SubstationApp(App):
         )
         self.inspection_btn.bind(on_press=self.show_inspection_menu_popup)
         self.isolation_btn = IconButton(
-            text="Αιτήσεις Απομόνωσης", icon_type="isolation", theme=self.theme
+            text=S["MESSAGES"].get("ISOLATION_BUTTON", "Αιτήσεις Απομόνωσης"), icon_type="isolation", theme=self.theme
         )
         self.isolation_btn.bind(on_press=self.show_isolation_requests)
         self.models_btn = IconButton(
-            text="Διαχείριση Τύπων Στοιχείων", icon_type="models", theme=self.theme
+            text=S["MESSAGES"].get("MODELS_BUTTON", "Διαχείριση Τύπων Στοιχείων"), icon_type="models", theme=self.theme
         )
         self.models_btn.bind(on_press=self.show_models_management)
         self.people_btn = IconButton(
-            text="Διαχείριση Προσωπικού", icon_type="people", theme=self.theme
+            text=S["MESSAGES"].get("PEOPLE_BUTTON", "Διαχείριση Προσωπικού"), icon_type="people", theme=self.theme
         )
         self.people_btn.bind(on_press=self.show_people_management)
         self.sf6_btn = IconButton(
-            text="Διαχείριση SF6", icon_type="sf6", theme=self.theme
+            text=S["MESSAGES"].get("SF6_BUTTON", "Διαχείριση SF6"), icon_type="sf6", theme=self.theme
         )
         self.sf6_btn.bind(on_press=self.show_sf6_management_popup)
 
@@ -825,7 +825,7 @@ class SubstationApp(App):
 
         layout.add_widget(
             Label(
-                text="Επιλέξτε υποσταθμό για την εισαγωγή:", size_hint_y=None, height=40
+                text=S["MESSAGES"].get("PROMPT_SUBSTATION_SELECT", "Επιλέξτε υποσταθμό για την εισαγωγή:"), size_hint_y=None, height=40
             )
         )
         substation_names = [s[1] for s in substations if s[1]]
@@ -841,7 +841,7 @@ class SubstationApp(App):
             Label(text=S["MESSAGES"]["ADD_NEW_SUBSTATION_PROMPT"], size_hint_y=None, height=30)
         )
         new_name_input = TextInput(
-            hint_text="Όνομα νέου υποσταθμού",
+            hint_text=S["MESSAGES"].get("SUBSTATION_NEW_HINT", "Όνομα νέου υποσταθμού"),
             size_hint_y=None,
             height=40,
             multiline=False,
@@ -862,12 +862,12 @@ class SubstationApp(App):
         def add_new_substation():
             new_name = new_name_input.text.strip()
             if not new_name:
-                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ εισάγετε όνομα υποσταθμού.")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_SUBSTATION_NAME"])
                 return
             c = self.conn.cursor()
             c.execute("SELECT id FROM substations WHERE name=?", (new_name,))
             if c.fetchone():
-                show_message_popup(S["TITLES"]["INFO"], "Ο υποσταθμός υπάρχει ήδη.")
+                show_message_popup(S["TITLES"]["INFO"], S["MESSAGES"]["SUBSTATION_EXISTS"])
                 spinner.text = new_name
                 return
             c.execute(
@@ -904,12 +904,12 @@ class SubstationApp(App):
     def _prompt_add_elements_then_continue(
         self, substation_id, substation_name, payload
     ):
-        popup = Popup(title="Προσθήκη στοιχείων", size_hint=(0.7, 0.5))
+        popup = Popup(title=S["MESSAGES"].get("ADD_ELEMENTS_TITLE", "Προσθήκη στοιχείων"), size_hint=(0.7, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         layout.add_widget(
             Label(
-                text="Προσθέστε στοιχεία για τον νέο υποσταθμό πριν τη συνέχεια:",
+                text=S["MESSAGES"].get("ADD_ELEMENTS_PROMPT", "Προσθέστε στοιχεία για τον νέο υποσταθμό πριν τη συνέχεια:"),
                 size_hint_y=None,
                 height=50,
             )
@@ -928,7 +928,7 @@ class SubstationApp(App):
             count = c.fetchone()[0]
             if count == 0:
                 show_message_popup(
-                    "Σφάλμα", "Προσθέστε τουλάχιστον ένα στοιχείο πριν τη συνέχεια."
+                    S["TITLES"]["ERROR"], S["MESSAGES"].get("ADD_ELEMENT_BEFORE_CONTINUE", "Προσθέστε τουλάχιστον ένα στοιχείο πριν τη συνέχεια.")
                 )
                 return
             popup.dismiss()
@@ -1253,12 +1253,12 @@ class SubstationApp(App):
                 refresh_cb()
 
         show_confirm(
-            "Επιβεβαίωση Διαγραφής",
+            S["MESSAGES"].get("CONFIRM_DELETE_TITLE", "Επιβεβαίωση Διαγραφής"),
             f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
             yes_callback=confirm_delete,
             yes_color=(1, 0, 0, 1),
-            yes_text="ΝΑΙ",
-            no_text="ΟΧΙ",
+            yes_text=S["BUTTONS"]["YES"].upper(),
+            no_text=S["BUTTONS"]["NO"].upper(),
         )
 
     def _migrate_people_name_columns(self):
@@ -1566,12 +1566,12 @@ class SubstationApp(App):
         substation_input = TextInput(
             text=initial_substation, readonly=True, size_hint_x=0.7, multiline=False
         )
-        select_sub_btn = Button(text="Επιλογή", size_hint_x=0.3)
+        select_sub_btn = Button(text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"), size_hint_x=0.3)
         substation_picker.add_widget(substation_input)
         substation_picker.add_widget(select_sub_btn)
         form_number_label = Label(text=S["MESSAGES"]["FORM_NUMBER"], size_hint_x=0.18)
         form_number_input = TextInput(
-            hint_text="Αρ. Δελτίου", size_hint_x=0.22, multiline=False
+            hint_text=S["MESSAGES"].get("FORM_NUMBER_HINT", "Αρ. Δελτίου"), size_hint_x=0.22, multiline=False
         )
         substation_row.add_widget(substation_label)
         substation_row.add_widget(substation_picker)
@@ -1594,13 +1594,13 @@ class SubstationApp(App):
         date_label = Label(text=S["MESSAGES"]["DATE_LABEL"], size_hint_x=0.18)
         date_input = TextInput(
             text=datetime.now().strftime("%Y-%m-%d"),
-            hint_text="YYYY-MM-DD",
+            hint_text=S["MESSAGES"].get("DATE_HINT", "YYYY-MM-DD"),
             size_hint_x=0.32,
             height=40,
             multiline=False,
         )
         region_label = Label(text=S["MESSAGES"]["REGION_LABEL"], size_hint_x=0.14)
-        region_input = TextInput(hint_text="Περιοχή", size_hint_x=0.16, multiline=False)
+        region_input = TextInput(hint_text=S["MESSAGES"].get("REGION_HINT", "Περιοχή"), size_hint_x=0.16, multiline=False)
         inspector_label = Label(text=S["MESSAGES"]["INSPECTOR_LABEL"], size_hint_x=0.12)
         inspector_spinner = Spinner(
             text=people[0], values=people, size_hint_x=0.18, height=40
