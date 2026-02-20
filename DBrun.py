@@ -657,6 +657,16 @@ class SubstationApp(App):
         )
         layout.add_widget(import_email_btn)
 
+        # Export maintenances (Excel)
+        try:
+            from excel_io import export_maintenances_per_substation
+
+            export_maint_btn = Button(text="Εξαγωγή Συντηρήσεων (Excel)", size_hint_y=0.3)
+            export_maint_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_maintenances_per_substation(self.conn)))
+            layout.add_widget(export_maint_btn)
+        except Exception:
+            pass
+
         history_btn = Button(text="Ιστορικό Συντηρήσεων", size_hint_y=0.3)
         history_btn.bind(
             on_press=lambda x: (
@@ -1988,6 +1998,66 @@ class SubstationApp(App):
         add_btn.bind(on_press=add_person)
         main_layout.add_widget(add_btn)
 
+        # People import/export/template helper
+        def _show_people_io_popup(_instance=None):
+            try:
+                from excel_io import export_people, export_people_template, import_people
+            except Exception:
+                show_message_popup("Σφάλμα", "Οι βοηθητικές συναρτήσεις Excel δεν είναι διαθέσιμες.")
+                return
+
+            io_popup = Popup(title="Εισαγωγή/Εξαγωγή Προσωπικού", size_hint=(0.5, 0.4))
+            io_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+            def _import_people(_btn=None):
+                try:
+                    fp = ask_open_file(title="Επιλέξτε αρχείο εισαγωγής (Excel)", filetypes=(("Excel files", "*.xlsx"),))
+                except Exception:
+                    fp = None
+                if not fp:
+                    return
+                try:
+                    import_people(self.conn, fp)
+                    show_message_popup("Επιτυχία", "Εισαγωγή προσωπικού ολοκληρώθηκε.")
+                    refresh_list()
+                except Exception as exc:
+                    show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής προσωπικού:\n{str(exc)}")
+
+            def _export_people(_btn=None):
+                try:
+                    export_people(self.conn)
+                except Exception as exc:
+                    show_message_popup("Σφάλμα", f"Αποτυχία εξαγωγής προσωπικού:\n{str(exc)}")
+
+            def _export_template(_btn=None):
+                try:
+                    export_people_template()
+                except Exception as exc:
+                    show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας προτύπου:\n{str(exc)}")
+
+            imp_btn = Button(text="Εισαγωγή Προσωπικού (Excel)")
+            imp_btn.bind(on_press=_import_people)
+            io_layout.add_widget(imp_btn)
+
+            exp_btn = Button(text="Εξαγωγή Προσωπικού (Excel)")
+            exp_btn.bind(on_press=_export_people)
+            io_layout.add_widget(exp_btn)
+
+            tpl_btn = Button(text="Δημιουργία Template Προσωπικού")
+            tpl_btn.bind(on_press=_export_template)
+            io_layout.add_widget(tpl_btn)
+
+            close_btn = Button(text="Κλείσιμο", size_hint_y=None, height=40)
+            close_btn.bind(on_press=io_popup.dismiss)
+            io_layout.add_widget(close_btn)
+
+            io_popup.content = io_layout
+            io_popup.open()
+
+        people_io_btn = Button(text="Εισαγωγή/Εξαγωγή Προσωπικού", size_hint_y=None, height=40)
+        people_io_btn.bind(on_press=_show_people_io_popup)
+        main_layout.add_widget(people_io_btn)
+
         refresh_list()
         list_scroll.add_widget(list_layout)
         main_layout.add_widget(list_scroll)
@@ -2334,6 +2404,17 @@ class SubstationApp(App):
             )
         )
         layout.add_widget(import_btn)
+
+        # Export inspections (Excel) moved here from the import menu
+        try:
+            from excel_io import export_inspections_per_substation
+
+            export_insp_btn = Button(text="Εξαγωγή Επιθεωρήσεων (Excel)", size_hint_y=0.3)
+            export_insp_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_inspections_per_substation(self.conn)))
+            layout.add_widget(export_insp_btn)
+        except Exception:
+            # excel_io not available; skip button
+            pass
 
         history_btn = Button(text="Ιστορικό Επιθεωρήσεων", size_hint_y=0.3)
         history_btn.bind(
@@ -3192,7 +3273,7 @@ class SubstationApp(App):
 
         Args:
             substation_id: The ID of the substation
-            is_interconnection: If True, returns interconnection gates (1-2, 2-3, etc.)
+            is_interconnection: If True,run the test suite  returns interconnection gates (1-2, 2-3, etc.)
                                If False, returns regular gates (1, 2, 3, etc.)
                                If None (default), returns both regular and interconnection
                                gates when multiple transformers exist so the caller can
@@ -3255,6 +3336,17 @@ class SubstationApp(App):
             on_press=lambda x: self._show_import_android_changes_from_menu(menu_popup)
         )
         layout.add_widget(import_android_btn)
+
+        # Export full DB button
+        try:
+            from excel_io import export_full_db
+
+            export_db_btn = Button(text="Εξαγωγή Βάσης (Excel)", size_hint_y=0.2)
+            export_db_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_full_db(self.conn)))
+            layout.add_widget(export_db_btn)
+        except Exception:
+            # excel_io not available - skip adding the button
+            pass
 
         # Separator
         layout.add_widget(

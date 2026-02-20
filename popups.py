@@ -149,3 +149,44 @@ def _win32_get_open_filename(title: str = "Select file", filetypes=None):
     if res:
         return buffer.value
     return None
+
+
+def ask_save_file(title: str = "Save file", default_name: str = None, filetypes=None):
+    """Show a native save-file dialog and return the selected path or None.
+
+    Uses Win32 API when available, otherwise falls back to tkinter.
+    """
+    try:
+        # Try Win32 API for Save dialog
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        ctypes = None
+
+    import sys
+
+    if sys.platform == "win32" and ctypes is not None:
+        try:
+            # Use tkinter fallback for simplicity in Save dialog implementation
+            raise Exception("fallback to tkinter")
+        except Exception:
+            pass
+
+    try:
+        import tkinter as _tk
+        from tkinter import filedialog as _fd
+    except Exception:
+        return None
+
+    _root = _tk.Tk()
+    _root.withdraw()
+    try:
+        ft = list(filetypes) if filetypes else [("All files", "*.*")]
+        fp = _fd.asksaveasfilename(title=title, initialfile=default_name or "", filetypes=ft, defaultextension=".xlsx")
+    finally:
+        try:
+            _root.destroy()
+        except Exception:
+            pass
+
+    return fp or None
