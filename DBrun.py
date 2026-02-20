@@ -1680,7 +1680,7 @@ class SubstationApp(App):
         # Chapter 2: Έλεγχος Χώρων ΥΣ
         content_layout.add_widget(
             Label(
-                text="[b]Έλεγχος Χώρων ΥΣ[/b]", markup=True, size_hint_y=None, height=35
+                text=S["MESSAGES"].get("INSPECTION_SECTION_2", "[b]Έλεγχος Χώρων ΥΣ[/b]"), markup=True, size_hint_y=None, height=35
             )
         )
 
@@ -1718,7 +1718,7 @@ class SubstationApp(App):
         # Chapter 3: Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV
         content_layout.add_widget(
             Label(
-                text="[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]",
+                text=S["MESSAGES"].get("INSPECTION_SECTION_3", "[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]"),
                 markup=True,
                 size_hint_y=None,
                 height=35,
@@ -1732,7 +1732,7 @@ class SubstationApp(App):
         # Chapter 3: Υπαίθριες πύλες 20 kV
         content_layout.add_widget(
             Label(
-                text="[b]Υπαίθριες πύλες 20 kV[/b]",
+                text=S["MESSAGES"].get("INSPECTION_SECTION_3A", "[b]Υπαίθριες πύλες 20 kV[/b]"),
                 markup=True,
                 size_hint_y=None,
                 height=35,
@@ -1743,7 +1743,7 @@ class SubstationApp(App):
         # Chapter 4: Υπαίθριες πύλες 20 kV
         content_layout.add_widget(
             Label(
-                text="[b]Υπαίθριες πύλες 20 kV[/b]",
+                text=S["MESSAGES"].get("INSPECTION_SECTION_3B", "[b]Υπαίθριες πύλες 20 kV[/b]"),
                 markup=True,
                 size_hint_y=None,
                 height=35,
@@ -1759,7 +1759,7 @@ class SubstationApp(App):
         # Chapter 5: Κτίριο χειρισμών & Τ.Α.Σ.
         content_layout.add_widget(
             Label(
-                text="[b]Κτίριο χειρισμών & Τ.Α.Σ.[/b]",
+                text=S["MESSAGES"].get("INSPECTION_SECTION_4", "[b]Κτίριο χειρισμών & Τ.Α.Σ.[/b]"),
                 markup=True,
                 size_hint_y=None,
                 height=35,
@@ -1774,7 +1774,7 @@ class SubstationApp(App):
         # Chapter 6: Αποζευκτες Γραμμών
         content_layout.add_widget(
             Label(
-                text="[b]Αποζευκτες Γραμμών[/b]",
+                text=S["MESSAGES"].get("INSPECTION_SECTION_5", "[b]Αποζευκτες Γραμμών[/b]"),
                 markup=True,
                 size_hint_y=None,
                 height=35,
@@ -1786,7 +1786,7 @@ class SubstationApp(App):
 
         # Chapter 7: PC ΧΕΙΡΙΣΜΩΝ
         content_layout.add_widget(
-            Label(text="[b]PC ΧΕΙΡΙΣΜΩΝ[/b]", markup=True, size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"].get("INSPECTION_SECTION_6", "[b]PC ΧΕΙΡΙΣΜΩΝ[/b]"), markup=True, size_hint_y=None, height=35)
         )
         add_inspection_row(
             "Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις"
@@ -1795,7 +1795,7 @@ class SubstationApp(App):
 
         # Chapter 8: Απόψεις
         content_layout.add_widget(
-            Label(text="[b]Απόψεις[/b]", markup=True, size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"].get("INSPECTION_SECTION_7", "[b]Απόψεις[/b]"), markup=True, size_hint_y=None, height=35)
         )
         add_inspection_row(
             "Απόψεις και τυχόν προτάσεις  για την καλύτερη λειτουργία τόσο του εξοπλισμού, όσο και του κτηρίου γενικά του Υ/Σ."
