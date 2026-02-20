@@ -153,18 +153,18 @@ def import_inspections_from_file(app, file_path):
         else:
             from popups import show_message_popup
 
-            show_message_popup("Σφάλμα", "Μη υποστηριζόμενη μορφή αρχείου")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["UNSUPPORTED_FILE_FORMAT"])
             return
     except Exception as e:
         from popups import show_message_popup
 
-        show_message_popup("Σφάλμα", f"Σφάλμα κατά την ανάγνωση αρχείου: {e}")
+        show_message_popup(S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}")
         return
 
     if df.empty:
         from popups import show_message_popup
 
-        show_message_popup("Σφάλμα", "Το αρχείο δεν περιέχει δεδομένα.")
+        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_HAS_NO_DATA"])
         return
 
     columns = list(df.columns)
@@ -340,7 +340,7 @@ def handle_inspection_details(app, inspection_id):
         if not row:
             from popups import show_message_popup
 
-            show_message_popup("Λεπτομέρειες Επιθεώρησης", "Η εγγραφή δεν βρέθηκε.")
+            show_message_popup(S["TITLES"]["INFO"], S["MESSAGES"]["RECORD_NOT_FOUND"])
             return None
 
         sub_name, insp_date, data_json = row

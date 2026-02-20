@@ -593,13 +593,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
 
     def save_model():
         if not model_name_input.text.strip():
-            show_message_popup(S["TITLES"]["ERROR"], "Το όνομα μοντέλου είναι υποχρεωτικό!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_NAME_REQUIRED"])
             return
 
         try:
             cycle = int(cycle_input.text) if cycle_input.text.strip() else 0
         except ValueError:
-            show_message_popup(S["TITLES"]["ERROR"], "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_SERVICE_CYCLE_NUM"])
             return
 
         # parse rated power
@@ -608,7 +608,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             try:
                 power_val = float(power_input.text.strip())
             except ValueError:
-                show_message_popup(S["TITLES"]["ERROR"], "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_POWER_NUM"])
                 return
 
         breaker_cat = (
@@ -664,7 +664,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     callback=lambda: show_models_management(app_instance),
                 )
             else:
-                show_message_popup(S["TITLES"]["SUCCESS"], "Το μοντέλο προστέθηκε!")
+                show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MODEL_ADDED"])
         except Exception as e:
             show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την αποθήκευση: {str(e)}")
 
@@ -700,7 +700,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     model = c.fetchone()
 
     if not model:
-        show_message_popup(S["TITLES"]["ERROR"], "Το μοντέλο δεν βρέθηκε!")
+        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_NOT_FOUND"])
         return
 
     category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity, power_mva = model
@@ -1040,7 +1040,7 @@ def delete_model(app_instance, model_id, parent_popup):
             parent_popup.dismiss()
             from popups import show_message_popup
 
-            show_message_popup("Ολοκληρώθηκε", "Το μοντέλο διαγράφηκε επιτυχώς!")
+            show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MODEL_DELETED"])
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",

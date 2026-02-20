@@ -114,7 +114,7 @@ class PeopleManager:
             role = role_spinner.text.strip()
             email = email_input.text.strip()
             if not surname or not role:
-                show_message_popup(S["TITLES"]["ERROR"], "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["SURNAME_ROLE_REQUIRED"])
                 return
             composite = f"{surname} {given}".strip()
             c = self.app.conn.cursor()
@@ -231,7 +231,7 @@ class PeopleManager:
         c.execute("SELECT COUNT(*) FROM maintenance_people WHERE person_id=?", (person_id,))
         usage_count = c.fetchone()[0]
         if usage_count > 0:
-            show_message_popup(S["TITLES"]["INFO"], "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.")
+            show_message_popup(S["TITLES"]["INFO"], S["MESSAGES"]["PERSON_IN_USE"])
             return
 
         from reports import show_confirm
@@ -284,7 +284,7 @@ class PeopleManager:
         c.execute("SELECT name, given_name, surname, role, email, report_receiver, active FROM people WHERE id=?", (person_id,))
         row = c.fetchone()
         if not row:
-            show_message_popup("Σφάλμα", "Το άτομο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PERSON_NOT_FOUND"])
             return
 
         name, given, surname, role, email, report_receiver, active = row
