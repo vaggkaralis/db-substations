@@ -353,7 +353,7 @@ class SubstationApp(App):
         Window.bind(on_key_down=self._handle_tab_navigation)
         Window.bind(on_request_close=self._handle_request_close)
 
-        self.loading_label = Label(text="Φόρτωση...", font_size="22sp")
+        self.loading_label = Label(text=S["MESSAGES"]["LOADING"], font_size="22sp")
         self.root_layout.add_widget(self.loading_label)
 
         Clock.schedule_once(self._finish_build, 0)
@@ -838,7 +838,7 @@ class SubstationApp(App):
         layout.add_widget(spinner)
 
         layout.add_widget(
-            Label(text="Ή προσθέστε νέο υποσταθμό:", size_hint_y=None, height=30)
+            Label(text=S["MESSAGES"]["ADD_NEW_SUBSTATION_PROMPT"], size_hint_y=None, height=30)
         )
         new_name_input = TextInput(
             hint_text="Όνομα νέου υποσταθμού",
@@ -958,7 +958,7 @@ class SubstationApp(App):
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         layout.add_widget(
-            Label(text="Επιλέξτε υπεύθυνο συντήρησης:", size_hint_y=None, height=40)
+            Label(text=S["MESSAGES"]["SELECT_MAINT_RESPONSIBLE"], size_hint_y=None, height=40)
         )
         labels = [f"{p[1]} ({p[2]})" for p in people]
         spinner = Spinner(text=labels[0], values=labels, size_hint_y=None, height=40)
@@ -1319,15 +1319,15 @@ class SubstationApp(App):
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         form = GridLayout(cols=2, size_hint_y=None, height=160, spacing=5)
-        form.add_widget(Label(text="Επώνυμο:", size_hint_x=0.3))
+        form.add_widget(Label(text=S["MESSAGES"]["SURNAME_LABEL"], size_hint_x=0.3))
         surname_input = TextInput(text=surname or "", multiline=False, size_hint_x=0.7)
         form.add_widget(surname_input)
 
-        form.add_widget(Label(text="Όνομα:", size_hint_x=0.3))
+        form.add_widget(Label(text=S["MESSAGES"]["NAME_LABEL"], size_hint_x=0.3))
         name_input = TextInput(text=given or "", multiline=False, size_hint_x=0.7)
         form.add_widget(name_input)
 
-        form.add_widget(Label(text="Ρόλος:", size_hint_x=0.3))
+        form.add_widget(Label(text=S["MESSAGES"]["ROLE_LABEL"], size_hint_x=0.3))
         # Use Spinner for locked role values; include current role if it's not in the enum
         role_values = list(PEOPLE_ROLES)
         if role and role not in role_values:
@@ -1335,7 +1335,7 @@ class SubstationApp(App):
         role_spinner = Spinner(text=role or (role_values[0] if role_values else ""), values=role_values, size_hint_x=0.7)
         form.add_widget(role_spinner)
 
-        form.add_widget(Label(text="Email:", size_hint_x=0.3))
+        form.add_widget(Label(text=S["MESSAGES"]["EMAIL_LABEL"], size_hint_x=0.3))
         email_input = TextInput(text=email or "", multiline=False, size_hint_x=0.7)
         form.add_widget(email_input)
 
@@ -1349,7 +1349,7 @@ class SubstationApp(App):
         )
         receiver_layout.add_widget(receiver_checkbox)
         receiver_layout.add_widget(
-            Label(text="Παραλήπτης email αναφοράς", size_hint_x=0.9)
+            Label(text=S["MESSAGES"]["EMAIL_RECIPIENT_LABEL"], size_hint_x=0.9)
         )
         layout.add_widget(receiver_layout)
 
@@ -1360,7 +1360,7 @@ class SubstationApp(App):
             color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
         )
         active_layout.add_widget(active_checkbox)
-        active_layout.add_widget(Label(text="Ενεργός", size_hint_x=0.9))
+        active_layout.add_widget(Label(text=S["MESSAGES"]["ACTIVE_LABEL"], size_hint_x=0.9))
         layout.add_widget(active_layout)
 
         buttons_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
@@ -1712,14 +1712,8 @@ class SubstationApp(App):
             content_layout.add_widget(row)
             fields_inputs.append((label_text, ti))
 
-        add_inspection_row("Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ")
-        add_inspection_row(
-            "Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)"
-        )
-        add_inspection_row(
-            "Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)"
-        )
-        add_inspection_row("Έλεγχος μέσων πυρόσβεσης γενικά.")
+        for _r in S["MESSAGES"].get("INSPECTION_ROWS", []):
+            add_inspection_row(_r)
 
         # Chapter 3: Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV
         content_layout.add_widget(
@@ -1731,20 +1725,9 @@ class SubstationApp(App):
             )
         )
 
-        add_inspection_row(
-            "Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ"
-        )
-        add_inspection_row(
-            "Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV"
-        )
-        add_inspection_row("Έλεγχος λειτουργίας ανεμιστήρων  Μ/Σ")
-        add_inspection_row(
-            "Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)"
-        )
-        add_inspection_row("Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)")
-        add_inspection_row("Οπτικός έλεγχος τηκτών πυκνωτών")
-        add_inspection_row("Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV")
-        add_inspection_row("Λήψη φωτογραφίας όταν απαιτείται")
+        # inspection rows are loaded from STRINGS to keep UI literals centralized
+        for _r in S["MESSAGES"].get("INSPECTION_ROWS", []):
+            add_inspection_row(_r)
 
         # Chapter 3: Υπαίθριες πύλες 20 kV
         content_layout.add_widget(
@@ -1755,9 +1738,7 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        add_inspection_row(
-            "Οπτικός έλεγχος των πυλών, A/Z  και γενικά του ικριώματος για τυχόν φωλιές από πτηνα, σπασιματά, μονωτήρων, κλαδιά, σύρματα κλπ"
-        )
+        # (rows already provided by the centralized INSPECTION_ROWS list)
 
         # Chapter 4: Υπαίθριες πύλες 20 kV
         content_layout.add_widget(
@@ -2017,25 +1998,25 @@ class SubstationApp(App):
     def show_add_menu(self, instance):
         # Show intermediate menu for adding substation or element
         menu_popup = Popup(
-            title="Προσθήκη υποσταθμών και στοιχείων", size_hint=(0.6, 0.4)
+            title=S["MESSAGES"]["ADD_MENU_TITLE"], size_hint=(0.6, 0.4)
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         self._add_logo_to_layout(layout, height=70)
 
         layout.add_widget(
-            Label(text="Επιλέξτε τι θέλετε να προσθέσετε:", size_hint_y=0.3)
+            Label(text=S["MESSAGES"]["CHOOSE_WHAT_TO_ADD"], size_hint_y=0.3)
         )
 
         # Add substation button
-        add_substation_btn = Button(text="Προσθήκη Νέου Υποσταθμού", size_hint_y=0.3)
+        add_substation_btn = Button(text=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint_y=0.3)
         add_substation_btn.bind(
             on_press=lambda x: self._show_add_substation_from_menu(menu_popup)
         )
         layout.add_widget(add_substation_btn)
 
         # Add element button
-        add_element_btn = Button(text="Προσθήκη Νέου Στοιχείου", size_hint_y=0.3)
+        add_element_btn = Button(text=S["MESSAGES"]["ADD_ELEMENT_BTN"], size_hint_y=0.3)
         add_element_btn.bind(
             on_press=lambda x: self._show_add_element_from_menu(menu_popup)
         )
@@ -2059,19 +2040,19 @@ class SubstationApp(App):
 
     def show_add_substation_popup(self, instance):
         # Create popup
-        popup = Popup(title="Προσθήκη Νέου Υποσταθμού", size_hint=(0.8, 0.5))
+        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
         name_input = TextInput(
-            hint_text="Όνομα Υποσταθμού", size_hint_y=0.25, multiline=False
+            hint_text=S["MESSAGES"].get("SUBSTATION_NAME_HINT", "Όνομα Υποσταθμού"), size_hint_y=0.25, multiline=False
         )
-        layout.add_widget(Label(text="Όνομα Υποσταθμού:", size_hint_y=0.15))
+        layout.add_widget(Label(text=S["MESSAGES"].get("SUBSTATION_NAME_LABEL", "Όνομα Υποσταθμού:"), size_hint_y=0.15))
         layout.add_widget(name_input)
 
         # Division spinner
         division_spinner = Spinner(text="ΤΜΘ", values=["ΤΜΘ"], size_hint_y=0.25)
-        layout.add_widget(Label(text="Τομέας:", size_hint_y=0.15))
+        layout.add_widget(Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15))
         layout.add_widget(division_spinner)
 
         # Buttons layout
@@ -2079,7 +2060,7 @@ class SubstationApp(App):
 
         def add_substation():
             if not name_input.text:
-                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ εισάγετε όνομα υποσταθμού!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_SUBSTATION_NAME"])
                 return
 
             c = self.conn.cursor()
@@ -2090,8 +2071,8 @@ class SubstationApp(App):
             self.conn.commit()
             popup.dismiss()
             show_message_popup(
-                "Επιτυχία",
-                "Υποσταθμός προστέθηκε!",
+                S["TITLES"]["SUCCESS"],
+                S["MESSAGES"]["SUBSTATION_ADDED"],
                 callback=lambda: self.show_records(None),
             )
 
@@ -2110,19 +2091,19 @@ class SubstationApp(App):
     def show_add_substation_popup_from_db_view(self, parent_popup):
         """Add substation from within the database view, and refresh the view after"""
         # Create popup
-        popup = Popup(title="Προσθήκη Νέου Υποσταθμού", size_hint=(0.8, 0.5))
+        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
         name_input = TextInput(
-            hint_text="Όνομα Υποσταθμού", size_hint_y=0.25, multiline=False
+            hint_text=S["MESSAGES"].get("SUBSTATION_NAME_HINT", "Όνομα Υποσταθμού"), size_hint_y=0.25, multiline=False
         )
-        layout.add_widget(Label(text="Όνομα Υποσταθμού:", size_hint_y=0.15))
+        layout.add_widget(Label(text=S["MESSAGES"].get("SUBSTATION_NAME_LABEL", "Όνομα Υποσταθμού:"), size_hint_y=0.15))
         layout.add_widget(name_input)
 
         # Division spinner
         division_spinner = Spinner(text="ΤΜΘ", values=["ΤΜΘ"], size_hint_y=0.25)
-        layout.add_widget(Label(text="Τομέας:", size_hint_y=0.15))
+        layout.add_widget(Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15))
         layout.add_widget(division_spinner)
 
         # Buttons layout
