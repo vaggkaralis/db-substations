@@ -1541,10 +1541,10 @@ class SubstationApp(App):
         substations = c.fetchall()
 
         if not substations:
-            show_message_popup(S["TITLES"]["ERROR"], "Δεν υπάρχουν υποσταθμοί!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["NO_SUBSTATIONS"])
             return
 
-        popup = Popup(title="Καταχώρηση Επιθεώρησης", size_hint=(0.9, 0.95))
+        popup = Popup(title=S["TITLES"]["INSPECTION_ENTRY"], size_hint=(0.9, 0.95))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -1552,7 +1552,7 @@ class SubstationApp(App):
         content_layout.bind(minimum_height=content_layout.setter("height"))
 
         content_layout.add_widget(
-            Label(text="Επιλογή Υποσταθμού:", size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"]["SELECT_SUBSTATION"], size_hint_y=None, height=35)
         )
         substation_map = {s[1]: s[0] for s in substations}
         initial_substation = (
@@ -1561,7 +1561,7 @@ class SubstationApp(App):
             else substations[0][1]
         )
         substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
-        substation_label = Label(text="Υποσταθμός:", size_hint_x=0.18)
+        substation_label = Label(text=S["MESSAGES"]["SUBSTATION_LABEL"], size_hint_x=0.18)
         substation_picker = BoxLayout(size_hint_x=0.42, spacing=5)
         substation_input = TextInput(
             text=initial_substation, readonly=True, size_hint_x=0.7, multiline=False
@@ -1569,7 +1569,7 @@ class SubstationApp(App):
         select_sub_btn = Button(text="Επιλογή", size_hint_x=0.3)
         substation_picker.add_widget(substation_input)
         substation_picker.add_widget(select_sub_btn)
-        form_number_label = Label(text="Αρ. Δελτίου:", size_hint_x=0.18)
+        form_number_label = Label(text=S["MESSAGES"]["FORM_NUMBER"], size_hint_x=0.18)
         form_number_input = TextInput(
             hint_text="Αρ. Δελτίου", size_hint_x=0.22, multiline=False
         )
@@ -1591,7 +1591,7 @@ class SubstationApp(App):
             return
 
         row_two = BoxLayout(size_hint_y=None, height=40, spacing=5)
-        date_label = Label(text="Ημερομηνία:", size_hint_x=0.18)
+        date_label = Label(text=S["MESSAGES"]["DATE_LABEL"], size_hint_x=0.18)
         date_input = TextInput(
             text=datetime.now().strftime("%Y-%m-%d"),
             hint_text="YYYY-MM-DD",
@@ -1599,9 +1599,9 @@ class SubstationApp(App):
             height=40,
             multiline=False,
         )
-        region_label = Label(text="Περιοχή:", size_hint_x=0.14)
+        region_label = Label(text=S["MESSAGES"]["REGION_LABEL"], size_hint_x=0.14)
         region_input = TextInput(hint_text="Περιοχή", size_hint_x=0.16, multiline=False)
-        inspector_label = Label(text="Ονομ. Επιθεωρητή:", size_hint_x=0.12)
+        inspector_label = Label(text=S["MESSAGES"]["INSPECTOR_LABEL"], size_hint_x=0.12)
         inspector_spinner = Spinner(
             text=people[0], values=people, size_hint_x=0.18, height=40
         )
@@ -1614,11 +1614,11 @@ class SubstationApp(App):
         content_layout.add_widget(row_two)
 
         row_three = BoxLayout(size_hint_y=None, height=40, spacing=5)
-        month_label = Label(text="Μήνας:", size_hint_x=0.18)
+        month_label = Label(text=S["MESSAGES"]["MONTH_LABEL"], size_hint_x=0.18)
         month_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
-        day_label = Label(text="Ημέρα:", size_hint_x=0.18)
+        day_label = Label(text=S["MESSAGES"]["DAY_LABEL"], size_hint_x=0.18)
         day_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
-        year_label = Label(text="Έτος:", size_hint_x=0.18)
+        year_label = Label(text=S["MESSAGES"]["YEAR_LABEL"], size_hint_x=0.18)
         year_input = TextInput(readonly=True, size_hint_x=0.18, multiline=False)
         row_three.add_widget(month_label)
         row_three.add_widget(month_input)
@@ -1690,7 +1690,7 @@ class SubstationApp(App):
             label.bind(width=lambda inst, val: setattr(inst, "text_size", (val, None)))
 
             ti = TextInput(
-                hint_text="Παρατηρήσεις",
+                hint_text=S["MESSAGES"]["OBSERVATIONS_HINT"],
                 size_hint_x=0.3,
                 size_hint_y=None,
                 height=60,
@@ -1909,16 +1909,16 @@ class SubstationApp(App):
             popup.dismiss()
             if parent_popup:
                 show_message_popup(
-                    "Επιτυχία",
-                    "Η επιθεώρηση καταχωρήθηκε!",
+                    S["TITLES"]["SUCCESS"],
+                    S["MESSAGES"]["INSPECTION_SAVED"],
                     callback=lambda: self.show_substation_inspection_history(
                         substation_id, substation_name
                     ),
                 )
             else:
                 show_message_popup(
-                    "Επιτυχία",
-                    "Η επιθεώρηση καταχωρήθηκε!",
+                    S["TITLES"]["SUCCESS"],
+                    S["MESSAGES"]["INSPECTION_SAVED"],
                     callback=lambda: self.show_inspection_history(None),
                 )
 
