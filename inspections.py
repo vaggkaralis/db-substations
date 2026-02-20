@@ -237,20 +237,135 @@ def import_inspections_from_file(app, file_path):
 
 
 def show_inspection_menu_popup_delegate(app, instance=None):
-    return show_inspection_menu_popup(app, instance)
+    """Delegate to the app's `show_inspection_menu_popup` method.
+
+    This avoids referencing module-level functions that remain in `DBrun.py`.
+    """
+    return getattr(app, "show_inspection_menu_popup")(instance)
+
+
+def handle_inspection_menu(app, instance=None):
+    """Default implementation for the inspection menu.
+
+    This is a non-delegating handler that DBrun can call directly to
+    avoid an infinite recursion when the delegate points back to the
+    app method. By default it opens the inspection history view.
+    """
+    if hasattr(app, "show_inspection_history"):
+        return getattr(app, "show_inspection_history")(instance)
+    # Fallback: no-op
+    return None
 
 
 def show_import_inspections_dialog_delegate(app, instance):
-    return app._create_file_import_dialog("Εισαγωγή επιθεωρήσεων από αρχείο", lambda fp: import_inspections_from_file(app, fp))
+    """Delegate to the app's import dialog creator for inspections."""
+    # Some apps expose a helper `_create_file_import_dialog`; fall back to
+    # calling the app method `show_import_inspections_dialog` if present.
+    if hasattr(app, "_create_file_import_dialog"):
+        return app._create_file_import_dialog("Εισαγωγή επιθεωρήσεων από αρχείο", lambda fp: import_inspections_from_file(app, fp))
+    return getattr(app, "show_import_inspections_dialog")(instance)
 
 
 def show_inspection_history_delegate(app, instance=None):
-    return show_inspection_history(app, instance)
+    return getattr(app, "show_inspection_history")(instance)
+
+
+def handle_inspection_history(app, instance=None):
+    """Default non-recursive inspection history handler.
+
+    Shows a simple summary using the app's DB connection or calls a
+    private app implementation if available. This prevents delegates
+    from calling back into `app.show_inspection_history` and creating
+    a recursion loop.
+    """
+    # If the app provides a private implementation, prefer that.
+    if hasattr(app, "_show_inspection_history"):
+        return getattr(app, "_show_inspection_history")(instance)
+
+    # Otherwise, attempt a minimal summary popup (safe fallback).
+    try:
+        c = app.conn.cursor()
+        c.execute("SELECT COUNT(*) FROM inspections")
+        row = c.fetchone()
+        count = row[0] if row else 0
+        from popups import show_message_popup
+
+        show_message_popup("Ιστορικό Επιθεώρησης", f"{count} εγγραφές επιθεώρησης")
+    except Exception:
+        # Give up silently to avoid crashing the app in this fallback.
+        return None
+
+    return None
+
+
+def handle_substation_inspection_history(app, substation_id, substation_name, parent_display_popup=None):
+    """Non-recursive handler for showing a substation's inspection history.
+
+    Safe fallback: shows a simple count or delegates to a private app
+    implementation `_show_substation_inspection_history` if present.
+    """
+    if hasattr(app, "_show_substation_inspection_history"):
+        return getattr(app, "_show_substation_inspection_history")(substation_id, substation_name, parent_display_popup)
+
+    try:
+        c = app.conn.cursor()
+        c.execute("SELECT COUNT(*) FROM inspections WHERE substation_id=?", (substation_id,))
+        row = c.fetchone()
+        count = row[0] if row else 0
+        from popups import show_message_popup
+
+        show_message_popup(
+            f"Ιστορικό Επιθεωρήσεων - {substation_name}",
+            f"{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}",
+        )
+    except Exception:
+        return None
+
+    return None
+
+
+def handle_inspection_details(app, inspection_id):
+    """Non-recursive handler to show inspection details.
+
+    Falls back to a message popup summarizing the inspection if a
+    private implementation is not available.
+    """
+    if hasattr(app, "_show_inspection_details"):
+        return getattr(app, "_show_inspection_details")(inspection_id)
+
+    try:
+        c = app.conn.cursor()
+        c.execute("SELECT substation_name, inspection_date, data_json FROM inspections WHERE id=?", (inspection_id,))
+        row = c.fetchone()
+        if not row:
+            from popups import show_message_popup
+
+            show_message_popup("Λεπτομέρειες Επιθεώρησης", "Η εγγραφή δεν βρέθηκε.")
+            return None
+
+        sub_name, insp_date, data_json = row
+        try:
+            data = json.loads(data_json)
+            fields = data.get("fields", [])
+            preview = []
+            for f in fields[:10]:
+                preview.append(f"{f.get('label')}: {f.get('value')}")
+            body = "\n".join(preview)
+        except Exception:
+            body = f"Υποσταθμός: {sub_name}\nΗμερομηνία: {insp_date}"
+
+        from popups import show_message_popup
+
+        show_message_popup("Λεπτομέρειες Επιθεώρησης", body)
+    except Exception:
+        return None
+
+    return None
 
 
 def show_substation_inspection_history_delegate(app, substation_id, substation_name, parent_display_popup=None):
-    return show_substation_inspection_history(app, substation_id, substation_name, parent_display_popup)
+    return getattr(app, "show_substation_inspection_history")(substation_id, substation_name, parent_display_popup)
 
 
 def show_inspection_details_delegate(app, inspection_id):
-    return show_inspection_details(app, inspection_id)
+    return getattr(app, "show_inspection_details")(inspection_id)
