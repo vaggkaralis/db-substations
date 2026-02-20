@@ -40,5 +40,13 @@ STRINGS = {
         "ISOLATION_SAVED": "Η αίτηση απομόνωσης καταχωρήθηκε!",
         "ISOLATION_UPDATED": "Η αίτηση ενημερώθηκε!",
         "ISOLATION_DELETED": "Η αίτηση διαγράφηκε!",
+        "PLEASE_SELECT_OR_ADD_SUBSTATION": "Παρακαλώ επιλέξτε ή προσθέστε υποσταθμό.",
+        "PLEASE_SELECT_PDF": "Παρακαλώ επιλέξτε αρχείο PDF!",
+        "MODEL_NOT_USED": "Το μοντέλο δεν χρησιμοποιείται σε κανένα στοιχείο.",
+        "PLEASE_SELECT_BREAKER_CATEGORY": "Παρακαλώ επιλέξτε κατηγορία διακόπτη!",
+        "PLEASE_SELECT_EML": "Παρακαλώ επιλέξτε αρχείο .emλ!",
+        "STORAGE_PERMISSIONS_REQUIRED": "Απαιτούνται δικαιώματα αποθήκευσης. Παρακαλώ επιτρέψτε τα και ξαναδοκιμάστε.",
+        "NO_ELEMENTS": "Κανένα στοιχείο",
+        "MAINTENANCE_SAVED_CHANGELOG": "Η συντήρηση καταχωρήθηκε στο change log.",
     },
 }

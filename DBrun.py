@@ -852,7 +852,7 @@ class SubstationApp(App):
 
         def confirm():
             if not spinner.text:
-                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε ή προσθέστε υποσταθμό.")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_OR_ADD_SUBSTATION"])
                 return
             popup.dismiss()
             self._open_maintenance_from_email_payload(
@@ -2169,7 +2169,7 @@ class SubstationApp(App):
             # Show a popup offering to add a new substation when DB is empty
             empty_popup = Popup(title="Δεν βρέθηκαν Υποσταθμοί", size_hint=(0.6, 0.4))
             v = BoxLayout(orientation="vertical", padding=10, spacing=10)
-            v.add_widget(Label(text="Δεν υπάρχουν υποσταθμοί στη βάση!"))
+            v.add_widget(Label(text=S["MESSAGES"]["NO_SUBSTATIONS"]))
             btn_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
             add_btn = Button(text=S["BUTTONS"]["ADD"] + " Υποσταθμού")
             add_btn.bind(on_press=lambda _x: (empty_popup.dismiss(), self.show_add_substation_popup(None)))
@@ -3202,7 +3202,7 @@ class SubstationApp(App):
                 show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
                 return
             if not fp.lower().endswith(".pdf"):
-                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_PDF"])
                 return
             c = self.conn.cursor()
             c.execute(
@@ -3257,7 +3257,7 @@ class SubstationApp(App):
                 return
 
             if not file_path.lower().endswith(".pdf"):
-                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_PDF"])
                 return
 
             c = self.conn.cursor()

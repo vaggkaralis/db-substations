@@ -391,7 +391,7 @@ class SubstationAndroidApp(App):
                 # Request permissions and return, user must retry after granting
                 request_permissions(needed_perms)
                 self.show_error(
-                    "Απαιτούνται δικαιώματα αποθήκευσης. Παρακαλώ επιτρέψτε τα και ξαναδοκιμάστε."
+                    S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"]
                 )
                 return
         except Exception as perm_e:
@@ -579,7 +579,7 @@ class SubstationAndroidApp(App):
                 notice = BoxLayout(size_hint_y=None, height=64, spacing=10, padding=8)
                 label = Label(
                     text=(
-                        "Απαιτούνται δικαιώματα αποθήκευσης. Επιτρέψτε τα στο σύστημα και "
+                        S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"] + " "
                         "πατήστε 'Ξαναδοκίμασε' όταν τελειώσετε."
                     ),
                     halign="left",
@@ -1519,7 +1519,7 @@ class SubstationAndroidApp(App):
                     grid.remove_widget(loading_label)
                 if not elements:
                     grid.add_widget(
-                        Label(text="Κανένα στοιχείο", size_hint_y=None, height=40)
+                        Label(text=S["MESSAGES"]["NO_ELEMENTS"], size_hint_y=None, height=40)
                     )
                     return
                 for elem in elements:
@@ -1886,7 +1886,7 @@ class SubstationAndroidApp(App):
                         content_layout.remove_widget(loading_label)
                     if not elements:
                         content_layout.add_widget(
-                            Label(text="Κανένα στοιχείο", size_hint_y=None, height=40)
+                            Label(text=S["MESSAGES"]["NO_ELEMENTS"], size_hint_y=None, height=40)
                         )
                         return
                     for elem in elements:
@@ -2167,7 +2167,7 @@ class SubstationAndroidApp(App):
                     "insert", "maintenance", {"id": temp_id, **payload}
                 )
                 popup.dismiss()
-                show_message_popup(S["TITLES"]["SUCCESS"], "Η συντήρηση καταχωρήθηκε στο change log.")
+                show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MAINTENANCE_SAVED_CHANGELOG"])
             except Exception as e:
                 Logger.error(f"APP: Failed to append maintenance to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")

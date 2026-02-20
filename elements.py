@@ -1428,7 +1428,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
         if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and (
             breaker_category_value is None or str(breaker_category_value).strip() == ""
         ):
-            show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε κατηγορία διακόπτη!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_BREAKER_CATEGORY"])
             return
 
         try:

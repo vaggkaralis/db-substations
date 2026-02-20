@@ -930,7 +930,7 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
             show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
             return
         if not fp.lower().endswith(".pdf"):
-            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_PDF"])
             return
         c = app_instance.conn.cursor()
         c.execute(
@@ -984,7 +984,7 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
             return
 
         if not file_path.lower().endswith(".pdf"):
-            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_PDF"])
             return
 
         c = app_instance.conn.cursor()
@@ -1255,7 +1255,7 @@ def show_model_usages(app_instance, model_id, model_name):
     else:
         # No usages found
         no_usage_label = Label(
-            text="Το μοντέλο δεν χρησιμοποιείται σε κανένα στοιχείο.", size_hint_y=0.7
+            text=S["MESSAGES"]["MODEL_NOT_USED"], size_hint_y=0.7
         )
         main_layout.add_widget(no_usage_label)
 

@@ -151,7 +151,7 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
             return
 
         if not file_path.lower().endswith(".eml"):
-            show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο .emλ!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_EML"])
             return
 
         popup.dismiss()
@@ -235,7 +235,7 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     substations = c.fetchall()
     from popups import show_message_popup
     if not substations:
-        show_message_popup("Σφάλμα", "Δεν υπάρχουν υποσταθμοί!")
+        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["NO_SUBSTATIONS"])
         return
 
     substation = None
