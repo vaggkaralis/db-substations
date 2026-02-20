@@ -1,3 +1,6 @@
+from strings import STRINGS as S
+
+
 def show_isolation_requests(app, instance=None):
     """Show isolation requests in calendar view (extracted from DBrun)."""
     from datetime import datetime, timedelta
@@ -181,7 +184,7 @@ def show_isolation_requests(app, instance=None):
 
     load_calendar()
 
-    close_btn = Button(text="Κλείσιμο", size_hint_y=0.08)
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.08)
     close_btn.bind(on_press=popup.dismiss)
     main_layout.add_widget(close_btn)
 
@@ -210,7 +213,7 @@ def show_add_isolation_request(app, parent_popup):
     if not substations:
         from popups import show_message_popup
 
-        show_message_popup("Σφάλμα", "Δεν υπάρχουν υποσταθμοί!")
+        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["NO_SUBSTATIONS"])
         return
 
     popup = Popup(title="Νέα Αίτηση Απομόνωσης", size_hint=(0.7, 0.75))
@@ -319,13 +322,12 @@ def show_add_isolation_request(app, parent_popup):
         parent_popup.dismiss()
         from popups import show_message_popup
 
-        show_message_popup("Επιτυχία", "Η αίτηση απομόνωσης καταχωρήθηκε!", callback=lambda: show_isolation_requests(app, None))
+        show_message_popup(S["TITLES"]["SUCCESS"], "Η αίτηση απομόνωσης καταχωρήθηκε!", callback=lambda: show_isolation_requests(app, None))
 
-    save_btn = Button(text="Αποθήκευση")
+    save_btn = Button(text=S["BUTTONS"]["SAVE"])
     save_btn.bind(on_press=lambda x: save_request())
     buttons_layout.add_widget(save_btn)
-
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 
@@ -366,7 +368,7 @@ def show_isolation_request_details(app, request_id, parent_popup):
     if not request:
         from popups import show_message_popup
 
-        show_message_popup("Σφάλμα", "Η αίτηση δεν βρέθηκε!")
+        show_message_popup(S["TITLES"]["ERROR"], "Η αίτηση δεν βρέθηκε!")
         return
 
     (req_id, sub_id, sub_name, start_dt, end_dt, status, notes, created_at, updated_at) = request
@@ -442,7 +444,7 @@ def show_isolation_request_details(app, request_id, parent_popup):
         parent_popup.dismiss()
         from popups import show_message_popup
 
-        show_message_popup("Επιτυχία", "Η αίτηση ενημερώθηκε!", callback=lambda: show_isolation_requests(app, None))
+        show_message_popup(S["TITLES"]["SUCCESS"], "Η αίτηση ενημερώθηκε!", callback=lambda: show_isolation_requests(app, None))
 
     def delete_request():
         from reports import show_confirm
@@ -460,7 +462,7 @@ def show_isolation_request_details(app, request_id, parent_popup):
                 pass
             from popups import show_message_popup
 
-            show_message_popup("Επιτυχία", "Η αίτηση διαγράφηκε!", callback=lambda: show_isolation_requests(app, None))
+            show_message_popup(S["TITLES"]["SUCCESS"], "Η αίτηση διαγράφηκε!", callback=lambda: show_isolation_requests(app, None))
 
         show_confirm(
             "Επιβεβαίωση",
@@ -471,15 +473,14 @@ def show_isolation_request_details(app, request_id, parent_popup):
             yes_color=(1, 0, 0, 1),
         )
 
-    update_btn = Button(text="Ενημέρωση")
+    update_btn = Button(text=S["BUTTONS"]["UPDATE"])
     update_btn.bind(on_press=lambda x: update_request())
     buttons_layout.add_widget(update_btn)
-
-    delete_btn = Button(text="Διαγραφή", background_color=(0.8, 0.2, 0.2, 1))
+    delete_btn = Button(text=S["BUTTONS"]["DELETE"], background_color=(0.8, 0.2, 0.2, 1))
     delete_btn.bind(on_press=lambda x: delete_request())
     buttons_layout.add_widget(delete_btn)
 
-    close_btn = Button(text="Κλείσιμο")
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"])
     close_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(close_btn)
 

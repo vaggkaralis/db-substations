@@ -3,7 +3,8 @@ Model Management UI Functions for Element Models
 """
 
 import os
-from popups import ask_open_file
+from popups import ask_open_file, show_message_popup
+from strings import STRINGS as S
 
 
 def show_models_management(app_instance):
@@ -219,7 +220,7 @@ def show_models_management(app_instance):
                                     # Buttons
                                     btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
 
-                                    list_btn = Button(text="Λίστα", size_hint_x=0.25)
+                                    list_btn = Button(text=S["BUTTONS"]["LIST"], size_hint_x=0.25)
                                     list_btn.bind(
                                         on_press=lambda x, mid=model_id, mname=model_name: (
                                             show_model_usages(app_instance, mid, mname)
@@ -244,7 +245,7 @@ def show_models_management(app_instance):
                                     )
                                     btn_box.add_widget(manual_btn)
 
-                                    edit_btn = Button(text="Επεξ.", size_hint_x=0.25)
+                                    edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.25)
                                     edit_btn.bind(
                                         on_press=lambda x, mid=model_id: (
                                             show_edit_model_popup(
@@ -354,7 +355,7 @@ def show_models_management(app_instance):
                             # Buttons
                             btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
 
-                            list_btn = Button(text="Λίστα", size_hint_x=0.25)
+                            list_btn = Button(text=S["BUTTONS"]["LIST"], size_hint_x=0.25)
                             list_btn.bind(
                                 on_press=lambda x, mid=model_id, mname=model_name: (
                                     show_model_usages(app_instance, mid, mname)
@@ -375,7 +376,7 @@ def show_models_management(app_instance):
                             )
                             btn_box.add_widget(manual_btn)
 
-                            edit_btn = Button(text="Επεξ.", size_hint_x=0.25)
+                            edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.25)
                             edit_btn.bind(
                                 on_press=lambda x, mid=model_id: show_edit_model_popup(
                                     app_instance, mid, popup
@@ -438,7 +439,7 @@ def show_models_management(app_instance):
     main_layout.add_widget(scroll)
 
     # Close button
-    close_btn = Button(text="Κλείσιμο", size_hint_y=0.1)
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
     close_btn.bind(on_press=popup.dismiss)
     main_layout.add_widget(close_btn)
 
@@ -592,13 +593,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
 
     def save_model():
         if not model_name_input.text.strip():
-            show_message_popup("Σφάλμα", "Το όνομα μοντέλου είναι υποχρεωτικό!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το όνομα μοντέλου είναι υποχρεωτικό!")
             return
 
         try:
             cycle = int(cycle_input.text) if cycle_input.text.strip() else 0
         except ValueError:
-            show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
+            show_message_popup(S["TITLES"]["ERROR"], "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
             return
 
         # parse rated power
@@ -607,7 +608,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             try:
                 power_val = float(power_input.text.strip())
             except ValueError:
-                show_message_popup("Σφάλμα", "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
+                show_message_popup(S["TITLES"]["ERROR"], "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
                 return
 
         breaker_cat = (
@@ -663,15 +664,15 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     callback=lambda: show_models_management(app_instance),
                 )
             else:
-                show_message_popup("Επιτυχία", "Το μοντέλο προστέθηκε!")
+                show_message_popup(S["TITLES"]["SUCCESS"], "Το μοντέλο προστέθηκε!")
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά την αποθήκευση: {str(e)}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την αποθήκευση: {str(e)}")
 
-    save_btn = Button(text="Αποθήκευση")
+    save_btn = Button(text=S["BUTTONS"]["SAVE"])
     save_btn.bind(on_press=lambda x: save_model())
     buttons_layout.add_widget(save_btn)
 
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 
@@ -699,7 +700,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     model = c.fetchone()
 
     if not model:
-        show_message_popup("Σφάλμα", "Το μοντέλο δεν βρέθηκε!")
+        show_message_popup(S["TITLES"]["ERROR"], "Το μοντέλο δεν βρέθηκε!")
         return
 
     category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity, power_mva = model
@@ -803,13 +804,13 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     def save_changes():
         if not model_name_input.text.strip():
-            show_message_popup("Σφάλμα", "Το όνομα μοντέλου είναι υποχρεωτικό!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το όνομα μοντέλου είναι υποχρεωτικό!")
             return
 
         try:
             cycle_val = int(cycle_input.text) if cycle_input.text.strip() else 0
         except ValueError:
-            show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
+            show_message_popup(S["TITLES"]["ERROR"], "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
             return
 
         # parse rated power
@@ -818,7 +819,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             try:
                 power_val = float(power_input.text.strip())
             except ValueError:
-                show_message_popup("Σφάλμα", "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
+                show_message_popup(S["TITLES"]["ERROR"], "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
                 return
 
         breaker_cat_val = breaker_spinner.text if breaker_spinner else ""
@@ -926,10 +927,10 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
 
     if fp:
         if not os.path.exists(fp):
-            show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
             return
         if not fp.lower().endswith(".pdf"):
-            show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο PDF!")
+            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
             return
         c = app_instance.conn.cursor()
         c.execute(
@@ -979,11 +980,11 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
             return
 
         if not os.path.exists(file_path):
-            show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
             return
 
         if not file_path.lower().endswith(".pdf"):
-            show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο PDF!")
+            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
             return
 
         c = app_instance.conn.cursor()

@@ -10,6 +10,7 @@ from kivy.uix.textinput import TextInput
 
 from validation import PEOPLE_ROLES, group_people_by_category, canonical_role
 from popups import show_message_popup, ask_open_file
+from strings import STRINGS as S
 
 
 class PeopleManager:
@@ -55,7 +56,7 @@ class PeopleManager:
         active_layout.add_widget(Label(text="Ενεργός", size_hint_x=0.9))
         main_layout.add_widget(active_layout)
 
-        add_btn = Button(text="Προσθήκη", size_hint_y=None, height=40)
+        add_btn = Button(text=S["BUTTONS"]["ADD"], size_hint_y=None, height=40)
 
         list_scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         list_layout = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
@@ -92,8 +93,8 @@ class PeopleManager:
                     receiver_text = "Ναι" if report_receiver else "Όχι"
                     row.add_widget(Label(text=f"{name} ({role}) | {email_text} | Παραλήπτης: {receiver_text} | {status}", size_hint_x=0.8))
 
-                    edit_btn = Button(text="Επεξ.", size_hint_x=0.1)
-                    delete_btn = Button(text="Διαγραφή", size_hint_x=0.1)
+                    edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.1)
+                    delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.1)
 
                     def make_delete(pid, pname):
                         return lambda x: self._confirm_delete_person(pid, pname, refresh_list)
@@ -113,7 +114,7 @@ class PeopleManager:
             role = role_spinner.text.strip()
             email = email_input.text.strip()
             if not surname or not role:
-                show_message_popup("Σφάλμα", "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
+                show_message_popup(S["TITLES"]["ERROR"], "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
                 return
             composite = f"{surname} {given}".strip()
             c = self.app.conn.cursor()
@@ -145,7 +146,7 @@ class PeopleManager:
             try:
                 from excel_io import export_people, export_people_template, import_people
             except Exception:
-                show_message_popup("Σφάλμα", "Οι βοηθητικές συναρτήσεις Excel δεν είναι διαθέσιμες.")
+                show_message_popup(S["TITLES"]["ERROR"], "Οι βοηθητικές συναρτήσεις Excel δεν είναι διαθέσιμες.")
                 return
 
             io_popup = Popup(title="Εισαγωγή/Εξαγωγή Προσωπικού", size_hint=(0.5, 0.4))
@@ -160,22 +161,22 @@ class PeopleManager:
                     return
                 try:
                     import_people(self.app.conn, fp)
-                    show_message_popup("Επιτυχία", "Εισαγωγή προσωπικού ολοκληρώθηκε.")
+                    show_message_popup(S["TITLES"]["SUCCESS"], "Εισαγωγή προσωπικού ολοκληρώθηκε.")
                     refresh_list()
                 except Exception as exc:
-                    show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής προσωπικού:\n{str(exc)}")
+                    show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία εισαγωγής προσωπικού:\n{str(exc)}")
 
             def _export_people(_btn=None):
                 try:
                     export_people(self.app.conn)
                 except Exception as exc:
-                    show_message_popup("Σφάλμα", f"Αποτυχία εξαγωγής προσωπικού:\n{str(exc)}")
+                    show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία εξαγωγής προσωπικού:\n{str(exc)}")
 
             def _export_template(_btn=None):
                 try:
                     export_people_template()
                 except Exception as exc:
-                    show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας προτύπου:\n{str(exc)}")
+                    show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας προτύπου:\n{str(exc)}")
 
             imp_btn = Button(text="Εισαγωγή Προσωπικού (Excel)")
             imp_btn.bind(on_press=_import_people)
@@ -189,7 +190,7 @@ class PeopleManager:
             tpl_btn.bind(on_press=_export_template)
             io_layout.add_widget(tpl_btn)
 
-            close_btn = Button(text="Κλείσιμο", size_hint_y=None, height=40)
+            close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
             close_btn.bind(on_press=io_popup.dismiss)
             io_layout.add_widget(close_btn)
 
@@ -204,7 +205,7 @@ class PeopleManager:
         list_scroll.add_widget(list_layout)
         main_layout.add_widget(list_scroll)
 
-        close_btn = Button(text="Κλείσιμο", size_hint_y=None, height=40)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
         close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
 
@@ -230,7 +231,7 @@ class PeopleManager:
         c.execute("SELECT COUNT(*) FROM maintenance_people WHERE person_id=?", (person_id,))
         usage_count = c.fetchone()[0]
         if usage_count > 0:
-            show_message_popup("Πληροφορία", "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.")
+            show_message_popup(S["TITLES"]["INFO"], "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.")
             return
 
         from reports import show_confirm
@@ -354,9 +355,9 @@ class PeopleManager:
             if refresh_cb:
                 refresh_cb()
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_changes())
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
 
         buttons_layout.add_widget(save_btn)

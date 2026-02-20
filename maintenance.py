@@ -58,7 +58,7 @@ def show_maintenance_menu_popup(app, ui):
     history_btn.bind(on_press=lambda x: (menu_popup.dismiss(), app.show_maintenance_history(None)))
     layout.add_widget(history_btn)
 
-    cancel_btn = Button(text="Ακύρωση", size_hint_y=0.2)
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.2)
     cancel_btn.bind(on_press=menu_popup.dismiss)
     layout.add_widget(cancel_btn)
 
@@ -163,7 +163,7 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
     import_btn.bind(on_press=lambda x: import_email_file())
     buttons_layout.add_widget(import_btn)
 
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 

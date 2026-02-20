@@ -1,6 +1,8 @@
 import os
+from strings import STRINGS as S
 
-def _open_file_chooser_and_import(app, parent_popup, import_callback, title="Εισαγωγή από αρχείο"):
+
+def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["TITLES"]["IMPORT_MENU"]):
     try:
         from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
@@ -46,17 +48,16 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title="Ε�
             pass
 
         if not file_path:
-            show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_PATH"])
             return
-
         if not os.path.exists(file_path):
-            show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"])
             return
 
         try:
             import_callback(file_path)
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής:\n{str(e)}")
+            show_message_popup(S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}")
             return
         popup.dismiss()
         if parent_popup:
@@ -65,11 +66,10 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title="Ε�
             except Exception:
                 pass
 
-    import_btn = Button(text="Εισαγωγή")
+    import_btn = Button(text=S["BUTTONS"]["IMPORT"])
     import_btn.bind(on_press=lambda x: import_file())
     buttons_layout.add_widget(import_btn)
-
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 
@@ -120,7 +120,7 @@ def show_import_menu(app, instance=None):
     template_elements_btn.bind(on_press=app.create_elements_template)
     layout.add_widget(template_elements_btn)
 
-    cancel_btn = Button(text="Ακύρωση", size_hint_y=0.15)
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.15)
     cancel_btn.bind(on_press=menu_popup.dismiss)
     layout.add_widget(cancel_btn)
 

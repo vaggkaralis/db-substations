@@ -22,6 +22,11 @@ try:
 except Exception:
     ANDROID_DEFAULT_DB_PATH = "/storage/emulated/0/Download/substations.db"
 
+try:
+    from strings import STRINGS as S
+except Exception:
+    S = {"BUTTONS": {}, "TITLES": {}, "MESSAGES": {}}
+
 
 # Global exception handler to catch any uncaught exceptions
 def _global_exception_handler(exc_type, exc_value, exc_traceback):
@@ -350,7 +355,7 @@ class SubstationAndroidApp(App):
                 self.use_local_mode(path_input.text.strip()),
             )
         )
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons.add_widget(open_btn)
         buttons.add_widget(cancel_btn)
@@ -1603,16 +1608,16 @@ class SubstationAndroidApp(App):
                     "insert", "substations", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
+                show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append substation to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
 
-        add_btn = Button(text="Προσθήκη")
+        add_btn = Button(text=S["BUTTONS"]["ADD"])
         add_btn.bind(on_press=lambda x: add_substation())
         button_layout.add_widget(add_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
@@ -1726,16 +1731,16 @@ class SubstationAndroidApp(App):
                     "insert", "elements", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
+                show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append element to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
 
-        add_btn = Button(text="Προσθήκη")
+        add_btn = Button(text=S["BUTTONS"]["ADD"])
         add_btn.bind(on_press=lambda x: add_element())
         button_layout.add_widget(add_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
@@ -1750,7 +1755,7 @@ class SubstationAndroidApp(App):
         def do_delete():
                 try:
                     self._append_change_log("delete", "elements", {"id": element_id})
-                    show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
+                    show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
                 except Exception as e:
                     self.show_error(f"Local DB error: {str(e)}")
 
@@ -1770,7 +1775,7 @@ class SubstationAndroidApp(App):
         def do_delete():
                 try:
                     self._append_change_log("delete", "substations", {"id": substation_id})
-                    show_message_popup("Επιτυχία", "Η αλλαγή καταγράφηκε στο change log.")
+                    show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
                 except Exception as e:
                     self.show_error(f"Local DB error: {str(e)}")
 
@@ -2162,16 +2167,16 @@ class SubstationAndroidApp(App):
                     "insert", "maintenance", {"id": temp_id, **payload}
                 )
                 popup.dismiss()
-                show_message_popup("Επιτυχία", "Η συντήρηση καταχωρήθηκε στο change log.")
+                show_message_popup(S["TITLES"]["SUCCESS"], "Η συντήρηση καταχωρήθηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append maintenance to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_maintenance())
         button_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
@@ -2300,16 +2305,16 @@ class SubstationAndroidApp(App):
                     "insert", "inspections", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup("Επιτυχία", "Η επιθεώρηση καταχωρήθηκε στο change log.")
+                show_message_popup(S["TITLES"]["SUCCESS"], "Η επιθεώρηση καταχωρήθηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append inspection to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_inspection())
         button_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
@@ -2323,7 +2328,8 @@ class SubstationAndroidApp(App):
         # Ensure popup creation runs on the Kivy main thread (some callers may be on worker threads)
         def _show(dt=None):
             try:
-                show_message_popup("Σφάλμα", message)
+                from strings import STRINGS as S
+                show_message_popup(S["TITLES"]["ERROR"], message)
             except Exception as e:
                 Logger.error(f"APP: show_error failed to open popup: {e}")
 

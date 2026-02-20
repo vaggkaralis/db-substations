@@ -75,7 +75,7 @@ def import_android_changes_from_file(app, file_path):
                 "Εισαγωγή αλλαγών από Android", f"Επιτυχής εισαγωγή. Backup: {backup_path}"
             )
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά την εισαγωγή: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την εισαγωγή: {e}")
 
     def _apply_only(_):
         preview_popup.dismiss()
@@ -84,13 +84,15 @@ def import_android_changes_from_file(app, file_path):
                 apply_change_log_to_db(app.conn, file_path)
             show_message_popup("Εισαγωγή αλλαγών από Android", "Επιτυχής εισαγωγή.")
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά την εισαγωγή: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την εισαγωγή: {e}")
 
-    apply_btn = Button(text="Εφαρμογή")
+    from strings import STRINGS as S
+
+    apply_btn = Button(text=S["BUTTONS"]["APPLY"])
     apply_btn.bind(on_press=_apply_only)
-    backup_btn = Button(text="Backup & Εφαρμογή")
+    backup_btn = Button(text=S["BUTTONS"]["BACKUP_APPLY"])
     backup_btn.bind(on_press=_backup_and_apply)
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=preview_popup.dismiss)
 
     btns.add_widget(backup_btn)

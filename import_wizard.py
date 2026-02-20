@@ -360,7 +360,7 @@ class ColumnMappingPopup:
         self.continue_btn = Button(text=">> Συνέχεια", bold=True)
         self.continue_btn.bind(on_press=self._on_continue_press)
 
-        cancel_btn = Button(text="X Ακύρωση")
+        cancel_btn = Button(text="X " + S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=lambda x: self._on_cancel_press())
 
         button_layout.add_widget(cancel_btn)
@@ -805,7 +805,7 @@ class DataValidationPopup:
         back_btn = Button(text="<< Πίσω")
         back_btn.bind(on_press=lambda x: self._on_back_press())
 
-        cancel_btn = Button(text="X Ακύρωση")
+        cancel_btn = Button(text="X " + S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=lambda x: self._on_cancel_press())
 
         import_btn = Button(

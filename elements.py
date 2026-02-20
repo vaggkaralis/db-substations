@@ -27,6 +27,7 @@ def show_maintenance_element_details_delegate(app, maintenance_id, element_id):
 
 def show_add_element_popup(app, instance):
     from popups import show_message_popup
+    from strings import STRINGS as S
 
     # Get list of substations
     c = app.conn.cursor()
@@ -34,7 +35,7 @@ def show_add_element_popup(app, instance):
     substations = c.fetchall()
 
     if not substations:
-        show_message_popup("Σφάλμα", "Δεν υπάρχουν υποσταθμοί!")
+        show_message_popup(S["TITLES"]["ERROR"], "Δεν υπάρχουν υποσταθμοί!")
         return
 
     # Get active people for responsible/crew selection
@@ -42,7 +43,7 @@ def show_add_element_popup(app, instance):
     people = c.fetchall()
     if not people:
         show_message_popup(
-            "Σφάλμα",
+            S["TITLES"]["ERROR"],
             "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
             callback=lambda: app.show_people_management(None),
         )
@@ -382,7 +383,7 @@ def show_add_element_popup(app, instance):
         try:
             validate_gate_assignment(element_type, breaker_type_spinner.text, gate_value)
         except ValueError as e:
-            show_message_popup("Σφάλμα", str(e))
+            show_message_popup(S["TITLES"]["ERROR"], str(e))
             return
 
         breaker_category_value = None
@@ -392,7 +393,7 @@ def show_add_element_popup(app, instance):
         try:
             validate_breaker_category_required(element_type, breaker_category_value)
         except ValueError as e:
-            show_message_popup("Σφάλμα", str(e))
+            show_message_popup(S["TITLES"]["ERROR"], str(e))
             return
 
         model_id = None
@@ -475,7 +476,7 @@ def show_add_element_popup(app, instance):
             callback=lambda: app._display_substations(substation_name),
         )
 
-    add_btn = Button(text="Προσθήκη")
+    add_btn = Button(text=S["BUTTONS"]["ADD"])
     add_btn.bind(on_press=lambda x: add_element())
     buttons_layout.add_widget(add_btn)
 
@@ -629,7 +630,7 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
 
             btn_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
 
-            edit_btn = Button(text="Επεξεργασία")
+            edit_btn = Button(text=S["BUTTONS"]["EDIT"])
             edit_btn.bind(
                 on_press=lambda x, eid=elem_id, sid=substation_id, sname=substation_name, p=popup, gp=parent_popup: (
                     app.show_edit_element_popup(eid, sid, p, sname, gp)
@@ -643,7 +644,7 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
         scroll.add_widget(grid)
         main_layout.add_widget(scroll)
 
-    close_btn = Button(text="Κλείσιμο", size_hint_y=0.1)
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
     close_btn.bind(on_press=popup.dismiss)
     main_layout.add_widget(close_btn)
 
@@ -670,7 +671,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     element = c.fetchone()
 
     if not element:
-        show_message_popup("Σφάλμα", "Το στοιχείο δεν βρέθηκε!")
+        show_message_popup(S["TITLES"]["ERROR"], "Το στοιχείο δεν βρέθηκε!")
         return
 
     (
@@ -920,7 +921,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     def save_changes():
         name_val = field_inputs["name"].text.strip()
         if not name_val:
-            show_message_popup("Σφάλμα", "Το όνομα είναι υποχρεωτικό!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το όνομα είναι υποχρεωτικό!")
             return
 
         try:
@@ -1071,11 +1072,11 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
                 callback=lambda: app.show_records(None),
             )
 
-    save_btn = Button(text="Αποθήκευση")
+    save_btn = Button(text=S["BUTTONS"]["SAVE"])
     save_btn.bind(on_press=lambda x: save_changes())
     buttons_layout.add_widget(save_btn)
 
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 
@@ -1501,11 +1502,11 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
             callback=lambda: app._display_substations(selected_substation_name),
         )
 
-    add_btn = Button(text="Προσθήκη")
+    add_btn = Button(text=S["BUTTONS"]["ADD"])
     add_btn.bind(on_press=lambda x: add_element())
     buttons_layout.add_widget(add_btn)
 
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 

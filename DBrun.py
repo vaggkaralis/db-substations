@@ -15,6 +15,7 @@ from importers import (
     import_substations_from_excel,
 )
 from popups import show_message_popup
+from strings import STRINGS as S
 from reports import create_elements_template, create_substations_template
 from model_management import show_models_management
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
@@ -827,7 +828,7 @@ class SubstationApp(App):
                 text="Επιλέξτε υποσταθμό για την εισαγωγή:", size_hint_y=None, height=40
             )
         )
-        substation_names = [s[1] for s in substations]
+        substation_names = [s[1] for s in substations if s[1]]
         spinner = Spinner(
             text=substation_names[0] if substation_names else "",
             values=substation_names,
@@ -851,7 +852,7 @@ class SubstationApp(App):
 
         def confirm():
             if not spinner.text:
-                show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε ή προσθέστε υποσταθμό.")
+                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε ή προσθέστε υποσταθμό.")
                 return
             popup.dismiss()
             self._open_maintenance_from_email_payload(
@@ -861,12 +862,12 @@ class SubstationApp(App):
         def add_new_substation():
             new_name = new_name_input.text.strip()
             if not new_name:
-                show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε όνομα υποσταθμού.")
+                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ εισάγετε όνομα υποσταθμού.")
                 return
             c = self.conn.cursor()
             c.execute("SELECT id FROM substations WHERE name=?", (new_name,))
             if c.fetchone():
-                show_message_popup("Πληροφορία", "Ο υποσταθμός υπάρχει ήδη.")
+                show_message_popup(S["TITLES"]["INFO"], "Ο υποσταθμός υπάρχει ήδη.")
                 spinner.text = new_name
                 return
             c.execute(
@@ -884,15 +885,15 @@ class SubstationApp(App):
                 new_substation_id, new_name, payload
             )
 
-        ok_btn = Button(text="Επιβεβαίωση")
+        ok_btn = Button(text=S["BUTTONS"]["CONFIRM"])
         ok_btn.bind(on_press=lambda x: confirm())
         buttons.add_widget(ok_btn)
 
-        add_btn = Button(text="Προσθήκη")
+        add_btn = Button(text=S["BUTTONS"]["ADD"])
         add_btn.bind(on_press=lambda x: add_new_substation())
         buttons.add_widget(add_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons.add_widget(cancel_btn)
 
@@ -936,7 +937,7 @@ class SubstationApp(App):
             )
 
         buttons = BoxLayout(size_hint_y=None, height=40, spacing=10)
-        add_btn = Button(text="Προσθήκη Στοιχείου")
+        add_btn = Button(text=S["BUTTONS"]["ADD"] + " Στοιχείου")
         add_btn.bind(on_press=lambda x: add_element())
         buttons.add_widget(add_btn)
 
@@ -944,7 +945,7 @@ class SubstationApp(App):
         continue_btn.bind(on_press=lambda x: continue_import())
         buttons.add_widget(continue_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons.add_widget(cancel_btn)
 
@@ -977,11 +978,11 @@ class SubstationApp(App):
                 prefill_data=prefill,
             )
 
-        ok_btn = Button(text="Επιβεβαίωση")
+        ok_btn = Button(text=S["BUTTONS"]["CONFIRM"])
         ok_btn.bind(on_press=lambda x: confirm())
         buttons.add_widget(ok_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons.add_widget(cancel_btn)
 
@@ -1100,7 +1101,7 @@ class SubstationApp(App):
                 info_field.selection_text or info_text_plain
             )
         )
-        close_btn = Button(text="Κλείσιμο")
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"])
         close_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(copy_btn)
         buttons_layout.add_widget(close_btn)
@@ -1208,7 +1209,7 @@ class SubstationApp(App):
 
                 self.people_manager = PeopleManager(self)
             except Exception:
-                show_message_popup("Σφάλμα", "Ανεπιτυχής φόρτωση διαχείρισης προσωπικού.")
+                show_message_popup(S["TITLES"]["ERROR"], "Ανεπιτυχής φόρτωση διαχείρισης προσωπικού.")
                 return
         self.people_manager.show_people_management(instance)
 
@@ -1309,7 +1310,7 @@ class SubstationApp(App):
         )
         row = c.fetchone()
         if not row:
-            show_message_popup("Σφάλμα", "Το άτομο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το άτομο δεν βρέθηκε!")
             return
 
         name, given, surname, role, email, report_receiver, active = row
@@ -1370,7 +1371,7 @@ class SubstationApp(App):
             new_role = role_spinner.text.strip()
             new_email = email_input.text.strip()
             if not new_surname or not new_role:
-                show_message_popup("Σφάλμα", "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
+                show_message_popup(S["TITLES"]["ERROR"], "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
                 return
             composite = f"{new_surname} {new_given}".strip()
             c.execute(
@@ -1391,9 +1392,9 @@ class SubstationApp(App):
             if refresh_cb:
                 refresh_cb()
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_changes())
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
 
         buttons_layout.add_widget(save_btn)
@@ -1437,7 +1438,7 @@ class SubstationApp(App):
         )
         maint_row = c.fetchone()
         if not maint_row:
-            show_message_popup("Σφάλμα", "Δεν βρέθηκε η συντήρηση.")
+            show_message_popup(S["TITLES"]["ERROR"], "Δεν βρέθηκε η συντήρηση.")
             return
 
         maint_name, date_time, substation_name = maint_row
@@ -1540,7 +1541,7 @@ class SubstationApp(App):
         substations = c.fetchall()
 
         if not substations:
-            show_message_popup("Σφάλμα", "Δεν υπάρχουν υποσταθμοί!")
+            show_message_popup(S["TITLES"]["ERROR"], "Δεν υπάρχουν υποσταθμοί!")
             return
 
         popup = Popup(title="Καταχώρηση Επιθεώρησης", size_hint=(0.9, 0.95))
@@ -1921,11 +1922,11 @@ class SubstationApp(App):
                     callback=lambda: self.show_inspection_history(None),
                 )
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_inspection())
         buttons_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -2041,7 +2042,7 @@ class SubstationApp(App):
         layout.add_widget(add_element_btn)
 
         # Cancel button
-        cancel_btn = Button(text="Ακύρωση", size_hint_y=0.2)
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.2)
         cancel_btn.bind(on_press=menu_popup.dismiss)
         layout.add_widget(cancel_btn)
 
@@ -2078,7 +2079,7 @@ class SubstationApp(App):
 
         def add_substation():
             if not name_input.text:
-                show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε όνομα υποσταθμού!")
+                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ εισάγετε όνομα υποσταθμού!")
                 return
 
             c = self.conn.cursor()
@@ -2094,11 +2095,11 @@ class SubstationApp(App):
                 callback=lambda: self.show_records(None),
             )
 
-        add_btn = Button(text="Προσθήκη")
+        add_btn = Button(text=S["BUTTONS"]["ADD"])
         add_btn.bind(on_press=lambda x: add_substation())
         buttons_layout.add_widget(add_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -2129,7 +2130,7 @@ class SubstationApp(App):
 
         def add_substation():
             if not name_input.text:
-                show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε όνομα υποσταθμού!")
+                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ εισάγετε όνομα υποσταθμού!")
                 return
 
             c = self.conn.cursor()
@@ -2146,7 +2147,7 @@ class SubstationApp(App):
                 callback=lambda: self.show_records(None),
             )
 
-        add_btn = Button(text="Προσθήκη")
+        add_btn = Button(text=S["BUTTONS"]["ADD"])
         add_btn.bind(on_press=lambda x: add_substation())
         buttons_layout.add_widget(add_btn)
 
@@ -2170,9 +2171,9 @@ class SubstationApp(App):
             v = BoxLayout(orientation="vertical", padding=10, spacing=10)
             v.add_widget(Label(text="Δεν υπάρχουν υποσταθμοί στη βάση!"))
             btn_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
-            add_btn = Button(text="Προσθήκη Υποσταθμού")
+            add_btn = Button(text=S["BUTTONS"]["ADD"] + " Υποσταθμού")
             add_btn.bind(on_press=lambda _x: (empty_popup.dismiss(), self.show_add_substation_popup(None)))
-            cancel_btn = Button(text="Ακύρωση")
+            cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
             cancel_btn.bind(on_press=empty_popup.dismiss)
             btn_row.add_widget(Widget())
             btn_row.add_widget(add_btn)
@@ -2227,7 +2228,7 @@ class SubstationApp(App):
         layout.add_widget(select_specific_btn)
 
         # Cancel button
-        cancel_btn = Button(text="Ακύρωση", size_hint_y=0.2)
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.2)
         cancel_btn.bind(on_press=selection_popup.dismiss)
         layout.add_widget(cancel_btn)
 
@@ -2276,7 +2277,7 @@ class SubstationApp(App):
         layout.add_widget(scroll)
 
         # Cancel button
-        cancel_btn = Button(text="Ακύρωση", size_hint_y=0.08)
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.08)
         cancel_btn.bind(on_press=selection_popup.dismiss)
         layout.add_widget(cancel_btn)
 
@@ -2322,7 +2323,7 @@ class SubstationApp(App):
         scroll.add_widget(grid)
         layout.add_widget(scroll)
 
-        cancel_btn = Button(text="Ακύρωση", size_hint_y=0.08)
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.08)
         cancel_btn.bind(on_press=selection_popup.dismiss)
         layout.add_widget(cancel_btn)
 
@@ -2605,7 +2606,7 @@ class SubstationApp(App):
                 lbl_last.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 sub_row_layout.add_widget(lbl_last)
 
-                mono_text = "Άνοιγμα" if monogram_pdf else "Προσθήκη"
+                mono_text = "Άνοιγμα" if monogram_pdf else S["BUTTONS"]["ADD"]
                 # hyperlink style: underline, blue text, transparent background
                 monogram_btn = Button(
                     text=f"[u]{mono_text}[/u]",
@@ -2683,7 +2684,7 @@ class SubstationApp(App):
                 # Action buttons row for add/ inactive / view (in one horizontal row)
                 btn_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
 
-                add_elem_btn = Button(text="+ Προσθήκη Στοιχείου", size_hint_x=0.33)
+                add_elem_btn = Button(text="+ " + S["BUTTONS"]["ADD"] + " Στοιχείου", size_hint_x=0.33)
                 add_elem_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_add_element_popup_for_substation(sid, sname, p)))
                 btn_row.add_widget(add_elem_btn)
 
@@ -3053,13 +3054,13 @@ class SubstationApp(App):
         # Add buttons layout
         buttons_bottom_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
-        add_substation_btn = Button(text="+ Προσθήκη Υποσταθμού")
+        add_substation_btn = Button(text="+ " + S["BUTTONS"]["ADD"] + " Υποσταθμού")
         add_substation_btn.bind(
             on_press=lambda x: self.show_add_substation_popup_from_db_view(popup)
         )
         buttons_bottom_layout.add_widget(add_substation_btn)
 
-        close_btn = Button(text="Κλείσιμο")
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"])
         close_btn.bind(on_press=popup.dismiss)
         buttons_bottom_layout.add_widget(close_btn)
 
@@ -3154,14 +3155,14 @@ class SubstationApp(App):
                 return
 
             if not os.path.exists(file_path):
-                show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
                 return
 
             # perform import and then dismiss popups on success
             try:
                 import_callback(file_path)
             except Exception as e:
-                show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής:\n{str(e)}")
+                show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία εισαγωγής:\n{str(e)}")
                 return
             popup.dismiss()
             if parent_popup:
@@ -3170,11 +3171,11 @@ class SubstationApp(App):
                 except Exception:
                     pass
 
-        import_btn = Button(text="Εισαγωγή")
+        import_btn = Button(text=S["BUTTONS"]["IMPORT"])
         import_btn.bind(on_press=lambda x: import_file())
         buttons_layout.add_widget(import_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -3198,10 +3199,10 @@ class SubstationApp(App):
 
         if fp:
             if not os.path.exists(fp):
-                show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
                 return
             if not fp.lower().endswith(".pdf"):
-                show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο PDF!")
+                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
                 return
             c = self.conn.cursor()
             c.execute(
@@ -3252,11 +3253,11 @@ class SubstationApp(App):
                 return
 
             if not os.path.exists(file_path):
-                show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
                 return
 
             if not file_path.lower().endswith(".pdf"):
-                show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο PDF!")
+                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF!")
                 return
 
             c = self.conn.cursor()
@@ -3271,11 +3272,11 @@ class SubstationApp(App):
                 parent_popup.dismiss()
             self._display_substations(filter_name)
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_file())
         buttons_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -3359,13 +3360,13 @@ class SubstationApp(App):
                 return
 
             if not os.path.exists(file_path):
-                show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
                 return
 
             try:
                 import_callback(file_path)
             except Exception as e:
-                show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής:\n{str(e)}")
+                show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία εισαγωγής:\n{str(e)}")
                 return
             popup.dismiss()
             if parent_popup:
@@ -3374,7 +3375,7 @@ class SubstationApp(App):
                 except Exception:
                     pass
 
-        import_btn = Button(text="Εισαγωγή")
+        import_btn = Button(text=S["BUTTONS"]["IMPORT"])
         import_btn.bind(on_press=lambda x: import_file())
         buttons_layout.add_widget(import_btn)
 
@@ -3397,7 +3398,7 @@ class SubstationApp(App):
             )
 
         def on_error(message):
-            show_message_popup("Σφάλμα", message)
+            show_message_popup(S["TITLES"]["ERROR"], message)
 
         if file_path.endswith(".xlsx"):
             import_substations_from_excel(self.conn, file_path, on_success, on_error)
@@ -3420,7 +3421,7 @@ class SubstationApp(App):
         )
         row = c.fetchone()
         if not row:
-            show_message_popup("Σφάλμα", "Το στοιχείο δεν βρέθηκε.")
+            show_message_popup(S["TITLES"]["ERROR"], "Το στοιχείο δεν βρέθηκε.")
             return
 
         (
@@ -3452,7 +3453,7 @@ class SubstationApp(App):
             layout.add_widget(Label(text=l, size_hint_y=None, height=28))
 
         btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
-        close_btn = Button(text="Κλείσιμο")
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"])
 
         def _close(_x):
             popup.dismiss()
@@ -3572,7 +3573,7 @@ class SubstationApp(App):
             column_wizard.show()
 
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
 
     def _on_column_mapping_complete(self, file_path, df, column_mapping):
         """Callback after column mapping is complete - show validation wizard"""
@@ -3645,7 +3646,7 @@ class SubstationApp(App):
                 self._check_duplicates_and_import(file_path)
 
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
 
     def _show_new_substations_prompt(self, file_path, new_substations):
         """Prompt user to confirm creation of new substations"""
@@ -3759,7 +3760,7 @@ class SubstationApp(App):
         yes_btn.bind(on_press=_on_yes)
         btn_layout.add_widget(yes_btn)
 
-        no_btn = Button(text="Ακύρωση")
+        no_btn = Button(text=S["BUTTONS"]["CANCEL"])
         no_btn.bind(on_press=popup.dismiss)
         btn_layout.add_widget(no_btn)
 
@@ -3970,7 +3971,7 @@ class SubstationApp(App):
                 self._check_element_duplicates(file_path)
 
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
 
     def _show_model_check_popup(self, file_path, new_models, conflicting_models):
         """Show popup for user to review and approve model changes"""
@@ -4284,7 +4285,7 @@ class SubstationApp(App):
                 self._proceed_with_import(file_path, default_choice=None, decisions={})
 
         except Exception as e:
-            show_message_popup("Σφάλμα", f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
 
     def _show_duplicate_choice_popup(self, file_path, duplicates_list):
         # User chooses per-duplicate replace/skip, plus replace-all / skip-all shortcuts
@@ -4616,11 +4617,11 @@ class SubstationApp(App):
                 callback=lambda: self.show_records(None),
             )
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_changes())
         buttons_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -6698,7 +6699,7 @@ class SubstationApp(App):
                 substation_id, substation_name, popup
             )
 
-        add_element_btn = Button(text="Προσθήκη Στοιχείου", size_hint_x=None)
+        add_element_btn = Button(text=S["BUTTONS"]["ADD"] + " Στοιχείο", size_hint_x=None)
         add_element_btn.bind(on_press=lambda x: add_element_from_maintenance())
 
         def _resize_add_button(*_args):
@@ -7056,13 +7057,13 @@ class SubstationApp(App):
                     "Επιτυχία", success_msg, callback=lambda: after_save_callback()
                 )
             else:
-                show_message_popup("Επιτυχία", success_msg)
+                show_message_popup(S["TITLES"]["SUCCESS"], success_msg)
 
-        save_btn = Button(text="Αποθήκευση")
+        save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_maintenance())
         buttons_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -7103,7 +7104,7 @@ class SubstationApp(App):
         all_records = c.fetchall()
 
         if not all_records:
-            show_message_popup("Πληροφορία", "Δεν υπάρχουν καταχωρημένες συντηρήσεις")
+            show_message_popup(S["TITLES"]["INFO"], "Δεν υπάρχουν καταχωρημένες συντηρήσεις")
             return
 
         popup = Popup(title="Ιστορικό Συντήρησης", size_hint=(0.95, 0.9))
@@ -7180,9 +7181,9 @@ class SubstationApp(App):
                     )
                 )
                 header.add_widget(Label(text=f"Ημ/νία: {date_time}", size_hint_x=0.2))
-                edit_btn = Button(text="Επεξ.", size_hint_x=0.11)
+                edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.11)
                 email_btn = Button(text="Email", size_hint_x=0.12)
-                delete_btn = Button(text="Διαγραφή", size_hint_x=0.12)
+                delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.12)
 
                 def make_delete_handler(m_id, p):
                     return lambda x: self.confirm_delete_maintenance(m_id, p)
@@ -7349,7 +7350,7 @@ class SubstationApp(App):
         main_layout.add_widget(scroll)
 
         # Close button
-        close_btn = Button(text="Κλείσιμο", size_hint_y=0.1)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
         close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
 
@@ -7414,9 +7415,9 @@ class SubstationApp(App):
             header.add_widget(
                 Label(text=f"Συντήρηση: {display_name}", bold=True, size_hint_x=0.6)
             )
-            edit_btn = Button(text="Επεξ.", size_hint_x=0.12)
+            edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.12)
             email_btn = Button(text="Email", size_hint_x=0.13)
-            delete_btn = Button(text="Διαγραφή", size_hint_x=0.15)
+            delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.15)
 
             def make_delete_handler(m_id, p):
                 return lambda x: self.confirm_delete_maintenance_for_substation(
@@ -7649,7 +7650,7 @@ class SubstationApp(App):
         row = c.fetchone()
 
         if not row:
-            show_message_popup("Πληροφορία", "Δεν βρέθηκαν στοιχεία για το στοιχείο.")
+            show_message_popup(S["TITLES"]["INFO"], "Δεν βρέθηκαν στοιχεία για το στοιχείο.")
             return
 
         (

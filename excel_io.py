@@ -2,6 +2,7 @@ import os
 import json
 import pandas as pd
 from popups import ask_save_file, show_message_popup
+from strings import STRINGS as S
 
 
 def _safe_sheet_name(name: str) -> str:
@@ -43,7 +44,7 @@ def export_full_db(conn, default_path=None):
                     df = pd.DataFrame(rows, columns=cols)
                 sheet = _safe_sheet_name(t)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή βάσης ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή βάσης ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή βάσης:\n{str(exc)}")
@@ -91,7 +92,7 @@ def export_maintenances_per_substation(conn, default_path=None):
                 df = pd.DataFrame(out_rows, columns=(cols + ["elements", "people"]))
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή συντηρήσεων:\n{str(exc)}")
@@ -129,7 +130,7 @@ def export_inspections_per_substation(conn, default_path=None):
                 df = pd.DataFrame(out_rows, columns=cols)
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή επιθεωρήσεων:\n{str(exc)}")
@@ -149,7 +150,7 @@ def export_people(conn, default_path=None):
     try:
         df = pd.read_sql_query("SELECT given_name, surname, name, role, email, report_receiver, active FROM people ORDER BY active DESC, COALESCE(surname, name)", conn)
         df.to_excel(path, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή προσωπικού:\n{str(exc)}")
@@ -165,7 +166,7 @@ def export_people_template(default_path=None):
     try:
         df = pd.DataFrame(columns=PEOPLE_COLUMNS)
         df.to_excel(path, index=False)
-        show_message_popup("Επιτυχία", f"Πρότυπο προσωπικού δημιουργήθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Πρότυπο προσωπικού δημιουργήθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η δημιουργία προτύπου:\n{str(exc)}")
@@ -214,7 +215,7 @@ def import_people(conn, file_path=None):
             )
             inserted += 1
         conn.commit()
-        show_message_popup("Επιτυχία", f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εισαγωγή προσωπικού:\n{str(exc)}")
@@ -257,7 +258,7 @@ def export_full_db(conn, default_path=None):
                     df = pd.DataFrame(rows, columns=cols)
                 sheet = _safe_sheet_name(t)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή βάσης ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή βάσης ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή βάσης:\n{str(exc)}")
@@ -305,7 +306,7 @@ def export_maintenances_per_substation(conn, default_path=None):
                 df = pd.DataFrame(out_rows, columns=(cols + ["elements", "people"]))
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή συντηρήσεων:\n{str(exc)}")
@@ -343,7 +344,7 @@ def export_inspections_per_substation(conn, default_path=None):
                 df = pd.DataFrame(out_rows, columns=cols)
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή επιθεωρήσεων:\n{str(exc)}")
@@ -363,7 +364,7 @@ def export_people(conn, default_path=None):
     try:
         df = pd.read_sql_query("SELECT given_name, surname, name, role, email, report_receiver, active FROM people ORDER BY active DESC, COALESCE(surname, name)", conn)
         df.to_excel(path, index=False)
-        show_message_popup("Επιτυχία", f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή προσωπικού:\n{str(exc)}")
@@ -379,7 +380,7 @@ def export_people_template(default_path=None):
     try:
         df = pd.DataFrame(columns=PEOPLE_COLUMNS)
         df.to_excel(path, index=False)
-        show_message_popup("Επιτυχία", f"Πρότυπο προσωπικού δημιουργήθηκε: {path}")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Πρότυπο προσωπικού δημιουργήθηκε: {path}")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η δημιουργία προτύπου:\n{str(exc)}")
@@ -428,7 +429,7 @@ def import_people(conn, file_path=None):
             )
             inserted += 1
         conn.commit()
-        show_message_popup("Επιτυχία", f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.")
+        show_message_popup(S["TITLES"]["SUCCESS"], f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.")
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εισαγωγή προσωπικού:\n{str(exc)}")

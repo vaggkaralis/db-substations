@@ -5,6 +5,7 @@ import importlib
 
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from popups import show_message_popup
+from strings import STRINGS as S
 
 
 def show_sf6_management_popup(app, instance=None):
@@ -116,9 +117,9 @@ def show_sf6_management_popup(app, instance=None):
                     # ignore open-errors; show_message_popup already reports success
                     pass
 
-            show_message_popup("PDF Δημιουργήθηκε", f"Το PDF δημιουργήθηκε:\n{pdf_path}", callback=_open_pdf)
+            show_message_popup(S["TITLES"]["SUCCESS"], f"Το PDF δημιουργήθηκε:\n{pdf_path}", callback=_open_pdf)
         except Exception as exc:
-            show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας PDF:\n{str(exc)}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας PDF:\n{str(exc)}")
 
     def handle_excel(*_args):
         try:
@@ -135,9 +136,9 @@ def show_sf6_management_popup(app, instance=None):
                 except Exception:
                     pass
 
-            show_message_popup("Excel Δημιουργήθηκε", f"Το Excel δημιουργήθηκε:\n{excel_path}", callback=_open_excel)
+            show_message_popup(S["TITLES"]["SUCCESS"], f"Το Excel δημιουργήθηκε:\n{excel_path}", callback=_open_excel)
         except Exception as exc:
-            show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας Excel:\n{str(exc)}")
+            show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας Excel:\n{str(exc)}")
 
     refresh_btn.bind(on_press=lambda _x: render_report(year_spinner.text))
     year_spinner.bind(text=lambda _s, _t: render_report(year_spinner.text))
@@ -146,7 +147,7 @@ def show_sf6_management_popup(app, instance=None):
 
     render_report(year_spinner.text)
 
-    close_btn = Button(text="Κλείσιμο", size_hint_y=None, height=40)
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
     close_btn.bind(on_press=popup.dismiss)
     main_layout.add_widget(close_btn)
 
@@ -183,7 +184,7 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
         )
 
     except Exception as e:
-        show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας PDF:\n{str(e)}")
+        show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας PDF:\n{str(e)}")
 
 
 def export_full_db_ui(app, parent_popup=None):
