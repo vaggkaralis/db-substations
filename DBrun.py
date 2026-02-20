@@ -820,7 +820,7 @@ class SubstationApp(App):
         return _m(self, ui, payload, forced_substation)
 
     def _prompt_substation_selection(self, substations, payload):
-        popup = Popup(title="Ο υποσταθμός δε βρέθηκε", size_hint=(0.7, 0.5))
+        popup = Popup(title=S["MESSAGES"].get("PROMPT_SUBSTATION_NOT_FOUND_TITLE", "Ο υποσταθμός δε βρέθηκε"), size_hint=(0.7, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         layout.add_widget(
@@ -1191,7 +1191,7 @@ class SubstationApp(App):
 
                 self.people_manager = PeopleManager(self)
             except Exception:
-                show_message_popup(S["TITLES"]["ERROR"], "Ανεπιτυχής φόρτωση διαχείρισης προσωπικού.")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["STAFF_LOAD_FAILED"])
                 return
         self.people_manager.show_people_management(instance)
 
@@ -1292,12 +1292,12 @@ class SubstationApp(App):
         )
         row = c.fetchone()
         if not row:
-            show_message_popup(S["TITLES"]["ERROR"], "Το άτομο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("PERSON_NOT_FOUND", "Το άτομο δεν βρέθηκε!"))
             return
 
         name, given, surname, role, email, report_receiver, active = row
 
-        popup = Popup(title="Επεξεργασία Προσώπου", size_hint=(0.6, 0.5))
+        popup = Popup(title=S["MESSAGES"].get("EDIT_PERSON_TITLE", "Επεξεργασία Προσώπου"), size_hint=(0.6, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         form = GridLayout(cols=2, size_hint_y=None, height=160, spacing=5)
@@ -1353,7 +1353,7 @@ class SubstationApp(App):
             new_role = role_spinner.text.strip()
             new_email = email_input.text.strip()
             if not new_surname or not new_role:
-                show_message_popup(S["TITLES"]["ERROR"], "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["SURNAME_ROLE_REQUIRED"])
                 return
             composite = f"{new_surname} {new_given}".strip()
             c.execute(
@@ -1420,7 +1420,7 @@ class SubstationApp(App):
         )
         maint_row = c.fetchone()
         if not maint_row:
-            show_message_popup(S["TITLES"]["ERROR"], "Δεν βρέθηκε η συντήρηση.")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("MAINTENANCE_NOT_FOUND", "Η συντήρηση δεν βρέθηκε."))
             return
 
         maint_name, date_time, substation_name = maint_row
@@ -1442,7 +1442,7 @@ class SubstationApp(App):
 
         if not elements:
             show_message_popup(
-                "Πληροφορία", "Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση."
+                S["TITLES"]["INFO"], S["MESSAGES"].get("NO_RECORD_ELEMENTS", "Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση.")
             )
             return
 
@@ -1458,7 +1458,7 @@ class SubstationApp(App):
         lines = []
         lines.append(f"Αναφορά Συντήρησης: {display_name}")
         lines.append(f"Υποσταθμός: {substation_name}")
-        lines.append(f"Ημερομηνία: {date_time}")
+        lines.append(f"{S['MESSAGES'].get('DATE_LABEL','Ημερομηνία')}: {date_time}")
         lines.append(f"Υπεύθυνος: {resp_text}")
         lines.append(f"Ομάδα: {crew_text}")
         lines.append("")
@@ -1480,8 +1480,7 @@ class SubstationApp(App):
 
         if not recipients:
             show_message_popup(
-                "Σφάλμα",
-                "Δεν υπάρχουν παραλήπτες email. Προσθέστε παραλήπτες από τη Διαχείριση Προσωπικού.",
+                S["TITLES"]["ERROR"], S["MESSAGES"].get("EMAIL_RECIPIENTS_MISSING", "Δεν υπάρχουν παραλήπτες email. Προσθέστε παραλήπτες από τη Διαχείριση Προσωπικού."),
             )
             return
 
@@ -1566,8 +1565,8 @@ class SubstationApp(App):
         people = [row[0] for row in c.fetchall()]
         if not people:
             show_message_popup(
-                "Σφάλμα",
-                "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get("NO_PEOPLE", "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό."),
                 callback=lambda: self.show_people_management(None),
             )
             return
@@ -2077,7 +2076,7 @@ class SubstationApp(App):
 
         def add_substation():
             if not name_input.text:
-                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ εισάγετε όνομα υποσταθμού!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ENTER_SUBSTATION_NAME", "Παρακαλώ εισάγετε όνομα υποσταθμού!"))
                 return
 
             c = self.conn.cursor()
@@ -2114,7 +2113,7 @@ class SubstationApp(App):
 
         if not all_substations:
             # Show a popup offering to add a new substation when DB is empty
-            empty_popup = Popup(title="Δεν βρέθηκαν Υποσταθμοί", size_hint=(0.6, 0.4))
+            empty_popup = Popup(title=S["MESSAGES"].get("NO_SUBSTATIONS", "Δεν βρέθηκαν Υποσταθμοί"), size_hint=(0.6, 0.4))
             v = BoxLayout(orientation="vertical", padding=10, spacing=10)
             v.add_widget(Label(text=S["MESSAGES"]["NO_SUBSTATIONS"]))
             btn_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
@@ -2132,7 +2131,7 @@ class SubstationApp(App):
             return
 
         # Create selection popup
-        selection_popup = Popup(title="Επιλογή Προβολής", size_hint=(0.6, 0.4))
+        selection_popup = Popup(title=S["MESSAGES"].get("VIEW_SELECTION_TITLE", "Επιλογή Προβολής"), size_hint=(0.6, 0.4))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         self._add_logo_to_layout(layout, height=70)
@@ -2187,7 +2186,7 @@ class SubstationApp(App):
         parent_popup.dismiss()
 
         # Create selection popup
-        selection_popup = Popup(title="Επιλογή Υποσταθμού", size_hint=(0.9, 0.85))
+        selection_popup = Popup(title=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"), size_hint=(0.9, 0.85))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Create scrollable area
@@ -3019,7 +3018,7 @@ class SubstationApp(App):
 
     def create_substations_template(self, instance):
         success, message = create_substations_template(os.path.dirname(__file__))
-        title = "Template Υποσταθμών" if success else "Σφάλμα"
+        title = S["MESSAGES"].get("TEMPLATE_SUBSTATIONS_TITLE", "Template Υποσταθμών") if success else S["TITLES"]["ERROR"]
         show_message_popup(title, message)
 
     def _create_file_import_dialog(self, title, import_callback, parent_popup=None):
@@ -3144,7 +3143,7 @@ class SubstationApp(App):
 
         if fp:
             if not os.path.exists(fp):
-                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"])
                 return
             if not fp.lower().endswith(".pdf"):
                 show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_PDF"])
@@ -3193,12 +3192,12 @@ class SubstationApp(App):
 
             if not file_path:
                 show_message_popup(
-                    "Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
+                    S["TITLES"]["ERROR"], S["MESSAGES"].get("ENTER_PATH", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!")
                 )
                 return
 
             if not os.path.exists(file_path):
-                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"])
                 return
 
             if not file_path.lower().endswith(".pdf"):
@@ -3231,7 +3230,7 @@ class SubstationApp(App):
 
     def create_elements_template(self, instance):
         success, message = create_elements_template(os.path.dirname(__file__))
-        title = "Template Στοιχείων" if success else "Σφάλμα"
+        title = S["MESSAGES"].get("TEMPLATE_ELEMENTS_TITLE", "Template Στοιχείων") if success else S["TITLES"]["ERROR"]
         show_message_popup(title, message)
 
     def show_import_substations_dialog(self, instance_or_parent_popup):
@@ -3300,18 +3299,18 @@ class SubstationApp(App):
 
             if not file_path:
                 show_message_popup(
-                    "Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
+                    S["TITLES"]["ERROR"], S["MESSAGES"].get("ENTER_PATH", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!")
                 )
                 return
 
             if not os.path.exists(file_path):
-                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"])
                 return
 
             try:
                 import_callback(file_path)
             except Exception as e:
-                show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία εισαγωγής:\n{str(e)}")
+                show_message_popup(S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}")
                 return
             popup.dismiss()
             if parent_popup:
@@ -3366,7 +3365,7 @@ class SubstationApp(App):
         )
         row = c.fetchone()
         if not row:
-            show_message_popup(S["TITLES"]["ERROR"], "Το στοιχείο δεν βρέθηκε.")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ELEMENT_NOT_FOUND", "Το στοιχείο δεν βρέθηκε."))
             return
 
         (
@@ -3410,7 +3409,7 @@ class SubstationApp(App):
 
         layout.add_widget(btn_row)
 
-        popup = Popup(title="Προβολή Στοιχείου", size_hint=(0.6, 0.5))
+        popup = Popup(title=S["MESSAGES"].get("VIEW_ELEMENT_TITLE", "Προβολή Στοιχείου"), size_hint=(0.6, 0.5))
         popup.content = layout
         popup.open()
 
@@ -3518,7 +3517,7 @@ class SubstationApp(App):
             column_wizard.show()
 
         except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ERROR_DURING_CHECK_PREFIX", "Σφάλμα κατά τον έλεγχο: ") + str(e))
 
     def _on_column_mapping_complete(self, file_path, df, column_mapping):
         """Callback after column mapping is complete - show validation wizard"""
@@ -3591,7 +3590,7 @@ class SubstationApp(App):
                 self._check_duplicates_and_import(file_path)
 
         except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ERROR_DURING_CHECK_PREFIX", "Σφάλμα κατά τον έλεγχο: ") + str(e))
 
     def _show_new_substations_prompt(self, file_path, new_substations):
         """Prompt user to confirm creation of new substations"""
@@ -3602,12 +3601,12 @@ class SubstationApp(App):
         from kivy.uix.scrollview import ScrollView
 
         # Make the popup larger so long lists fit; list itself remains scrollable
-        popup = Popup(title="Νέοι Υποσταθμοί Εντοπίστηκαν", size_hint=(0.85, 0.8))
+        popup = Popup(title=S["MESSAGES"].get("NEW_SUBSTATIONS_TITLE", "Νέοι Υποσταθμοί Εντοπίστηκαν"), size_hint=(0.85, 0.8))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         sub_list = "\n".join(f"• {sub}" for sub in sorted(new_substations))
         # Brief header message only; the individual substations are shown in the scrollable list below
-        message = "Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:"
+        message = S["MESSAGES"].get("MISSING_SUBSTATIONS_WILL_CREATE", "Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:")
 
         from kivy.uix.checkbox import CheckBox
         from kivy.graphics import Color, Rectangle
@@ -3916,7 +3915,7 @@ class SubstationApp(App):
                 self._check_element_duplicates(file_path)
 
         except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ERROR_DURING_CHECK_PREFIX", "Σφάλμα κατά τον έλεγχο: ") + str(e))
 
     def _show_model_check_popup(self, file_path, new_models, conflicting_models):
         """Show popup for user to review and approve model changes"""
@@ -3927,7 +3926,7 @@ class SubstationApp(App):
         from kivy.uix.scrollview import ScrollView
         from kivy.uix.gridlayout import GridLayout
 
-        popup = Popup(title="Έλεγχος Μοντέλων", size_hint=(0.85, 0.85))
+        popup = Popup(title=S["MESSAGES"].get("MODEL_CHECK_TITLE", "Έλεγχος Μοντέλων"), size_hint=(0.85, 0.85))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -4230,11 +4229,11 @@ class SubstationApp(App):
                 self._proceed_with_import(file_path, default_choice=None, decisions={})
 
         except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά τον έλεγχο: {e}")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ERROR_DURING_CHECK_PREFIX", "Σφάλμα κατά τον έλεγχο: ") + str(e))
 
     def _show_duplicate_choice_popup(self, file_path, duplicates_list):
         # User chooses per-duplicate replace/skip, plus replace-all / skip-all shortcuts
-        popup = Popup(title="Διπλότυπα Στοιχεία Εντοπίστηκαν", size_hint=(0.9, 0.85))
+        popup = Popup(title=S["MESSAGES"].get("DUPLICATE_ELEMENTS_TITLE", "Διπλότυπα Στοιχεία Εντοπίστηκαν"), size_hint=(0.9, 0.85))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         instructions = Label(
@@ -4378,7 +4377,7 @@ class SubstationApp(App):
             )
 
         def on_error(message):
-            show_message_popup("Σφάλμα", message)
+            show_message_popup(S["TITLES"]["ERROR"], message)
 
         # Resolver passed to importer per duplicate
         def on_duplicate(sub_name, name, serial_number):
@@ -4733,7 +4732,7 @@ class SubstationApp(App):
                 else field_inputs["name"].text
             )
             if not name_val:
-                show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε όνομα στοιχείου!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ENTER_ELEMENT_NAME", "Παρακαλώ εισάγετε όνομα στοιχείου!"))
                 return
 
             # Gather values
@@ -4774,7 +4773,7 @@ class SubstationApp(App):
             try:
                 validate_gate_assignment(element_type, breaker_type_spinner.text, gate_value)
             except ValueError as e:
-                show_message_popup("Σφάλμα", str(e))
+                show_message_popup(S["TITLES"]["ERROR"], str(e))
                 return
 
             # Get breaker category for circuit breakers
@@ -4785,7 +4784,7 @@ class SubstationApp(App):
             try:
                 validate_breaker_category_required(element_type, breaker_category_value)
             except ValueError as e:
-                show_message_popup("Σφάλμα", str(e))
+                show_message_popup(S["TITLES"]["ERROR"], str(e))
                 return
 
             # Get model_id if selected
@@ -4917,7 +4916,7 @@ class SubstationApp(App):
         substations = c.fetchall()
 
         if not substations:
-            show_message_popup("Σφάλμα", "Δεν υπάρχουν υποσταθμοί!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("NO_SUBSTATIONS", "Δεν υπάρχουν υποσταθμοί!"))
             return
 
         maintenance_record = None
@@ -4937,7 +4936,7 @@ class SubstationApp(App):
             )
             maintenance_record = c.fetchone()
             if not maintenance_record:
-                show_message_popup("Σφάλμα", "Η συντήρηση δεν βρέθηκε.")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("MAINTENANCE_NOT_FOUND", "Η συντήρηση δεν βρέθηκε."))
                 return
 
             maint_substation_id = maintenance_record[0]
@@ -5023,7 +5022,7 @@ class SubstationApp(App):
 
         # Substation selection
         content_layout.add_widget(
-            Label(text="Επιλογή Υποσταθμού:", size_hint_y=None, height=40)
+            Label(text=S["MESSAGES"].get("SELECT_SUBSTATION", "Επιλογή Υποσταθμού:"), size_hint_y=None, height=40)
         )
         substation_map = {s[1]: s[0] for s in substations}
 
@@ -5052,7 +5051,7 @@ class SubstationApp(App):
 
         # Maintenance Type
         content_layout.add_widget(
-            Label(text="Τύπος Συντήρησης:", size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"].get("MAINT_TYPE_LABEL", "Τύπος Συντήρησης:"), size_hint_y=None, height=35)
         )
         maint_type_default = (
             maintenance_record[4]
@@ -5073,7 +5072,7 @@ class SubstationApp(App):
         from datetime import datetime
 
         content_layout.add_widget(
-            Label(text="Ημερομηνία & Ώρα:", size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"].get("DATE_TIME_LABEL", "Ημερομηνία & Ώρα:"), size_hint_y=None, height=35)
         )
         datetime_default = (
             maintenance_record[2]
@@ -5106,7 +5105,7 @@ class SubstationApp(App):
 
         content_layout.add_widget(
             Label(
-                text="Υπεύθυνος Συντήρησης (υποχρεωτικό):", size_hint_y=None, height=35
+                text=S["MESSAGES"].get("RESPONSIBLE_LABEL", "Υπεύθυνος Συντήρησης (υποχρεωτικό):"), size_hint_y=None, height=35
             )
         )
 
@@ -5143,12 +5142,12 @@ class SubstationApp(App):
 
         # Crew selection (optional)
         content_layout.add_widget(
-            Label(text="Ομάδα Συντήρησης (προαιρετικό):", size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"].get("CREW_LABEL", "Ομάδα Συντήρησης (προαιρετικό):"), size_hint_y=None, height=35)
         )
 
         crew_actions = BoxLayout(size_hint_y=None, height=30, spacing=5)
-        select_all_btn = Button(text="Επιλογή Όλων", size_hint_x=0.5)
-        clear_all_btn = Button(text="Καμία", size_hint_x=0.5)
+        select_all_btn = Button(text=S["MESSAGES"].get("SELECT_ALL_BTN", "Επιλογή Όλων"), size_hint_x=0.5)
+        clear_all_btn = Button(text=S["MESSAGES"].get("NONE", "Καμία"), size_hint_x=0.5)
         crew_actions.add_widget(select_all_btn)
         crew_actions.add_widget(clear_all_btn)
         content_layout.add_widget(crew_actions)
@@ -5275,7 +5274,7 @@ class SubstationApp(App):
 
         # Overall comments
         content_layout.add_widget(
-            Label(text="Γενικά Σχόλια Συντήρησης:", size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"].get("OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια Συντήρησης:"), size_hint_y=None, height=35)
         )
         comments_default = (
             maintenance_record[3]
@@ -5303,7 +5302,7 @@ class SubstationApp(App):
         # Elements selection area
         content_layout.add_widget(
             Label(
-                text="Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
+                text=S["MESSAGES"].get("ELEMENTS_SECTION_LABEL", "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):"),
                 size_hint_y=None,
                 height=40,
             )
@@ -5341,7 +5340,7 @@ class SubstationApp(App):
             if not elements:
                 elements_container.add_widget(
                     Label(
-                        text="Δεν υπάρχουν στοιχεία σε αυτόν τον υποσταθμό",
+                        text=S["MESSAGES"].get("NO_ELEMENTS_IN_SUBSTATION", "Δεν υπάρχουν στοιχεία σε αυτόν τον υποσταθμό"),
                         size_hint_y=None,
                         height=40,
                     )
@@ -6638,7 +6637,7 @@ class SubstationApp(App):
             substation_name = substation_spinner.text
             substation_id = substation_map.get(substation_name)
             if not substation_id:
-                show_message_popup("Σφάλμα", "Δεν βρέθηκε υποσταθμός.")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("SUBSTATION_NOT_FOUND", "Δεν βρέθηκε υποσταθμός."))
                 return
             self.show_add_element_popup_for_substation(
                 substation_id, substation_name, popup
@@ -6681,17 +6680,17 @@ class SubstationApp(App):
 
             if not selected_elements:
                 show_message_popup(
-                    "Σφάλμα", "Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!"
+                    S["TITLES"]["ERROR"], S["MESSAGES"].get("SELECT_AT_LEAST_ONE_ELEMENT", "Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!")
                 )
                 return
 
             if not datetime_input.text.strip():
-                show_message_popup("Σφάλμα", "Η ημερομηνία είναι υποχρεωτική!")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("DATE_REQUIRED", "Η ημερομηνία είναι υποχρεωτική!"))
                 return
 
             if not responsible_spinner.text:
                 show_message_popup(
-                    "Σφάλμα", "Ο υπεύθυνος συντήρησης είναι υποχρεωτικός!"
+                    S["TITLES"]["ERROR"], S["MESSAGES"].get("RESPONSIBLE_REQUIRED", "Ο υπεύθυνος συντήρησης είναι υποχρεωτικός!")
                 )
                 return
 
@@ -7052,10 +7051,10 @@ class SubstationApp(App):
         all_records = c.fetchall()
 
         if not all_records:
-            show_message_popup(S["TITLES"]["INFO"], "Δεν υπάρχουν καταχωρημένες συντηρήσεις")
+            show_message_popup(S["TITLES"]["INFO"], S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"))
             return
 
-        popup = Popup(title="Ιστορικό Συντήρησης", size_hint=(0.95, 0.9))
+        popup = Popup(title=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντήρησης"), size_hint=(0.95, 0.9))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
@@ -7098,7 +7097,7 @@ class SubstationApp(App):
             if not maintenance_records:
                 grid.add_widget(
                     Label(
-                        text="Δεν υπάρχουν καταχωρημένες συντηρήσεις",
+                        text=S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"),
                         size_hint_y=None,
                         height=40,
                     )
@@ -7339,7 +7338,10 @@ class SubstationApp(App):
         if not maintenance_records:
             # Show message but still allow adding maintenance
             no_records_label = Label(
-                text=f'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
+                text=S["MESSAGES"].get(
+                    "NO_MAINT_FOR_SUBSTATION",
+                    'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
+                ).format(substation_name=substation_name),
                 size_hint_y=0.7,
             )
             main_layout.add_widget(no_records_label)
@@ -7598,7 +7600,7 @@ class SubstationApp(App):
         row = c.fetchone()
 
         if not row:
-            show_message_popup(S["TITLES"]["INFO"], "Δεν βρέθηκαν στοιχεία για το στοιχείο.")
+            show_message_popup(S["TITLES"]["INFO"], S["MESSAGES"].get("NO_ELEMENTS_FOR_ITEM", "Δεν βρέθηκαν στοιχεία για το στοιχείο."))
             return
 
         (
@@ -7893,7 +7895,7 @@ class SubstationApp(App):
         c.execute("SELECT substation_id FROM maintenance WHERE id=?", (maintenance_id,))
         result = c.fetchone()
         if not result:
-            show_message_popup("Σφάλμα", "Η συντήρηση δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("MAINTENANCE_NOT_FOUND", "Η συντήρηση δεν βρέθηκε."))
             return
         substation_id = result[0]
 
@@ -7955,7 +7957,7 @@ class SubstationApp(App):
             self.show_maintenance_history(None)
             self.show_records(None)
 
-        show_message_popup("Ολοκληρώθηκε", "Η συντήρηση διαγράφηκε!", callback=on_close)
+        show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"].get("MAINTENANCE_DELETED", "Η συντήρηση διαγράφηκε!"), callback=on_close)
 
     def confirm_delete_maintenance_for_substation(
         self,
