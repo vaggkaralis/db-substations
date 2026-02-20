@@ -1738,7 +1738,7 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        # (rows already provided by the centralized INSPECTION_ROWS list)
+        # (rows provided from the centralized INSPECTION_ROWS list)
 
         # Chapter 4: Υπαίθριες πύλες 20 kV
         content_layout.add_widget(
@@ -1749,12 +1749,7 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        add_inspection_row(
-            "Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών."
-        )
-        add_inspection_row(
-            "Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων."
-        )
+        # these rows are already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
 
         # Chapter 5: Κτίριο χειρισμών & Τ.Α.Σ.
         content_layout.add_widget(
@@ -1765,11 +1760,7 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        add_inspection_row(
-            "Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή"
-        )
-        add_inspection_row("Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC.")
-        add_inspection_row("Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών.")
+        # these rows are already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
 
         # Chapter 6: Αποζευκτες Γραμμών
         content_layout.add_widget(
@@ -1780,26 +1771,19 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        add_inspection_row(
-            'Οπτικός έλεγχος των ΑΠ/Ζ και των "γεφυρών" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)'
-        )
+        # this row is already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
 
         # Chapter 7: PC ΧΕΙΡΙΣΜΩΝ
         content_layout.add_widget(
             Label(text=S["MESSAGES"].get("INSPECTION_SECTION_6", "[b]PC ΧΕΙΡΙΣΜΩΝ[/b]"), markup=True, size_hint_y=None, height=35)
         )
-        add_inspection_row(
-            "Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις"
-        )
-        add_inspection_row("Τροφοδοσία υπολογιστή.")
+        # these rows are already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
 
         # Chapter 8: Απόψεις
         content_layout.add_widget(
             Label(text=S["MESSAGES"].get("INSPECTION_SECTION_7", "[b]Απόψεις[/b]"), markup=True, size_hint_y=None, height=35)
         )
-        add_inspection_row(
-            "Απόψεις και τυχόν προτάσεις  για την καλύτερη λειτουργία τόσο του εξοπλισμού, όσο και του κτηρίου γενικά του Υ/Σ."
-        )
+        # this row is already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
@@ -2448,7 +2432,7 @@ class SubstationApp(App):
 
                 if is_th:
                     th_tag = Button(
-                        text="Υ/Σ Θεσσαλονίκης",
+                        text=S["MESSAGES"]["SUBSTATION_IS_THESSALONIKI"],
                         size_hint_x=0.15,
                         background_color=(1, 0, 0, 1),
                         color=(1, 1, 1, 1),
@@ -2545,7 +2529,7 @@ class SubstationApp(App):
                     btn_holder.add_widget(Widget())
                     sub_row_layout.add_widget(btn_holder)
                 else:
-                    lbl_loc = Label(text="-", size_hint_x=0.17)
+                    lbl_loc = Label(text=S["MESSAGES"]["DASH"], size_hint_x=0.17)
                     lbl_loc.halign = "center"
                     lbl_loc.valign = "middle"
                     lbl_loc.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
@@ -2587,7 +2571,7 @@ class SubstationApp(App):
                 lbl_last.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 sub_row_layout.add_widget(lbl_last)
 
-                mono_text = "Άνοιγμα" if monogram_pdf else S["BUTTONS"]["ADD"]
+                mono_text = S["BUTTONS"]["OPEN"] if monogram_pdf else S["BUTTONS"]["ADD"]
                 # hyperlink style: underline, blue text, transparent background
                 monogram_btn = Button(
                     text=f"[u]{mono_text}[/u]",
@@ -2665,17 +2649,17 @@ class SubstationApp(App):
                 # Action buttons row for add/ inactive / view (in one horizontal row)
                 btn_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
 
-                add_elem_btn = Button(text="+ " + S["BUTTONS"]["ADD"] + " Στοιχείου", size_hint_x=0.33)
+                add_elem_btn = Button(text="+ " + S["MESSAGES"]["ADD_ELEMENT_BTN"], size_hint_x=0.33)
                 add_elem_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_add_element_popup_for_substation(sid, sname, p)))
                 btn_row.add_widget(add_elem_btn)
 
                 inactive_count = inactive_count_map.get(sub_id, 0)
-                inactive_elem_btn = Button(text=f"Ανενεργά Στοιχεία ({inactive_count})", size_hint_x=0.33)
+                inactive_elem_btn = Button(text=S["MESSAGES"]["INACTIVE_ELEMENTS"].format(count=inactive_count), size_hint_x=0.33)
                 inactive_elem_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_inactive_elements(sid, sname, p)))
                 btn_row.add_widget(inactive_elem_btn)
 
                 if not show_elements:
-                    view_elements_btn = Button(text=f"Εμφάνιση ενεργών στοιχείων ({elem_count})", size_hint_x=0.34)
+                    view_elements_btn = Button(text=S["MESSAGES"]["VIEW_ACTIVE_ELEMENTS"].format(count=elem_count), size_hint_x=0.34)
                     view_elements_btn.bind(on_press=lambda x, sname=sub_name, p=popup: (self._display_substations(sname, p)))
                     btn_row.add_widget(view_elements_btn)
 
@@ -2731,7 +2715,7 @@ class SubstationApp(App):
                     text=current_type_filter, values=type_values, size_hint_x=0.35
                 )
                 filter_layout.add_widget(type_spinner)
-                filter_layout.add_widget(Label(text="Φίλτρο Πύλης:", size_hint_x=0.2))
+                filter_layout.add_widget(Label(text=S["MESSAGES"]["FILTER_GATE"], size_hint_x=0.2))
                 gate_spinner = Spinner(
                     text=current_gate_filter, values=gate_values, size_hint_x=0.35
                 )
@@ -3018,7 +3002,7 @@ class SubstationApp(App):
                             grid.add_widget(elem_layout)
                 else:
                     no_elem_label = Label(
-                        text="   (Χωρίς στοιχεία)", size_hint_y=None, height=30
+                        text="   " + S["MESSAGES"]["NO_ELEMENTS_PAREN"], size_hint_y=None, height=30
                     )
                     grid.add_widget(no_elem_label)
 
@@ -3026,7 +3010,7 @@ class SubstationApp(App):
                 spacing_widget = Label(text="", size_hint_y=None, height=30)
                 grid.add_widget(spacing_widget)
         else:
-            empty_label = Label(text="Κενή βάση", size_hint_y=None, height=40)
+            empty_label = Label(text=S["MESSAGES"]["EMPTY_DB"], size_hint_y=None, height=40)
             grid.add_widget(empty_label)
 
         scroll.add_widget(grid)
@@ -3035,7 +3019,7 @@ class SubstationApp(App):
         # Add buttons layout
         buttons_bottom_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
-        add_substation_btn = Button(text="+ " + S["BUTTONS"]["ADD"] + " Υποσταθμού")
+        add_substation_btn = Button(text="+ " + S["MESSAGES"]["ADD_SUBSTATION_BTN"])
         add_substation_btn.bind(
             on_press=lambda x: self.show_add_substation_popup_from_db_view(popup)
         )
@@ -3097,16 +3081,16 @@ class SubstationApp(App):
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Path input
-        path_label = Label(text="Διαδρομή αρχείου:", size_hint_y=0.1)
+        path_label = Label(text=S["MESSAGES"]["FILE_PATH_LABEL"], size_hint_y=0.1)
         layout.add_widget(path_label)
 
         path_input = TextInput(
-            hint_text="Διαδρομή αρχείου", size_hint_y=0.15, multiline=False
+            hint_text=S["MESSAGES"]["FILE_PATH_LABEL"], size_hint_y=0.15, multiline=False
         )
         layout.add_widget(path_input)
 
         # File chooser with default path
-        layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
+        layout.add_widget(Label(text=S["MESSAGES"]["SELECT_FROM_LIST"], size_hint_y=0.1))
         chooser = FileChooserListView(
             filters=["*.xlsx", "*.csv"], path=os.path.dirname(__file__)
         )
@@ -3201,18 +3185,18 @@ class SubstationApp(App):
             # user cancelled native dialog -> do nothing
             return
 
-        popup = Popup(title="Επιλογή Μονογραμμικού PDF", size_hint=(0.9, 0.9))
+        popup = Popup(title=S["MESSAGES"]["SELECT_MONOGRAM_PDF_TITLE"], size_hint=(0.9, 0.9))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        path_label = Label(text="Διαδρομή αρχείου:", size_hint_y=0.1)
+        
+        path_label = Label(text=S["MESSAGES"]["FILE_PATH_LABEL"], size_hint_y=0.1)
         layout.add_widget(path_label)
 
         path_input = TextInput(
-            hint_text="Διαδρομή αρχείου", size_hint_y=0.12, multiline=False
+            hint_text=S["MESSAGES"]["FILE_PATH_LABEL"], size_hint_y=0.12, multiline=False
         )
         layout.add_widget(path_input)
-
-        layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
+        
+        layout.add_widget(Label(text=S["MESSAGES"]["SELECT_FROM_LIST"], size_hint_y=0.1))
         chooser = FileChooserListView(filters=["*.pdf"], path=os.path.dirname(__file__))
         layout.add_widget(chooser)
 
@@ -3308,16 +3292,16 @@ class SubstationApp(App):
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         path_label = Label(
-            text="Διαδρομή αρχείου change log (.jsonl):", size_hint_y=0.1
+            text=S["MESSAGES"]["CHANGELOG_FILE_LABEL"], size_hint_y=0.1
         )
         layout.add_widget(path_label)
 
         path_input = TextInput(
-            hint_text="Διαδρομή αρχείου", size_hint_y=0.15, multiline=False
+            hint_text=S["MESSAGES"]["FILE_PATH_LABEL"], size_hint_y=0.15, multiline=False
         )
         layout.add_widget(path_input)
 
-        layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
+        layout.add_widget(Label(text=S["MESSAGES"]["SELECT_FROM_LIST"], size_hint_y=0.1))
         chooser = FileChooserListView(
             filters=["*.jsonl", "*.json"], path=os.path.dirname(__file__)
         )
@@ -3358,7 +3342,7 @@ class SubstationApp(App):
         import_btn.bind(on_press=lambda x: import_file())
         buttons_layout.add_widget(import_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -3646,7 +3630,7 @@ class SubstationApp(App):
         from kivy.uix.checkbox import CheckBox
         from kivy.graphics import Color, Rectangle
         # Header and per-substation checkbox list so user can mark specific substations
-        header = Label(text="Υ/Σ Θεσσαλονίκης", size_hint_y=None, height=30, bold=True, color=(0.9, 0.1, 0.1, 1))
+        header = Label(text=S["MESSAGES"]["SUBSTATION_IS_THESSALONIKI"], size_hint_y=None, height=30, bold=True, color=(0.9, 0.1, 0.1, 1))
         # Brief header message (fixed height) — the list below stays scrollable
         header_label = Label(text=message, size_hint_y=None, height=60)
         header_label.bind(texture_size=header_label.setter("size"))
@@ -3731,7 +3715,7 @@ class SubstationApp(App):
         # Buttons
         btn_layout = BoxLayout(size_hint_y=0.2, spacing=10)
 
-        yes_btn = Button(text="Ναι, Δημιουργία")
+        yes_btn = Button(text=f"{S['BUTTONS']['YES']}, Δημιουργία")
         def _on_yes(_):
             # Gather selected substations
             selected = [name for name, cb in getattr(self, '_new_sub_cb', {}).items() if cb.active]
@@ -3971,7 +3955,7 @@ class SubstationApp(App):
         if new_models:
             content.add_widget(
                 Label(
-                    text="[b]Νέα Μοντέλα (θα προστεθούν):[/b]",
+                    text=S["MESSAGES"]["NEW_MODELS_HEADER"],
                     size_hint_y=None,
                     height=30,
                     markup=True,
@@ -3991,7 +3975,7 @@ class SubstationApp(App):
         if conflicting_models:
             content.add_widget(
                 Label(
-                    text="[b]Υπάρχοντα Μοντέλα με Διαφορετικά Δεδομένα:[/b]",
+                    text=S["MESSAGES"]["EXISTING_MODELS_DIFF_HEADER"],
                     size_hint_y=None,
                     height=30,
                     markup=True,
@@ -4321,8 +4305,8 @@ class SubstationApp(App):
                 disable_global_buttons()
                 update_continue_state()
 
-            replace_btn = Button(text="Αντικατάσταση", size_hint_x=0.2)
-            skip_btn = Button(text="Παράλειψη", size_hint_x=0.2)
+            replace_btn = Button(text=S["BUTTONS"]["REPLACE"], size_hint_x=0.2)
+            skip_btn = Button(text=S["BUTTONS"]["SKIP"], size_hint_x=0.2)
             replace_btn.bind(
                 on_press=lambda _x, br=replace_btn, bs=skip_btn: set_decision(
                     True, br, bs
@@ -4358,11 +4342,11 @@ class SubstationApp(App):
             btn_replace_all.disabled = True
             btn_skip_all.disabled = True
 
-        btn_replace_all = Button(text="Αντικατάσταση Όλων")
+        btn_replace_all = Button(text=S["BUTTONS"]["REPLACE_ALL"])
         btn_replace_all.bind(on_press=lambda _x: choose_all(True))
         buttons_all.add_widget(btn_replace_all)
 
-        btn_skip_all = Button(text="Παράλειψη Όλων")
+        btn_skip_all = Button(text=S["BUTTONS"]["SKIP_ALL"])
         btn_skip_all.bind(on_press=lambda _x: choose_all(False))
         buttons_all.add_widget(btn_skip_all)
 
@@ -4911,7 +4895,7 @@ class SubstationApp(App):
         add_btn.bind(on_press=lambda x: add_element())
         buttons_layout.add_widget(add_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 

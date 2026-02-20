@@ -180,42 +180,56 @@ class SubstationAndroidApp(App):
         },
         {"key": "gate", "label": "Πύλη", "type": "text", "hint": "π.χ. ΠΥΛΗ 1"},
     ]
-    INSPECTION_FIELDS = [
+    # Build INSPECTION_FIELDS from centralized strings to avoid duplication
+    INSPECTION_FIELDS = []
+    rows = S.get("MESSAGES", {}).get("INSPECTION_ROWS", [])
+    # Section 1
+    INSPECTION_FIELDS.extend([
         {"type": "section", "title": "1. Έλεγχος Χώρων ΥΣ"},
         "Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)",
-        "Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ",
-        "Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)",
-        "Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)",
-        "Έλεγχος μέσων πυρόσβεσης γενικά",
+    ])
+    INSPECTION_FIELDS.extend(rows[0:4])
+    # Section 2
+    INSPECTION_FIELDS.extend([
         {"type": "section", "title": "2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV"},
         "Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)",
-        "Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ",
-        "Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV",
-        "Έλεγχος λειτουργίας ανεμιστήρων Μ/Σ",
-        "Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)",
-        "Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)",
-        "Οπτικός έλεγχος τηκτών πυκνωτών",
-        "Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV",
-        "Λήψη φωτογραφίας όταν απαιτείται",
+    ])
+    INSPECTION_FIELDS.extend(rows[4:12])
+    # Section 3a
+    INSPECTION_FIELDS.extend([
         {"type": "section", "title": "3α. Υπαίθριες πύλες 20 kV"},
         "Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)",
-        "Οπτικός έλεγχος των πυλών, A/Z και γενικά του ικριώματος για τυχόν φωλιές από πτηνά, σπασίματα, μονωτήρες, κλαδιά, σύρματα κλπ",
+    ])
+    INSPECTION_FIELDS.append(rows[12])
+    # Section 3b
+    INSPECTION_FIELDS.extend([
         {"type": "section", "title": "3β. Πίνακες 20 kV"},
         "Παρατηρήσεις (3β. Πίνακες 20 kV)",
-        "Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών",
-        "Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων",
+    ])
+    INSPECTION_FIELDS.extend(rows[13:15])
+    # Section 4
+    INSPECTION_FIELDS.extend([
         {"type": "section", "title": "4. Κτίριο χειρισμών & Τ.Α.Σ."},
         "Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)",
-        "Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή",
-        "Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC",
-        "Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών",
+    ])
+    INSPECTION_FIELDS.extend(rows[15:18])
+    # Section 5
+    INSPECTION_FIELDS.extend([
         {"type": "section", "title": "5. Αποζεύκτες Γραμμών"},
         "Παρατηρήσεις (5. Αποζεύκτες Γραμμών)",
-        'Οπτικός έλεγχος των ΑΠ/Ζ και των "γεφυρών" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)',
+    ])
+    INSPECTION_FIELDS.append(rows[18])
+    # Section 6
+    INSPECTION_FIELDS.extend([
         {"type": "section", "title": "6. PC ΧΕΙΡΙΣΜΩΝ"},
         "Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)",
-        "Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)",
-    ]
+    ])
+    INSPECTION_FIELDS.extend(rows[19:21])
+    # Final section: opinions
+    INSPECTION_FIELDS.extend([
+        {"type": "section", "title": "7. Απόψεις"},
+        "Απόψεις - Προτάσεις",
+    ])
 
     def open_local_db_picker(self):
         # Last working version: prompt for DB path and allow file selection
