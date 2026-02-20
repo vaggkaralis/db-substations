@@ -2162,18 +2162,7 @@ class SubstationAndroidApp(App):
                     "insert", "maintenance", {"id": temp_id, **payload}
                 )
                 popup.dismiss()
-                success_popup = Popup(title="Επιτυχία", size_hint=(0.8, 0.4))
-                success_layout = BoxLayout(
-                    orientation="vertical", padding=10, spacing=10
-                )
-                success_layout.add_widget(
-                    Label(text="Η συντήρηση καταχωρήθηκε στο change log.")
-                )
-                ok_btn = Button(text="OK", size_hint_y=0.3)
-                ok_btn.bind(on_press=success_popup.dismiss)
-                success_layout.add_widget(ok_btn)
-                success_popup.content = success_layout
-                success_popup.open()
+                show_message_popup("Επιτυχία", "Η συντήρηση καταχωρήθηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append maintenance to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -2311,18 +2300,7 @@ class SubstationAndroidApp(App):
                     "insert", "inspections", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                success_popup = Popup(title="Επιτυχία", size_hint=(0.8, 0.4))
-                success_layout = BoxLayout(
-                    orientation="vertical", padding=10, spacing=10
-                )
-                success_layout.add_widget(
-                    Label(text="Η επιθεώρηση καταχωρήθηκε στο change log.")
-                )
-                ok_btn = Button(text="OK", size_hint_y=0.3)
-                ok_btn.bind(on_press=success_popup.dismiss)
-                success_layout.add_widget(ok_btn)
-                success_popup.content = success_layout
-                success_popup.open()
+                show_message_popup("Επιτυχία", "Η επιθεώρηση καταχωρήθηκε στο change log.")
             except Exception as e:
                 Logger.error(f"APP: Failed to append inspection to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -2345,33 +2323,7 @@ class SubstationAndroidApp(App):
         # Ensure popup creation runs on the Kivy main thread (some callers may be on worker threads)
         def _show(dt=None):
             try:
-                popup = Popup(title="Σφάλμα", size_hint=(0.98, 0.98))
-                layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-                scroll = ScrollView(size_hint=(1, 0.85))
-                msg_label = Label(
-                    text=message,
-                    size_hint_y=None,
-                    halign="left",
-                    valign="top",
-                    font_size="18sp",
-                )
-
-                def update_label_height(instance, value):
-                    instance.height = max(60, value[1] + 20)
-
-                msg_label.bind(
-                    width=lambda instance, value: setattr(
-                        instance, "text_size", (value, None)
-                    ),
-                    texture_size=update_label_height,
-                )
-                scroll.add_widget(msg_label)
-                layout.add_widget(scroll)
-                close_btn = Button(text="Κλείσιμο", size_hint_y=0.15, font_size="20sp")
-                close_btn.bind(on_press=popup.dismiss)
-                layout.add_widget(close_btn)
-                popup.content = layout
-                popup.open()
+                show_message_popup("Σφάλμα", message)
             except Exception as e:
                 Logger.error(f"APP: show_error failed to open popup: {e}")
 

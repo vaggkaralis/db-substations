@@ -103,58 +103,39 @@ def show_sf6_management_popup(app, instance=None):
     def handle_print(*_args):
         try:
             pdf_path = generate_sf6_leak_report(app.conn, year_spinner.text)
-            confirm_popup = Popup(title="PDF Δημιουργήθηκε", size_hint=(0.6, 0.4))
-            layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-            layout.add_widget(Label(text=f"Το PDF δημιουργήθηκε:\n{pdf_path}", size_hint_y=0.6))
-            buttons = BoxLayout(size_hint_y=0.4, spacing=10)
 
-            def open_pdf():
-                if sys.platform == "win32":
-                    os.startfile(pdf_path)
-                elif sys.platform == "darwin":
-                    subprocess.call(["open", pdf_path])
-                else:
-                    subprocess.call(["xdg-open", pdf_path])
-                confirm_popup.dismiss()
+            def _open_pdf():
+                try:
+                    if sys.platform == "win32":
+                        os.startfile(pdf_path)
+                    elif sys.platform == "darwin":
+                        subprocess.call(["open", pdf_path])
+                    else:
+                        subprocess.call(["xdg-open", pdf_path])
+                except Exception:
+                    # ignore open-errors; show_message_popup already reports success
+                    pass
 
-            open_btn = Button(text="Άνοιγμα PDF")
-            open_btn.bind(on_press=lambda _x: open_pdf())
-            close_btn = Button(text="Κλείσιμο")
-            close_btn.bind(on_press=confirm_popup.dismiss)
-            buttons.add_widget(open_btn)
-            buttons.add_widget(close_btn)
-            layout.add_widget(buttons)
-            confirm_popup.content = layout
-            confirm_popup.open()
+            show_message_popup("PDF Δημιουργήθηκε", f"Το PDF δημιουργήθηκε:\n{pdf_path}", callback=_open_pdf)
         except Exception as exc:
             show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας PDF:\n{str(exc)}")
 
     def handle_excel(*_args):
         try:
             excel_path = app._export_sf6_excel(year_spinner.text)
-            confirm_popup = Popup(title="Excel Δημιουργήθηκε", size_hint=(0.6, 0.4))
-            layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-            layout.add_widget(Label(text=f"Το Excel δημιουργήθηκε:\n{excel_path}", size_hint_y=0.6))
-            buttons = BoxLayout(size_hint_y=0.4, spacing=10)
 
-            def open_excel():
-                if sys.platform == "win32":
-                    os.startfile(excel_path)
-                elif sys.platform == "darwin":
-                    subprocess.call(["open", excel_path])
-                else:
-                    subprocess.call(["xdg-open", excel_path])
-                confirm_popup.dismiss()
+            def _open_excel():
+                try:
+                    if sys.platform == "win32":
+                        os.startfile(excel_path)
+                    elif sys.platform == "darwin":
+                        subprocess.call(["open", excel_path])
+                    else:
+                        subprocess.call(["xdg-open", excel_path])
+                except Exception:
+                    pass
 
-            open_btn = Button(text="Άνοιγμα Excel")
-            open_btn.bind(on_press=lambda _x: open_excel())
-            close_btn = Button(text="Κλείσιμο")
-            close_btn.bind(on_press=confirm_popup.dismiss)
-            buttons.add_widget(open_btn)
-            buttons.add_widget(close_btn)
-            layout.add_widget(buttons)
-            confirm_popup.content = layout
-            confirm_popup.open()
+            show_message_popup("Excel Δημιουργήθηκε", f"Το Excel δημιουργήθηκε:\n{excel_path}", callback=_open_excel)
         except Exception as exc:
             show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας Excel:\n{str(exc)}")
 
@@ -184,40 +165,22 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
     try:
         pdf_path = generate_maintenance_report(app.conn, maintenance_id, element_id)
 
-        confirm_popup = Popup(title="PDF Δημιουργήθηκε", size_hint=(0.6, 0.4))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        def _open_pdf():
+            try:
+                if sys.platform == "win32":
+                    os.startfile(pdf_path)
+                elif sys.platform == "darwin":
+                    subprocess.call(["open", pdf_path])
+                else:
+                    subprocess.call(["xdg-open", pdf_path])
+            except Exception:
+                pass
 
-        msg_label = Label(
-            text=f'Το αρχείο PDF για το στοιχείο "{element_name}"\nδημιουργήθηκε επιτυχώς!',
-            size_hint_y=0.5,
+        show_message_popup(
+            "PDF Δημιουργήθηκε",
+            f'Το αρχείο PDF για το στοιχείο "{element_name}"\nδημιουργήθηκε επιτυχώς!\n\nΑποθηκεύτηκε στο:\n{pdf_path}',
+            callback=_open_pdf,
         )
-        layout.add_widget(msg_label)
-
-        path_label = Label(text=f"Αποθηκεύτηκε στο:\n{pdf_path}", size_hint_y=0.3, font_size="10sp")
-        layout.add_widget(path_label)
-
-        buttons_layout = BoxLayout(size_hint_y=0.2, spacing=10)
-
-        def open_pdf():
-            if sys.platform == "win32":
-                os.startfile(pdf_path)
-            elif sys.platform == "darwin":
-                subprocess.call(["open", pdf_path])
-            else:
-                subprocess.call(["xdg-open", pdf_path])
-            confirm_popup.dismiss()
-
-        open_btn = Button(text="Άνοιγμα PDF")
-        open_btn.bind(on_press=lambda x: open_pdf())
-        buttons_layout.add_widget(open_btn)
-
-        close_btn = Button(text="Κλείσιμο")
-        close_btn.bind(on_press=confirm_popup.dismiss)
-        buttons_layout.add_widget(close_btn)
-
-        layout.add_widget(buttons_layout)
-        confirm_popup.content = layout
-        confirm_popup.open()
 
     except Exception as e:
         show_message_popup("Σφάλμα", f"Αποτυχία δημιουργίας PDF:\n{str(e)}")
