@@ -2051,7 +2051,7 @@ class SubstationApp(App):
         layout.add_widget(name_input)
 
         # Division spinner
-        division_spinner = Spinner(text="ΤΜΘ", values=["ΤΜΘ"], size_hint_y=0.25)
+        division_spinner = Spinner(text=S["MESSAGES"].get("DIVISION_DEFAULT", "ΤΜΘ"), values=[S["MESSAGES"].get("DIVISION_DEFAULT", "ΤΜΘ")], size_hint_y=0.25)
         layout.add_widget(Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15))
         layout.add_widget(division_spinner)
 
@@ -2102,7 +2102,7 @@ class SubstationApp(App):
         layout.add_widget(name_input)
 
         # Division spinner
-        division_spinner = Spinner(text="ΤΜΘ", values=["ΤΜΘ"], size_hint_y=0.25)
+        division_spinner = Spinner(text=S["MESSAGES"].get("DIVISION_DEFAULT", "ΤΜΘ"), values=[S["MESSAGES"].get("DIVISION_DEFAULT", "ΤΜΘ")], size_hint_y=0.25)
         layout.add_widget(Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15))
         layout.add_widget(division_spinner)
 
@@ -2132,7 +2132,7 @@ class SubstationApp(App):
         add_btn.bind(on_press=lambda x: add_substation())
         buttons_layout.add_widget(add_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -2172,7 +2172,7 @@ class SubstationApp(App):
         self._add_logo_to_layout(layout, height=70)
 
         prompt_field = TextInput(
-            text="Επιλέξτε τι θέλετε να δείτε:",
+            text=S["MESSAGES"].get("VIEW_PROMPT", "Επιλέξτε τι θέλετε να δείτε:"),
             readonly=True,
             multiline=False,
             size_hint_y=None,
@@ -2193,14 +2193,14 @@ class SubstationApp(App):
         layout.add_widget(prompt_field)
 
         # "Show All" button
-        show_all_btn = Button(text="Εμφάνιση Όλων των Υποσταθμών", size_hint_y=0.35)
+        show_all_btn = Button(text=S["MESSAGES"].get("SHOW_ALL_SUBSTATIONS", "Εμφάνιση Όλων των Υποσταθμών"), size_hint_y=0.35)
         show_all_btn.bind(
             on_press=lambda x: self._show_all_substations(selection_popup)
         )
         layout.add_widget(show_all_btn)
 
         # "Select Specific Substation" button
-        select_specific_btn = Button(text="Επιλογή Υποσταθμού", size_hint_y=0.35)
+        select_specific_btn = Button(text=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"), size_hint_y=0.35)
         select_specific_btn.bind(
             on_press=lambda x: self._show_substation_selection_window(
                 selection_popup, all_substations
@@ -2466,49 +2466,49 @@ class SubstationApp(App):
                 # Add header for each substation
                 header_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
                 # create header labels and bind their text_size so they stretch to the layout width
-                h_loc = Label(text="Τοποθεσία", bold=True, size_hint_x=0.17)
+                h_loc = Label(text=S["MESSAGES"].get("LOC", "Τοποθεσία"), bold=True, size_hint_x=0.17)
                 h_loc.halign = "center"
                 h_loc.valign = "middle"
                 h_loc.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 header_layout.add_widget(h_loc)
 
-                h_ad = Label(text="Ανάληψη", bold=True, size_hint_x=0.1)
+                h_ad = Label(text=S["MESSAGES"].get("ADOPTION", "Ανάληψη"), bold=True, size_hint_x=0.1)
                 h_ad.halign = "center"
                 h_ad.valign = "middle"
                 h_ad.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 header_layout.add_widget(h_ad)
 
-                h_info = Label(text="Στοιχεία", bold=True, size_hint_x=0.07)
+                h_info = Label(text=S["MESSAGES"].get("INFO", "Στοιχεία"), bold=True, size_hint_x=0.07)
                 h_info.halign = "center"
                 h_info.valign = "middle"
                 h_info.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 header_layout.add_widget(h_info)
 
-                h_gates = Label(text="Πύλες", bold=True, size_hint_x=0.07)
+                h_gates = Label(text=S["MESSAGES"].get("GATES", "Πύλες"), bold=True, size_hint_x=0.07)
                 h_gates.halign = "center"
                 h_gates.valign = "middle"
                 h_gates.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 header_layout.add_widget(h_gates)
 
-                h_cap = Label(text="Πυκνωτές", bold=True, size_hint_x=0.07)
+                h_cap = Label(text=S["MESSAGES"].get("CAPACITORS", "Πυκνωτές"), bold=True, size_hint_x=0.07)
                 h_cap.halign = "center"
                 h_cap.valign = "middle"
                 h_cap.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 header_layout.add_widget(h_cap)
 
-                h_main = Label(text="Συντηρήσεις", bold=True, size_hint_x=0.1)
+                h_main = Label(text=S["MESSAGES"].get("MAINTENANCES", "Συντηρήσεις"), bold=True, size_hint_x=0.1)
                 h_main.halign = "center"
                 h_main.valign = "middle"
                 h_main.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 header_layout.add_widget(h_main)
 
-                h_last = Label(text="Τελευταία", bold=True, size_hint_x=0.1)
+                h_last = Label(text=S["MESSAGES"].get("LAST", "Τελευταία"), bold=True, size_hint_x=0.1)
                 h_last.halign = "center"
                 h_last.valign = "middle"
                 h_last.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
                 header_layout.add_widget(h_last)
 
-                h_mono = Label(text="Μονογραμμικό", bold=True, size_hint_x=0.12)
+                h_mono = Label(text=S["MESSAGES"].get("SINGLE_LINE", "Μονογραμμικό"), bold=True, size_hint_x=0.12)
                 h_mono.halign = "center"
                 h_mono.valign = "middle"
                 h_mono.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
@@ -2534,7 +2534,7 @@ class SubstationApp(App):
                     btn_holder = BoxLayout(size_hint_x=0.17)
                     btn_holder.add_widget(Widget())
                     location_btn = Button(
-                        text="Google Maps Link",
+                        text=S["MESSAGES"].get("GOOGLE_MAPS_LINK", "Google Maps Link"),
                         size_hint=(None, None),
                         size=(140, 30),
                         font_size="11sp",
@@ -2643,7 +2643,7 @@ class SubstationApp(App):
                 buttons_layout = BoxLayout(size_hint_y=None, height=48, spacing=8)
 
                 maint_hist_btn = IconButton(
-                    text="Ιστορικό Συντήρησης",
+                    text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντήρησης"),
                     icon_type="maintenance",
                     size_hint_x=0.5,
                     theme=self.theme,
@@ -2652,7 +2652,7 @@ class SubstationApp(App):
                 buttons_layout.add_widget(maint_hist_btn)
 
                 insp_hist_btn = IconButton(
-                    text="Ιστορικό Επιθεώρησης",
+                    text=S["MESSAGES"].get("INSPECTION_HISTORY_LABEL", "Ιστορικό Επιθεώρησης"),
                     icon_type="inspection",
                     size_hint_x=0.5,
                     theme=self.theme,
@@ -2726,7 +2726,7 @@ class SubstationApp(App):
                     current_gate_filter = "(Όλα)"
 
                 filter_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
-                filter_layout.add_widget(Label(text="Φίλτρο Τύπου:", size_hint_x=0.2))
+                filter_layout.add_widget(Label(text=S["MESSAGES"].get("FILTER_TYPE", "Φίλτρο Τύπου:"), size_hint_x=0.2))
                 type_spinner = Spinner(
                     text=current_type_filter, values=type_values, size_hint_x=0.35
                 )
