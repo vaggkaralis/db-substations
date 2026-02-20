@@ -941,7 +941,7 @@ class SubstationApp(App):
         add_btn.bind(on_press=lambda x: add_element())
         buttons.add_widget(add_btn)
 
-        continue_btn = Button(text="Συνέχεια")
+        continue_btn = Button(text=S["MESSAGES"].get("CONTINUE", "Συνέχεια"))
         continue_btn.bind(on_press=lambda x: continue_import())
         buttons.add_widget(continue_btn)
 
@@ -954,7 +954,7 @@ class SubstationApp(App):
         popup.open()
 
     def _prompt_responsible_selection(self, people, prefill):
-        popup = Popup(title="Ο υπεύθυνος δε βρέθηκε", size_hint=(0.7, 0.5))
+        popup = Popup(title=S["MESSAGES"].get("RESPONSIBLE_NOT_FOUND_TITLE", "Ο υπεύθυνος δε βρέθηκε"), size_hint=(0.7, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         layout.add_widget(
@@ -4029,7 +4029,7 @@ class SubstationApp(App):
         btn_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
         if conflicting_models:
-            update_btn = Button(text="Ενημέρωση Μοντέλων")
+            update_btn = Button(text=S["MESSAGES"].get("MODELS_UPDATE_BTN", "Ενημέρωση Μοντέλων"))
             update_btn.bind(
                 on_press=lambda x: self._apply_models_and_continue(
                     file_path, new_models, conflicting_models, True, popup
@@ -4037,7 +4037,7 @@ class SubstationApp(App):
             )
             btn_layout.add_widget(update_btn)
 
-            keep_btn = Button(text="Χρήση Υπαρχόντων")
+            keep_btn = Button(text=S["MESSAGES"].get("MODELS_USE_EXISTING_BTN", "Χρήση Υπαρχόντων"))
             keep_btn.bind(
                 on_press=lambda x: self._apply_models_and_continue(
                     file_path, new_models, conflicting_models, False, popup
@@ -4045,7 +4045,7 @@ class SubstationApp(App):
             )
             btn_layout.add_widget(keep_btn)
         else:
-            continue_btn = Button(text="Συνέχεια")
+            continue_btn = Button(text=S["MESSAGES"].get("CONTINUE", "Συνέχεια"))
             continue_btn.bind(
                 on_press=lambda x: self._apply_models_and_continue(
                     file_path, new_models, [], False, popup
@@ -4053,7 +4053,7 @@ class SubstationApp(App):
             )
             btn_layout.add_widget(continue_btn)
 
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         btn_layout.add_widget(cancel_btn)
 
@@ -4376,8 +4376,8 @@ class SubstationApp(App):
                 duplicates_list
             ):
                 show_message_popup(
-                    "Σφάλμα",
-                    'Ολοκληρώστε τις επιλογές για όλα τα διπλότυπα ή χρησιμοποιήστε "Αντικατάσταση Όλων" / "Παράλειψη Όλων".',
+                    S["TITLES"]["ERROR"],
+                    S["MESSAGES"].get("DUPLICATE_OPTIONS_INCOMPLETE", 'Ολοκληρώστε τις επιλογές για όλα τα διπλότυπα ή χρησιμοποιήστε "Αντικατάσταση Όλων" / "Παράλειψη Όλων".'),
                 )
                 return
             popup.dismiss()
@@ -4388,9 +4388,9 @@ class SubstationApp(App):
         def on_cancel(_x):
             popup.dismiss()
 
-        continue_btn = Button(text="Συνέχεια", disabled=True)
+        continue_btn = Button(text=S["MESSAGES"].get("CONTINUE", "Συνέχεια"), disabled=True)
         continue_btn.bind(on_press=on_continue)
-        cancel_btn = Button(text="Ακύρωση")
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=on_cancel)
 
         actions.add_widget(continue_btn)
