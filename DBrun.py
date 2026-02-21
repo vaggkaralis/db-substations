@@ -1894,8 +1894,16 @@ class SubstationApp(App):
         return _f(self, file_path)
 
     def show_inspection_history(self, instance=None):
-        from inspections import handle_inspection_history as _f
-        return _f(self, instance)
+        try:
+            from inspections import handle_inspection_history as _f
+            return _f(self, instance)
+        except Exception as e:
+            try:
+                from popups import show_message_popup
+                show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), f"Inspection history failed: {str(e)}")
+            except Exception:
+                pass
+            return None
 
     def _show_inspection_history(self, instance=None):
         """Show a grouped, searchable, paginated inspection history popup.

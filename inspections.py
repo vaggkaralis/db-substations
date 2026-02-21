@@ -396,12 +396,23 @@ def handle_inspection_history(app, instance=None):
         # instead of only showing a count message. This makes the UI
         # discoverable for users who expect to add the first inspection.
         if count == 0:
+            # if called from a parent popup, dismiss it so new popup is visible
+            try:
+                if instance and hasattr(instance, 'dismiss'):
+                    instance.dismiss()
+            except Exception:
+                pass
             show_message_popup(
                 "Ιστορικό Επιθεώρησης",
-                "Δεν υπάρχουν καταχωρημένες επιθεώρήσεις. Θέλετε να δημιουργήσετε μία;",
+                "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις. Θέλετε να δημιουργήσετε μία;",
                 callback=lambda: getattr(app, "show_inspection_entry_popup")(None),
             )
         else:
+            try:
+                if instance and hasattr(instance, 'dismiss'):
+                    instance.dismiss()
+            except Exception:
+                pass
             show_message_popup("Ιστορικό Επιθεώρησης", f"{count} εγγραφές επιθεώρησης")
     except Exception:
         # Give up silently to avoid crashing the app in this fallback.
@@ -426,8 +437,15 @@ def handle_substation_inspection_history(app, substation_id, substation_name, pa
         count = row[0] if row else 0
         from popups import show_message_popup
 
+        # Dismiss parent popup if provided so the message is visible
+        try:
+            if parent_display_popup and hasattr(parent_display_popup, 'dismiss'):
+                parent_display_popup.dismiss()
+        except Exception:
+            pass
+
         show_message_popup(
-            f"Ιστορικό Επιθεωρήσεων - {substation_name}",
+            f"Ιστορικό Επιθεώρησεων - {substation_name}",
             f"{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}",
         )
     except Exception:
