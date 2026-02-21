@@ -386,6 +386,7 @@ def handle_inspection_history(app, instance=None):
 
     # Otherwise, attempt a minimal summary popup (safe fallback).
     try:
+        # previously logged for debugging; now proceed normally
         c = app.conn.cursor()
         c.execute("SELECT COUNT(*) FROM inspections")
         row = c.fetchone()
@@ -530,10 +531,13 @@ def handle_inspection_details(app, inspection_id):
                 # Create a collapsible section: header button and hidden body grid
                 box = BoxLayout(orientation="vertical", size_hint_y=None)
                 header = Button(text=title, size_hint_y=None, height=40)
+                # Allow markup in header text (some titles may include markup tags)
                 try:
                     header.font_size = '16sp'
+                    header.markup = True
                 except Exception:
                     pass
+
                 body_grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
                 body_grid.bind(minimum_height=body_grid.setter("height"))
 
@@ -544,6 +548,20 @@ def handle_inspection_details(app, inspection_id):
                     val.bind(texture_size=val.setter("size"))
                     body_grid.add_widget(lbl)
                     body_grid.add_widget(val)
+
+                # ensure box height matches children when expanded/collapsed
+                box._expanded = False
+                box.size_hint_y = None
+                box.height = header.height
+
+                def _update_height(*_a):
+                    try:
+                        if getattr(box, '_expanded', False):
+                            box.height = header.height + (body_grid.height or 0)
+                        else:
+                            box.height = header.height
+                    except Exception:
+                        pass
 
                 # attach toggle behavior
                 def _toggle(_):
@@ -556,14 +574,18 @@ def handle_inspection_details(app, inspection_id):
                     else:
                         box.add_widget(body_grid)
                         box._expanded = True
+                    _update_height()
 
+                # update box height when body changes
+                body_grid.bind(height=lambda inst, h: _update_height())
                 header.bind(on_press=_toggle)
                 box.add_widget(header)
+
                 # default expansion
-                box._expanded = False
                 if default_expanded:
                     box.add_widget(body_grid)
                     box._expanded = True
+                _update_height()
                 return box
 
             for sec_title, start, end in sections:

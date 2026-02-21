@@ -38,6 +38,7 @@ try:
     App = importlib.import_module("kivy.app").App
     BoxLayout = importlib.import_module("kivy.uix.boxlayout").BoxLayout
     Button = importlib.import_module("kivy.uix.button").Button
+    ToggleButton = importlib.import_module("kivy.uix.togglebutton").ToggleButton
     Label = importlib.import_module("kivy.uix.label").Label
     TextInput = importlib.import_module("kivy.uix.textinput").TextInput
     Popup = importlib.import_module("kivy.uix.popup").Popup
@@ -78,6 +79,7 @@ except Exception:
     App = _StubWidget
     BoxLayout = _StubWidget
     Button = _StubWidget
+    ToggleButton = _StubWidget
     Label = _StubWidget
     TextInput = _StubWidget
     Popup = _StubWidget
@@ -1470,8 +1472,23 @@ class SubstationApp(App):
         webbrowser.open(f"{mailto}?subject={subject_encoded}&body={body_encoded}")
 
     def show_inspection_menu_popup(self, instance=None):
-        from inspections import handle_inspection_menu as _f
-        return _f(self, instance)
+        # write a small debug trace to disk (visible even if popup hidden)
+        try:
+            with open('inspections_debug.log', 'a', encoding='utf-8') as _fh:
+                _fh.write('show_inspection_menu_popup invoked\n')
+        except Exception:
+            pass
+        # visual debug popup removed to avoid obscuring the inspection menu
+        try:
+            from inspections import handle_inspection_menu as _f
+            return _f(self, instance)
+        except Exception as e:
+            try:
+                with open('inspections_debug.log', 'a', encoding='utf-8') as _fh:
+                    _fh.write(f'menu_handler_failed: {str(e)}\n')
+            except Exception:
+                pass
+            return None
 
     def show_import_inspections_dialog(self, instance):
         from inspections import show_import_inspections_dialog_delegate
@@ -1492,9 +1509,11 @@ class SubstationApp(App):
     def show_inspection_entry_popup(
         self, instance=None, preselected_substation_name=None, parent_popup=None
     ):
-        """Manual inspection entry using template fields."""
         if parent_popup:
-            parent_popup.dismiss()
+            try:
+                parent_popup.dismiss()
+            except Exception:
+                pass
         c = self.conn.cursor()
         c.execute("SELECT id, name FROM substations ORDER BY name")
         substations = c.fetchall()
@@ -1895,6 +1914,11 @@ class SubstationApp(App):
 
     def show_inspection_history(self, instance=None):
         try:
+            try:
+                with open('inspections_debug.log', 'a', encoding='utf-8') as _fh:
+                    _fh.write('show_inspection_history invoked\n')
+            except Exception:
+                pass
             from inspections import handle_inspection_history as _f
             return _f(self, instance)
         except Exception as e:
@@ -1918,7 +1942,16 @@ class SubstationApp(App):
             from kivy.uix.boxlayout import BoxLayout
             from kivy.uix.scrollview import ScrollView
             from kivy.uix.gridlayout import GridLayout
-            from kivy.uix.button import Button, ToggleButton
+            from kivy.uix.button import Button
+            try:
+                from kivy.uix.togglebutton import ToggleButton
+            except Exception:
+                # Some Kivy installs or runtime states may not expose ToggleButton
+                # from the expected module; fall back to Button to avoid crashing.
+                try:
+                    from kivy.uix.button import ToggleButton  # attempt older/alternate location
+                except Exception:
+                    ToggleButton = Button
             from kivy.uix.label import Label
             from kivy.uix.textinput import TextInput
             from kivy.uix.spinner import Spinner
@@ -2077,22 +2110,86 @@ class SubstationApp(App):
                         for rid, sid, sname, date in rows:
                             grouped.setdefault(sname or "-", []).append((rid, date))
                         for sname, items in grouped.items():
+                            # section header for substation
                             list_grid.add_widget(Label(text=f"[b]{sname}[/b]", markup=True, size_hint_y=None, height=30))
                             for rid, date in items:
-                                btn = Button(text=f"{date}", size_hint_y=None, height=36)
-                                btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
-                                list_grid.add_widget(btn)
+                                # row: left-aligned inspection label, right-aligned icon buttons
+                                row = BoxLayout(size_hint_y=None, height=44)
+                                label_text = f"Επιθεώρηση {sname} {date}"
+                                lbl = Label(text=label_text, size_hint_x=0.72, halign='left', valign='middle')
+                                lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (inst.width, None)))
+                                actions = BoxLayout(size_hint_x=0.28, spacing=6)
+
+                                view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get('text', (0.12,0.12,0.12,1)), size=(44, 36))
+                                view_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
+                                actions.add_widget(view_btn)
+
+                                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(44, 36))
+                                edit_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_entry_popup(i)))
+                                actions.add_widget(edit_btn)
+
+                                def _confirm_delete(i=rid):
+                                    from reports import show_confirm
+
+                                    def _do_delete():
+                                        try:
+                                            c.execute("DELETE FROM inspections WHERE id=?", (i,))
+                                            self.conn.commit()
+                                        except Exception:
+                                            pass
+                                        # refresh listing
+                                        state['offset'] = 0
+                                        state['page'] = 1
+                                        state['total'] = None
+                                        _render()
+
+                                    show_confirm(self, f"Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname} ({date}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
+
+                                delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0, 0, 1), size=(44, 36))
+                                delete_btn.bind(on_press=lambda _btn, i=rid: _confirm_delete(i))
+                                actions.add_widget(delete_btn)
+
+                                row.add_widget(lbl)
+                                row.add_widget(actions)
+                                list_grid.add_widget(row)
                     else:
                         for rid, sid, sname, date in rows:
-                            row = BoxLayout(size_hint_y=None, height=36)
-                            lbl = Label(text=date, size_hint_x=0.6, font_size='14sp')
-                            view_btn = Button(text="Προβολή", size_hint_x=0.2)
+                            row = BoxLayout(size_hint_y=None, height=44)
+                            label_text = f"Επιθεώρηση {sname} {date}"
+                            lbl = Label(text=label_text, size_hint_x=0.72, halign='left', valign='middle')
+                            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (inst.width, None)))
+                            actions = BoxLayout(size_hint_x=0.28, spacing=6)
+
+                            view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get('text', (0.12,0.12,0.12,1)), size=(44, 36))
                             view_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
-                            edit_btn = Button(text="Επεξεργασία", size_hint_x=0.2)
-                            edit_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
+                            actions.add_widget(view_btn)
+
+                            edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(44, 36))
+                            edit_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_entry_popup(i)))
+                            actions.add_widget(edit_btn)
+
+                            def _confirm_delete(i=rid, sname_local=sname, date_local=date):
+                                from reports import show_confirm
+
+                                def _do_delete():
+                                    try:
+                                        c.execute("DELETE FROM inspections WHERE id=?", (i,))
+                                        self.conn.commit()
+                                    except Exception:
+                                        pass
+                                    state['offset'] = 0
+                                    state['page'] = 1
+                                    state['total'] = None
+                                    _render()
+
+                                show_confirm(self, f"Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
+
+                            delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0, 0, 1), size=(44, 36))
+                            delete_btn.bind(on_press=lambda _btn, i=rid: _confirm_delete(i))
+                            actions.add_widget(delete_btn)
+
                             row.add_widget(lbl)
-                            row.add_widget(view_btn)
-                            row.add_widget(edit_btn)
+                            row.add_widget(actions)
                             list_grid.add_widget(row)
 
                 # update pager state
@@ -7812,8 +7909,17 @@ class SubstationApp(App):
     def show_substation_inspection_history(
         self, substation_id, substation_name, parent_display_popup=None
     ):
-        from inspections import handle_substation_inspection_history as _f
-        return _f(self, substation_id, substation_name, parent_display_popup)
+        try:
+            try:
+                with open('inspections_debug.log', 'a', encoding='utf-8') as _fh:
+                    _fh.write(f'show_substation_inspection_history invoked for {substation_name}\n')
+            except Exception:
+                pass
+            # visual debug removed; keep file log only
+            from inspections import handle_substation_inspection_history as _f
+            return _f(self, substation_id, substation_name, parent_display_popup)
+        except Exception:
+            return None
 
     def show_inspection_details(self, inspection_id):
         from inspections import handle_inspection_details as _f
