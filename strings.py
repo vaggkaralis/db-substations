@@ -196,6 +196,8 @@ STRINGS = {
         "NO_ELEMENTS": "Κανένα στοιχείο",
         "NO_ELEMENTS_PAREN": "(Χωρίς στοιχεία)",
         "NO_ELEMENTS_FOR_ITEM": "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.",
+        "NO_MODELS": "Δεν υπάρχουν μοντέλα",
+        "NO_INACTIVE_ELEMENTS": "Δεν υπάρχουν ανενεργά στοιχεία σε αυτόν τον υποσταθμό",
         # --- Elements / Types (lists used by DBrun) ---
         "ELEMENT_TYPES": [
             "Διακόπτης ΥΤ",

@@ -1643,6 +1643,8 @@ class SubstationApp(App):
             )
         )
 
+        rows = S["MESSAGES"].get("INSPECTION_ROWS", [])
+
         def add_inspection_row(label_text):
             row = BoxLayout(size_hint_y=None, height=60, spacing=5)
             label = Label(text=label_text, size_hint_x=0.7, size_hint_y=None)
@@ -1671,7 +1673,8 @@ class SubstationApp(App):
             content_layout.add_widget(row)
             fields_inputs.append((label_text, ti))
 
-        for _r in S["MESSAGES"].get("INSPECTION_ROWS", []):
+        # Section 1 rows
+        for _r in rows[0:4]:
             add_inspection_row(_r)
 
         # Chapter 3: Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV
@@ -1684,8 +1687,8 @@ class SubstationApp(App):
             )
         )
 
-        # inspection rows are loaded from STRINGS to keep UI literals centralized
-        for _r in S["MESSAGES"].get("INSPECTION_ROWS", []):
+        # Section 2 rows
+        for _r in rows[4:12]:
             add_inspection_row(_r)
 
         # Chapter 3: Υπαίθριες πύλες 20 kV
@@ -1697,7 +1700,9 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        # (rows provided from the centralized INSPECTION_ROWS list)
+        # Section 3a: single row
+        if len(rows) > 12:
+            add_inspection_row(rows[12])
 
         # Chapter 4: Υπαίθριες πύλες 20 kV
         content_layout.add_widget(
@@ -1708,7 +1713,9 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        # these rows are already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
+        # Section 3b
+        for _r in rows[13:15] if len(rows) > 13 else []:
+            add_inspection_row(_r)
 
         # Chapter 5: Κτίριο χειρισμών & Τ.Α.Σ.
         content_layout.add_widget(
@@ -1719,7 +1726,9 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        # these rows are already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
+        # Section 4
+        for _r in rows[15:18] if len(rows) > 15 else []:
+            add_inspection_row(_r)
 
         # Chapter 6: Αποζευκτες Γραμμών
         content_layout.add_widget(
@@ -1730,19 +1739,25 @@ class SubstationApp(App):
                 height=35,
             )
         )
-        # this row is already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
+        # Section 5
+        if len(rows) > 18:
+            add_inspection_row(rows[18])
 
         # Chapter 7: PC ΧΕΙΡΙΣΜΩΝ
         content_layout.add_widget(
             Label(text=S["MESSAGES"].get("INSPECTION_SECTION_6", "[b]PC ΧΕΙΡΙΣΜΩΝ[/b]"), markup=True, size_hint_y=None, height=35)
         )
-        # these rows are already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
+        # Section 6
+        for _r in rows[19:21] if len(rows) > 19 else []:
+            add_inspection_row(_r)
 
         # Chapter 8: Απόψεις
         content_layout.add_widget(
             Label(text=S["MESSAGES"].get("INSPECTION_SECTION_7", "[b]Απόψεις[/b]"), markup=True, size_hint_y=None, height=35)
         )
-        # this row is already supplied by S["MESSAGES"]["INSPECTION_ROWS"]
+        # Final section 7: add an opinions / proposals input row
+        opinions_label = S["MESSAGES"].get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")
+        add_inspection_row(opinions_label)
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
@@ -1881,6 +1896,190 @@ class SubstationApp(App):
     def show_inspection_history(self, instance=None):
         from inspections import handle_inspection_history as _f
         return _f(self, instance)
+
+    def _show_inspection_history(self, instance=None):
+        """Show a grouped, searchable, paginated inspection history popup.
+
+        UI features:
+        - Substation filter (dropdown: All + individual substations)
+        - Text search across substation name and date
+        - Pagination with page size control
+        """
+        try:
+            from kivy.uix.popup import Popup
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.scrollview import ScrollView
+            from kivy.uix.gridlayout import GridLayout
+            from kivy.uix.button import Button
+            from kivy.uix.label import Label
+            from kivy.uix.textinput import TextInput
+            from kivy.uix.spinner import Spinner
+
+            # Fetch distinct substations for filter
+            c = self.conn.cursor()
+            c.execute("SELECT DISTINCT substation_id, substation_name FROM inspections ORDER BY substation_name")
+            subs = c.fetchall()
+
+            # Build base query (we will apply filters later)
+            def _query_inspections(sub_id=None, search=None, limit=30, offset=0):
+                params = []
+                q = "SELECT id, substation_id, substation_name, inspection_date FROM inspections"
+                where = []
+                if sub_id:
+                    where.append("substation_id=?")
+                    params.append(sub_id)
+                if search:
+                    where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
+                    params.extend([f"%{search}%", f"%{search}%"])
+                if where:
+                    q += " WHERE " + " AND ".join(where)
+                q += " ORDER BY inspection_date DESC LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+                c.execute(q, tuple(params))
+                return c.fetchall()
+
+            def _count_inspections(sub_id=None, search=None):
+                params = []
+                q = "SELECT COUNT(*) FROM inspections"
+                where = []
+                if sub_id:
+                    where.append("substation_id=?")
+                    params.append(sub_id)
+                if search:
+                    where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
+                    params.extend([f"%{search}%", f"%{search}%"])
+                if where:
+                    q += " WHERE " + " AND ".join(where)
+                c.execute(q, tuple(params))
+                r = c.fetchone()
+                return r[0] if r else 0
+
+            popup = Popup(title=S["TITLES"].get("INSPECTION_HISTORY", "Ιστορικό Επιθεώρησης"), size_hint=(0.95, 0.9))
+            main = BoxLayout(orientation="vertical", spacing=8, padding=8)
+
+            # Controls: substation spinner, search box, page size
+            ctrl_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
+            options = ["Όλα"] + [s[1] or "-" for s in subs]
+            sub_spinner = Spinner(text=options[0], values=options, size_hint_x=0.4)
+            search_input = TextInput(hint_text="Αναζήτηση (όνομα/ημερομηνία)", size_hint_x=0.4)
+            page_size_spinner = Spinner(text="30", values=("10", "20", "30", "50"), size_hint_x=0.2)
+            ctrl_row.add_widget(sub_spinner)
+            ctrl_row.add_widget(search_input)
+            ctrl_row.add_widget(page_size_spinner)
+            main.add_widget(ctrl_row)
+
+            # Listing area
+            scroll = ScrollView()
+            list_grid = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=4)
+            list_grid.bind(minimum_height=list_grid.setter("height"))
+            scroll.add_widget(list_grid)
+            main.add_widget(scroll)
+
+            # Pagination controls
+            pager = BoxLayout(size_hint_y=None, height=40, spacing=8)
+            prev_btn = Button(text="Προηγούμενη")
+            next_btn = Button(text="Επόμενη")
+            page_label = Label(text="Σελίδα 1", size_hint_x=0.4)
+            pager.add_widget(prev_btn)
+            pager.add_widget(page_label)
+            pager.add_widget(next_btn)
+            main.add_widget(pager)
+
+            # Close button
+            close = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=40)
+            main.add_widget(close)
+
+            popup.content = main
+
+            # state
+            state = {"offset": 0, "limit": int(page_size_spinner.text), "page": 1}
+
+            def _render():
+                list_grid.clear_widgets()
+                selected = sub_spinner.text
+                sub_id = None
+                if selected != "Όλα":
+                    # find id by name
+                    for s in subs:
+                        if (s[1] or "-") == selected:
+                            sub_id = s[0]
+                            break
+
+                search = search_input.text.strip() or None
+                rows = _query_inspections(sub_id=sub_id, search=search, limit=state["limit"], offset=state["offset"])
+
+                total = _count_inspections(sub_id=sub_id, search=search)
+                if not rows:
+                    list_grid.add_widget(Label(text=S["MESSAGES"].get("NO_INSPECTIONS", "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις."), size_hint_y=None, height=40))
+                else:
+                    # Group by substation for visual clarity when listing 'Όλα'
+                    if selected == "Όλα":
+                        grouped = {}
+                        for rid, sid, sname, date in rows:
+                            grouped.setdefault(sname or "-", []).append((rid, date))
+                        for sname, items in grouped.items():
+                            list_grid.add_widget(Label(text=f"[b]{sname}[/b]", markup=True, size_hint_y=None, height=30))
+                            for rid, date in items:
+                                btn = Button(text=f"{date}", size_hint_y=None, height=36)
+                                btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
+                                list_grid.add_widget(btn)
+                    else:
+                        for rid, sid, sname, date in rows:
+                            row = BoxLayout(size_hint_y=None, height=36)
+                            lbl = Label(text=date, size_hint_x=0.6)
+                            view_btn = Button(text="Προβολή", size_hint_x=0.2)
+                            view_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
+                            edit_btn = Button(text="Επεξεργασία", size_hint_x=0.2)
+                            edit_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
+                            row.add_widget(lbl)
+                            row.add_widget(view_btn)
+                            row.add_widget(edit_btn)
+                            list_grid.add_widget(row)
+
+                # update pager state
+                page_label.text = f"Σελίδα {state['page']} ({min(state['offset']+1, total)}-{min(state['offset']+len(rows), total)} / {total})"
+                prev_btn.disabled = (state["offset"] == 0)
+                next_btn.disabled = (state["offset"] + state["limit"] >= total)
+
+            def _set_page_size(_spinner, _value):
+                try:
+                    state["limit"] = int(_value)
+                    state["offset"] = 0
+                    state["page"] = 1
+                    _render()
+                except Exception:
+                    pass
+
+            def _search_changed(_inst):
+                state["offset"] = 0
+                state["page"] = 1
+                _render()
+
+            def _prev(_):
+                if state["offset"] >= state["limit"]:
+                    state["offset"] -= state["limit"]
+                    state["page"] -= 1
+                    _render()
+
+            def _next(_):
+                # naive next: advance offset and render (no total-count queried)
+                state["offset"] += state["limit"]
+                state["page"] += 1
+                _render()
+
+            # bindings
+            page_size_spinner.bind(text=_set_page_size)
+            search_input.bind(text=lambda inst, val: _search_changed(inst))
+            sub_spinner.bind(text=lambda inst, val: _search_changed(inst))
+            prev_btn.bind(on_press=_prev)
+            next_btn.bind(on_press=_next)
+            close.bind(on_press=lambda _btn: popup.dismiss())
+
+            # initial render
+            _render()
+            popup.open()
+        except Exception:
+            return None
 
     def get_available_gates(self, substation_id, is_interconnection=None):
         """Get available gates (ΠΥΛΗ) based on existing transformers in the substation

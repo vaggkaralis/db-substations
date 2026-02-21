@@ -585,7 +585,7 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
     if not inactive_elements:
         main_layout.add_widget(
             Label(
-                text="Δεν υπάρχουν ανενεργά στοιχεία σε αυτόν τον υποσταθμό",
+                text=S["MESSAGES"].get("NO_INACTIVE_ELEMENTS", "Δεν υπάρχουν ανενεργά στοιχεία σε αυτόν τον υποσταθμό"),
                 size_hint_y=0.8,
             )
         )
@@ -787,7 +787,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
         models_data.update(models_data_temp)
 
         model_spinner.values = (
-            display_names if display_names else ["Δεν υπάρχουν μοντέλα"]
+            display_names if display_names else [S["MESSAGES"].get("NO_MODELS", "Δεν υπάρχουν μοντέλα")]
         )
         model_spinner.text = (
             selected_display_name
@@ -1256,8 +1256,8 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
                         "installation_space": m[4] or "",
                         "breaker_category": m[5] or "",
                     }
-                model_spinner.values = (display_names if display_names else ["Δεν υπάρχουν μοντέλα"])
-                model_spinner.text = (display_names[0] if display_names else "Δεν υπάρχουν μοντέλα")
+                model_spinner.values = (display_names if display_names else [S["MESSAGES"].get("NO_MODELS", "Δεν υπάρχουν μοντέλα")])
+                model_spinner.text = (display_names[0] if display_names else S["MESSAGES"].get("NO_MODELS", "Δεν υπάρχουν μοντέλα"))
             else:
                 display_names = []
                 for m in models:
