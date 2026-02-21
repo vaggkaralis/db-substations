@@ -27,21 +27,21 @@ def show_sf6_management_popup(app, instance=None):
     if not years:
         years = [str(__import__("datetime").datetime.now().year)]
 
-    popup = Popup(title="Διαχείριση SF6", size_hint=(0.95, 0.9))
+    popup = Popup(title=S["MESSAGES"].get("SF6_MANAGEMENT_TITLE", "Διαχείριση SF6"), size_hint=(0.95, 0.9))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     control_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
-    control_row.add_widget(Label(text="Έτος:", size_hint_x=0.15))
+    control_row.add_widget(Label(text=S["MESSAGES"].get("YEAR_LABEL", "Έτος:"), size_hint_x=0.15))
     year_spinner = Spinner(
         text=years[0], values=years, size_hint_x=0.25, size_hint_y=None, height=35
     )
     control_row.add_widget(year_spinner)
 
-    refresh_btn = Button(text="Ανανέωση", size_hint_x=0.2)
+    refresh_btn = Button(text=S["MESSAGES"].get("REFRESH", "Ανανέωση"), size_hint_x=0.2)
     control_row.add_widget(refresh_btn)
-    print_btn = Button(text="Εκτύπωση", size_hint_x=0.2)
+    print_btn = Button(text=S["MESSAGES"].get("PRINT", "Εκτύπωση"), size_hint_x=0.2)
     control_row.add_widget(print_btn)
-    excel_btn = Button(text="Excel", size_hint_x=0.2)
+    excel_btn = Button(text=S["MESSAGES"].get("EXCEL", "Excel"), size_hint_x=0.2)
     control_row.add_widget(excel_btn)
     main_layout.add_widget(control_row)
 

@@ -74,7 +74,7 @@ def show_add_element_popup(app, instance):
     # Substation spinner
     substation_names = list(app.substations_map.keys())
     layout.add_widget(
-        Label(text="Επιλέξτε Υποσταθμό:", size_hint_y=None, height=30)
+        Label(text=S["MESSAGES"].get("SELECT_SUBSTATION", "Επιλέξτε Υποσταθμό:"), size_hint_y=None, height=30)
     )
     substation_spinner = Spinner(
         text=substation_names[0],
@@ -85,7 +85,7 @@ def show_add_element_popup(app, instance):
     layout.add_widget(substation_spinner)
 
     # Element type spinner
-    layout.add_widget(Label(text="Επιλέξτε Στοιχείο:", size_hint_y=None, height=30))
+    layout.add_widget(Label(text=S["MESSAGES"].get("SELECT_ELEMENT", "Επιλέξτε Στοιχείο:"), size_hint_y=None, height=30))
     element_spinner = Spinner(
         text=app.ELEMENT_TYPES[0],
         values=app.ELEMENT_TYPES,
@@ -95,7 +95,7 @@ def show_add_element_popup(app, instance):
     layout.add_widget(element_spinner)
 
     # Voltage level selection
-    layout.add_widget(Label(text="Επίπεδο Τάσης:", size_hint_y=None, height=30))
+    layout.add_widget(Label(text=S["MESSAGES"].get("VOLTAGE_LEVEL_LABEL", "Επίπεδο Τάσης:"), size_hint_y=None, height=30))
     _derived = app._derive_voltage_level(element_spinner.text)
     initial_voltage = _derived or "(Κενό)"
     voltage_level_spinner = Spinner(
@@ -107,7 +107,7 @@ def show_add_element_popup(app, instance):
     layout.add_widget(voltage_level_spinner)
 
     # Gate selection (auto-populated from transformers)
-    gate_label = Label(text="Πύλη (Gate):", size_hint_y=None, height=30)
+    gate_label = Label(text=S["MESSAGES"].get("GATE_LABEL", "Πύλη (Gate):"), size_hint_y=None, height=30)
     layout.add_widget(gate_label)
 
     # Get initial gates for the first substation
@@ -123,7 +123,7 @@ def show_add_element_popup(app, instance):
     layout.add_widget(gate_spinner)
 
     # Rated power (Ονομαστική Ισχύς) - optional attribute for any element
-    layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+    layout.add_widget(Label(text=S["MESSAGES"].get("RATED_POWER_LABEL", "Ονομαστική Ισχύς (MVA):"), size_hint_y=None, height=30))
     rated_power_input = TextInput(hint_text="π.χ. 50", size_hint_y=None, height=40, multiline=False)
     layout.add_widget(rated_power_input)
 
@@ -197,9 +197,9 @@ def show_add_element_popup(app, instance):
 
     # Model selection with "Add New" button
     model_header = BoxLayout(size_hint_y=None, height=30, spacing=5)
-    model_header.add_widget(Label(text="Μοντέλο:", size_hint_x=0.7))
+    model_header.add_widget(Label(text=S["MESSAGES"].get("MODEL_LABEL", "Μοντέλο:"), size_hint_x=0.7))
     add_model_btn = Button(
-        text="+ Νέο Μοντέλο", size_hint_x=0.3, size_hint_y=None, height=30
+        text=S["BUTTONS"].get("ADD_MODEL", "+ Νέο Μοντέλο"), size_hint_x=0.3, size_hint_y=None, height=30
     )
     model_header.add_widget(add_model_btn)
     layout.add_widget(model_header)

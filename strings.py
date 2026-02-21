@@ -43,29 +43,95 @@ STRINGS = {
         "INSPECTION_DETAILS": "Λεπτομέρειες Επιθεώρησης",
     },
     "MESSAGES": {
+        # --- General / UI labels ---
+        "APP_TITLE": "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ",
+        "APP_INFO_SHORT": "Πληρ. Εφαρμ.",
+        "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
+        "APP_INFO_BODY": (
+            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\n"
+            "Έκδοση: {version}\n\n"
+            "Λειτουργίες εφαρμογής:\n"
+            "• Προβολή και διαχείριση βάσης υποσταθμών\n"
+            "• Προσθήκη/επεξεργασία/διαγραφή υποσταθμών και στοιχείων\n"
+            "• Κατηγορίες διακοπτών (SF6/Ελαίου/Πτωχού Ελαίου)\n"
+            "• Διαχείριση τύπων στοιχείων (μοντέλα/κατασκευαστές/κύκλοι)\n"
+            "• Καταχώρηση συντηρήσεων\n"
+            "• Εισαγωγή συντήρησης από e-mail (.eml)\n"
+            "• Ιστορικό συντηρήσεων (όλων/ανά υποσταθμό)\n"
+            "• Μετρήσεις διακοπτών (μόνωση/διέλευση/χειρισμοί)\n"
+            "• Ποιότητα αερίου SF6 & διαρροές (kg)\n"
+            "• Διαχείριση SF6 (αναφορά διαρροών ανά έτος)\n"
+            "• Εξαγωγή Excel αναφορών SF6 (σύνοψη & ανά υποσταθμό)\n"
+            "• Εκτύπωση PDF αναφορών συντήρησης\n"
+            "• Επιθεωρήσεις (καταχώρηση/προβολή/ιστορικό)\n"
+            "• Αιτήσεις απομόνωσης\n"
+            "• Εισαγωγή υποσταθμών/στοιχείων από CSV/Excel\n"
+            "• Αναφορές PDF & Excel\n\n"
+            "Φάκελος εφαρμογής: {app_dir}"
+        ),
+        "LOADING": "Φόρτωση...",
+        "COPY": "Αντιγραφή",
+        "DASH": "-",
+
+        # --- Files / Import / PDF ---
         "ENTER_PATH": "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!",
+        "FILE_PATH_LABEL": "Διαδρομή αρχείου:",
+        "FILE_PATH_HINT": "Διαδρομή αρχείου",
         "FILE_NOT_FOUND": "Το αρχείο δεν βρέθηκε!",
+        "PLEASE_SELECT_PDF": "Παρακαλώ επιλέξτε αρχείο PDF!",
+        "UNSUPPORTED_FILE_FORMAT": "Μη υποστηριζόμενη μορφή αρχείου",
+        "FILE_HAS_NO_DATA": "Το αρχείο δεν περιέχει δεδομένα.",
         "IMPORT_FAILED": "Αποτυχία εισαγωγής:",
         "IMPORT_SUCCESS": "Επιτυχής εισαγωγή.",
+        "SELECT_MONOGRAM_PDF_TITLE": "Επιλογή Μονογραμμικού PDF",
+        "CHANGELOG_FILE_LABEL": "Διαδρομή αρχείου change log (.jsonl):",
+
+        # --- Substations / DB ---
         "NO_SUBSTATIONS": "Δεν υπάρχουν υποσταθμοί!",
-        "INVALID_DATE_FORMAT": "Μη έγκυρη μορφή ημερομηνίας! Χρησιμοποιήστε: YYYY-MM-DD HH:MM",
-        "END_BEFORE_START": "Η ημερομηνία λήξης πρέπει να είναι μετά την έναρξη!",
-        "ISOLATION_SAVED": "Η αίτηση απομόνωσης καταχωρήθηκε!",
-        "ISOLATION_UPDATED": "Η αίτηση ενημερώθηκε!",
-        "ISOLATION_DELETED": "Η αίτηση διαγράφηκε!",
-        "PLEASE_SELECT_OR_ADD_SUBSTATION": "Παρακαλώ επιλέξτε ή προσθέστε υποσταθμό.",
-        "PLEASE_SELECT_PDF": "Παρακαλώ επιλέξτε αρχείο PDF!",
-        "NO_PEOPLE": "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
-        "SELECT_SUBSTATION": "Επιλογή Υποσταθμού:",
+        "EMPTY_DB": "Κενή βάση",
+        "ADD_NEW_SUBSTATION_PROMPT": "Ή προσθέστε νέο υποσταθμό:",
+        "PLEASE_SELECT_OR_ADD_SUBSTATION": "Παρακαλώ επιλέξτε υποσταθμό ή προσθέστε νέο.",
+        "ENTER_SUBSTATION_NAME": "Παρακαλώ εισάγετε όνομα υποσταθμού!",
         "SUBSTATION_LABEL": "Υποσταθμός:",
-        "FORM_NUMBER": "Αρ. Δελτίου:",
-        "DATE_LABEL": "Ημερομηνία:",
-        "REGION_LABEL": "Περιοχή:",
-        "INSPECTOR_LABEL": "Ονομ. Επιθεωρητή:",
-        "MONTH_LABEL": "Μήνας:",
-        "DAY_LABEL": "Ημέρα:",
-        "YEAR_LABEL": "Έτος:",
-        "OBSERVATIONS_HINT": "Παρατηρήσεις",
+        "SUBSTATION_NAME_LABEL": "Όνομα Υποσταθμού:",
+        "SUBSTATION_NAME_HINT": "Όνομα Υποσταθμού",
+        "SUBSTATION_NEW_HINT": "Όνομα νέου υποσταθμού",
+        "SUBSTATION_ADDED": "Υποσταθμός προστέθηκε!",
+        "SUBSTATION_EXISTS": "Ο υποσταθμός υπάρχει ήδη.",
+        "SELECT_SUBSTATION": "Επιλογή Υποσταθμού:",
+        "SELECT_SUBSTATION_BTN": "Επιλογή Υποσταθμού",
+        "PROMPT_SUBSTATION_NOT_FOUND_TITLE": "Ο υποσταθμός δε βρέθηκε",
+        "PROMPT_SUBSTATION_SELECT": "Επιλέξτε υποσταθμό για την εισαγωγή:",
+        "SUBSTATION_NOT_FOUND": "Δεν βρέθηκε υποσταθμός.",
+        "MISSING_SUBSTATIONS_WILL_CREATE": "Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:",
+        "NEW_SUBSTATIONS_TITLE": "Νέοι Υποσταθμοί Εντοπίστηκαν",
+
+        # --- Maintenance / Records ---
+        "MAINTENANCE_SAVED_CHANGELOG": "Η συντήρηση καταχωρήθηκε στο change log.",
+        "MAINTENANCE_DELETED": "Η συντήρηση διαγράφηκε!",
+        "MAINTENANCE_NOT_FOUND": "Δεν βρέθηκε η συντήρηση.",
+        "NO_MAINTENANCES": "Δεν υπάρχουν καταχωρημένες συντηρήσεις",
+        "NO_MAINT_FOR_SUBSTATION": 'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
+        "MAINT_HISTORY_LABEL": "Ιστορικό Συντήρησης",
+        "NO_RECORD_ELEMENTS": "Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση.",
+
+        # --- Maintenance form labels & validation ---
+        "DATE_TIME_LABEL": "Ημερομηνία & Ώρα:",
+        "DATE_REQUIRED": "Η ημερομηνία είναι υποχρεωτική!",
+        "DATE_PREFIX": "Ημ/νία:",
+        "MAINT_TYPE_LABEL": "Τύπος Συντήρησης:",
+        "MAINTENANCE_TYPES": ["Επαναληπτική συντήρηση", "Βλάβη", "Οπτικός έλεγχος"],
+        "MAINT_TYPE_DEFAULT": "Επαναληπτική συντήρηση",
+        "RESPONSIBLE_LABEL": "Υπεύθυνος Συντήρησης (υποχρεωτικό):",
+        "RESPONSIBLE_REQUIRED": "Ο υπεύθυνος συντήρησης είναι υποχρεωτικός!",
+        "CREW_LABEL": "Ομάδα Συντήρησης (προαιρετικό):",
+        "OVERALL_COMMENTS_LABEL": "Γενικά Σχόλια Συντήρησης:",
+        "ELEMENTS_SECTION_LABEL": "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
+        "NO_ELEMENTS_IN_SUBSTATION": "Δεν υπάρχουν στοιχεία σε αυτόν τον υποσταθμό",
+        "SELECT_AT_LEAST_ONE_ELEMENT": "Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!",
+        "ADD_ELEMENT_BEFORE_CONTINUE": "Προσθέστε τουλάχιστον ένα στοιχείο πριν τη συνέχεια.",
+
+        # --- Inspections ---
         "INSPECTION_SAVED": "Η επιθεώρηση καταχωρήθηκε!",
         "INSPECTION_ROWS": [
             "Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ",
@@ -91,9 +157,6 @@ STRINGS = {
             "Τροφοδοσία υπολογιστή.",
             "Απόψεις και τυχόν προτάσεις  για την καλύτερη λειτουργία τόσο του εξοπλισμού, όσο και του κτηρίου γενικά του Υ/Σ.",
         ],
-        "MAINTENANCE_TYPES": ["Επαναληπτική συντήρηση", "Βλάβη", "Οπτικός έλεγχος"],
-        "MAINT_TYPE_DEFAULT": "Επαναληπτική συντήρηση",
-        "FILE_PATH_HINT": "Διαδρομή αρχείου",
         "INSPECTION_SECTION_2": "[b]Έλεγχος Χώρων ΥΣ[/b]",
         "INSPECTION_SECTION_3": "[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]",
         "INSPECTION_SECTION_3A": "[b]Υπαίθριες πύλες 20 kV[/b]",
@@ -102,66 +165,65 @@ STRINGS = {
         "INSPECTION_SECTION_5": "[b]Αποζευκτες Γραμμών[/b]",
         "INSPECTION_SECTION_6": "[b]PC ΧΕΙΡΙΣΜΩΝ[/b]",
         "INSPECTION_SECTION_7": "[b]Απόψεις[/b]",
-        "MODEL_NOT_USED": "Το μοντέλο δεν χρησιμοποιείται σε κανένα στοιχείο.",
-        "PLEASE_SELECT_BREAKER_CATEGORY": "Παρακαλώ επιλέξτε κατηγορία διακόπτη!",
-        "PLEASE_SELECT_EML": "Παρακαλώ επιλέξτε αρχείο .emλ!",
-        "STORAGE_PERMISSIONS_REQUIRED": "Απαιτούνται δικαιώματα αποθήκευσης. Παρακαλώ επιτρέψτε τα και ξαναδοκιμάστε.",
-        "NO_ELEMENTS": "Κανένα στοιχείο",
-        "NO_ELEMENTS_PAREN": "(Χωρίς στοιχεία)",
-        "DASH": "-",
-        "MAINTENANCE_SAVED_CHANGELOG": "Η συντήρηση καταχωρήθηκε στο change log.",
-        "LOADING": "Φόρτωση...",
-        "APP_TITLE": "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ",
-        "APP_INFO_SHORT": "Πληρ. Εφαρμ.",
-        "SHOW_DB_BUTTON": "Εμφάνιση βάσης υποσταθμών",
-        "IMPORT_BUTTON": "Εισαγωγή από αρχείο",
-        "MAINTENANCE_BUTTON": "Συντηρήσεις",
-        "INSPECTION_BUTTON": "Επιθεωρήσεις",
-        "ISOLATION_BUTTON": "Αιτήσεις απομόνωσης",
-        "SF6_BUTTON": "SF6",
-        "ADD_NEW_SUBSTATION_PROMPT": "Ή προσθέστε νέο υποσταθμό:",
-        "SUBSTATION_NAME_LABEL": "Όνομα Υποσταθμού:",
-        "SUBSTATION_NAME_HINT": "Όνομα Υποσταθμού",
-        "DIVISION_LABEL": "Τομέας:",
-        "SUBSTATION_ADDED": "Υποσταθμός προστέθηκε!",
-        "SELECT_MAINT_RESPONSIBLE": "Επιλέξτε υπεύθυνο συντήρησης:",
-        "DIVISION_DEFAULT": "ΤΜΘ",
-        "VIEW_PROMPT": "Επιλέξτε τι θέλετε να δείτε:",
-        "SHOW_ALL_SUBSTATIONS": "Εμφάνιση Όλων των Υποσταθμών",
-        "SELECT_SUBSTATION_BTN": "Επιλογή Υποσταθμού",
-        "VIEW_SELECTION_TITLE": "Επιλογή Προβολής",
-        "SELECT_ALL_BTN": "Επιλογή Όλων",
-        "NO_MAINTENANCES": "Δεν υπάρχουν καταχωρημένες συντηρήσεις",
-        "NO_MAINT_FOR_SUBSTATION": 'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
-        "NONE": "Καμία",
-        "DATE_TIME_LABEL": "Ημερομηνία & Ώρα:",
-        "MAINT_TYPE_LABEL": "Τύπος Συντήρησης:",
-        "RESPONSIBLE_LABEL": "Υπεύθυνος Συντήρησης (υποχρεωτικό):",
-        "CREW_LABEL": "Ομάδα Συντήρησης (προαιρετικό):",
-        "OVERALL_COMMENTS_LABEL": "Γενικά Σχόλια Συντήρησης:",
-        "ELEMENTS_SECTION_LABEL": "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
-        "NO_ELEMENTS_IN_SUBSTATION": "Δεν υπάρχουν στοιχεία σε αυτόν τον υποσταθμό",
-        "DATE_REQUIRED": "Η ημερομηνία είναι υποχρεωτική!",
-        "SELECT_AT_LEAST_ONE_ELEMENT": "Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!",
-        "RESPONSIBLE_REQUIRED": "Ο υπεύθυνος συντήρησης είναι υποχρεωτικός!",
-        "GOOGLE_MAPS_LINK": "Google Maps Link",
-        "MAINT_HISTORY_LABEL": "Ιστορικό Συντήρησης",
-        "INSPECTION_HISTORY_LABEL": "Ιστορικό Επιθεώρησης",
+
+        # --- People / Staff ---
+        "NO_PEOPLE": "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
         "SURNAME_LABEL": "Επώνυμο:",
         "NAME_LABEL": "Όνομα:",
         "ROLE_LABEL": "Ρόλος:",
         "EMAIL_LABEL": "Email:",
         "EMAIL_RECIPIENT_LABEL": "Παραλήπτης email αναφοράς",
         "ACTIVE_LABEL": "Ενεργός",
-        "CHOOSE_WHAT_TO_ADD": "Επιλέξτε τι θέλετε να προσθέσετε:",
-        "ADD_MENU_TITLE": "Προσθήκη υποσταθμών και στοιχείων",
-        "ADD_SUBSTATION_BTN": "Προσθήκη Νέου Υποσταθμού",
-        "ADD_ELEMENT_BTN": "Προσθήκη Νέου Στοιχείου",
-        "SELECT_PROMPT": "Επιλογή",
-        "FILE_PATH_LABEL": "Διαδρομή αρχείου:",
-        "SELECT_FROM_LIST": "Ή επιλέξτε από τη λίστα:",
-        "EMPTY_DB": "Κενή βάση",
-        "SUBSTATION_IS_THESSALONIKI": "Υ/Σ Θεσσαλονίκης",
+        "STAFF_LOAD_FAILED": "Ανεπιτυχής φόρτωση διαχείρισης προσωπικού.",
+        "PERSON_NOT_FOUND": "Το άτομο δεν βρέθηκε!",
+        "EDIT_PERSON_TITLE": "Επεξεργασία Προσώπου",
+        "SURNAME_ROLE_REQUIRED": "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!",
+        "PERSON_IN_USE": "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.",
+
+        # --- Models / Element types ---
+        "MODEL_NOT_USED": "Το μοντέλο δεν χρησιμοποιείται σε κανένα στοιχείο.",
+        "MODEL_NAME_REQUIRED": "Το όνομα μοντέλου είναι υποχρεωτικό!",
+        "MODEL_SERVICE_CYCLE_NUM": "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!",
+        "MODEL_POWER_NUM": "Η ονομαστική ισχύς πρέπει να είναι αριθμός!",
+        "MODEL_ADDED": "Το μοντέλο προστέθηκε!",
+        "MODEL_DELETED": "Το μοντέλο διαγράφηκε επιτυχώς!",
+        "MODEL_NOT_FOUND": "Το μοντέλο δεν βρέθηκε!",
+        "MODEL_CHECK_TITLE": "Έλεγχος Μοντέλων",
+        "NEW_MODELS_HEADER": "[b]Νέα Μοντέλα (θα προστεθούν):[/b]",
+        "EXISTING_MODELS_DIFF_HEADER": "[b]Υπάρχοντα Μοντέλα με Διαφορετικά Δεδομένα:[/b]",
+
+        # --- Elements / Types / Filters ---
+        "NO_ELEMENTS": "Κανένα στοιχείο",
+        "NO_ELEMENTS_PAREN": "(Χωρίς στοιχεία)",
+        "NO_ELEMENTS_FOR_ITEM": "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.",
+        # --- Elements / Types (lists used by DBrun) ---
+        "ELEMENT_TYPES": [
+            "Διακόπτης ΥΤ",
+            "Διακόπτης ΜΤ",
+            "Μετασχηματιστής 150/20KV",
+            "Motor Drive",
+            "Μ/Σ Εγχύσεως",
+            "Μ/Σ Έντασης",
+            "Μ/Σ Τάσης",
+            "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)",
+            "Αποζεύκτης",
+            "Ασφαλειοαποζεύκτης",
+            "Γειωτής",
+            "Συστοιχία Πυκνωτών",
+            "Αντίσταση Κόμβου",
+            "Αλεξικέραυνο",
+            "Συστοιχία Συσσωρευτών",
+        ],
+        "BREAKER_CATEGORIES_ALL": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
+        "BREAKER_CATEGORIES_HV": ["SF6", "Ελαίου"],
+        "BREAKER_CATEGORIES_MV": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
+        "BREAKER_TYPES": ["Κεντρικός", "Γραμμής", "Διασυνδετικός", "Διακόπτης Πυκνωτών"],
+        "OPERATING_STATUS": ["Ενεργή", "Ανενεργή"],
+        "INSTALLATION_SPACE": ["Εσωτερικός", "Εξωτερικός"],
+        "VOLTAGE_LEVELS": ["(Κενό)", "150/20KV", "20KV", "150KV", "20KV/400V"],
+        "VIEW_ELEMENT_TITLE": "Προβολή Στοιχείου",
+        "PLEASE_SELECT_BREAKER_CATEGORY": "Παρακαλώ επιλέξτε κατηγορία διακόπτη!",
+        "PLEASE_SELECT_EML": "Παρακαλώ επιλέξτε αρχείο .emλ!",
         "INACTIVE_ELEMENTS": "Ανενεργά Στοιχεία ({count})",
         "VIEW_ACTIVE_ELEMENTS": "Εμφάνιση ενεργών στοιχείων ({count})",
         "FILTER_TYPE": "Φίλτρο Τύπου:",
@@ -175,93 +237,86 @@ STRINGS = {
         "MAINTENANCES": "Συντηρήσεις",
         "LAST": "Τελευταία",
         "SINGLE_LINE": "Μονογραμμικό",
-        "COPY": "Αντιγραφή",
-        "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
+
+        # --- UI Actions / Buttons (mirrors BUTTONS when needed) ---
+        "SHOW_DB_BUTTON": "Εμφάνιση βάσης υποσταθμών",
+        "IMPORT_BUTTON": "Εισαγωγή από αρχείο",
+        "MAINTENANCE_BUTTON": "Συντηρήσεις",
+        "INSPECTION_BUTTON": "Επιθεωρήσεις",
         "ISOLATION_BUTTON": "Αιτήσεις Απομόνωσης",
+        "SF6_BUTTON": "SF6",
         "MODELS_BUTTON": "Διαχείριση Τύπων Στοιχείων",
         "PEOPLE_BUTTON": "Διαχείριση Προσωπικού",
-        "SF6_BUTTON": "Διαχείριση SF6",
-        "FORM_NUMBER_HINT": "Αρ. Δελτίου",
-        "DATE_HINT": "YYYY-MM-DD",
-        "REGION_HINT": "Περιοχή",
-        "SUBSTATION_NEW_HINT": "Όνομα νέου υποσταθμού",
-        "ADD_ELEMENT_BEFORE_CONTINUE": "Προσθέστε τουλάχιστον ένα στοιχείο πριν τη συνέχεια.",
-        "CONFIRM_DELETE_TITLE": "Επιβεβαίωση Διαγραφής",
-        "PROMPT_SUBSTATION_NOT_FOUND_TITLE": "Ο υποσταθμός δε βρέθηκε",
-        "PROMPT_SUBSTATION_SELECT": "Επιλέξτε υποσταθμό για την εισαγωγή:",
+
+        # --- Prompts / Dialogs / Titles ---
+        "VIEW_PROMPT": "Επιλέξτε τι θέλετε να δείτε:",
+        "VIEW_SELECTION_TITLE": "Επιλογή Προβολής",
+        "SELECT_PROMPT": "Επιλογή",
+        "SHOW_ALL_SUBSTATIONS": "Εμφάνιση Όλων των Υποσταθμών",
+        "SELECT_ALL_BTN": "Επιλογή Όλων",
+        "ADD_MENU_TITLE": "Προσθήκη υποσταθμών και στοιχείων",
+        "ADD_SUBSTATION_BTN": "Προσθήκη Νέου Υποσταθμού",
+        "ADD_ELEMENT_BTN": "Προσθήκη Νέου Στοιχείου",
         "ADD_ELEMENTS_TITLE": "Προσθήκη στοιχείων",
-        "ADD_MODEL_TITLE": "Προσθήκη Νέου Μοντέλου",
-        "ADD_ELEMENT_TITLE": "Προσθήκη Στοιχείου",
         "ADD_SUBSTATION_TITLE": "Προσθήκη Υποσταθμού",
+        "ADD_ELEMENT_TITLE": "Προσθήκη Στοιχείου",
+        "ADD_MODEL_TITLE": "Προσθήκη Νέου Μοντέλου",
         "ADD_MANUAL": "Προσθήκη Manual",
-        "OPEN_LOCAL_DB_TITLE": "Άνοιγμα Τοπικής Βάσης",
-        "OPEN_FOLDER": "Άνοιγμα φακέλου",
         "ADD_ELEMENTS_PROMPT": "Προσθέστε στοιχεία για τον νέο υποσταθμό πριν τη συνέχεια:",
         "CONTINUE": "Συνέχεια",
-        "MODELS_UPDATE_BTN": "Ενημέρωση Μοντέλων",
-        "MODELS_USE_EXISTING_BTN": "Χρήση Υπαρχόντων",
+        "OPEN_LOCAL_DB_TITLE": "Άνοιγμα Τοπικής Βάσης",
+        "OPEN_FOLDER": "Άνοιγμα φακέλου",
+        "CONFIRM_DELETE_TITLE": "Επιβεβαίωση Διαγραφής",
         "DUPLICATE_OPTIONS_INCOMPLETE": "Ολοκληρώστε τις επιλογές για όλα τα διπλότυπα ή χρησιμοποιήστε \"Αντικατάσταση Όλων\" / \"Παράλειψη Όλων\".",
         "RESPONSIBLE_NOT_FOUND_TITLE": "Ο υπεύθυνος δε βρέθηκε",
-        "DATE_PREFIX": "Ημ/νία:",
-        "ENTER_SUBSTATION_NAME": "Παρακαλώ εισάγετε όνομα υποσταθμού!",
-        "SUBSTATION_EXISTS": "Ο υποσταθμός υπάρχει ήδη.",
-        "STAFF_LOAD_FAILED": "Ανεπιτυχής φόρτωση διαχείρισης προσωπικού.",
-        "PERSON_NOT_FOUND": "Το άτομο δεν βρέθηκε!",
-        "EDIT_PERSON_TITLE": "Επεξεργασία Προσώπου",
-        "SURNAME_ROLE_REQUIRED": "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!",
-        "MAINTENANCE_NOT_FOUND": "Δεν βρέθηκε η συντήρηση.",
-        "ELEMENT_NOT_FOUND": "Το στοιχείο δεν βρέθηκε.",
-        "ENTER_ELEMENT_NAME": "Παρακαλώ εισάγετε όνομα στοιχείου!",
-        "ITEM_DELETED": "Το στοιχείο διαγράφηκε!",
-        "PERSON_IN_USE": "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.",
-        "MODEL_NAME_REQUIRED": "Το όνομα μοντέλου είναι υποχρεωτικό!",
-        "MODEL_SERVICE_CYCLE_NUM": "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!",
-        "MODEL_POWER_NUM": "Η ονομαστική ισχύς πρέπει να είναι αριθμός!",
-        "MODEL_ADDED": "Το μοντέλο προστέθηκε!",
-        "MODEL_DELETED": "Το μοντέλο διαγράφηκε επιτυχώς!",
-        "MODEL_NOT_FOUND": "Το μοντέλο δεν βρέθηκε!",
-        "PERSON_NOT_FOUND": "Το άτομο δεν βρέθηκε!",
-        "NO_RECORD_ELEMENTS": "Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση.",
-        "VIEW_ELEMENT_TITLE": "Προβολή Στοιχείου",
+
+        # --- Misc / Hints ---
+        "FORM_NUMBER": "Αρ. Δελτίου:",
+        "FORM_NUMBER_HINT": "Αρ. Δελτίου",
+        "ELEMENT_NAME_LABEL": "Όνομα Στοιχείου",
+        "ELEMENT_NAME_HINT": "Όνομα Στοιχείου",
+        "SERIAL_NUMBER_LABEL": "Σειριακός Αριθμός",
+        "SERIAL_NUMBER_HINT": "Σειριακός Αριθμός",
+        "ELEMENT_MANUFACTURE_YEAR_LABEL": "Έτος κατασκευής",
+        "ELEMENT_MANUFACTURE_YEAR_HINT": "YYYY",
+        "MAINTENANCE_DATE_LABEL": "Τελευταία Συντ.",
+        "MAINTENANCE_DATE_HINT": "YYYY-MM-DD",
+        "MANUFACTURER_LABEL": "Κατασκευαστής",
+        "MANUFACTURER_HINT": "Κατασκευαστής",
+        "MODEL_LABEL": "Μοντέλο",
+        "MODEL_HINT": "Μοντέλο",
+        "MODEL_VERSION_LABEL": "Έκδοση Μοντέλου",
+        "MODEL_VERSION_HINT": "Έκδοση",
+        "INSTALLATION_SPACE_LABEL": "Χώρος Εγκατ.",
+        "OPERATING_STATUS_LABEL": "Λειτ. Κατάσταση",
+        "MAINTENANCE_CYCLE_LABEL": "Κύκλος Συντ.",
+        "MAINTENANCE_CYCLE_HINT": "Αριθμός",
+        "DATE_LABEL": "Ημερομηνία:",
+        "DATE_HINT": "YYYY-MM-DD",
+        "REGION_LABEL": "Περιοχή:",
+        "REGION_HINT": "Περιοχή",
+        "INSPECTOR_LABEL": "Ονομ. Επιθεωρητή:",
+        "MONTH_LABEL": "Μήνας:",
+        "DAY_LABEL": "Ημέρα:",
+        "YEAR_LABEL": "Έτος:",
+        "OBSERVATIONS_HINT": "Παρατηρήσεις",
+
+        # --- Email / Reports ---
         "EMAIL_RECIPIENTS_MISSING": "Δεν υπάρχουν παραλήπτες email. Προσθέστε παραλήπτες από τη Διαχείριση Προσωπικού.",
+
+        # --- Errors & Validation ---
+        "INVALID_DATE_FORMAT": "Μη έγκυρη μορφή ημερομηνίας! Χρησιμοποιήστε: YYYY-MM-DD HH:MM",
+        "END_BEFORE_START": "Η ημερομηνία λήξης πρέπει να είναι μετά την έναρξη!",
+        "ERROR_DURING_CHECK_PREFIX": "Σφάλμα κατά τον έλεγχο: ",
+        "RECORD_NOT_FOUND": "Η εγγραφή δεν βρέθηκε.",
+
+        # --- Templates / Import helpers ---
         "TEMPLATE_SUBSTATIONS_TITLE": "Template Υποσταθμών",
         "TEMPLATE_ELEMENTS_TITLE": "Template Στοιχείων",
-        "SUBSTATION_NOT_FOUND": "Δεν βρέθηκε υποσταθμός.",
-        "MISSING_SUBSTATIONS_WILL_CREATE": "Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:",
+
+        # --- Other / Deprecated-friendly ---
+        "NO_ELEMENTS_PAREN": "(Χωρίς στοιχεία)",
+        "ITEM_DELETED": "Το στοιχείο διαγράφηκε!",
         "NO_ELEMENTS_FOR_ITEM": "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.",
-        "MAINTENANCE_DELETED": "Η συντήρηση διαγράφηκε!",
-        "NEW_SUBSTATIONS_TITLE": "Νέοι Υποσταθμοί Εντοπίστηκαν",
-        "MODEL_CHECK_TITLE": "Έλεγχος Μοντέλων",
-        "DUPLICATE_ELEMENTS_TITLE": "Διπλότυπα Στοιχεία Εντοπίστηκαν",
-        "UNSUPPORTED_FILE_FORMAT": "Μη υποστηριζόμενη μορφή αρχείου",
-        "FILE_HAS_NO_DATA": "Το αρχείο δεν περιέχει δεδομένα.",
-        "RECORD_NOT_FOUND": "Η εγγραφή δεν βρέθηκε.",
-        "ERROR_DURING_CHECK_PREFIX": "Σφάλμα κατά τον έλεγχο: ",
-        "SELECT_MONOGRAM_PDF_TITLE": "Επιλογή Μονογραμμικού PDF",
-        "CHANGELOG_FILE_LABEL": "Διαδρομή αρχείου change log (.jsonl):",
-        "NEW_MODELS_HEADER": "[b]Νέα Μοντέλα (θα προστεθούν):[/b]",
-        "EXISTING_MODELS_DIFF_HEADER": "[b]Υπάρχοντα Μοντέλα με Διαφορετικά Δεδομένα:[/b]",
-        "APP_INFO_BODY": (
-            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\n"
-            "Έκδοση: {version}\n\n"
-            "Λειτουργίες εφαρμογής:\n"
-            "• Προβολή και διαχείριση βάσης υποσταθμών\n"
-            "• Προσθήκη/επεξεργασία/διαγραφή υποσταθμών και στοιχείων\n"
-            "• Κατηγορίες διακοπτών (SF6/Ελαίου/Πτωχού Ελαίου)\n"
-            "• Διαχείριση τύπων στοιχείων (μοντέλα/κατασκευαστές/κύκλοι)\n"
-            "• Καταχώρηση συντηρήσεων\n"
-            "• Εισαγωγή συντήρησης από e-mail (.eml)\n"
-            "• Ιστορικό συντηρήσεων (όλων/ανά υποσταθμό)\n"
-            "• Μετρήσεις διακοπτών (μόνωση/διέλευση/χειρισμοί)\n"
-            "• Ποιότητα αερίου SF6 & διαρροές (kg)\n"
-            "• Διαχείριση SF6 (αναφορά διαρροών ανά έτος)\n"
-            "• Εξαγωγή Excel αναφορών SF6 (σύνοψη & ανά υποσταθμό)\n"
-            "• Εκτύπωση PDF αναφορών συντήρησης\n"
-            "• Επιθεωρήσεις (καταχώρηση/προβολή/ιστορικό)\n"
-            "• Αιτήσεις απομόνωσης\n"
-            "• Εισαγωγή υποσταθμών/στοιχείων από CSV/Excel\n"
-            "• Αναφορές PDF & Excel\n\n"
-            "Φάκελος εφαρμογής: {app_dir}"
-        ),
     },
 }

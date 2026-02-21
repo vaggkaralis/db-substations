@@ -9,6 +9,12 @@ import shutil
 import sqlite3
 from datetime import datetime
 
+from strings import STRINGS as S
+
+# derive canonical breaker element names from centralized strings when available
+ELEM_BREAKER_YT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΥΤ"), "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΜΤ"), "Διακόπτης ΜΤ")
+
 try:
     from settings import DB_PATH
 except Exception:
@@ -16,7 +22,7 @@ except Exception:
 
 def backup_db(path):
     if not os.path.exists(path):
-        print(f"DB not found: {path}")
+        print(S["MESSAGES"].get("DB_NOT_FOUND", "DB not found: {path}").format(path=path))
         return None
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
     bak = f"{path}.breakercat_migration.{ts}.bak"
@@ -63,7 +69,7 @@ def normalize_breaker_categories(conn):
                 canon = 'Πτωχού Ελαίου'
 
         if canon and canon != val:
-            print(f"Updating element_models: '{val}' -> '{canon}' (element_category={elem_cat})")
+            print(S["MESSAGES"].get("UPDATING_ELEMENT_MODELS", "Updating element_models: '{old}' -> '{new}' (element_category={elem_cat})").format(old=val, new=canon, elem_cat=elem_cat))
             cursor.execute(
                 "UPDATE element_models SET breaker_category=? WHERE breaker_category=? AND (element_category=? OR ? IS NULL)",
                 (canon, val, elem_cat, elem_cat),
@@ -99,7 +105,7 @@ def normalize_breaker_categories(conn):
                 canon = 'Πτωχού Ελαίου'
 
         if canon and canon != val:
-            print(f"Updating elements: '{val}' -> '{canon}' (element_type={elem_type})")
+            print(S["MESSAGES"].get("UPDATING_ELEMENTS", "Updating elements: '{old}' -> '{new}' (element_type={elem_type})").format(old=val, new=canon, elem_type=elem_type))
             cursor.execute(
                 "UPDATE elements SET breaker_category=? WHERE breaker_category=? AND (element_type=? OR ? IS NULL)",
                 (canon, val, elem_type, elem_type),
@@ -108,20 +114,20 @@ def normalize_breaker_categories(conn):
     conn.commit()
 
 def main():
-    print(f"DB path: {DB_PATH}")
+    print(S["MESSAGES"].get("DB_PATH_LABEL", "DB path: {path}").format(path=DB_PATH))
     bak = backup_db(DB_PATH)
     if bak:
-        print(f"Backup created: {bak}")
+        print(S["MESSAGES"].get("BACKUP_CREATED", "Backup created: {bak}").format(bak=bak))
     else:
-        print("No backup created; aborting.")
+        print(S["MESSAGES"].get("NO_BACKUP_ABORT", "No backup created; aborting."))
         return
 
     conn = sqlite3.connect(DB_PATH)
     try:
         normalize_breaker_categories(conn)
-        print("Normalization complete.")
+        print(S["MESSAGES"].get("NORMALIZATION_COMPLETE", "Normalization complete."))
     except Exception as e:
-        print(f"Migration failed: {e}")
+        print(S["MESSAGES"].get("MIGRATION_FAILED", "Migration failed: {err}").format(err=e))
     finally:
         conn.close()
 

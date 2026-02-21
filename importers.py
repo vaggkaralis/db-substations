@@ -7,6 +7,11 @@ try:
 except ImportError:
     pd = None
 
+try:
+    from strings import STRINGS as S
+except Exception:
+    S = {"MESSAGES": {}}
+
 # Template version for validation
 TEMPLATE_VERSION = "v2.0"
 
@@ -19,14 +24,13 @@ REQUIRED_COLUMNS = [
     "Operating Status",
 ]
 
-# Valid values for specific columns
-VALID_OPERATING_STATUS = ["Ενεργή", "Ανενεργή", "Active", "Inactive"]
-VALID_BREAKER_ROLES = [
-    "Κεντρικός",
-    "Γραμμής",
-    "Διασυνδετικός",
-    "Διακόπτης Πυκνωτών",
-    "",
+# Valid values for specific columns (prefer centralized lists in strings.py)
+VALID_OPERATING_STATUS = list(S.get("MESSAGES", {}).get("OPERATING_STATUS", ["Ενεργή", "Ανενεργή"])) + ["Active", "Inactive"]
+VALID_BREAKER_ROLES = list(S.get("MESSAGES", {}).get("BREAKER_TYPES", ["Κεντρικός", "Γραμμής", "Διασυνδετικός", "Διακόπτης Πυκνωτών"])) + [""]
+
+# Precompute canonical breaker element types from strings to avoid duplicating literals
+BREAKER_ELEMENT_TYPES = [
+    t for t in S.get("MESSAGES", {}).get("ELEMENT_TYPES", []) if "Διακόπτης" in t
 ]
 
 
@@ -137,7 +141,7 @@ def _validate_required_fields(df, row_num: int, row) -> tuple[bool, list[str]]:
 
     # Validate breaker role for circuit breakers
     element_type = str(row.get("Element Type", "")).strip()
-    if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+    if element_type in BREAKER_ELEMENT_TYPES:
         breaker_role = row.get("Breaker Role", "")
         if pd.notna(breaker_role):
             role_str = str(breaker_role).strip()

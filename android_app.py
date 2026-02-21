@@ -94,27 +94,31 @@ Logger.info("APP: Threading import successful")
 
 
 class SubstationAndroidApp(App):
-    # Element types - matches desktop app
-    ELEMENT_TYPES = [
-        "Διακόπτης ΥΤ",
-        "Διακόπτης ΜΤ",
-        "Μετασχηματιστής 150/20KV",
-        "Motor Drive",
-        "Μ/Σ Εγχύσεως",
-        "Μ/Σ Έντασης",
-        "Μ/Σ Τάσης",
-        "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)",
-        "Αποζεύκτης",
-        "Ασφαλειοαποζεύκτης",
-        "Γειωτής",
-        "Συστοιχία Πυκνωτών",
-        "Αντίσταση Κόμβου",
-        "Αλεξικέραυνο",
-        "Συστοιχία Συσσωρευτών",
-    ]
-    VOLTAGE_LEVELS = ["20 KV", "150 KV", "20/150 KV"]
-    OPERATING_STATUS = ["Ενεργή", "Ανενεργή"]
-    INSTALLATION_SPACE = ["Εσωτερικός", "Εξωτερικός"]
+    # Use centralized lists from strings module; keep safe fallbacks
+    ELEMENT_TYPES = S.get("MESSAGES", {}).get(
+        "ELEMENT_TYPES",
+        [
+            "Διακόπτης ΥΤ",
+            "Διακόπτης ΜΤ",
+            "Μετασχηματιστής 150/20KV",
+            "Motor Drive",
+            "Μ/Σ Εγχύσεως",
+            "Μ/Σ Έντασης",
+            "Μ/Σ Τάσης",
+            "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)",
+            "Αποζεύκτης",
+            "Ασφαλειοαποζεύκτης",
+            "Γειωτής",
+            "Συστοιχία Πυκνωτών",
+            "Αντίσταση Κόμβου",
+            "Αλεξικέραυνο",
+            "Συστοιχία Συσσωρευτών",
+        ],
+    )
+
+    VOLTAGE_LEVELS = S.get("MESSAGES", {}).get("VOLTAGE_LEVELS", ["20 KV", "150 KV", "20/150 KV"])
+    OPERATING_STATUS = S.get("MESSAGES", {}).get("OPERATING_STATUS", ["Ενεργή", "Ανενεργή"])
+    INSTALLATION_SPACE = S.get("MESSAGES", {}).get("INSTALLATION_SPACE", ["Εσωτερικός", "Εξωτερικός"])
     ELEMENT_FIELD_DEFS = [
         {
             "key": "name",

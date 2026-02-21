@@ -4,10 +4,15 @@ import os
 import datetime
 import logging
 
+from strings import STRINGS as S
 from settings import DB_PATH
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+# derive canonical breaker element names from centralized strings when available
+ELEM_BREAKER_YT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΥΤ"), "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΜΤ"), "Διακόπτης ΜΤ")
 
 
 def backup_db(path):
@@ -15,7 +20,7 @@ def backup_db(path):
         raise FileNotFoundError(path)
     bak = f"{path}.backup.{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.bak"
     shutil.copy2(path, bak)
-    logging.info('backup created %s', bak)
+    logging.info(S["MESSAGES"].get("BACKUP_CREATED", "backup created %s"), bak)
     return bak
 
 
@@ -29,15 +34,15 @@ def normalize():
     cur.execute(
         "UPDATE elements SET breaker_category=(SELECT breaker_category FROM element_models WHERE element_models.id=elements.element_model_id) WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_model_id IS NOT NULL"
     )
-    # If still empty, set a sensible default per element_type (SF6 for YT, Ελαίου for others is risky)
+    # If still empty, set a sensible default per element_type (SF6 for YT, Ελαίου for MT)
     cur.execute(
-        "UPDATE elements SET breaker_category='SF6' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='Διακόπτης ΥΤ'"
+        f"UPDATE elements SET breaker_category='SF6' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='{ELEM_BREAKER_YT}'"
     )
     cur.execute(
-        "UPDATE elements SET breaker_category='Ελαίου' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='Διακόπτης ΜΤ'"
+        f"UPDATE elements SET breaker_category='Ελαίου' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='{ELEM_BREAKER_MT}'"
     )
     conn.commit()
-    logging.info('rows updated: %s', conn.total_changes)
+    logging.info(S["MESSAGES"].get("ROWS_UPDATED", "rows updated: %s"), conn.total_changes)
     conn.close()
 
 

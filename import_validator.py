@@ -8,6 +8,12 @@ try:
 except ImportError:
     pd = None
 
+# Centralized UI/literal strings and canonical lists
+try:
+    from strings import S
+except Exception:
+    S = {"MESSAGES": {}}
+
 
 # Expected column mappings (internal name -> display names)
 COLUMN_MAPPINGS = {
@@ -517,9 +523,15 @@ def analyze_import_data(df, column_mapping: Dict, conn) -> Dict:
         breaker_cat = get_value(row, "Τύπος Διακόπτη")
         if breaker_cat and elem_type and "Διακόπτης" in str(elem_type):
             canonical, confidence, alternatives = validate_breaker_category(breaker_cat)
+            # Use centralized breaker category lists when available to avoid
+            # duplicating the same lists across modules.
             allowed_by_type = {
-                "Διακόπτης ΥΤ": ["SF6", "Κενού", "Ελαίου"],
-                "Διακόπτης ΜΤ": ["SF6", "Κενού", "Πτωχού Ελαίου", "Ελαίου"],
+                "Διακόπτης ΥΤ": S.get("MESSAGES", {}).get(
+                    "BREAKER_CATEGORIES_HV", ["SF6", "Ελαίου"]
+                ),
+                "Διακόπτης ΜΤ": S.get("MESSAGES", {}).get(
+                    "BREAKER_CATEGORIES_MV", ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"]
+                ),
             }
             allowed_categories = allowed_by_type.get(
                 str(elem_type), list(BREAKER_CATEGORY_MAPPINGS.keys())

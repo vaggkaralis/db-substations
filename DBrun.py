@@ -208,40 +208,24 @@ from ui.shared import IconWidget, ShiftSelectableTextInput, IconButton, IconOnly
 
 
 class SubstationApp(App):
-    # Define element types as a class variable
-    ELEMENT_TYPES = [
-        "Διακόπτης ΥΤ",
-        "Διακόπτης ΜΤ",
-        "Μετασχηματιστής 150/20KV",
-        "Motor Drive",
-        "Μ/Σ Εγχύσεως",
-        "Μ/Σ Έντασης",
-        "Μ/Σ Τάσης",
-        "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)",
-        "Αποζεύκτης",
-        "Ασφαλειοαποζεύκτης",
-        "Γειωτής",
-        "Συστοιχία Πυκνωτών",
-        "Αντίσταση Κόμβου",
-        "Αλεξικέραυνο",
-        "Συστοιχία Συσσωρευτών",
-    ]
-    BREAKER_CATEGORIES_ALL = [
-        "SF6",
-        "Πτωχού Ελαίου",
-        "Ελαίου",
-        "Κενού",
-    ]  # All breaker categories
+    # Define element types as a class variable (loaded from `strings.py`)
+    # Keep a small, safe fallback to an empty list if the key is missing.
+    ELEMENT_TYPES = S["MESSAGES"].get("ELEMENT_TYPES", [])
+    BREAKER_CATEGORIES_ALL = S["MESSAGES"].get("BREAKER_CATEGORIES_ALL", ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"])  # All breaker categories
+    # Derive canonical breaker element names from centralized ELEMENT_TYPES
+    ELEM_BREAKER_YT = next((t for t in ELEMENT_TYPES if t == "Διακόπτης ΥΤ"), "Διακόπτης ΥΤ")
+    ELEM_BREAKER_MT = next((t for t in ELEMENT_TYPES if t == "Διακόπτης ΜΤ"), "Διακόπτης ΜΤ")
+    BREAKER_ELEMENT_TYPES = [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
 
     def _format_elem_type(self, elem_type, is_main_switch):
         """Return element type with breaker subtype in parentheses for breakers.
 
         Ensures circuit breakers always show a subtype (Κεντρικός/Γραμμής/Διασυνδετικός/Διακόπτης Πυκνωτών).
         """
-        if elem_type not in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+        if elem_type not in self.BREAKER_ELEMENT_TYPES:
             return elem_type
         try:
-            if elem_type == "Διακόπτης ΥΤ":
+            if elem_type == self.ELEM_BREAKER_YT:
                 label = "Κεντρικός"
             elif is_main_switch == 1:
                 label = "Κεντρικός"
@@ -254,22 +238,12 @@ class SubstationApp(App):
         except Exception:
             label = "Γραμμής"
         return f"{elem_type} ({label})"
-    BREAKER_CATEGORIES_HV = ["SF6", "Ελαίου"]  # HV breaker categories
-    BREAKER_CATEGORIES_MV = [
-        "SF6",
-        "Πτωχού Ελαίου",
-        "Ελαίου",
-        "Κενού",
-    ]  # MV breaker categories
-    BREAKER_TYPES = [
-        "Κεντρικός",
-        "Γραμμής",
-        "Διασυνδετικός",
-        "Διακόπτης Πυκνωτών",
-    ]  # Main, Line, Interconnection, or Capacitor breaker
-    OPERATING_STATUS = ["Ενεργή", "Ανενεργή"]
-    INSTALLATION_SPACE = ["Εσωτερικός", "Εξωτερικός"]
-    VOLTAGE_LEVELS = ["(Κενό)", "150/20KV", "20KV", "150KV", "20KV/400V"]
+    BREAKER_CATEGORIES_HV = S["MESSAGES"].get("BREAKER_CATEGORIES_HV", ["SF6", "Ελαίου"])  # HV breaker categories
+    BREAKER_CATEGORIES_MV = S["MESSAGES"].get("BREAKER_CATEGORIES_MV", ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"])  # MV breaker categories
+    BREAKER_TYPES = S["MESSAGES"].get("BREAKER_TYPES", ["Κεντρικός", "Γραμμής", "Διασυνδετικός", "Διακόπτης Πυκνωτών"])  # Main, Line, Interconnection, or Capacitor breaker
+    OPERATING_STATUS = S["MESSAGES"].get("OPERATING_STATUS", ["Ενεργή", "Ανενεργή"])
+    INSTALLATION_SPACE = S["MESSAGES"].get("INSTALLATION_SPACE", ["Εσωτερικός", "Εξωτερικός"])
+    VOLTAGE_LEVELS = S["MESSAGES"].get("VOLTAGE_LEVELS", ["(Κενό)", "150/20KV", "20KV", "150KV", "20KV/400V"])
     THEME_FALLBACK = {
         "primary": (0.05, 0.36, 0.64, 1),
         "primary_dark": (0.03, 0.28, 0.5, 1),
@@ -284,65 +258,65 @@ class SubstationApp(App):
     ELEMENT_FIELD_DEFS = [
         {
             "key": "name",
-            "label": "Όνομα Στοιχείου",
+            "label": S["MESSAGES"].get("ELEMENT_NAME_LABEL", "Όνομα Στοιχείου"),
             "type": "text",
-            "hint": "Όνομα Στοιχείου",
+            "hint": S["MESSAGES"].get("ELEMENT_NAME_HINT", "Όνομα Στοιχείου"),
         },
         {
             "key": "serial_number",
-            "label": "Σειριακός Αριθμός",
+            "label": S["MESSAGES"].get("SERIAL_NUMBER_LABEL", "Σειριακός Αριθμός"),
             "type": "text",
-            "hint": "Σειριακός Αριθμός",
+            "hint": S["MESSAGES"].get("SERIAL_NUMBER_HINT", "Σειριακός Αριθμός"),
         },
         {
             "key": "manufacture_year",
-            "label": "Έτος κατασκευής",
+            "label": S["MESSAGES"].get("ELEMENT_MANUFACTURE_YEAR_LABEL", "Έτος κατασκευής"),
             "type": "text",
-            "hint": "YYYY",
+            "hint": S["MESSAGES"].get("ELEMENT_MANUFACTURE_YEAR_HINT", "YYYY"),
         },
         {
             "key": "maintenance_date",
-            "label": "Τελευταία Συντ.",
+            "label": S["MESSAGES"].get("MAINTENANCE_DATE_LABEL", "Τελευταία Συντ."),
             "type": "text",
-            "hint": "YYYY-MM-DD",
+            "hint": S["MESSAGES"].get("MAINTENANCE_DATE_HINT", "YYYY-MM-DD"),
         },
         {
             "key": "manufacturer",
-            "label": "Κατασκευαστής",
+            "label": S["MESSAGES"].get("MANUFACTURER_LABEL", "Κατασκευαστής"),
             "type": "text",
-            "hint": "Κατασκευαστής",
+            "hint": S["MESSAGES"].get("MANUFACTURER_HINT", "Κατασκευαστής"),
         },
-        {"key": "model", "label": "Μοντέλο", "type": "text", "hint": "Μοντέλο"},
+        {"key": "model", "label": S["MESSAGES"].get("MODEL_LABEL", "Μοντέλο"), "type": "text", "hint": S["MESSAGES"].get("MODEL_HINT", "Μοντέλο")},
         {
             "key": "model_version",
-            "label": "Έκδοση Μοντέλου",
+            "label": S["MESSAGES"].get("MODEL_VERSION_LABEL", "Έκδοση Μοντέλου"),
             "type": "text",
-            "hint": "Έκδοση",
+            "hint": S["MESSAGES"].get("MODEL_VERSION_HINT", "Έκδοση"),
         },
         {
             "key": "installation_space",
-            "label": "Χώρος Εγκατ.",
+            "label": S["MESSAGES"].get("INSTALLATION_SPACE_LABEL", "Χώρος Εγκατ."),
             "type": "spinner",
             "values": INSTALLATION_SPACE,
         },
         {
             "key": "operating_status",
-            "label": "Λειτ. Κατάσταση",
+            "label": S["MESSAGES"].get("OPERATING_STATUS_LABEL", "Λειτ. Κατάσταση"),
             "type": "spinner",
             "values": OPERATING_STATUS,
         },
         {
             "key": "maintenance_cycle",
-            "label": "Κύκλος Συντ.",
+            "label": S["MESSAGES"].get("MAINTENANCE_CYCLE_LABEL", "Κύκλος Συντ."),
             "type": "text",
-            "hint": "Αριθμός",
+            "hint": S["MESSAGES"].get("MAINTENANCE_CYCLE_HINT", "Αριθμός"),
         },
     ]
 
     def _get_breaker_categories_for_element_type(self, element_type: str):
-        if element_type == "Διακόπτης ΜΤ":
+        if element_type == self.ELEM_BREAKER_MT:
             return list(self.BREAKER_CATEGORIES_MV)
-        if element_type == "Διακόπτης ΥΤ":
+        if element_type == self.ELEM_BREAKER_YT:
             return list(self.BREAKER_CATEGORIES_HV)
         return list(self.BREAKER_CATEGORIES_ALL)
 

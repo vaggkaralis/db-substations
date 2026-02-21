@@ -23,7 +23,7 @@ def show_models_management(app_instance):
     )
     models = c.fetchall()
 
-    popup = Popup(title="Διαχείριση Τύπων Στοιχείων", size_hint=(0.95, 0.9))
+    popup = Popup(title=S["TITLES"].get("MODELS_MANAGEMENT", "Διαχείριση Τύπων Στοιχείων"), size_hint=(0.95, 0.9))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     # Add model button
@@ -40,11 +40,11 @@ def show_models_management(app_instance):
     for cat in available_categories:
         if cat not in ordered_categories:
             ordered_categories.append(cat)
-    filter_values = ["(Όλα)"] + ordered_categories
+    filter_values = [S["MESSAGES"].get("ALL_OPTION", "(Όλα)")] + ordered_categories
 
     filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
-    filter_bar.add_widget(Label(text="Φίλτρο Τύπου:", size_hint_x=0.25))
-    filter_spinner = Spinner(text="(Όλα)", values=filter_values, size_hint_x=0.75)
+    filter_bar.add_widget(Label(text=S["MESSAGES"].get("FILTER_TYPE_LABEL", "Φίλτρο Τύπου:"), size_hint_x=0.25))
+    filter_spinner = Spinner(text=S["MESSAGES"].get("ALL_OPTION", "(Όλα)"), values=filter_values, size_hint_x=0.75)
     filter_bar.add_widget(filter_spinner)
     main_layout.add_widget(filter_bar)
 
@@ -56,7 +56,7 @@ def show_models_management(app_instance):
     def render_models(selected_category):
         grid.clear_widgets()
         filtered_models = models
-        if selected_category and selected_category != "(Όλα)":
+        if selected_category and selected_category != S["MESSAGES"].get("ALL_OPTION", "(Όλα)"):
             filtered_models = [m for m in models if m[1] == selected_category]
 
         if filtered_models:
@@ -120,7 +120,7 @@ def show_models_management(app_instance):
                         # Initialize ordered groups
                         for breaker_type in breaker_order:
                             breaker_groups[breaker_type] = []
-                        breaker_groups["Άλλο"] = []  # For uncategorized
+                        breaker_groups[S["MESSAGES"].get("OTHER_LABEL", "Άλλο")] = []  # For uncategorized
 
                         # Sort models into breaker groups
                         for model in category_models:
@@ -162,7 +162,7 @@ def show_models_management(app_instance):
                                         except Exception:
                                             continue
                             if not assigned:
-                                breaker_groups["Άλλο"].append(model)
+                                breaker_groups[S["MESSAGES"].get("OTHER_LABEL", "Άλλο")].append(model)
 
                         # Display each breaker type group
                         for breaker_type, breaker_models in breaker_groups.items():
@@ -229,7 +229,7 @@ def show_models_management(app_instance):
                                     btn_box.add_widget(list_btn)
 
                                     manual_label = (
-                                        "Manual"
+                                        S["MESSAGES"].get("MANUAL_LABEL", "Manual")
                                         if manual_pdf and os.path.exists(manual_pdf)
                                         else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                                     )
@@ -255,7 +255,7 @@ def show_models_management(app_instance):
                                     )
                                     btn_box.add_widget(edit_btn)
 
-                                    delete_btn = Button(text="Διαγρ.", size_hint_x=0.25)
+                                    delete_btn = Button(text=S["BUTTONS"].get("DELETE_SHORT", "Διαγρ."), size_hint_x=0.25)
                                     delete_btn.bind(
                                         on_press=lambda x, mid=model_id: delete_model(
                                             app_instance, mid, popup
@@ -364,7 +364,7 @@ def show_models_management(app_instance):
                             btn_box.add_widget(list_btn)
 
                             manual_label = (
-                                "Manual"
+                                S["MESSAGES"].get("MANUAL_LABEL", "Manual")
                                 if manual_pdf and os.path.exists(manual_pdf)
                                 else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                             )
@@ -384,7 +384,7 @@ def show_models_management(app_instance):
                             )
                             btn_box.add_widget(edit_btn)
 
-                            delete_btn = Button(text="Διαγρ.", size_hint_x=0.25)
+                            delete_btn = Button(text=S["BUTTONS"].get("DELETE_SHORT", "Διαγρ."), size_hint_x=0.25)
                             delete_btn.bind(
                                 on_press=lambda x, mid=model_id: delete_model(
                                     app_instance, mid, popup
