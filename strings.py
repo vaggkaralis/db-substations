@@ -247,6 +247,11 @@ STRINGS = {
         "SF6_BUTTON": "SF6",
         "MODELS_BUTTON": "Διαχείριση Τύπων Στοιχείων",
         "PEOPLE_BUTTON": "Διαχείριση Προσωπικού",
+        "TOOLTIP_EDIT": "Επεξεργασία",
+        "TOOLTIP_DELETE": "Διαγραφή",
+        "TOOLTIP_VIEW": "Προβολή",
+        "TOOLTIP_MAINTENANCE": "Συντήρηση",
+        "TOOLTIP_INSPECTION": "Επιθεώρηση",
 
         # --- Prompts / Dialogs / Titles ---
         "VIEW_PROMPT": "Επιλέξτε τι θέλετε να δείτε:",
@@ -313,10 +318,32 @@ STRINGS = {
         # --- Templates / Import helpers ---
         "TEMPLATE_SUBSTATIONS_TITLE": "Template Υποσταθμών",
         "TEMPLATE_ELEMENTS_TITLE": "Template Στοιχείων",
+        "OPENPYXL_MISSING": "openpyxl δεν είναι εγκατεστημένο!",
+        "TEMPLATE_SUBSTATIONS_HEADERS": ["Name", "Location", "Adoption Date"],
+        "TEMPLATE_ELEMENTS_HEADERS": [
+            "Substation Name",
+            "Element Type",
+            "Name",
+            "Serial Number",
+            "Maintenance Date",
+            "Τύπος Διακόπτη",
+            "Breaker Role",
+            "Operating Status",
+            "Gate",
+            "Model Name",
+            "Model Manufacturer",
+            "Model Installation Space",
+        ],
 
         # --- Other / Deprecated-friendly ---
         "NO_ELEMENTS_PAREN": "(Χωρίς στοιχεία)",
         "ITEM_DELETED": "Το στοιχείο διαγράφηκε!",
         "NO_ELEMENTS_FOR_ITEM": "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.",
+        "UNREGISTERED_PLACEHOLDER": "(Μη καταχωρημένο)",
+        "EMPTY_PLACEHOLDER": "(Κενό)",
+        "MODEL_SELECT_PROMPT": "Επιλέξτε μοντέλο",
+        "BREAKER_TYPE_LABEL": "Τύπος Διακόπτη:",
+        "BREAKER_CATEGORY_LABEL": "Κατηγορία Διακόπτη:",
+        "RATED_POWER_HINT": "π.χ. 50",
     },
 }

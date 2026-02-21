@@ -7,6 +7,7 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.image import Image
+from strings import STRINGS as S
 
 # FloatLayout is optional in test environments where Kivy isn't installed.
 try:
@@ -405,11 +406,11 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         self.bind(icon_color=self._update_icon_color)
         # tooltip support: default Greek labels for common icons
         default_tooltips = {
-            "edit": "Επεξεργασία",
-            "delete": "Διαγραφή",
-            "eye": "Προβολή",
-            "maintenance": "Συντήρηση",
-            "inspection": "Επιθεώρηση",
+            "edit": S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"),
+            "delete": S["MESSAGES"].get("TOOLTIP_DELETE", "Διαγραφή"),
+            "eye": S["MESSAGES"].get("TOOLTIP_VIEW", "Προβολή"),
+            "maintenance": S["MESSAGES"].get("TOOLTIP_MAINTENANCE", "Συντήρηση"),
+            "inspection": S["MESSAGES"].get("TOOLTIP_INSPECTION", "Επιθεώρηση"),
         }
         if tooltip_text:
             self.tooltip = tooltip_text

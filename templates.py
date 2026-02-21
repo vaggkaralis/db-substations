@@ -5,6 +5,8 @@ try:
 except ImportError:
     openpyxl = None
 
+from strings import STRINGS as S
+
 
 TEMPLATE_SUBSTATIONS = "substations_import_template.xlsx"
 TEMPLATE_ELEMENTS = "elements_import_template.xlsx"
@@ -13,7 +15,7 @@ TEMPLATE_ELEMENTS = "elements_import_template.xlsx"
 def create_substations_template(base_dir: str) -> tuple[bool, str]:
     """Create substations import template. Returns (success, message/path)."""
     if openpyxl is None:
-        return False, "openpyxl δεν είναι εγκατεστημένο!"
+        return False, S["MESSAGES"].get("OPENPYXL_MISSING", "openpyxl δεν είναι εγκατεστημένο!")
 
     try:
         from openpyxl import Workbook
@@ -23,7 +25,7 @@ def create_substations_template(base_dir: str) -> tuple[bool, str]:
         ws = wb.active
         ws.title = "Substations"
 
-        headers = ["Name", "Location", "Adoption Date"]
+        headers = S["MESSAGES"].get("TEMPLATE_SUBSTATIONS_HEADERS", ["Name", "Location", "Adoption Date"])
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = Font(bold=True, color="FFFFFF")
@@ -54,7 +56,7 @@ def create_substations_template(base_dir: str) -> tuple[bool, str]:
 def create_elements_template(base_dir: str) -> tuple[bool, str]:
     """Create elements import template. Returns (success, message/path)."""
     if openpyxl is None:
-        return False, "openpyxl δεν είναι εγκατεστημένο!"
+        return False, S["MESSAGES"].get("OPENPYXL_MISSING", "openpyxl δεν είναι εγκατεστημένο!")
 
     try:
         from openpyxl import Workbook
@@ -70,7 +72,7 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
         ws.row_dimensions[1].height = 15
 
         # The template requires model information; the element `manufacturer` is derived from the model.
-        headers = [
+        headers = S["MESSAGES"].get("TEMPLATE_ELEMENTS_HEADERS", [
             "Substation Name",
             "Element Type",
             "Name",
@@ -83,7 +85,7 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
             "Model Name",
             "Model Manufacturer",
             "Model Installation Space",
-        ]
+        ])
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=2, column=col, value=header)
             cell.font = Font(bold=True, color="FFFFFF")

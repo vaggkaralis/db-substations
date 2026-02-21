@@ -31,6 +31,7 @@ import unicodedata
 import json
 from datetime import datetime
 import logging
+from strings import STRINGS as S
 
 
 class MaintenanceReportGenerator:
@@ -309,12 +310,14 @@ class MaintenanceReportGenerator:
             fontName=self.greek_font,
         )
 
+        title_text = S["MESSAGES"].get("MAINTENANCE_REPORT_TITLE", "ΔΕΛΤΙΟ ΣΥΝΤΗΡΗΣΗΣ ΔΙΑΚΟΠΤΗ {breaker}")
+        subtitle_text = S["MESSAGES"].get("MAINTENANCE_REPORT_SUBTITLE", "Υποσταθμός: {substation}")
         title = Paragraph(
-            self.normalize_text(f"ΔΕΛΤΙΟ ΣΥΝΤΗΡΗΣΗΣ ΔΙΑΚΟΠΤΗ {breaker_type}"),
+            self.normalize_text(title_text.format(breaker=breaker_type)),
             title_style,
         )
         subtitle = Paragraph(
-            self.normalize_text(f"Υποσταθμός: {substation_name}"), subtitle_style
+            self.normalize_text(subtitle_text.format(substation=substation_name)), subtitle_style
         )
 
         logo = self._get_logo_flowable(max_width=28 * mm, max_height=20 * mm)
@@ -394,10 +397,10 @@ class MaintenanceReportGenerator:
         display_model = model_name if model_name else model
 
         data = [
-            ["ΣΤΟΙΧΕΙΑ ΔΙΑΚΟΠΤΗ", ""],
-            ["Όνομα:", elem_name or "-"],
-            ["Αριθμός Σειράς (S/N):", serial_num or "-"],
-            ["Κατασκευαστής:", display_manufacturer or "-"],
+            [S["MESSAGES"].get("REPORT_SECTION_BREAKER_INFO", "ΣΤΟΙΧΕΙΑ ΔΙΑΚΟΠΤΗ"), ""],
+            [S["MESSAGES"].get("ELEMENT_NAME_LABEL", "Όνομα:"), elem_name or "-"],
+            [S["MESSAGES"].get("SERIAL_NUMBER_LABEL", "Αριθμός Σειράς (S/N):"), serial_num or "-"],
+            [S["MESSAGES"].get("MANUFACTURER_LABEL", "Κατασκευαστής:"), display_manufacturer or "-"],
             ["Μοντέλο:", display_model or "-"],
             ["Τάση (kV):", voltage_level or "-"],
             ["Πύλη:", gate or "-"],

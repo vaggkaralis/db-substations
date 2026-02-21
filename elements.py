@@ -97,7 +97,8 @@ def show_add_element_popup(app, instance):
     # Voltage level selection
     layout.add_widget(Label(text=S["MESSAGES"].get("VOLTAGE_LEVEL_LABEL", "Επίπεδο Τάσης:"), size_hint_y=None, height=30))
     _derived = app._derive_voltage_level(element_spinner.text)
-    initial_voltage = _derived or "(Κενό)"
+    empty = S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+    initial_voltage = _derived or empty
     voltage_level_spinner = Spinner(
         text=initial_voltage,
         values=[_derived] if _derived else list(app.VOLTAGE_LEVELS),
@@ -114,9 +115,11 @@ def show_add_element_popup(app, instance):
     initial_gates = app.get_available_gates(
         app.substations_map[substation_names[0]]
     )
+    unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+    empty = S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
     gate_spinner = Spinner(
-        text=initial_gates[0] if initial_gates else "(Μη καταχωρημένο)",
-        values=initial_gates if initial_gates else ["(Μη καταχωρημένο)"],
+        text=initial_gates[0] if initial_gates else unreg,
+        values=initial_gates if initial_gates else [unreg],
         size_hint_y=None,
         height=40,
     )
@@ -124,7 +127,7 @@ def show_add_element_popup(app, instance):
 
     # Rated power (Ονομαστική Ισχύς) - optional attribute for any element
     layout.add_widget(Label(text=S["MESSAGES"].get("RATED_POWER_LABEL", "Ονομαστική Ισχύς (MVA):"), size_hint_y=None, height=30))
-    rated_power_input = TextInput(hint_text="π.χ. 50", size_hint_y=None, height=40, multiline=False)
+    rated_power_input = TextInput(hint_text=S["MESSAGES"].get("RATED_POWER_HINT", "π.χ. 50"), size_hint_y=None, height=40, multiline=False)
     layout.add_widget(rated_power_input)
 
     # Update gates when substation changes
@@ -139,13 +142,13 @@ def show_add_element_popup(app, instance):
             available_gates = app.get_available_gates(substation_id, False)
         gate_spinner.values = available_gates
         gate_spinner.text = (
-            available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+            available_gates[0] if available_gates else unreg
         )
 
     substation_spinner.bind(text=on_substation_change)
 
     # Breaker type selection (Main or Line or Interconnection) - only for circuit breakers
-    breaker_type_label = Label(text="Τύπος Διακόπτη:", size_hint_y=None, height=30)
+    breaker_type_label = Label(text=S["MESSAGES"].get("BREAKER_TYPE_LABEL", "Τύπος Διακόπτη:"), size_hint_y=None, height=30)
     breaker_type_spinner = Spinner(
         text=app.BREAKER_TYPES[0],
         values=app.BREAKER_TYPES,
@@ -164,14 +167,14 @@ def show_add_element_popup(app, instance):
             available_gates = app.get_available_gates(substation_id, False)
         gate_spinner.values = available_gates
         gate_spinner.text = (
-            available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+            available_gates[0] if available_gates else unreg
         )
 
     breaker_type_spinner.bind(text=on_breaker_type_change)
 
     # Breaker category filter (only for circuit breakers)
     breaker_category_label = Label(
-        text="Κατηγορία Διακόπτη:", size_hint_y=None, height=30
+        text=S["MESSAGES"].get("BREAKER_CATEGORY_LABEL", "Κατηγορία Διακόπτη:"), size_hint_y=None, height=30
     )
     initial_breaker_categories = app._get_breaker_categories_for_element_type(
         element_spinner.text
@@ -205,8 +208,8 @@ def show_add_element_popup(app, instance):
     layout.add_widget(model_header)
 
     model_spinner = Spinner(
-        text="Επιλέξτε μοντέλο",
-        values=["Επιλέξτε μοντέλο"],
+        text=S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο"),
+        values=[S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")],
         size_hint_y=None,
         height=40,
     )
@@ -262,7 +265,7 @@ def show_add_element_popup(app, instance):
                 available_gates = app.get_available_gates(substation_id, False)
             gate_spinner.values = available_gates
             gate_spinner.text = (
-                available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+                available_gates[0] if available_gates else unreg
             )
         else:
             if breaker_type_label in layout.children:
@@ -272,12 +275,12 @@ def show_add_element_popup(app, instance):
             available_gates = app.get_available_gates(substation_id, False)
             gate_spinner.values = available_gates
             gate_spinner.text = (
-                available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+                available_gates[0] if available_gates else unreg
             )
 
         _derived = app._derive_voltage_level(text)
         voltage_level_spinner.values = [_derived] if _derived else list(app.VOLTAGE_LEVELS)
-        voltage_level_spinner.text = _derived or "(Κενό)"
+        voltage_level_spinner.text = _derived or empty
 
     element_spinner.bind(text=on_element_type_change)
     on_element_type_change(element_spinner, element_spinner.text)
@@ -378,7 +381,7 @@ def show_add_element_popup(app, instance):
             is_main_switch = 0
 
         gate_value = (
-            gate_spinner.text if gate_spinner.text != "(Μη καταχωρημένο)" else ""
+            gate_spinner.text if gate_spinner.text != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)") else ""
         )
 
         try:
@@ -432,7 +435,7 @@ def show_add_element_popup(app, instance):
 
         voltage_level_value = (
             voltage_level_spinner.text
-            if voltage_level_spinner.text != "(Κενό)"
+            if voltage_level_spinner.text != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
             else ""
         )
 
@@ -511,7 +514,7 @@ def _copy_common_delete_logic(app, element_id, substation_id, parent_popup, subs
 
                 show_message_popup(
                     "Σφάλμα",
-                    f"Η πύλη '{gate_value or '(Μη καταχωρημένο)'}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
+                    f"Η πύλη '{gate_value or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
                 )
                 return False
     return True
@@ -707,7 +710,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     # Voltage level (dropdown)
     layout.add_widget(Label(text="Επίπεδο Τάσης:", size_hint_y=None, height=30))
     current_voltage = (
-        voltage_level or app._derive_voltage_level(elem_type) or "(Κενό)"
+        voltage_level or app._derive_voltage_level(elem_type) or S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
     )
     _derived = app._derive_voltage_level(elem_type)
     voltage_options = [_derived] if _derived else list(app.VOLTAGE_LEVELS)
@@ -804,10 +807,10 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     layout.add_widget(model_spinner)
 
     # Gate selection
-    layout.add_widget(Label(text="Πύλη (Gate):", size_hint_y=None, height=30))
+    layout.add_widget(Label(text=S["MESSAGES"].get("GATE_LABEL", "Πύλη (Gate):"), size_hint_y=None, height=30))
     is_interconnection = elem_type == "Διακόπτης ΜΤ" and is_main_switch == 2
     available_gates = app.get_available_gates(substation_id, is_interconnection)
-    current_gate_text = gate if gate else "(Μη καταχωρημένο)"
+    current_gate_text = gate if gate else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
     if current_gate_text not in available_gates:
         available_gates.append(current_gate_text)
     gate_spinner = Spinner(
@@ -816,7 +819,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     layout.add_widget(gate_spinner)
 
     # Breaker type selection
-    breaker_type_label = Label(text="Τύπος Διακόπτη:", size_hint_y=None, height=30)
+    breaker_type_label = Label(text=S["MESSAGES"].get("BREAKER_TYPE_LABEL", "Τύπος Διακόπτη:"), size_hint_y=None, height=30)
     if is_main_switch == 1:
         current_breaker_type = "Κεντρικός"
     elif is_main_switch == 2:
@@ -850,7 +853,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
         gate_spinner.values = available_gates
         if gate_spinner.text not in available_gates:
             gate_spinner.text = (
-                available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+                available_gates[0] if available_gates else unreg
             )
 
     breaker_type_spinner.bind(text=on_breaker_type_change)
@@ -951,7 +954,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
         )
 
         gate_value = (
-            gate_spinner.text if gate_spinner.text != "(Μη καταχωρημένο)" else ""
+            gate_spinner.text if gate_spinner.text != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)") else ""
         )
 
         breaker_category_value = None
@@ -982,7 +985,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
 
         voltage_level_value = (
             voltage_level_spinner.text
-            if voltage_level_spinner.text != "(Κενό)"
+            if voltage_level_spinner.text != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
             else ""
         )
 
@@ -1006,7 +1009,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
                     if remaining == 0:
                         show_message_popup(
                             "Σφάλμα",
-                            f"Η πύλη '{old_gate or '(Μη καταχωρημένο)'}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
+                            f"Η πύλη '{old_gate or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
                         )
                         return
         except Exception:
@@ -1126,7 +1129,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
 
     input_layout.add_widget(Label(text="Επίπεδο Τάσης:", size_hint_y=None, height=30))
     _derived = app._derive_voltage_level(element_spinner.text)
-    initial_voltage = _derived or "(Κενό)"
+    initial_voltage = _derived or S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
     voltage_level_spinner = Spinner(
         text=initial_voltage,
         values=[_derived] if _derived else list(app.VOLTAGE_LEVELS),
@@ -1140,8 +1143,8 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
 
     initial_gates = app.get_available_gates(substation_id)
     gate_spinner = Spinner(
-        text=initial_gates[0] if initial_gates else "(Μη καταχωρημένο)",
-        values=initial_gates if initial_gates else ["(Μη καταχωρημένο)"],
+        text=initial_gates[0] if initial_gates else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"),
+        values=initial_gates if initial_gates else [S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")],
         size_hint_y=None,
         height=40,
     )
@@ -1162,7 +1165,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
             available_gates = app.get_available_gates(selected_substation_id, False)
         gate_spinner.values = available_gates
         gate_spinner.text = (
-            available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+            available_gates[0] if available_gates else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
         )
 
     substation_spinner.bind(text=on_substation_change)
@@ -1186,7 +1189,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
             available_gates = app.get_available_gates(selected_substation_id, False)
         gate_spinner.values = available_gates
         gate_spinner.text = (
-            available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+            available_gates[0] if available_gates else unreg
         )
 
     breaker_type_spinner.bind(text=on_breaker_type_change)
@@ -1309,7 +1312,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
                     available_gates = app.get_available_gates(substation_id, False)
                 gate_spinner.values = available_gates
                 if gate_spinner.text not in available_gates:
-                    gate_spinner.text = (available_gates[0] if available_gates else "(Μη καταχωρημένο)")
+                    gate_spinner.text = (available_gates[0] if available_gates else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"))
         else:
             if breaker_type_label in input_layout.children:
                 input_layout.remove_widget(breaker_type_label)
@@ -1317,11 +1320,11 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
             available_gates = app.get_available_gates(substation_id, False)
             gate_spinner.values = available_gates
             if gate_spinner.text not in available_gates:
-                gate_spinner.text = (available_gates[0] if available_gates else "(Μη καταχωρημένο)")
+                gate_spinner.text = (available_gates[0] if available_gates else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"))
 
         _derived = app._derive_voltage_level(text)
         voltage_level_spinner.values = [_derived] if _derived else list(app.VOLTAGE_LEVELS)
-        voltage_level_spinner.text = _derived or "(Κενό)"
+        voltage_level_spinner.text = _derived or S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
 
     element_spinner.bind(text=on_element_type_change)
     on_element_type_change(element_spinner, element_spinner.text)
@@ -1414,7 +1417,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
             is_main_switch = 0
 
         gate_value = (
-            gate_spinner.text if gate_spinner.text != "(Μη καταχωρημένο)" else ""
+            gate_spinner.text if gate_spinner.text != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)") else ""
         )
 
         breaker_category_value = None
@@ -1453,7 +1456,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
         )
 
         voltage_level_value = (
-            voltage_level_spinner.text if voltage_level_spinner.text != "(Κενό)" else ""
+            voltage_level_spinner.text if voltage_level_spinner.text != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)") else ""
         )
 
         c.execute(

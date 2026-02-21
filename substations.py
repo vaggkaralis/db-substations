@@ -3,6 +3,7 @@ Delegating wrappers for substation-related UI functions.
 These thin functions call methods on the `app` instance (SubstationApp).
 They allow incremental extraction without changing the large `DBrun.py` logic.
 """
+from strings import STRINGS as S
 
 
 def show_add_substation_popup_delegate(app, instance=None):
@@ -21,7 +22,9 @@ def show_substation_selection_window_delegate(app, parent_popup, all_substations
     return app._show_substation_selection_window(parent_popup, all_substations)
 
 
-def show_substation_selection_window_with_callback_delegate(app, parent_popup, all_substations, on_select, title="Επιλογή Υποσταθμού"):
+def show_substation_selection_window_with_callback_delegate(app, parent_popup, all_substations, on_select, title=None):
+    if title is None:
+        title = S["MESSAGES"].get("SELECT_SUBSTATION", "Επιλογή Υποσταθμού")
     return app._show_substation_selection_window_with_callback(parent_popup, all_substations, on_select, title=title)
 
 

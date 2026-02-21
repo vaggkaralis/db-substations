@@ -16,6 +16,10 @@ from importers import (
 )
 from popups import show_message_popup
 from strings import STRINGS as S
+# Short placeholders centralized for readability
+UNREG = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+EMPTY = S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+MODEL_PROMPT = S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
 from reports import create_elements_template, create_substations_template
 from model_management import show_models_management
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
@@ -1916,7 +1920,7 @@ class SubstationApp(App):
             gates = regular + inter
 
         # Always include option for unassigned
-        return ["(Μη καταχωρημένο)"] + gates
+        return [UNREG] + gates
 
     def show_import_menu(self, instance):
         from imports import show_import_menu as _f
@@ -2659,7 +2663,7 @@ class SubstationApp(App):
                     sorted([g for g in gate_set if not g.startswith("ΠΥΛΗ")])
                 )
                 if has_unassigned:
-                    gate_values.append("(Μη καταχωρημένο)")
+                    gate_values.append(UNREG)
                 current_gate_filter = gate_filter or "(Όλα)"
                 if current_gate_filter not in gate_values:
                     current_gate_filter = "(Όλα)"
@@ -2700,7 +2704,7 @@ class SubstationApp(App):
                     query += " AND e.element_type=?"
                     params.append(current_type_filter)
                 if current_gate_filter != "(Όλα)":
-                    if current_gate_filter == "(Μη καταχωρημένο)":
+                    if current_gate_filter == UNREG:
                         query += " AND (e.gate IS NULL OR e.gate='')"
                     else:
                         query += " AND e.gate=?"
@@ -2783,7 +2787,7 @@ class SubstationApp(App):
                             installation_space,
                         ) = elem
 
-                        gate_key = gate if gate else "(Μη καταχωρημένο)"
+                        gate_key = gate if gate else UNREG
                         if gate_key not in gates_dict:
                             gates_dict[gate_key] = []
                         gates_dict[gate_key].append(elem)
@@ -2797,8 +2801,8 @@ class SubstationApp(App):
                     sorted_gates = sorted(
                         [g for g in gates_dict.keys() if g.startswith("ΠΥΛΗ")]
                     )
-                    if "(Μη καταχωρημένο)" in gates_dict:
-                        sorted_gates.append("(Μη καταχωρημένο)")
+                    if UNREG in gates_dict:
+                        sorted_gates.append(UNREG)
 
                     for gate_name in sorted_gates:
                         gate_elements = gates_dict[gate_name]
@@ -4566,8 +4570,8 @@ class SubstationApp(App):
                 model_spinner.values = display_names
                 model_spinner.text = display_names[0]
             else:
-                model_spinner.values = ["Επιλέξτε μοντέλο"]
-                model_spinner.text = "Επιλέξτε μοντέλο"
+                model_spinner.values = [MODEL_PROMPT]
+                model_spinner.text = MODEL_PROMPT
 
         def on_breaker_category_change(spinner, text):
             """Reload models when breaker category changes"""
@@ -4616,7 +4620,7 @@ class SubstationApp(App):
                     available_gates = self.get_available_gates(substation_id, False)
                 gate_spinner.values = available_gates
                 gate_spinner.text = (
-                    available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+                    available_gates[0] if available_gates else UNREG
                 )
             else:
                 if breaker_type_label in layout.children:
@@ -4627,14 +4631,14 @@ class SubstationApp(App):
                 available_gates = self.get_available_gates(substation_id, False)
                 gate_spinner.values = available_gates
                 gate_spinner.text = (
-                    available_gates[0] if available_gates else "(Μη καταχωρημένο)"
+                    available_gates[0] if available_gates else UNREG
                 )
 
             # Auto-select voltage level based on element type
             # update allowed options then set text (no empty option for restricted types)
             _derived = self._derive_voltage_level(text)
             voltage_level_spinner.values = [_derived] if _derived else list(self.VOLTAGE_LEVELS)
-            voltage_level_spinner.text = _derived or "(Κενό)"
+            voltage_level_spinner.text = _derived or EMPTY
 
         element_spinner.bind(text=on_element_type_change)
         on_element_type_change(element_spinner, element_spinner.text)
@@ -4741,7 +4745,7 @@ class SubstationApp(App):
 
             # Get gate assignment
             gate_value = (
-                gate_spinner.text if gate_spinner.text != "(Μη καταχωρημένο)" else ""
+                gate_spinner.text if gate_spinner.text != UNREG else ""
             )
 
             try:
@@ -4800,7 +4804,7 @@ class SubstationApp(App):
 
             voltage_level_value = (
                 voltage_level_spinner.text
-                if voltage_level_spinner.text != "(Κενό)"
+                if voltage_level_spinner.text != EMPTY
                 else ""
             )
 
@@ -5400,7 +5404,7 @@ class SubstationApp(App):
                     model_name,
                 ) = elem
 
-                gate_key = gate if gate else "(Μη καταχωρημένο)"
+                gate_key = gate if gate else UNREG
                 if gate_key not in gates_dict:
                     gates_dict[gate_key] = []
                 gates_dict[gate_key].append(elem)
@@ -5414,8 +5418,8 @@ class SubstationApp(App):
             sorted_gates = sorted(
                 [g for g in gates_dict.keys() if g.startswith("ΠΥΛΗ")]
             )
-            if "(Μη καταχωρημένο)" in gates_dict:
-                sorted_gates.append("(Μη καταχωρημένο)")
+            if UNREG in gates_dict:
+                sorted_gates.append(UNREG)
 
             # Display elements grouped by gate
             for gate_name in sorted_gates:

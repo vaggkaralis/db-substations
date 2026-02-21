@@ -27,7 +27,7 @@ def show_maintenance_menu_popup(app, ui):
     Label = ui["Label"]
     Button = ui["Button"]
 
-    menu_popup = Popup(title="Συντηρήσεις", size_hint=(0.6, 0.4))
+    menu_popup = Popup(title=S["MESSAGES"].get("MAINTENANCE_BUTTON", "Συντηρήσεις"), size_hint=(0.6, 0.4))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     try:
@@ -35,13 +35,13 @@ def show_maintenance_menu_popup(app, ui):
     except Exception:
         pass
 
-    layout.add_widget(Label(text="Επιλέξτε ενέργεια:", size_hint_y=0.2))
+    layout.add_widget(Label(text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"), size_hint_y=0.2))
 
-    add_btn = Button(text="Καταχώρηση Συντήρησης", size_hint_y=0.3)
+    add_btn = Button(text=S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"), size_hint_y=0.3)
     add_btn.bind(on_press=lambda x: app.show_maintenance_menu(parent_popup=menu_popup))
     layout.add_widget(add_btn)
 
-    import_email_btn = Button(text="Εισαγωγή συντήρησης από e-mail", size_hint_y=0.3)
+    import_email_btn = Button(text=S["MESSAGES"].get("IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"), size_hint_y=0.3)
     import_email_btn.bind(on_press=lambda x: app._show_import_maintenance_email_dialog(menu_popup))
     layout.add_widget(import_email_btn)
 
@@ -49,13 +49,13 @@ def show_maintenance_menu_popup(app, ui):
     try:
         export_fn = ui.get("export_maintenances_per_substation")
         if export_fn:
-            export_maint_btn = Button(text="Εξαγωγή Συντηρήσεων (Excel)", size_hint_y=0.3)
+            export_maint_btn = Button(text=S["MESSAGES"].get("EXPORT_MAINTENANCES_EXCEL", "Εξαγωγή Συντηρήσεων (Excel)"), size_hint_y=0.3)
             export_maint_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_fn(app.conn)))
             layout.add_widget(export_maint_btn)
     except Exception:
         pass
 
-    history_btn = Button(text="Ιστορικό Συντηρήσεων", size_hint_y=0.3)
+    history_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=0.3)
     history_btn.bind(on_press=lambda x: (menu_popup.dismiss(), app.show_maintenance_history(None)))
     layout.add_widget(history_btn)
 

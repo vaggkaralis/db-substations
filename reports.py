@@ -75,16 +75,16 @@ def show_sf6_management_popup(app, instance=None):
         summary_label.text = summary_text
 
         header = GridLayout(cols=4, size_hint_y=None, height=30)
-        header.add_widget(Label(text="Ημερομηνία", bold=True))
-        header.add_widget(Label(text="Υποσταθμός", bold=True))
-        header.add_widget(Label(text="Στοιχείο", bold=True))
-        header.add_widget(Label(text="Διαρροή (kg)", bold=True))
+        header.add_widget(Label(text=S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), bold=True))
+        header.add_widget(Label(text=S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός"), bold=True))
+        header.add_widget(Label(text=S["MESSAGES"].get("ELEMENT_LABEL", "Στοιχείο"), bold=True))
+        header.add_widget(Label(text=S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), bold=True))
         table_layout.add_widget(header)
 
         if not data["rows"]:
             table_layout.add_widget(
                 Label(
-                    text="Δεν υπάρχουν καταχωρήσεις διαρροών για το έτος.",
+                    text=S["MESSAGES"].get("NO_LEAK_ENTRIES", "Δεν υπάρχουν καταχωρήσεις διαρροών για το έτος."),
                     size_hint_y=None,
                     height=30,
                 )
@@ -117,9 +117,9 @@ def show_sf6_management_popup(app, instance=None):
                     # ignore open-errors; show_message_popup already reports success
                     pass
 
-            show_message_popup(S["TITLES"]["SUCCESS"], f"Το PDF δημιουργήθηκε:\n{pdf_path}", callback=_open_pdf)
+            show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"].get("PDF_CREATED", "Το PDF δημιουργήθηκε:\n{path}").format(path=pdf_path), callback=_open_pdf)
         except Exception as exc:
-            show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας PDF:\n{str(exc)}")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("PDF_CREATE_FAILED", "Αποτυχία δημιουργίας PDF:\n{err}").format(err=str(exc)))
 
     def handle_excel(*_args):
         try:
@@ -136,9 +136,9 @@ def show_sf6_management_popup(app, instance=None):
                 except Exception:
                     pass
 
-            show_message_popup(S["TITLES"]["SUCCESS"], f"Το Excel δημιουργήθηκε:\n{excel_path}", callback=_open_excel)
+            show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"].get("EXCEL_CREATED", "Το Excel δημιουργήθηκε:\n{path}").format(path=excel_path), callback=_open_excel)
         except Exception as exc:
-            show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας Excel:\n{str(exc)}")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("EXCEL_CREATE_FAILED", "Αποτυχία δημιουργίας Excel:\n{err}").format(err=str(exc)))
 
     refresh_btn.bind(on_press=lambda _x: render_report(year_spinner.text))
     year_spinner.bind(text=lambda _s, _t: render_report(year_spinner.text))

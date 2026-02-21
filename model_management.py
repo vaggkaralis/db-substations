@@ -885,7 +885,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     save_btn.bind(on_press=lambda x: save_changes())
     buttons_layout.add_widget(save_btn)
 
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 
@@ -1002,7 +1002,7 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
     save_btn.bind(on_press=lambda x: save_file())
     buttons_layout.add_widget(save_btn)
 
-    cancel_btn = Button(text="Ακύρωση")
+    cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 

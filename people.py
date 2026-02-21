@@ -18,19 +18,19 @@ class PeopleManager:
         self.app = app
 
     def show_people_management(self, instance=None):
-        popup = Popup(title="Διαχείριση Προσωπικού", size_hint=(0.7, 0.8))
+        popup = Popup(title=S["MESSAGES"].get("PEOPLE_BUTTON", "Διαχείριση Προσωπικού"), size_hint=(0.7, 0.8))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         form_layout = GridLayout(cols=2, size_hint_y=None, height=140, spacing=5)
-        form_layout.add_widget(Label(text="Επώνυμο:", size_hint_x=0.3))
+        form_layout.add_widget(Label(text=S["MESSAGES"].get("SURNAME_LABEL", "Επώνυμο:"), size_hint_x=0.3))
         surname_input = TextInput(multiline=False, size_hint_x=0.7)
         form_layout.add_widget(surname_input)
 
-        form_layout.add_widget(Label(text="Όνομα:", size_hint_x=0.3))
+        form_layout.add_widget(Label(text=S["MESSAGES"].get("NAME_LABEL", "Όνομα:"), size_hint_x=0.3))
         given_input = TextInput(multiline=False, size_hint_x=0.7)
         form_layout.add_widget(given_input)
 
-        form_layout.add_widget(Label(text="Ρόλος:", size_hint_x=0.3))
+        form_layout.add_widget(Label(text=S["MESSAGES"].get("ROLE_LABEL", "Ρόλος:"), size_hint_x=0.3))
         role_spinner = Spinner(
             text=PEOPLE_ROLES[0] if PEOPLE_ROLES else "",
             values=PEOPLE_ROLES,
@@ -38,7 +38,7 @@ class PeopleManager:
         )
         form_layout.add_widget(role_spinner)
 
-        form_layout.add_widget(Label(text="Email:", size_hint_x=0.3))
+        form_layout.add_widget(Label(text=S["MESSAGES"].get("EMAIL_LABEL", "Email:"), size_hint_x=0.3))
         email_input = TextInput(multiline=False, size_hint_x=0.7)
         form_layout.add_widget(email_input)
 
@@ -47,13 +47,13 @@ class PeopleManager:
         receiver_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
         receiver_checkbox = CheckBox(size_hint_x=0.1, color=self.app.theme.get("primary", (0.05, 0.18, 0.36, 1)))
         receiver_layout.add_widget(receiver_checkbox)
-        receiver_layout.add_widget(Label(text="Παραλήπτης email αναφοράς", size_hint_x=0.9))
+        receiver_layout.add_widget(Label(text=S["MESSAGES"].get("EMAIL_RECIPIENT_LABEL", "Παραλήπτης email αναφοράς"), size_hint_x=0.9))
         main_layout.add_widget(receiver_layout)
 
         active_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
         active_checkbox = CheckBox(size_hint_x=0.1, active=True, color=self.app.theme.get("primary", (0.05, 0.18, 0.36, 1)))
         active_layout.add_widget(active_checkbox)
-        active_layout.add_widget(Label(text="Ενεργός", size_hint_x=0.9))
+        active_layout.add_widget(Label(text=S["MESSAGES"].get("ACTIVE_LABEL", "Ενεργός"), size_hint_x=0.9))
         main_layout.add_widget(active_layout)
 
         add_btn = Button(text=S["BUTTONS"]["ADD"], size_hint_y=None, height=40)
@@ -88,9 +88,9 @@ class PeopleManager:
                 items_sorted = sorted(items, key=lambda r: (_role_priority(r[2] if len(r) > 2 else None), (r[1] or "").lower()))
                 for person_id, name, role, email, report_receiver, active in items_sorted:
                     row = BoxLayout(size_hint_y=None, height=35, spacing=5)
-                    status = "Ενεργός" if active else "Ανενεργός"
-                    email_text = email if email else "-"
-                    receiver_text = "Ναι" if report_receiver else "Όχι"
+                    status = S["MESSAGES"].get("ACTIVE_LABEL", "Ενεργός") if active else S["MESSAGES"].get("INACTIVE_LABEL", "Ανενεργός")
+                    email_text = email if email else S["MESSAGES"].get("DASH", "-")
+                    receiver_text = S["BUTTONS"].get("YES", "Ναι") if report_receiver else S["BUTTONS"].get("NO", "Όχι")
                     row.add_widget(Label(text=f"{name} ({role}) | {email_text} | Παραλήπτης: {receiver_text} | {status}", size_hint_x=0.8))
 
                     edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.1)
@@ -146,10 +146,10 @@ class PeopleManager:
             try:
                 from excel_io import export_people, export_people_template, import_people
             except Exception:
-                show_message_popup(S["TITLES"]["ERROR"], "Οι βοηθητικές συναρτήσεις Excel δεν είναι διαθέσιμες.")
+                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("EXCEL_HELPERS_MISSING", "Οι βοηθητικές συναρτήσεις Excel δεν είναι διαθέσιμες."))
                 return
 
-            io_popup = Popup(title="Εισαγωγή/Εξαγωγή Προσωπικού", size_hint=(0.5, 0.4))
+            io_popup = Popup(title=S["MESSAGES"].get("IMPORT_EXPORT_PEOPLE", "Εισαγωγή/Εξαγωγή Προσωπικού"), size_hint=(0.5, 0.4))
             io_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
             def _import_people(_btn=None):
@@ -178,15 +178,15 @@ class PeopleManager:
                 except Exception as exc:
                     show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας προτύπου:\n{str(exc)}")
 
-            imp_btn = Button(text="Εισαγωγή Προσωπικού (Excel)")
+            imp_btn = Button(text=S["MESSAGES"].get("IMPORT_PEOPLE_BTN", "Εισαγωγή Προσωπικού (Excel)"))
             imp_btn.bind(on_press=_import_people)
             io_layout.add_widget(imp_btn)
 
-            exp_btn = Button(text="Εξαγωγή Προσωπικού (Excel)")
+            exp_btn = Button(text=S["MESSAGES"].get("EXPORT_PEOPLE_BTN", "Εξαγωγή Προσωπικού (Excel)"))
             exp_btn.bind(on_press=_export_people)
             io_layout.add_widget(exp_btn)
 
-            tpl_btn = Button(text="Δημιουργία Template Προσωπικού")
+            tpl_btn = Button(text=S["MESSAGES"].get("EXPORT_PEOPLE_TEMPLATE_BTN", "Δημιουργία Template Προσωπικού"))
             tpl_btn.bind(on_press=_export_template)
             io_layout.add_widget(tpl_btn)
 
@@ -197,7 +197,7 @@ class PeopleManager:
             io_popup.content = io_layout
             io_popup.open()
 
-        people_io_btn = Button(text="Εισαγωγή/Εξαγωγή Προσωπικού", size_hint_y=None, height=40)
+        people_io_btn = Button(text=S["MESSAGES"].get("IMPORT_EXPORT_PEOPLE", "Εισαγωγή/Εξαγωγή Προσωπικού"), size_hint_y=None, height=40)
         people_io_btn.bind(on_press=_show_people_io_popup)
         main_layout.add_widget(people_io_btn)
 
@@ -243,8 +243,8 @@ class PeopleManager:
                 refresh_cb()
 
         show_confirm(
-            "Επιβεβαίωση Διαγραφής",
-            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
+            S["MESSAGES"].get("CONFIRM_DELETE_TITLE", "Επιβεβαίωση Διαγραφής"),
+            f'{S["MESSAGES"].get("CONFIRM_DELETE_PERSON", ("Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο \"{person_name}\";"))}',
             yes_callback=confirm_delete,
             yes_color=(1, 0, 0, 1),
         )
