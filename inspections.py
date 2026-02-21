@@ -508,10 +508,14 @@ def handle_inspection_details(app, inspection_id):
             body = fields[8:]
             idx = 0
 
-            def _make_section(title, items):
+            def _make_section(title, items, default_expanded=False):
                 # Create a collapsible section: header button and hidden body grid
                 box = BoxLayout(orientation="vertical", size_hint_y=None)
-                header = Button(text=title, size_hint_y=None, height=36)
+                header = Button(text=title, size_hint_y=None, height=40)
+                try:
+                    header.font_size = '16sp'
+                except Exception:
+                    pass
                 body_grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
                 body_grid.bind(minimum_height=body_grid.setter("height"))
 
@@ -523,7 +527,7 @@ def handle_inspection_details(app, inspection_id):
                     body_grid.add_widget(lbl)
                     body_grid.add_widget(val)
 
-                # attach toggle behavior: start collapsed (do not add body_grid)
+                # attach toggle behavior
                 def _toggle(_):
                     if getattr(box, "_expanded", False):
                         try:
@@ -537,7 +541,11 @@ def handle_inspection_details(app, inspection_id):
 
                 header.bind(on_press=_toggle)
                 box.add_widget(header)
+                # default expansion
                 box._expanded = False
+                if default_expanded:
+                    box.add_widget(body_grid)
+                    box._expanded = True
                 return box
 
             for sec_title, start, end in sections:
@@ -547,7 +555,8 @@ def handle_inspection_details(app, inspection_id):
                         break
                     sec_items.append((rows[i], body[idx].get('value')))
                     idx += 1
-                content.add_widget(_make_section(sec_title or f"Ενότητα {start}", sec_items))
+                # expand the first section by default to improve discoverability
+                content.add_widget(_make_section(sec_title or f"Ενότητα {start}", sec_items, default_expanded=(start==0)))
 
             # Remaining (opinions / extras)
             if idx < len(body):

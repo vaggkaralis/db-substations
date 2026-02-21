@@ -1910,7 +1910,7 @@ class SubstationApp(App):
             from kivy.uix.boxlayout import BoxLayout
             from kivy.uix.scrollview import ScrollView
             from kivy.uix.gridlayout import GridLayout
-            from kivy.uix.button import Button
+            from kivy.uix.button import Button, ToggleButton
             from kivy.uix.label import Label
             from kivy.uix.textinput import TextInput
             from kivy.uix.spinner import Spinner
@@ -1957,15 +1957,19 @@ class SubstationApp(App):
             popup = Popup(title=S["TITLES"].get("INSPECTION_HISTORY", "Ιστορικό Επιθεώρησης"), size_hint=(0.95, 0.9))
             main = BoxLayout(orientation="vertical", spacing=8, padding=8)
 
-            # Controls: substation spinner, search box, page size
+            # Controls: substation spinner, search box, page size, sort, lazy/load-more
             ctrl_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
             options = ["Όλα"] + [s[1] or "-" for s in subs]
-            sub_spinner = Spinner(text=options[0], values=options, size_hint_x=0.4)
-            search_input = TextInput(hint_text="Αναζήτηση (όνομα/ημερομηνία)", size_hint_x=0.4)
-            page_size_spinner = Spinner(text="30", values=("10", "20", "30", "50"), size_hint_x=0.2)
+            sub_spinner = Spinner(text=options[0], values=options, size_hint_x=0.36)
+            search_input = TextInput(hint_text="Αναζήτηση (όνομα/ημερομηνία)", size_hint_x=0.32)
+            sort_spinner = Spinner(text='Ημερομηνία ↓', values=('Ημερομηνία ↓','Ημερομηνία ↑','Υποσταθμός A-Ω'), size_hint_x=0.16)
+            page_size_spinner = Spinner(text='30', values=('10','20','30','50'), size_hint_x=0.1)
+            lazy_toggle = ToggleButton(text='Load more', state='normal', size_hint_x=0.12)
             ctrl_row.add_widget(sub_spinner)
             ctrl_row.add_widget(search_input)
+            ctrl_row.add_widget(sort_spinner)
             ctrl_row.add_widget(page_size_spinner)
+            ctrl_row.add_widget(lazy_toggle)
             main.add_widget(ctrl_row)
 
             # Listing area
@@ -1975,14 +1979,16 @@ class SubstationApp(App):
             scroll.add_widget(list_grid)
             main.add_widget(scroll)
 
-            # Pagination controls
+            # Pagination / load-more controls
             pager = BoxLayout(size_hint_y=None, height=40, spacing=8)
             prev_btn = Button(text="Προηγούμενη")
             next_btn = Button(text="Επόμενη")
+            load_more_btn = Button(text="Φόρτωση περισσότερων")
             page_label = Label(text="Σελίδα 1", size_hint_x=0.4)
             pager.add_widget(prev_btn)
             pager.add_widget(page_label)
             pager.add_widget(next_btn)
+            pager.add_widget(load_more_btn)
             main.add_widget(pager)
 
             # Close button
@@ -1992,27 +1998,72 @@ class SubstationApp(App):
             popup.content = main
 
             # state
-            state = {"offset": 0, "limit": int(page_size_spinner.text), "page": 1}
+            state = {"offset": 0, "limit": int(page_size_spinner.text), "page": 1, "order": 'date_desc', 'lazy': False, 'total': None, 'total_cache_key': None}
+
+            def _query_inspections(sub_id=None, search=None, limit=30, offset=0, order_key='date_desc'):
+                params = []
+                q = "SELECT id, substation_id, substation_name, inspection_date FROM inspections"
+                where = []
+                if sub_id:
+                    where.append("substation_id=?")
+                    params.append(sub_id)
+                if search:
+                    where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
+                    params.extend([f"%{search}%", f"%{search}%"])
+                if where:
+                    q += " WHERE " + " AND ".join(where)
+                if order_key == 'date_asc':
+                    q += " ORDER BY inspection_date ASC"
+                elif order_key == 'substation_asc':
+                    q += " ORDER BY substation_name ASC, inspection_date DESC"
+                else:
+                    q += " ORDER BY inspection_date DESC"
+                q += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+                c.execute(q, tuple(params))
+                return c.fetchall()
+
+            def _count_inspections(sub_id=None, search=None):
+                cache_key = (sub_id, search)
+                if state.get('total_cache_key') == cache_key and state.get('total') is not None:
+                    return state['total']
+                params = []
+                q = "SELECT COUNT(*) FROM inspections"
+                where = []
+                if sub_id:
+                    where.append("substation_id=?")
+                    params.append(sub_id)
+                if search:
+                    where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
+                    params.extend([f"%{search}%", f"%{search}%"])
+                if where:
+                    q += " WHERE " + " AND ".join(where)
+                c.execute(q, tuple(params))
+                r = c.fetchone()
+                total = r[0] if r else 0
+                state['total'] = total
+                state['total_cache_key'] = cache_key
+                return total
 
             def _render():
-                list_grid.clear_widgets()
                 selected = sub_spinner.text
                 sub_id = None
                 if selected != "Όλα":
-                    # find id by name
                     for s in subs:
                         if (s[1] or "-") == selected:
                             sub_id = s[0]
                             break
 
                 search = search_input.text.strip() or None
-                rows = _query_inspections(sub_id=sub_id, search=search, limit=state["limit"], offset=state["offset"])
+                offset = state['offset']
+                rows = _query_inspections(sub_id=sub_id, search=search, limit=state['limit'], offset=offset, order_key=state.get('order','date_desc'))
+                if not state.get('lazy') or offset == 0:
+                    list_grid.clear_widgets()
 
                 total = _count_inspections(sub_id=sub_id, search=search)
                 if not rows:
                     list_grid.add_widget(Label(text=S["MESSAGES"].get("NO_INSPECTIONS", "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις."), size_hint_y=None, height=40))
                 else:
-                    # Group by substation for visual clarity when listing 'Όλα'
                     if selected == "Όλα":
                         grouped = {}
                         for rid, sid, sname, date in rows:
@@ -2026,7 +2077,7 @@ class SubstationApp(App):
                     else:
                         for rid, sid, sname, date in rows:
                             row = BoxLayout(size_hint_y=None, height=36)
-                            lbl = Label(text=date, size_hint_x=0.6)
+                            lbl = Label(text=date, size_hint_x=0.6, font_size='14sp')
                             view_btn = Button(text="Προβολή", size_hint_x=0.2)
                             view_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
                             edit_btn = Button(text="Επεξεργασία", size_hint_x=0.2)
@@ -2037,34 +2088,64 @@ class SubstationApp(App):
                             list_grid.add_widget(row)
 
                 # update pager state
-                page_label.text = f"Σελίδα {state['page']} ({min(state['offset']+1, total)}-{min(state['offset']+len(rows), total)} / {total})"
-                prev_btn.disabled = (state["offset"] == 0)
-                next_btn.disabled = (state["offset"] + state["limit"] >= total)
+                page_label.text = f"Σελίδα {state['page']} ({min(offset+1, total)}-{min(offset+len(rows), total)} / {total})"
+                if state.get('lazy'):
+                    prev_btn.disabled = True
+                    next_btn.disabled = True
+                    load_more_btn.disabled = (offset + len(rows) >= total)
+                else:
+                    prev_btn.disabled = (offset == 0)
+                    next_btn.disabled = (offset + state['limit'] >= total)
 
             def _set_page_size(_spinner, _value):
                 try:
-                    state["limit"] = int(_value)
-                    state["offset"] = 0
-                    state["page"] = 1
+                    state['limit'] = int(_value)
+                    state['offset'] = 0
+                    state['page'] = 1
+                    state['total'] = None
                     _render()
                 except Exception:
                     pass
 
             def _search_changed(_inst):
-                state["offset"] = 0
-                state["page"] = 1
+                state['offset'] = 0
+                state['page'] = 1
+                state['total'] = None
                 _render()
 
             def _prev(_):
-                if state["offset"] >= state["limit"]:
-                    state["offset"] -= state["limit"]
-                    state["page"] -= 1
+                if state['offset'] >= state['limit']:
+                    state['offset'] -= state['limit']
+                    state['page'] -= 1
                     _render()
 
             def _next(_):
-                # naive next: advance offset and render (no total-count queried)
-                state["offset"] += state["limit"]
-                state["page"] += 1
+                state['offset'] += state['limit']
+                state['page'] += 1
+                _render()
+
+            def _load_more(_):
+                # append next page
+                state['offset'] += state['limit']
+                state['page'] += 1
+                _render()
+
+            def _on_sort_change(_spinner, text):
+                if text == 'Ημερομηνία ↑':
+                    state['order'] = 'date_asc'
+                elif text == 'Υποσταθμός A-Ω':
+                    state['order'] = 'substation_asc'
+                else:
+                    state['order'] = 'date_desc'
+                state['offset'] = 0
+                state['page'] = 1
+                _render()
+
+            def _on_lazy_toggle(btn):
+                state['lazy'] = (btn.state == 'down')
+                state['offset'] = 0
+                state['page'] = 1
+                state['total'] = None
                 _render()
 
             # bindings
@@ -2073,6 +2154,9 @@ class SubstationApp(App):
             sub_spinner.bind(text=lambda inst, val: _search_changed(inst))
             prev_btn.bind(on_press=_prev)
             next_btn.bind(on_press=_next)
+            load_more_btn.bind(on_press=_load_more)
+            sort_spinner.bind(text=_on_sort_change)
+            lazy_toggle.bind(on_release=_on_lazy_toggle)
             close.bind(on_press=lambda _btn: popup.dismiss())
 
             # initial render
