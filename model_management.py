@@ -1161,7 +1161,7 @@ def show_model_usages(app_instance, model_id, model_name):
 
                 if is_th:
                     th_label = Button(
-                        text="Υ/Σ Θεσσαλονίκης",
+                        text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Υ/Σ Θεσσαλονίκης"),
                         size_hint_x=0.2,
                         background_color=(1, 0, 0, 1),
                         color=(1, 1, 1, 1),
