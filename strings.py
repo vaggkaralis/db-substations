@@ -96,6 +96,7 @@ STRINGS = {
         "SUBSTATION_NAME_LABEL": "Όνομα Υποσταθμού:",
         "SUBSTATION_NAME_HINT": "Όνομα Υποσταθμού",
         "SUBSTATION_NEW_HINT": "Όνομα νέου υποσταθμού",
+        "SUBSTATION_IS_THESSALONIKI": "Υ/Σ Θεσσαλονίκης",
         "SUBSTATION_ADDED": "Υποσταθμός προστέθηκε!",
         "SUBSTATION_EXISTS": "Ο υποσταθμός υπάρχει ήδη.",
         "SELECT_SUBSTATION": "Επιλογή Υποσταθμού:",
