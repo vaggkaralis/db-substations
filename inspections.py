@@ -20,7 +20,8 @@ def _get_inspection_fallback_fields():
 
     # Return a combined list: basic metadata fields followed by the inspection rows.
     return base + inspection_rows
-        # Try to parse stored JSON and show a structured, categorized popup listing all fields
+
+# Try to parse stored JSON and show a structured, categorized popup listing all fields
 
 def _format_inspection_value(value):
     if value is None:
@@ -563,13 +564,7 @@ def handle_inspection_details(app, inspection_id):
             meta_left.add_widget(Label(text=f"[b]Ημερομηνία:[/b] {insp_date}", markup=True))
             meta.add_widget(meta_left)
 
-            # Actions: export / copy JSON
-            actions = BoxLayout(orientation="vertical", size_hint_x=0.3)
-            export_btn = Button(text="Εξαγωγή JSON", size_hint_y=None, height=30)
-            copy_btn = Button(text="Επικόλληση JSON", size_hint_y=None, height=30)
-            actions.add_widget(export_btn)
-            actions.add_widget(copy_btn)
-            meta.add_widget(actions)
+            # Actions: (removed JSON export/paste - redundant in this view)
             layout.add_widget(meta)
 
             # Scrollable content with collapsible sections
@@ -735,23 +730,7 @@ def handle_inspection_details(app, inspection_id):
             scroll.add_widget(content)
             layout.add_widget(scroll)
 
-            # Export popup: show pretty JSON for copy/save
-            def _show_export(_):
-                try:
-                    p = Popup(title="JSON επιθεώρησης", size_hint=(0.9, 0.8))
-                    tx = TextInput(text=json.dumps({"substation": sub_name, "date": insp_date, "fields": fields}, ensure_ascii=False, indent=2), readonly=True)
-                    b = BoxLayout(orientation="vertical")
-                    b.add_widget(tx)
-                    btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=40)
-                    btn.bind(on_press=lambda _btn: p.dismiss())
-                    b.add_widget(btn)
-                    p.content = b
-                    p.open()
-                except Exception:
-                    pass
-
-            export_btn.bind(on_press=_show_export)
-            copy_btn.bind(on_press=_show_export)
+            # JSON export/paste buttons removed as they were redundant here
 
             # Close button
             close = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=40)

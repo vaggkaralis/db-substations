@@ -1484,8 +1484,11 @@ class SubstationApp(App):
             return _f(self, instance)
         except Exception as e:
             try:
+                import traceback
                 with open('inspections_debug.log', 'a', encoding='utf-8') as _fh:
-                    _fh.write(f'menu_handler_failed: {str(e)}\n')
+                    _fh.write('menu_handler_failed:\n')
+                    _fh.write(traceback.format_exc())
+                    _fh.write('\n')
             except Exception:
                 pass
             return None
@@ -1914,11 +1917,6 @@ class SubstationApp(App):
 
     def show_inspection_history(self, instance=None):
         try:
-            try:
-                with open('inspections_debug.log', 'a', encoding='utf-8') as _fh:
-                    _fh.write('show_inspection_history invoked\n')
-            except Exception:
-                pass
             from inspections import handle_inspection_history as _f
             return _f(self, instance)
         except Exception as e:
@@ -1938,23 +1936,18 @@ class SubstationApp(App):
         - Pagination with page size control
         """
         try:
-            from kivy.uix.popup import Popup
-            from kivy.uix.boxlayout import BoxLayout
-            from kivy.uix.scrollview import ScrollView
-            from kivy.uix.gridlayout import GridLayout
-            from kivy.uix.button import Button
-            try:
-                from kivy.uix.togglebutton import ToggleButton
-            except Exception:
-                # Some Kivy installs or runtime states may not expose ToggleButton
-                # from the expected module; fall back to Button to avoid crashing.
-                try:
-                    from kivy.uix.button import ToggleButton  # attempt older/alternate location
-                except Exception:
-                    ToggleButton = Button
-            from kivy.uix.label import Label
-            from kivy.uix.textinput import TextInput
-            from kivy.uix.spinner import Spinner
+            # Prefer module-level widget classes (imported at module top) to avoid
+            # creating local names via inner imports which can remain unassigned
+            # if the inner import fails at runtime. Use the globals() fallback.
+            Popup = globals().get('Popup')
+            BoxLayout = globals().get('BoxLayout')
+            ScrollView = globals().get('ScrollView')
+            GridLayout = globals().get('GridLayout')
+            Button = globals().get('Button')
+            ToggleButton = globals().get('ToggleButton') or Button
+            Label = globals().get('Label')
+            TextInput = globals().get('TextInput')
+            Spinner = globals().get('Spinner')
 
             # Fetch distinct substations for filter
             c = self.conn.cursor()
@@ -2000,18 +1993,31 @@ class SubstationApp(App):
 
             # Controls: substation spinner, search box, page size, sort, lazy/load-more
             ctrl_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
-            options = ["Όλα"] + [s[1] or "-" for s in subs]
-            sub_spinner = Spinner(text=options[0], values=options, size_hint_x=0.36)
-            search_input = TextInput(hint_text="Αναζήτηση (όνομα/ημερομηνία)", size_hint_x=0.32)
-            sort_spinner = Spinner(text='Ημερομηνία ↓', values=('Ημερομηνία ↓','Ημερομηνία ↑','Υποσταθμός A-Ω'), size_hint_x=0.16)
-            page_size_spinner = Spinner(text='30', values=('10','20','30','50'), size_hint_x=0.1)
-            lazy_toggle = ToggleButton(text='Load more', state='normal', size_hint_x=0.12)
+            ALL_SUBS = "Όλοι οι Υ/Σ"
+            options = [ALL_SUBS] + [s[1] or "-" for s in subs]
+            sub_spinner = Spinner(text=options[0], values=options, size_hint_x=0.34)
+            # single-line search input so Enter does not insert a newline
+            search_input = TextInput(hint_text="Αναζήτηση (όνομα/ημερομηνία)", size_hint_x=0.30, multiline=False)
+            # Sort options: explicit text avoids glyph/arrow corruption in some fonts
+            sort_spinner = Spinner(text='Ημερομηνία (φθίνουσα)', values=('Ημερομηνία (φθίνουσα)','Ημερομηνία (αύξουσα)','Υποσταθμός A-Ω'), size_hint_x=0.16)
+            # Page-size control with a small header so users understand purpose
+            page_label_header = Label(text='Αντικείμενα/σελίδα', size_hint_x=0.08)
+            page_size_spinner = Spinner(text='30', values=('10','20','30','50'), size_hint_x=0.08)
+            lazy_toggle = ToggleButton(text='Load more', state='normal', size_hint_x=0.14)
             ctrl_row.add_widget(sub_spinner)
             ctrl_row.add_widget(search_input)
             ctrl_row.add_widget(sort_spinner)
+            ctrl_row.add_widget(page_label_header)
             ctrl_row.add_widget(page_size_spinner)
             ctrl_row.add_widget(lazy_toggle)
             main.add_widget(ctrl_row)
+
+            # Hidden hint area that appears when a simple search returns
+            # no results. Use a horizontal BoxLayout with matching column
+            # size_hint_x proportions so the suggestion aligns exactly
+            # under the search input (slot index 1).
+            content_hint_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=0)
+            main.add_widget(content_hint_box)
 
             # Listing area
             scroll = ScrollView()
@@ -2049,8 +2055,13 @@ class SubstationApp(App):
                     where.append("substation_id=?")
                     params.append(sub_id)
                 if search:
-                    where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
-                    params.extend([f"%{search}%", f"%{search}%"])
+                    # By default search only substation_name and inspection_date
+                    if state.get('content_search'):
+                        where.append("(substation_name LIKE ? OR inspection_date LIKE ? OR data_json LIKE ?)")
+                        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+                    else:
+                        where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
+                        params.extend([f"%{search}%", f"%{search}%"])
                 if where:
                     q += " WHERE " + " AND ".join(where)
                 if order_key == 'date_asc':
@@ -2075,8 +2086,12 @@ class SubstationApp(App):
                     where.append("substation_id=?")
                     params.append(sub_id)
                 if search:
-                    where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
-                    params.extend([f"%{search}%", f"%{search}%"])
+                    if state.get('content_search'):
+                        where.append("(substation_name LIKE ? OR inspection_date LIKE ? OR data_json LIKE ?)")
+                        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+                    else:
+                        where.append("(substation_name LIKE ? OR inspection_date LIKE ?)")
+                        params.extend([f"%{search}%", f"%{search}%"])
                 if where:
                     q += " WHERE " + " AND ".join(where)
                 c.execute(q, tuple(params))
@@ -2089,7 +2104,7 @@ class SubstationApp(App):
             def _render():
                 selected = sub_spinner.text
                 sub_id = None
-                if selected != "Όλα":
+                if selected != ALL_SUBS:
                     for s in subs:
                         if (s[1] or "-") == selected:
                             sub_id = s[0]
@@ -2104,8 +2119,78 @@ class SubstationApp(App):
                 total = _count_inspections(sub_id=sub_id, search=search)
                 if not rows:
                     list_grid.add_widget(Label(text=S["MESSAGES"].get("NO_INSPECTIONS", "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις."), size_hint_y=None, height=40))
+                    # Show a hint to allow broader content search only when
+                    # the user entered a query and there are no results.
+                    try:
+                        content_hint_box.clear_widgets()
+                        if search:
+                            suggestion = 'Αναζήτηση στο περιεχόμενο (αργό)...'
+                            # Instead of a button, show a small framed area "hanging" from
+                            # the search field. It's clickable (touch) but visually a frame.
+                            suggestion_frame = BoxLayout(size_hint_y=None, height=36, padding=6)
+                            lbl = Label(text=suggestion, halign='left', valign='middle', bold=True)
+                            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', inst.size))
+                            suggestion_frame.add_widget(lbl)
+
+                            # draw background rect to look like a framed suggestion
+                            with suggestion_frame.canvas.before:
+                                Color(*self.theme.get('popup_bg', (0.97, 0.98, 0.99, 1)))
+                                _rect = Rectangle(pos=suggestion_frame.pos, size=suggestion_frame.size)
+
+                            def _update_rect(instance, value):
+                                try:
+                                    _rect.pos = instance.pos
+                                    _rect.size = instance.size
+                                except Exception:
+                                    pass
+
+                            suggestion_frame.bind(pos=_update_rect, size=_update_rect)
+
+                            def _on_suggestion_touch(inst, touch):
+                                if inst.collide_point(*touch.pos):
+                                    try:
+                                        state['content_search'] = True
+                                        state['offset'] = 0
+                                        state['page'] = 1
+                                        state['total'] = None
+                                        _render()
+                                        # hide suggestion after activation
+                                        content_hint_box.clear_widgets()
+                                        content_hint_box.height = 0
+                                    except Exception:
+                                        pass
+                                    return True
+                                return False
+
+                            suggestion_frame.bind(on_touch_down=_on_suggestion_touch)
+
+                            # Fill the horizontal slots so the framed widget
+                            # sits exactly under the search input. The
+                            # proportions match the control row size_hint_x
+                            # values: [0.34,0.30,0.16,0.08,0.08,0.14]
+                            proportions = [0.34, 0.30, 0.16, 0.08, 0.08, 0.14]
+                            content_hint_box.clear_widgets()
+                            for idx, sz in enumerate(proportions):
+                                if idx == 1:
+                                    suggestion_frame.size_hint_x = sz
+                                    content_hint_box.add_widget(suggestion_frame)
+                                else:
+                                    w = Widget()
+                                    w.size_hint_x = sz
+                                    content_hint_box.add_widget(w)
+                            content_hint_box.height = 40
+                        else:
+                            content_hint_box.height = 0
+                    except Exception:
+                        pass
                 else:
-                    if selected == "Όλα":
+                    # hide hint box when there are results
+                    try:
+                        content_hint_box.clear_widgets()
+                        content_hint_box.height = 0
+                    except Exception:
+                        pass
+                    if selected == ALL_SUBS:
                         grouped = {}
                         for rid, sid, sname, date in rows:
                             grouped.setdefault(sname or "-", []).append((rid, date))
@@ -2279,7 +2364,7 @@ class SubstationApp(App):
                 _render()
 
             def _on_sort_change(_spinner, text):
-                if text == 'Ημερομηνία ↑':
+                if text == 'Ημερομηνία (αύξουσα)':
                     state['order'] = 'date_asc'
                 elif text == 'Υποσταθμός A-Ω':
                     state['order'] = 'substation_asc'
@@ -2299,6 +2384,11 @@ class SubstationApp(App):
             # bindings
             page_size_spinner.bind(text=_set_page_size)
             search_input.bind(text=lambda inst, val: _search_changed(inst))
+            # When Enter is pressed in single-line TextInput, trigger search
+            try:
+                search_input.bind(on_text_validate=_search_changed)
+            except Exception:
+                pass
             sub_spinner.bind(text=lambda inst, val: _search_changed(inst))
             prev_btn.bind(on_press=_prev)
             next_btn.bind(on_press=_next)
@@ -2311,6 +2401,11 @@ class SubstationApp(App):
             _render()
             popup.open()
         except Exception:
+            try:
+                import logging
+                logging.exception('_show_inspection_history_failed')
+            except Exception:
+                pass
             return None
 
     def get_available_gates(self, substation_id, is_interconnection=None):
