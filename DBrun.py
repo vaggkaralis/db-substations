@@ -2121,14 +2121,36 @@ class SubstationApp(App):
                                 actions = BoxLayout(size_hint_x=0.28, spacing=6)
 
                                 view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get('text', (0.12,0.12,0.12,1)), size=(44, 36))
-                                view_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
+                                # Open details on top without dismissing history so scroll position is preserved
+                                view_btn.bind(on_press=lambda _btn, i=rid: self.show_inspection_details(i))
                                 actions.add_widget(view_btn)
 
                                 edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(44, 36))
-                                edit_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_entry_popup(i)))
+                                def _edit_inspection(i=rid):
+                                    try:
+                                        c2 = self.conn.cursor()
+                                        c2.execute("SELECT data_json FROM inspections WHERE id=?", (i,))
+                                        r = c2.fetchone()
+                                        if not r:
+                                            return
+                                        data_json = r[0]
+                                        try:
+                                            data = json.loads(data_json)
+                                            fields = data.get('fields', [])
+                                        except Exception:
+                                            fields = []
+                                        from inspections import _show_edit_inspection_popup as _editfn
+                                        try:
+                                            _editfn(self, i, fields)
+                                        except Exception:
+                                            pass
+                                    except Exception:
+                                        pass
+
+                                edit_btn.bind(on_press=lambda _btn, i=rid: _edit_inspection(i))
                                 actions.add_widget(edit_btn)
 
-                                def _confirm_delete(i=rid):
+                                def _confirm_delete(i=rid, sname_local=sname, date_local=date):
                                     from reports import show_confirm
 
                                     def _do_delete():
@@ -2143,7 +2165,7 @@ class SubstationApp(App):
                                         state['total'] = None
                                         _render()
 
-                                    show_confirm(self, f"Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname} ({date}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
+                                    show_confirm("Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
 
                                 delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0, 0, 1), size=(44, 36))
                                 delete_btn.bind(on_press=lambda _btn, i=rid: _confirm_delete(i))
@@ -2161,11 +2183,32 @@ class SubstationApp(App):
                             actions = BoxLayout(size_hint_x=0.28, spacing=6)
 
                             view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get('text', (0.12,0.12,0.12,1)), size=(44, 36))
-                            view_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_details(i)))
+                            view_btn.bind(on_press=lambda _btn, i=rid: self.show_inspection_details(i))
                             actions.add_widget(view_btn)
 
                             edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(44, 36))
-                            edit_btn.bind(on_press=lambda _btn, i=rid: (popup.dismiss(), self.show_inspection_entry_popup(i)))
+                            def _edit_inspection_local(i=rid):
+                                try:
+                                    c2 = self.conn.cursor()
+                                    c2.execute("SELECT data_json FROM inspections WHERE id=?", (i,))
+                                    r = c2.fetchone()
+                                    if not r:
+                                        return
+                                    data_json = r[0]
+                                    try:
+                                        data = json.loads(data_json)
+                                        fields = data.get('fields', [])
+                                    except Exception:
+                                        fields = []
+                                    from inspections import _show_edit_inspection_popup as _editfn
+                                    try:
+                                        _editfn(self, i, fields)
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
+
+                            edit_btn.bind(on_press=lambda _btn, i=rid: _edit_inspection_local(i))
                             actions.add_widget(edit_btn)
 
                             def _confirm_delete(i=rid, sname_local=sname, date_local=date):
@@ -2182,7 +2225,7 @@ class SubstationApp(App):
                                     state['total'] = None
                                     _render()
 
-                                show_confirm(self, f"Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
+                                show_confirm("Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
 
                             delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0, 0, 1), size=(44, 36))
                             delete_btn.bind(on_press=lambda _btn, i=rid: _confirm_delete(i))
