@@ -145,24 +145,88 @@ def _show_edit_inspection_popup(app, inspection_id, fields):
         from kivy.uix.label import Label
         from kivy.uix.textinput import TextInput
         from kivy.uix.button import Button
+        from kivy.uix.togglebutton import ToggleButton
+        from kivy.clock import Clock
 
         popup = Popup(title=S["TITLES"].get("INSPECTION_DETAILS", "Επεξεργασία Επιθεώρησης"), size_hint=(0.95, 0.9))
         layout = BoxLayout(orientation="vertical", spacing=8, padding=8)
 
-        scroll = ScrollView()
-        grid = GridLayout(cols=2, spacing=6, size_hint_y=None, padding=4)
-        grid.bind(minimum_height=grid.setter("height"))
+        # Build a categorized edit form using the same section slices
+        # as the details view so users see logical groups of fields.
+        scroll = ScrollView(do_scroll_x=False, do_scroll_y=True)
+        content = GridLayout(cols=1, spacing=4, size_hint_y=None, size_hint_x=1, padding=4)
+        content.bind(minimum_height=content.setter("height"))
 
         inputs = []
-        for f in fields:
-            lbl = Label(text=f"[b]{f.get('label')}[/b]", markup=True, size_hint_y=None)
-            ti = TextInput(text=f.get('value') or '', size_hint_y=None, height=40)
-            lbl.bind(texture_size=lbl.setter("size"))
-            grid.add_widget(lbl)
-            grid.add_widget(ti)
-            inputs.append((f.get('label'), ti))
 
-        scroll.add_widget(grid)
+        # Ensure fields is a list of dicts; fallback to generated labels if missing
+        if not isinstance(fields, list) or not fields:
+            # create placeholder fields using inspection rows
+            combined = _get_inspection_fallback_fields()
+            fields = [{"label": lbl, "value": ""} for lbl in combined]
+
+        rows = S["MESSAGES"].get("INSPECTION_ROWS", [])
+        # define same sections as in details (first slices correspond to metadata)
+        sections = [
+            (S["MESSAGES"].get("INSPECTION_SECTION_2", ""), 0, 4),
+            (S["MESSAGES"].get("INSPECTION_SECTION_3", ""), 4, 12),
+            (S["MESSAGES"].get("INSPECTION_SECTION_3A", ""), 12, 13),
+            (S["MESSAGES"].get("INSPECTION_SECTION_3B", ""), 13, 15),
+            (S["MESSAGES"].get("INSPECTION_SECTION_4", ""), 15, 18),
+            (S["MESSAGES"].get("INSPECTION_SECTION_5", ""), 18, 19),
+            (S["MESSAGES"].get("INSPECTION_SECTION_6", ""), 19, 21),
+        ]
+
+        # first 8 items are metadata in the fields list; map them directly
+        meta_items = fields[:8]
+
+        def _add_section(title, items):
+            # header
+            hdr = Button(text=title or "", size_hint_y=None, height=36)
+            try:
+                hdr.markup = True
+            except Exception:
+                pass
+            content.add_widget(hdr)
+
+            # body: rows with label + input
+            for it in items:
+                lbl_text = it.get("label") if isinstance(it, dict) else str(it)
+                val_text = it.get("value") if isinstance(it, dict) else ""
+                row = BoxLayout(orientation='horizontal', size_hint_y=None, height=40, spacing=6)
+                lbl = Label(text=f"[b]{lbl_text}[/b]", markup=True, size_hint_x=0.4, halign='left', valign='middle')
+                ti = TextInput(text=val_text or '', size_hint_x=0.6)
+                # ensure text wraps and aligns properly
+                lbl.bind(size=lambda inst, sz: setattr(inst, 'text_size', (inst.width, None)))
+                row.add_widget(lbl)
+                row.add_widget(ti)
+                content.add_widget(row)
+                inputs.append((lbl_text, ti))
+
+        # Add metadata section first
+        content.add_widget(Label(text="", size_hint_y=None, height=6))
+        meta_block = [{"label": f.get('label'), "value": f.get('value')} for f in meta_items]
+        _add_section(S["MESSAGES"].get("INSPECTION_SECTION_META", "Μεταδεδομένα"), meta_block)
+
+        # Add the rest of the sections using the rows labels and the body values
+        body = fields[8:]
+        idx = 0
+        for sec_title, start, end in sections:
+            sec_items = []
+            for i in range(start, min(end, len(rows))):
+                if idx >= len(body):
+                    sec_items.append({"label": rows[i], "value": ""})
+                else:
+                    sec_items.append({"label": rows[i], "value": body[idx].get('value')})
+                idx += 1
+            _add_section(sec_title or f"Ενότητα {start}", sec_items)
+
+        # Remaining fields (opinions / extras)
+        if idx < len(body):
+            rest_items = [{"label": f.get('label'), "value": f.get('value')} for f in body[idx:]]
+            _add_section(S["MESSAGES"].get("INSPECTION_SECTION_7", "Απόψεις"), rest_items)
+
+        scroll.add_widget(content)
         layout.add_widget(scroll)
 
         def _save(_):
@@ -487,8 +551,9 @@ def handle_inspection_details(app, inspection_id):
             from kivy.uix.boxlayout import BoxLayout
             from kivy.uix.button import Button
             from kivy.uix.textinput import TextInput
+            from kivy.clock import Clock
 
-            popup = Popup(title=S["TITLES"].get("INSPECTION_DETAILS", "Λεπτομέρειες Επιθεώρησης"), size_hint=(0.95, 0.9))
+            popup = Popup(title=S["TITLES"].get("INSPECTION_DETAILS", "Λεπτομέρειες Επιθεώρησης"), size_hint=(0.98, 0.95))
             layout = BoxLayout(orientation="vertical", spacing=8, padding=8)
 
             # Header: metadata summary
@@ -508,8 +573,12 @@ def handle_inspection_details(app, inspection_id):
             layout.add_widget(meta)
 
             # Scrollable content with collapsible sections
-            scroll = ScrollView()
-            content = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=4)
+            scroll = ScrollView(do_scroll_x=False, do_scroll_y=True)
+            # Ensure the content expands to the scrollview width so child rows
+            # receive the full available horizontal space. Setting size_hint_x=1
+            # makes the GridLayout follow the ScrollView width when laid out.
+            # reduce outer spacing so rows are closer vertically
+            content = GridLayout(cols=1, spacing=0, size_hint_y=None, size_hint_x=1, padding=4)
             content.bind(minimum_height=content.setter("height"))
 
             # Build sections using the same slices as the form builder
@@ -530,24 +599,84 @@ def handle_inspection_details(app, inspection_id):
             def _make_section(title, items, default_expanded=False):
                 # Create a collapsible section: header button and hidden body grid
                 box = BoxLayout(orientation="vertical", size_hint_y=None)
-                header = Button(text=title, size_hint_y=None, height=40)
+                header = Button(text=title, size_hint_y=None, height=32)
                 # Allow markup in header text (some titles may include markup tags)
                 try:
-                    header.font_size = '16sp'
+                    header.font_size = '14sp'
                     header.markup = True
                 except Exception:
                     pass
 
-                body_grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
-                body_grid.bind(minimum_height=body_grid.setter("height"))
+                # Use a vertical BoxLayout containing horizontal rows so we can
+                # allocate more horizontal space to the value column and allow
+                # long text to wrap instead of truncating.
+                # Make the body grid expand horizontally to the available width
+                # so each row's children (60/40) get the correct widths.
+                # Use no spacing to avoid vertical gaps between rows.
+                body_grid = BoxLayout(orientation='vertical', spacing=0, size_hint_y=None, size_hint_x=1)
+
+                def _update_box_height():
+                    try:
+                        total = 0
+                        for child in reversed(body_grid.children):
+                            total += getattr(child, 'height', 0) or 0
+                        body_grid.height = total
+                    except Exception:
+                        pass
 
                 for lbl_text, val_text in items:
-                    lbl = Label(text=f"[b]{lbl_text}[/b]", markup=True, size_hint_y=None)
-                    val = Label(text=val_text or '-', size_hint_y=None)
-                    lbl.bind(texture_size=lbl.setter("size"))
-                    val.bind(texture_size=val.setter("size"))
-                    body_grid.add_widget(lbl)
-                    body_grid.add_widget(val)
+                    # Each row should take the full horizontal space of the body grid
+                    # so its children can be allocated 60/40 correctly.
+                    row = BoxLayout(orientation='horizontal', size_hint_y=None, size_hint_x=1, spacing=0, padding=(0,0))
+                    # Left column: 60% of available width; Right column: 40%
+                    lbl = Label(text=f"[b]{lbl_text}[/b]", markup=True, size_hint_x=0.6, size_hint_y=None, halign='left', valign='top')
+                    val = Label(text=val_text or '-', size_hint_x=0.4, size_hint_y=None, halign='left', valign='top')
+
+                    # Ensure the label's text box always matches the widget width
+                    # so `halign='left'` takes effect. Bind to width changes so
+                    # wrapping and alignment update reliably during layout passes.
+                    def _bind_text_size(widget):
+                        try:
+                            widget.text_size = (widget.width, None)
+                        except Exception:
+                            pass
+
+                    lbl.bind(width=lambda inst, w: _bind_text_size(inst))
+                    val.bind(width=lambda inst, w: _bind_text_size(inst))
+
+                    def _update_row_height(*_a):
+                        try:
+                            # force wrapping to current width
+                            lbl.text_size = (lbl.width, None)
+                            val.text_size = (val.width, None)
+                            try:
+                                lbl.texture_update()
+                                val.texture_update()
+                            except Exception:
+                                pass
+                            lh = lbl.texture_size[1] if hasattr(lbl, 'texture_size') else lbl.height
+                            vh = val.texture_size[1] if hasattr(val, 'texture_size') else val.height
+                            # smaller minimum height to tighten vertical spacing
+                            h = max(14, int(max(lh, vh)))
+                            lbl.height = h
+                            val.height = h
+                            row.height = h
+                            _update_box_height()
+                        except Exception:
+                            pass
+
+                    # Bind to the row width so updates run when overall space
+                    # changes. Also bind child widths so alignment updates
+                    # immediately. Schedule an initial update after layout so
+                    # the measured widths are correct.
+                    row.bind(width=lambda inst, w: _update_row_height())
+                    lbl.bind(width=lambda inst, w: _update_row_height())
+                    val.bind(width=lambda inst, w: _update_row_height())
+                    Clock.schedule_once(lambda dt: _update_row_height(), 0)
+
+                    row.add_widget(lbl)
+                    row.add_widget(val)
+                    body_grid.add_widget(row)
 
                 # ensure box height matches children when expanded/collapsed
                 box._expanded = False
@@ -595,13 +724,13 @@ def handle_inspection_details(app, inspection_id):
                         break
                     sec_items.append((rows[i], body[idx].get('value')))
                     idx += 1
-                # expand the first section by default to improve discoverability
-                content.add_widget(_make_section(sec_title or f"Ενότητα {start}", sec_items, default_expanded=(start==0)))
+                # expand all sections by default for easier scanning
+                content.add_widget(_make_section(sec_title or f"Ενότητα {start}", sec_items, default_expanded=True))
 
             # Remaining (opinions / extras)
             if idx < len(body):
                 rest_items = [(f.get('label'), f.get('value')) for f in body[idx:]]
-                content.add_widget(_make_section(S["MESSAGES"].get("INSPECTION_SECTION_7", "Απόψεις"), rest_items))
+                content.add_widget(_make_section(S["MESSAGES"].get("INSPECTION_SECTION_7", "Απόψεις"), rest_items, default_expanded=True))
 
             scroll.add_widget(content)
             layout.add_widget(scroll)
