@@ -15,7 +15,8 @@ from settings import DB_PATH
 from strings import (STRINGS as S, get_current_language, set_current_language,
                      get_current_user, set_current_user, clear_current_user,
                      is_user_responsible_capable, is_db_compatible,
-                     get_app_version_string, get_db_version_string)
+                     get_app_version_string, get_db_version_string,
+                     get_db_path, set_db_path)
 
 # Short placeholders centralized for readability
 UNREG = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
@@ -1123,9 +1124,14 @@ class SubstationApp(App):
         popup.open()
 
     def show_settings_popup(self, instance=None):
-        """Show settings popup for language selection and user logout."""
-        popup = Popup(title=S["TITLES"].get("SETTINGS", "Ρυθμίσεις"), size_hint=(0.5, 0.5))
+        """Show settings popup for language selection, database path, and user logout."""
+        popup = Popup(title=S["TITLES"].get("SETTINGS", "Ρυθμίσεις"), size_hint=(0.6, 0.6))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        # Use scroll view to accommodate multiple settings
+        scroll = ScrollView(bar_width=10, scroll_type=["bars"])
+        content = BoxLayout(orientation="vertical", size_hint_y=None, spacing=10, padding=10)
+        content.bind(minimum_height=content.setter("height"))
 
         # Current user display
         current_user = get_current_user()
@@ -1148,7 +1154,7 @@ class SubstationApp(App):
             
             logout_btn.bind(on_press=_logout)
             user_row.add_widget(logout_btn)
-        layout.add_widget(user_row)
+        content.add_widget(user_row)
 
         # Language selection
         lang_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
@@ -1163,7 +1169,77 @@ class SubstationApp(App):
         current_label = dict(language_options).get(current_code, labels[0])
         lang_spinner = Spinner(text=current_label, values=labels)
         lang_row.add_widget(lang_spinner)
-        layout.add_widget(lang_row)
+        content.add_widget(lang_row)
+
+        # Database path display and selection
+        db_path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=80, spacing=5)
+        
+        db_path_label = Label(text=S["MESSAGES"].get("DB_PATH_LABEL", "Διαδρομή Βάσης Δεδομένων:"), size_hint_y=None, height=20)
+        db_path_row.add_widget(db_path_label)
+        
+        current_db_path = get_db_path()
+        db_path_display = Label(
+            text=current_db_path or S["MESSAGES"].get("DB_PATH_DEFAULT", "(Προεπιλεγμένη)"),
+            size_hint_y=None,
+            height=30,
+            text_size=(self.root_layout.width * 0.5, None),
+            markup=True,
+            color=(0.5, 0.5, 0.5, 1)
+        )
+        db_path_row.add_widget(db_path_display)
+        
+        db_path_btn_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        change_db_btn = Button(text=S["MESSAGES"].get("DB_PATH_BUTTON", "Αλλαγή"), size_hint_x=0.5)
+        reset_db_btn = Button(text=S["BUTTONS"].get("RESET", "Επαναφορά"), size_hint_x=0.5)
+        
+        def _change_db_path(*_args):
+            from popups import ask_open_file
+            try:
+                file_path = ask_open_file(
+                    title=S["MESSAGES"].get("DB_PATH_SELECT", "Επιλέξτε αρχείο βάσης δεδομένων"),
+                    filetypes=(("Database files", "*.db"), ("All files", "*.*"))
+                )
+                if file_path:
+                    if not os.path.exists(file_path):
+                        show_message_popup(
+                            S["TITLES"].get("ERROR", "Σφάλμα"),
+                            S["MESSAGES"].get("DB_FILE_NOT_FOUND", "Το αρχείο της βάσης δεδομένων δεν βρέθηκε!")
+                        )
+                        return
+                    if set_db_path(file_path):
+                        db_path_display.text = file_path
+                        show_message_popup(
+                            S["TITLES"].get("INFO", "Πληροφορία"),
+                            S["MESSAGES"].get(
+                                "DB_PATH_SAVED_RESTART",
+                                "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+                            ),
+                        )
+            except Exception as e:
+                show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), str(e))
+        
+        def _reset_db_path(*_args):
+            from strings import clear_db_path
+            if clear_db_path():
+                db_path_display.text = S["MESSAGES"].get("DB_PATH_DEFAULT", "(Προεπιλεγμένη)")
+                show_message_popup(
+                    S["TITLES"].get("INFO", "Πληροφορία"),
+                    S["MESSAGES"].get(
+                        "DB_PATH_SAVED_RESTART",
+                        "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+                    ),
+                )
+        
+        change_db_btn.bind(on_press=_change_db_path)
+        reset_db_btn.bind(on_press=_reset_db_path)
+        db_path_btn_row.add_widget(change_db_btn)
+        db_path_btn_row.add_widget(reset_db_btn)
+        db_path_row.add_widget(db_path_btn_row)
+        
+        content.add_widget(db_path_row)
+
+        scroll.add_widget(content)
+        layout.add_widget(scroll)
 
         buttons = BoxLayout(size_hint_y=None, height=40, spacing=10)
         apply_btn = Button(text=S["BUTTONS"].get("APPLY", "Εφαρμογή"))

@@ -77,6 +77,7 @@ STRINGS_EL = {
         "ADD_MODEL": "+ Προσθήκη Νέου Μοντέλου",
         "LOGIN": "Σύνδεση",
         "LOGOUT": "Αποσύνδεση",
+        "RESET": "Επαναφορά",
     },
 
     # Common window / popup titles
@@ -560,6 +561,14 @@ STRINGS_EL = {
         "LANGUAGE_OPTION_EL": "Ελληνικά",
         "LANGUAGE_OPTION_EN": "English",
         "LANGUAGE_SAVED_RESTART": "Η γλώσσα αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+        # --- Database Path ---
+        "DB_PATH_LABEL": "Διαδρομή Βάσης Δεδομένων:",
+        "DB_PATH_BUTTON": "Αλλαγή",
+        "DB_PATH_SAVED_RESTART": "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+        "DB_PATH_DEFAULT": "(Προεπιλεγμένη)",
+        "DB_PATH_SELECT": "Επιλέξτε αρχείο βάσης δεδομένων",
+        "DB_FILE_NOT_FOUND": "Το αρχείο της βάσης δεδομένων δεν βρέθηκε!",
+        "DB_FILE_INVALID": "Μη έγκυρο αρχείο βάσης δεδομένων!",
         # --- Login / User Session ---
         "LOGIN_TITLE": "Σύνδεση Χρήστη",
         "LOGIN_PROMPT": "Επιλέξτε το όνομά σας για να συνδεθείτε:",
@@ -692,6 +701,7 @@ STRINGS_EN = {
         "ADD_MODEL": "+ Add New Model",
         "LOGIN": "Login",
         "LOGOUT": "Logout",
+        "RESET": "Reset",
     },
     "TITLES": {
         "ERROR": "Error",
@@ -1129,6 +1139,14 @@ STRINGS_EN = {
         "LANGUAGE_OPTION_EL": "Greek",
         "LANGUAGE_OPTION_EN": "English",
         "LANGUAGE_SAVED_RESTART": "Language saved. Restart the app to apply.",
+        # --- Database Path ---
+        "DB_PATH_LABEL": "Database Path:",
+        "DB_PATH_BUTTON": "Change",
+        "DB_PATH_SAVED_RESTART": "Database path saved. Restart the app to apply.",
+        "DB_PATH_DEFAULT": "(Default)",
+        "DB_PATH_SELECT": "Select database file",
+        "DB_FILE_NOT_FOUND": "Database file not found!",
+        "DB_FILE_INVALID": "Invalid database file!",
         # --- Login / User Session ---
         "LOGIN_TITLE": "User Login",
         "LOGIN_PROMPT": "Select your name to login:",
@@ -1297,6 +1315,51 @@ def clear_current_user() -> bool:
         settings = _load_app_settings()
         if "current_user" in settings:
             del settings["current_user"]
+        _save_app_settings(settings)
+        return True
+    except Exception:
+        return False
+
+
+# Database path management
+def get_db_path() -> str:
+    """Get the current database path setting.
+    
+    Returns:
+        Database path from app_settings.json, or None if not set (uses default)
+    """
+    settings = _load_app_settings()
+    return settings.get("db_path")
+
+
+def set_db_path(db_path: str) -> bool:
+    """Save a database path setting.
+    
+    Args:
+        db_path: Full path to the database file
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        settings = _load_app_settings()
+        settings["db_path"] = str(db_path)
+        _save_app_settings(settings)
+        return True
+    except Exception:
+        return False
+
+
+def clear_db_path() -> bool:
+    """Clear the saved database path setting (revert to default).
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        settings = _load_app_settings()
+        if "db_path" in settings:
+            del settings["db_path"]
         _save_app_settings(settings)
         return True
     except Exception:
