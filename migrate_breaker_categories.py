@@ -12,8 +12,8 @@ from datetime import datetime
 from strings import STRINGS as S
 
 # derive canonical breaker element names from centralized strings when available
-ELEM_BREAKER_YT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΥΤ"), "Διακόπτης ΥΤ")
-ELEM_BREAKER_MT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΜΤ"), "Διακόπτης ΜΤ")
+ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
 try:
     from settings import DB_PATH
@@ -59,7 +59,7 @@ def normalize_breaker_categories(conn):
                 canon = "SF6"
             elif v in ("vacuum",):
                 # VACUUM mapping depends on element category (MV/HV)
-                if elem_cat == 'Διακόπτης ΥΤ':
+                if elem_cat == ELEM_BREAKER_YT:
                     canon = 'Ελαίου'
                 else:
                     canon = 'Κενού'
@@ -95,7 +95,7 @@ def normalize_breaker_categories(conn):
             if v in ("sf6", "sf-6"):
                 canon = "SF6"
             elif v in ("vacuum",):
-                if elem_type == 'Διακόπτης ΥΤ':
+                if elem_type == ELEM_BREAKER_YT:
                     canon = 'Ελαίου'
                 else:
                     canon = 'Κενού'

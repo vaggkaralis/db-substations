@@ -6,16 +6,19 @@ from strings import STRINGS as S
 
 
 def _get_inspection_fallback_fields():
-    base = [
-        "Υποσταθμός",
-        "Αρ. Δελτίου",
-        "Μήνας",
-        "Ονομ. Επιθεωρητή",
-        "Περιοχή",
-        "Ημέρα",
-        "Έτος",
-        "Ημερομηνία",
-    ]
+    base = S["MESSAGES"].get(
+        "INSPECTION_BASE_FIELDS",
+        [
+            "Υποσταθμός",
+            "Αρ. Δελτίου",
+            "Μήνας",
+            "Ονομ. Επιθεωρητή",
+            "Περιοχή",
+            "Ημέρα",
+            "Έτος",
+            "Ημερομηνία",
+        ],
+    )
 
     inspection_rows = S["MESSAGES"].get("INSPECTION_ROWS", [])
 
@@ -201,10 +204,9 @@ def import_inspections_from_file(app, file_path):
 
     app.conn.commit()
     from popups import show_message_popup
-
     show_message_popup(
-        "Εισαγωγή Επιθεωρήσεων",
-        f"Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).",
+        S["MESSAGES"].get("IMPORT_INSPECTIONS_TITLE", "Εισαγωγή Επιθεωρήσεων"),
+        S["MESSAGES"].get("IMPORT_INSPECTIONS_DONE", f"Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).").format(inserted=inserted),
         callback=lambda: app.show_inspection_history(None),
     )
 
@@ -309,7 +311,7 @@ def _show_edit_inspection_popup(app, inspection_id, fields):
             substation_name = new_fields[0].get('value') if new_fields else None
             inspection_date = None
             for nf in new_fields:
-                if nf.get('label') == 'Ημερομηνία':
+                if nf.get('label') == S["MESSAGES"].get("DATE_PLAIN", "Ημερομηνία"):
                     inspection_date = nf.get('value')
                     break
 
@@ -431,7 +433,10 @@ def show_import_inspections_dialog_delegate(app, instance):
     # Some apps expose a helper `_create_file_import_dialog`; fall back to
     # calling the app method `show_import_inspections_dialog` if present.
     if hasattr(app, "_create_file_import_dialog"):
-        return app._create_file_import_dialog("Εισαγωγή επιθεωρήσεων από αρχείο", lambda fp: import_inspections_from_file(app, fp))
+        return app._create_file_import_dialog(
+            S["MESSAGES"].get("IMPORT_INSPECTIONS_DIALOG", "Εισαγωγή επιθεωρήσεων από αρχείο"),
+            lambda fp: import_inspections_from_file(app, fp),
+        )
     return getattr(app, "show_import_inspections_dialog")(instance)
 
 
@@ -471,8 +476,8 @@ def handle_inspection_history(app, instance=None):
             except Exception:
                 pass
             show_message_popup(
-                "Ιστορικό Επιθεώρησης",
-                "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις. Θέλετε να δημιουργήσετε μία;",
+                S["TITLES"].get("INSPECTION_HISTORY", "Ιστορικό Επιθεώρησης"),
+                S["MESSAGES"].get("NO_INSPECTIONS", "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις. Θέλετε να δημιουργήσετε μία;"),
                 callback=lambda: getattr(app, "show_inspection_entry_popup")(None),
             )
         else:
@@ -481,7 +486,10 @@ def handle_inspection_history(app, instance=None):
                     instance.dismiss()
             except Exception:
                 pass
-            show_message_popup("Ιστορικό Επιθεώρησης", f"{count} εγγραφές επιθεώρησης")
+            show_message_popup(
+                S["TITLES"].get("INSPECTION_HISTORY", "Ιστορικό Επιθεώρησης"),
+                S["MESSAGES"].get("INSPECTION_COUNT_FMT", "{count} εγγραφές επιθεώρησης").format(count=count),
+            )
     except Exception:
         # Give up silently to avoid crashing the app in this fallback.
         return None
@@ -512,10 +520,10 @@ def handle_substation_inspection_history(app, substation_id, substation_name, pa
         except Exception:
             pass
 
-        show_message_popup(
-            f"Ιστορικό Επιθεώρησεων - {substation_name}",
-            f"{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}",
-        )
+            show_message_popup(
+                S["MESSAGES"].get("SUBSTATION_INSPECTION_HISTORY_TITLE_FMT", "Ιστορικό Επιθεώσεων - {substation_name}").format(substation_name=substation_name),
+                S["MESSAGES"].get("SUBSTATION_INSPECTION_COUNT_FMT", "{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}").format(count=count, substation_name=substation_name),
+            )
     except Exception:
         return None
 
@@ -561,8 +569,8 @@ def handle_inspection_details(app, inspection_id):
             # Header: metadata summary
             meta = BoxLayout(orientation="horizontal", size_hint_y=None, height=60, spacing=8)
             meta_left = BoxLayout(orientation="vertical")
-            meta_left.add_widget(Label(text=f"[b]Υποσταθμός:[/b] {sub_name or '-'}", markup=True))
-            meta_left.add_widget(Label(text=f"[b]Ημερομηνία:[/b] {insp_date}", markup=True))
+            meta_left.add_widget(Label(text=f"[b]{S['MESSAGES'].get('SUBSTATION_LABEL_PLAIN', 'Υποσταθμός')}:[/b] {sub_name or '-'}", markup=True))
+            meta_left.add_widget(Label(text=f"[b]{S['MESSAGES'].get('DATE_PLAIN', 'Ημερομηνία')}:[/b] {insp_date}", markup=True))
             meta.add_widget(meta_left)
 
             # Actions: (removed JSON export/paste - redundant in this view)
@@ -743,7 +751,10 @@ def handle_inspection_details(app, inspection_id):
         except Exception:
             from popups import show_message_popup
 
-            show_message_popup(S["TITLES"].get("INSPECTION_DETAILS", "Λεπτομέρειες Επιθεώρησης"), f"Υποσταθμός: {sub_name}\nΗμερομηνία: {insp_date}")
+            show_message_popup(
+                S["TITLES"].get("INSPECTION_DETAILS", "Λεπτομέρειες Επιθεώρησης"),
+                f"{S['MESSAGES'].get('SUBSTATION_LABEL_PLAIN','Υποσταθμός')}: {sub_name}\n{S['MESSAGES'].get('DATE_PLAIN','Ημερομηνία')}: {insp_date}",
+            )
     except Exception:
         return None
 

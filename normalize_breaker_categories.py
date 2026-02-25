@@ -10,8 +10,8 @@ from strings import STRINGS as S
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 # derive canonical breaker element names from centralized strings when available
-ELEM_BREAKER_YT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΥΤ"), "Διακόπτης ΥΤ")
-ELEM_BREAKER_MT = next((t for t in S["MESSAGES"].get("ELEMENT_TYPES", []) if t == "Διακόπτης ΜΤ"), "Διακόπτης ΜΤ")
+ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
 
 def backup_db(path):

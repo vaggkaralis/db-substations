@@ -12,6 +12,11 @@ try:
 except Exception:
     S = {"MESSAGES": {}}
 
+# Canonical breaker element names
+ELEM_BREAKER_YT = S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
+ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης")
+
 # Template version for validation
 TEMPLATE_VERSION = "v2.0"
 
@@ -30,7 +35,7 @@ VALID_BREAKER_ROLES = list(S.get("MESSAGES", {}).get("BREAKER_TYPES", ["Κεντ
 
 # Precompute canonical breaker element types from strings to avoid duplicating literals
 BREAKER_ELEMENT_TYPES = [
-    t for t in S.get("MESSAGES", {}).get("ELEMENT_TYPES", []) if "Διακόπτης" in t
+    t for t in S.get("MESSAGES", {}).get("ELEMENT_TYPES", []) if ELEMENT_BREAKER_SUBSTR in t
 ]
 
 
@@ -150,7 +155,7 @@ def _validate_required_fields(df, row_num: int, row) -> tuple[bool, list[str]]:
                     f'Γραμμή {row_num}: Άκυρος ρόλος διακόπτη "{role_str}". Επιτρεπόμενοι: Κεντρικός, Γραμμής, Διασυνδετικός, Διακόπτης Πυκνωτών'
                 )
         # HV breakers MUST be Κεντρικός
-        if element_type == "Διακόπτης ΥΤ":
+        if element_type == ELEM_BREAKER_YT:
             if pd.notna(breaker_role) and str(breaker_role).strip() not in [
                 "",
                 "Κεντρικός",
@@ -881,31 +886,31 @@ def import_elements_from_excel(
                     # Normalize element type and determine if element is a main switch
                     elem_type_str = str(element_type) if pd.notna(element_type) else ""
                     is_main_switch = 0
-                    # Convert old element types to new format
+                    # Convert old element types to canonical constants
                     if elem_type_str == "Κεντρικός Διακόπτης ΥΤ":
-                        elem_type_str = "Διακόπτης ΥΤ"
+                        elem_type_str = ELEM_BREAKER_YT
                         is_main_switch = 1
                     elif elem_type_str == "Κεντρικός Διακόπτης ΜΤ":
-                        elem_type_str = "Διακόπτης ΜΤ"
+                        elem_type_str = ELEM_BREAKER_MT
                         is_main_switch = 1
                     elif elem_type_str == "Διακόπτης Φορτίου Γραμμής ΜΤ":
-                        elem_type_str = "Διακόπτης ΜΤ"
+                        elem_type_str = ELEM_BREAKER_MT
                         is_main_switch = 0
 
                     # Map breaker role to is_main_switch for MV breakers; HV breakers are always main
-                    if elem_type_str in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                    if elem_type_str in [ELEM_BREAKER_YT, ELEM_BREAKER_MT]:
                         # HV breakers are ALWAYS main
-                        if elem_type_str == "Διακόπτης ΥΤ":
+                        if elem_type_str == ELEM_BREAKER_YT:
                             is_main_switch = 1
                         else:
                             # MV breakers: map from Breaker Role column
-                            if breaker_role == "Κεντρικός":
+                            if breaker_role == S.get("MESSAGES", {}).get("BREAKER_ROLE_MAIN", "Κεντρικός"):
                                 is_main_switch = 1
-                            elif breaker_role == "Διασυνδετικός":
+                            elif breaker_role == S.get("MESSAGES", {}).get("BREAKER_ROLE_INTERCONNECT", "Διασυνδετικός"):
                                 is_main_switch = 2
-                            elif breaker_role == "Διακόπτης Πυκνωτών":
+                            elif breaker_role == S.get("MESSAGES", {}).get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"):
                                 is_main_switch = 3
-                            elif breaker_role == "Γραμμής":
+                            elif breaker_role == S.get("MESSAGES", {}).get("BREAKER_ROLE_LINE", "Γραμμής"):
                                 is_main_switch = 0
                             else:
                                 # Empty or unknown defaults to line breaker
@@ -1444,31 +1449,31 @@ def import_elements_from_csv(
                     # Normalize element type and determine if element is a main switch
                     elem_type_str = str(element_type) if pd.notna(element_type) else ""
                     is_main_switch = 0
-                    # Convert old element types to new format
+                    # Convert old element types to canonical constants
                     if elem_type_str == "Κεντρικός Διακόπτης ΥΤ":
-                        elem_type_str = "Διακόπτης ΥΤ"
+                        elem_type_str = ELEM_BREAKER_YT
                         is_main_switch = 1
                     elif elem_type_str == "Κεντρικός Διακόπτης ΜΤ":
-                        elem_type_str = "Διακόπτης ΜΤ"
+                        elem_type_str = ELEM_BREAKER_MT
                         is_main_switch = 1
                     elif elem_type_str == "Διακόπτης Φορτίου Γραμμής ΜΤ":
-                        elem_type_str = "Διακόπτης ΜΤ"
+                        elem_type_str = ELEM_BREAKER_MT
                         is_main_switch = 0
 
                     # Map breaker role to is_main_switch for MV breakers; HV breakers are always main
-                    if elem_type_str in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+                    if elem_type_str in [ELEM_BREAKER_YT, ELEM_BREAKER_MT]:
                         # HV breakers are ALWAYS main
-                        if elem_type_str == "Διακόπτης ΥΤ":
+                        if elem_type_str == ELEM_BREAKER_YT:
                             is_main_switch = 1
                         else:
                             # MV breakers: map from Breaker Role column
-                            if breaker_role == "Κεντρικός":
+                            if breaker_role == S.get("MESSAGES", {}).get("BREAKER_ROLE_MAIN", "Κεντρικός"):
                                 is_main_switch = 1
-                            elif breaker_role == "Διασυνδετικός":
+                            elif breaker_role == S.get("MESSAGES", {}).get("BREAKER_ROLE_INTERCONNECT", "Διασυνδετικός"):
                                 is_main_switch = 2
-                            elif breaker_role == "Διακόπτης Πυκνωτών":
+                            elif breaker_role == S.get("MESSAGES", {}).get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"):
                                 is_main_switch = 3
-                            elif breaker_role == "Γραμμής":
+                            elif breaker_role == S.get("MESSAGES", {}).get("BREAKER_ROLE_LINE", "Γραμμής"):
                                 is_main_switch = 0
                             else:
                                 # Empty or unknown defaults to line breaker

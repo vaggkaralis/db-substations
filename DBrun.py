@@ -213,8 +213,8 @@ class SubstationApp(App):
     ELEMENT_TYPES = S["MESSAGES"].get("ELEMENT_TYPES", [])
     BREAKER_CATEGORIES_ALL = S["MESSAGES"].get("BREAKER_CATEGORIES_ALL", ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"])  # All breaker categories
     # Derive canonical breaker element names from centralized ELEMENT_TYPES
-    ELEM_BREAKER_YT = next((t for t in ELEMENT_TYPES if t == "Διακόπτης ΥΤ"), "Διακόπτης ΥΤ")
-    ELEM_BREAKER_MT = next((t for t in ELEMENT_TYPES if t == "Διακόπτης ΜΤ"), "Διακόπτης ΜΤ")
+    ELEM_BREAKER_YT = next((t for t in ELEMENT_TYPES if t == S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")), S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"))
+    ELEM_BREAKER_MT = next((t for t in ELEMENT_TYPES if t == S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")), S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"))
     BREAKER_ELEMENT_TYPES = [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
 
     def _format_elem_type(self, elem_type, is_main_switch):
@@ -226,17 +226,17 @@ class SubstationApp(App):
             return elem_type
         try:
             if elem_type == self.ELEM_BREAKER_YT:
-                label = "Κεντρικός"
+                label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
             elif is_main_switch == 1:
-                label = "Κεντρικός"
+                label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
             elif is_main_switch == 2:
-                label = "Διασυνδετικός"
+                label = S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός")
             elif is_main_switch == 3:
-                label = "Διακόπτης Πυκνωτών"
+                label = S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών")
             else:
-                label = "Γραμμής"
+                label = S["MESSAGES"].get("BREAKER_LABEL_LINE", "Γραμμής")
         except Exception:
-            label = "Γραμμής"
+            label = S["MESSAGES"].get("BREAKER_LABEL_LINE", "Γραμμής")
         return f"{elem_type} ({label})"
     BREAKER_CATEGORIES_HV = S["MESSAGES"].get("BREAKER_CATEGORIES_HV", ["SF6", "Ελαίου"])  # HV breaker categories
     BREAKER_CATEGORIES_MV = S["MESSAGES"].get("BREAKER_CATEGORIES_MV", ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"])  # MV breaker categories
@@ -1117,14 +1117,16 @@ class SubstationApp(App):
 
     def _build_maintenance_name(self, substation_name, date_time_str):
         formatted_date = self._format_maintenance_date(date_time_str)
-        return f"Υ/Σ {substation_name} - DATE {formatted_date}"
+        return S["MESSAGES"].get("MAINTENANCE_NAME_FMT", "Υ/Σ {substation_name} - {date}").format(
+            substation_name=substation_name, date=formatted_date
+        )
 
     def _derive_voltage_level(self, element_type: str) -> str:
         if self._is_transformer(element_type):
             return "150/20KV"
-        if element_type == "Διακόπτης ΜΤ":
+        if element_type == self.ELEM_BREAKER_MT:
             return "20KV"
-        if element_type == "Διακόπτης ΥΤ":
+        if element_type == self.ELEM_BREAKER_YT:
             return "150KV"
         if element_type == "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)":
             return "20KV/400V"
@@ -1195,8 +1197,11 @@ class SubstationApp(App):
         usage_count = c.fetchone()[0]
         if usage_count > 0:
             show_message_popup(
-                "Πληροφορία",
-                "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.",
+                S["TITLES"].get("INFO", "Πληροφορία"),
+                S["MESSAGES"].get(
+                    "PERSON_IN_USE",
+                    "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.",
+                ),
             )
             return
 
@@ -1210,7 +1215,10 @@ class SubstationApp(App):
 
         show_confirm(
             S["MESSAGES"].get("CONFIRM_DELETE_TITLE", "Επιβεβαίωση Διαγραφής"),
-            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
+            S["MESSAGES"].get(
+                "CONFIRM_DELETE_PERSON_FMT",
+                S["MESSAGES"].get("CONFIRM_DELETE_PERSON_FMT", "Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο \"{person_name}\";"),
+            ).format(person_name=person_name),
             yes_callback=confirm_delete,
             yes_color=(1, 0, 0, 1),
             yes_text=S["BUTTONS"]["YES"].upper(),
@@ -1362,8 +1370,8 @@ class SubstationApp(App):
 
     def _element_type_report_label(self, element_type):
         mapping = {
-            "Διακόπτης ΜΤ": "διακόπτες Μέσης Τάσης",
-            "Διακόπτης ΥΤ": "διακόπτες Υψηλής Τάσης",
+            self.ELEM_BREAKER_MT: "διακόπτες Μέσης Τάσης",
+            self.ELEM_BREAKER_YT: "διακόπτες Υψηλής Τάσης",
             "Μετασχηματιστής 150/20KV": "μετασχηματιστές 150/20KV",
             "Motor Drive": "motor drives",
             "Μ/Σ Εγχύσεως": "Μ/Σ Εγχύσεως",
@@ -1433,8 +1441,7 @@ class SubstationApp(App):
         lines.append(f"Αναφορά Συντήρησης: {display_name}")
         lines.append(f"Υποσταθμός: {substation_name}")
         lines.append(f"{S['MESSAGES'].get('DATE_LABEL','Ημερομηνία')}: {date_time}")
-        lines.append(f"Υπεύθυνος: {resp_text}")
-        lines.append(f"Ομάδα: {crew_text}")
+        lines.append(S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text))
         lines.append("")
 
         for elem_type, names in grouped.items():
@@ -1605,7 +1612,7 @@ class SubstationApp(App):
 
         fields_inputs = []
 
-        greek_months = [
+        greek_months = S["MESSAGES"].get("MONTHS", [
             "Ιανουάριος",
             "Φεβρουάριος",
             "Μάρτιος",
@@ -1618,8 +1625,8 @@ class SubstationApp(App):
             "Οκτώβριος",
             "Νοέμβριος",
             "Δεκέμβριος",
-        ]
-        greek_days = [
+        ])
+        greek_days = S["MESSAGES"].get("DAYS", [
             "Δευτέρα",
             "Τρίτη",
             "Τετάρτη",
@@ -1627,7 +1634,7 @@ class SubstationApp(App):
             "Παρασκευή",
             "Σάββατο",
             "Κυριακή",
-        ]
+        ])
 
         def update_date_meta(_instance=None, text=None):
             parsed = self._parse_inspection_date(date_input.text.strip())
@@ -1789,46 +1796,46 @@ class SubstationApp(App):
             month_key = self._derive_month_key(inspection_date)
 
             fields = []
-            fields.append({"label": "Υποσταθμός", "value": substation_name})
+            fields.append({"label": S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός:"), "value": substation_name})
             fields.append(
                 {
-                    "label": "Αρ. Δελτίου",
+                    "label": S["MESSAGES"].get("FORM_NUMBER", "Αρ. Δελτίου:"),
                     "value": self._format_inspection_value(form_number_input.text),
                 }
             )
             fields.append(
                 {
-                    "label": "Περιοχή",
+                    "label": S["MESSAGES"].get("REGION_LABEL", "Περιοχή:"),
                     "value": self._format_inspection_value(region_input.text),
                 }
             )
             fields.append(
                 {
-                    "label": "Ονομ. Επιθεωρητή",
+                    "label": S["MESSAGES"].get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
                     "value": self._format_inspection_value(inspector_spinner.text),
                 }
             )
             fields.append(
                 {
-                    "label": "Μήνας",
+                    "label": S["MESSAGES"].get("MONTH_LABEL", "Μήνας:"),
                     "value": self._format_inspection_value(month_input.text),
                 }
             )
             fields.append(
                 {
-                    "label": "Ημέρα",
+                    "label": S["MESSAGES"].get("DAY_LABEL", "Ημέρα:"),
                     "value": self._format_inspection_value(day_input.text),
                 }
             )
             fields.append(
                 {
-                    "label": "Έτος",
+                    "label": S["MESSAGES"].get("YEAR_LABEL", "Έτος:"),
                     "value": self._format_inspection_value(year_input.text),
                 }
             )
             fields.append(
                 {
-                    "label": "Ημερομηνία",
+                    "label": S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία:"),
                     "value": self._format_inspection_value(inspection_date),
                 }
             )
@@ -1987,17 +1994,18 @@ class SubstationApp(App):
 
             # Controls: substation spinner, search box, page size, sort, lazy/load-more
             ctrl_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
-            ALL_SUBS = "Όλοι οι Υ/Σ"
+            ALL_SUBS = S["MESSAGES"].get("ALL_SUBSTATIONS_LABEL", "Όλοι οι Υ/Σ")
             options = [ALL_SUBS] + [s[1] or "-" for s in subs]
             sub_spinner = Spinner(text=options[0], values=options, size_hint_x=0.34)
             # single-line search input so Enter does not insert a newline
-            search_input = TextInput(hint_text="Αναζήτηση (όνομα/ημερομηνία)", size_hint_x=0.30, multiline=False)
+            search_input = TextInput(hint_text=S["MESSAGES"].get("SEARCH_HINT", "Αναζήτηση (όνομα/ημερομηνία)"), size_hint_x=0.30, multiline=False)
             # Sort options: explicit text avoids glyph/arrow corruption in some fonts
-            sort_spinner = Spinner(text='Ημερομηνία (φθίνουσα)', values=('Ημερομηνία (φθίνουσα)','Ημερομηνία (αύξουσα)','Υποσταθμός A-Ω'), size_hint_x=0.16)
+            sort_opts = S["MESSAGES"].get("SORT_OPTIONS", ["Ημερομηνία (φθίνουσα)", "Ημερομηνία (αύξουσα)", "Υποσταθμός A-Ω"])
+            sort_spinner = Spinner(text=sort_opts[0], values=tuple(sort_opts), size_hint_x=0.16)
             # Page-size control with a small header so users understand purpose
-            page_label_header = Label(text='Αντικείμενα/σελίδα', size_hint_x=0.08)
-            page_size_spinner = Spinner(text='30', values=('10','20','30','50'), size_hint_x=0.08)
-            lazy_toggle = ToggleButton(text='Load more', state='normal', size_hint_x=0.14)
+            page_label_header = Label(text=S["MESSAGES"].get("PAGE_SIZE_LABEL", 'Αντικείμενα/σελίδα'), size_hint_x=0.08)
+            page_size_spinner = Spinner(text=S["MESSAGES"].get("PAGE_SIZE_OPTIONS", ['10','20','30','50'])[2], values=tuple(S["MESSAGES"].get("PAGE_SIZE_OPTIONS", ['10','20','30','50'])), size_hint_x=0.08)
+            lazy_toggle = ToggleButton(text=S["MESSAGES"].get("LOAD_MORE", 'Load more'), state='normal', size_hint_x=0.14)
             ctrl_row.add_widget(sub_spinner)
             ctrl_row.add_widget(search_input)
             ctrl_row.add_widget(sort_spinner)
@@ -2022,10 +2030,10 @@ class SubstationApp(App):
 
             # Pagination / load-more controls
             pager = BoxLayout(size_hint_y=None, height=40, spacing=8)
-            prev_btn = Button(text="Προηγούμενη")
-            next_btn = Button(text="Επόμενη")
-            load_more_btn = Button(text="Φόρτωση περισσότερων")
-            page_label = Label(text="Σελίδα 1", size_hint_x=0.4)
+            prev_btn = Button(text=S["MESSAGES"].get("PREVIOUS", "Προηγούμενη"))
+            next_btn = Button(text=S["MESSAGES"].get("NEXT", "Επόμενη"))
+            load_more_btn = Button(text=S["MESSAGES"].get("LOAD_MORE", "Φόρτωση περισσότερων"))
+            page_label = Label(text=S["MESSAGES"].get("PAGE_LABEL_TEMPLATE", "Σελίδα {page}").format(page=1), size_hint_x=0.4)
             pager.add_widget(prev_btn)
             pager.add_widget(page_label)
             pager.add_widget(next_btn)
@@ -2246,7 +2254,7 @@ class SubstationApp(App):
                                         state['total'] = None
                                         _render()
 
-                                    show_confirm("Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
+                                    show_confirm(S["MESSAGES"].get("CONFIRM_DELETE_TITLE", "Επιβεβαίωση Διαγραφής"), f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text=S["BUTTONS"].get("YES", "Ναι"), no_text=S["BUTTONS"].get("NO", "Όχι"))
 
                                 delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0, 0, 1), size=(44, 36))
                                 delete_btn.bind(on_press=lambda _btn, i=rid: _confirm_delete(i))
@@ -2307,7 +2315,7 @@ class SubstationApp(App):
                                     state['total'] = None
                                     _render()
 
-                                show_confirm("Επιβεβαίωση διαγραφής", f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text='ΝΑΙ', no_text='ΟΧΙ')
+                                show_confirm(S["MESSAGES"].get("CONFIRM_DELETE_TITLE", "Επιβεβαίωση Διαγραφής"), f"Διαγραφή επιθεώρησης για {sname_local} ({date_local}); είστε σίγουροι;", yes_callback=_do_delete, yes_color=(1,0,0,1), yes_text=S["BUTTONS"].get("YES", "Ναι"), no_text=S["BUTTONS"].get("NO", "Όχι"))
 
                             delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0, 0, 1), size=(44, 36))
                             delete_btn.bind(on_press=lambda _btn, i=rid: _confirm_delete(i))
@@ -2361,9 +2369,10 @@ class SubstationApp(App):
                 _render()
 
             def _on_sort_change(_spinner, text):
-                if text == 'Ημερομηνία (αύξουσα)':
+                sort_opts = S["MESSAGES"].get("SORT_OPTIONS", ["Ημερομηνία (φθίνουσα)", "Ημερομηνία (αύξουσα)", "Υποσταθμός A-Ω"])
+                if text == sort_opts[1]:
                     state['order'] = 'date_asc'
-                elif text == 'Υποσταθμός A-Ω':
+                elif text == sort_opts[2]:
                     state['order'] = 'substation_asc'
                 else:
                     state['order'] = 'date_desc'
@@ -2429,9 +2438,11 @@ class SubstationApp(App):
         num_gates = len(transformers)
 
         # Regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, ...
-        regular = [f"ΠΥΛΗ {i + 1}" for i in range(num_gates)]
+        gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+        # Regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, ...
+        regular = [f"{gate_prefix} {i + 1}" for i in range(num_gates)]
         # Interconnection gates: ΠΥΛΗ 1-2, ΠΥΛΗ 2-3, ...
-        inter = [f"ΠΥΛΗ {i}-{i + 1}" for i in range(1, num_gates)]
+        inter = [f"{gate_prefix} {i}-{i + 1}" for i in range(1, num_gates)]
 
         if is_interconnection is True:
             gates = inter
@@ -2589,8 +2600,8 @@ class SubstationApp(App):
             popup.dismiss()
             parent_popup.dismiss()
             show_message_popup(
-                "Επιτυχία",
-                "Υποσταθμός προστέθηκε!",
+                S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                S["MESSAGES"].get("SUBSTATION_ADDED", "Υποσταθμός προστέθηκε!"),
                 callback=lambda: self.show_records(None),
             )
 
@@ -2838,8 +2849,8 @@ class SubstationApp(App):
 
             c.execute(
                 f"SELECT substation_id, COUNT(*) FROM elements WHERE substation_id IN ({placeholders}) "
-                "AND element_type='Διακόπτης ΜΤ' AND is_main_switch=3 GROUP BY substation_id",
-                sub_ids,
+                "AND element_type=? AND is_main_switch=3 GROUP BY substation_id",
+                sub_ids + [self.ELEM_BREAKER_MT],
             )
             capacitor_count_map = {sid: cnt for sid, cnt in c.fetchall()}
 
@@ -3158,10 +3169,11 @@ class SubstationApp(App):
                     "SELECT DISTINCT element_type FROM elements WHERE substation_id=? AND (operating_status IS NULL OR operating_status='Ενεργή') ORDER BY element_type",
                     (sub_id,),
                 )
-                type_values = ["(Όλα)"] + [row[0] for row in c.fetchall() if row[0]]
-                current_type_filter = element_type_filter or "(Όλα)"
+                all_label = S["MESSAGES"].get("ALL_LABEL", "(Όλα)")
+                type_values = [all_label] + [row[0] for row in c.fetchall() if row[0]]
+                current_type_filter = element_type_filter or all_label
                 if current_type_filter not in type_values:
-                    current_type_filter = "(Όλα)"
+                    current_type_filter = all_label
 
                 gate_query = "SELECT DISTINCT gate FROM elements WHERE substation_id=? AND (operating_status IS NULL OR operating_status='Ενεργή')"
                 gate_params = [sub_id]
@@ -3178,18 +3190,16 @@ class SubstationApp(App):
                     for gate in raw_gates
                     if gate is not None and str(gate).strip() != ""
                 }
-                gate_values = ["(Όλα)"]
-                gate_values.extend(
-                    sorted([g for g in gate_set if g.startswith("ΠΥΛΗ")])
-                )
-                gate_values.extend(
-                    sorted([g for g in gate_set if not g.startswith("ΠΥΛΗ")])
-                )
+                gate_values = [all_label]
+                # Ensure we have a gate prefix available in this scope for sorting
+                gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+                gate_values.extend(sorted([g for g in gate_set if g.startswith(gate_prefix)]))
+                gate_values.extend(sorted([g for g in gate_set if not g.startswith(gate_prefix)]))
                 if has_unassigned:
                     gate_values.append(UNREG)
-                current_gate_filter = gate_filter or "(Όλα)"
+                current_gate_filter = gate_filter or all_label
                 if current_gate_filter not in gate_values:
-                    current_gate_filter = "(Όλα)"
+                    current_gate_filter = all_label
 
                 filter_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
                 filter_layout.add_widget(Label(text=S["MESSAGES"].get("FILTER_TYPE", "Φίλτρο Τύπου:"), size_hint_x=0.2))
@@ -3261,26 +3271,26 @@ class SubstationApp(App):
                         ) = elem
 
                         # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV line breakers, MV capacitor breakers, rest
-                        if elem_type == "Διακόπτης ΥΤ":
+                        if elem_type == self.ELEM_BREAKER_YT:
                             return (1, elem_name)
                         elif self._is_transformer(elem_type):
                             return (2, elem_name)
                         elif elem_type == "Motor Drive":
                             return (3, elem_name)
                         elif (
-                            elem_type == "Διακόπτης ΜΤ" and is_main_switch == 1
+                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 1
                         ):  # Main breaker
                             return (4, elem_name)
                         elif (
-                            elem_type == "Διακόπτης ΜΤ" and is_main_switch == 2
+                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 2
                         ):  # Interconnection breaker
                             return (5, elem_name)
                         elif (
-                            elem_type == "Διακόπτης ΜΤ" and is_main_switch == 0
+                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 0
                         ):  # Line breaker
                             return (6, elem_name)
                         elif (
-                            elem_type == "Διακόπτης ΜΤ" and is_main_switch == 3
+                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 3
                         ):  # Capacitor breaker
                             return (7, elem_name)
                         else:
@@ -3403,15 +3413,15 @@ class SubstationApp(App):
 
                             # Create element text with multiple lines for better readability
                             # Add breaker type label for circuit breakers
-                            if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-                                if elem_type == "Διακόπτης ΥΤ":
-                                    breaker_type_label = "Κεντρικός"
+                            if elem_type in self.BREAKER_ELEMENT_TYPES:
+                                if elem_type == self.ELEM_BREAKER_YT:
+                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
                                 elif is_main_switch == 1:
-                                    breaker_type_label = "Κεντρικός"
+                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
                                 elif is_main_switch == 2:
-                                    breaker_type_label = "Διασυνδετικός"
+                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός")
                                 elif is_main_switch == 3:
-                                    breaker_type_label = "Διακόπτης Πυκνωτών"
+                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών")
                                 else:
                                     breaker_type_label = "Γραμμής"
                                 elem_type = self._format_elem_type(elem_type, is_main_switch)
@@ -3839,7 +3849,9 @@ class SubstationApp(App):
     def import_substations_from_file(self, file_path):
         def on_success(message):
             show_message_popup(
-                "Εισαγωγή Υποσταθμών", message, callback=lambda: self.show_records(None)
+                S["TITLES"].get("IMPORT_SUBSTATIONS_TITLE", "Εισαγωγή Υποσταθμών"),
+                message,
+                callback=lambda: self.show_records(None),
             )
 
         def on_error(message):
@@ -3890,7 +3902,7 @@ class SubstationApp(App):
             f"Κατασκευαστής: {manufacturer or '-'} ({manufacture_year or '-'})",
             f"Χώρος: {installation_space or '-'}",
             f"Ισχύς: {power_display}",
-            f"Τελευταία Συντήρηση: {maintenance_date or '-'}",
+            S["MESSAGES"].get("MAINT_LAST_LABEL", "Τελευταία Συντήρηση: {date}").format(date=maintenance_date or "-"),
         ]
 
         layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
@@ -3974,7 +3986,7 @@ class SubstationApp(App):
         selected_display_name = None
 
         # Filter models for circuit breakers by breaker category
-        if element_category in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"] and breaker_category:
+        if element_category in [self.ELEM_BREAKER_MT, self.ELEM_BREAKER_YT] and breaker_category:
             filtered_models = [
                 m
                 for m in models
@@ -4961,7 +4973,7 @@ class SubstationApp(App):
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",
-            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτον υποσταθμό "{substation_name}"\nκαι ΟΛΑ τα στοιχεία του;',
+            S["MESSAGES"].get("CONFIRM_DELETE_SUBSTATION_FMT", f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτον υποσταθμό "{substation_name}"\nκαι ΟΛΑ τα στοιχεία του;'),
             yes_callback=confirm,
             yes_color=(1, 0, 0, 1),
             yes_text="ΝΑΙ",
@@ -5295,8 +5307,8 @@ class SubstationApp(App):
         people = c.fetchall()
         if not people:
             show_message_popup(
-                "Σφάλμα",
-                "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("NO_PEOPLE", "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό."),
                 callback=lambda: self.show_people_management(None),
             )
             return
@@ -5314,8 +5326,8 @@ class SubstationApp(App):
 
         if not responsible_people:
             show_message_popup(
-                "Σφάλμα",
-                "Δεν υπάρχει διαθέσιμος υπεύθυνος συντήρησης με τα κατάλληλα δικαιώματα. Προσθέστε ή ενημερώστε προσωπικό.",
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("NO_AVAILABLE_RESPONSIBLE", "Δεν υπάρχει διαθέσιμος υπεύθυνος συντήρησης με τα κατάλληλα δικαιώματα. Προσθέστε ή ενημερώστε προσωπικό."),
                 callback=lambda: self.show_people_management(None),
             )
             return
@@ -5580,26 +5592,26 @@ class SubstationApp(App):
                 ) = elem
 
                 # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
-                if elem_type == "Διακόπτης ΥΤ":
+                if elem_type == self.ELEM_BREAKER_YT:
                     return (1, elem_name)
                 elif self._is_transformer(elem_type):
                     return (2, elem_name)
                 elif elem_type == "Motor Drive":
                     return (3, elem_name)
                 elif (
-                    elem_type == "Διακόπτης ΜΤ" and is_main_switch == 1
+                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 1
                 ):  # Main breaker
                     return (4, elem_name)
                 elif (
-                    elem_type == "Διακόπτης ΜΤ" and is_main_switch == 2
+                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 2
                 ):  # Interconnection breaker
                     return (5, elem_name)
                 elif (
-                    elem_type == "Διακόπτης ΜΤ" and is_main_switch == 0
+                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 0
                 ):  # Line breaker
                     return (6, elem_name)
                 elif (
-                    elem_type == "Διακόπτης ΜΤ" and is_main_switch == 3
+                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 3
                 ):  # Capacitor breaker
                     return (7, elem_name)
                 else:
@@ -5671,7 +5683,7 @@ class SubstationApp(App):
                     model_name,
                 ) in gate_elements:
                     # Determine if this is a circuit breaker for showing measurement fields
-                    is_breaker = elem_type in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]
+                    is_breaker = elem_type in self.BREAKER_ELEMENT_TYPES
 
                     # Build element display text with breaker type, manufacturer, and model
                     display_type = self._format_elem_type(elem_type, is_main_switch)
@@ -5743,8 +5755,8 @@ class SubstationApp(App):
                         # Additional diagnostics: print transformer-detection result
                         # transformer detection logging removed
 
-                        is_hv_oil = (elem_type == "Διακόπτης ΥΤ" and breaker_category == "Ελαίου")
-                        is_hv_sf6 = (elem_type == "Διακόπτης ΥΤ" and breaker_category == "SF6")
+                        is_hv_oil = (elem_type == self.ELEM_BREAKER_YT and breaker_category == "Ελαίου")
+                        is_hv_sf6 = (elem_type == self.ELEM_BREAKER_YT and breaker_category == "SF6")
 
                         # build_details_for START
 
@@ -6128,7 +6140,7 @@ class SubstationApp(App):
                                 details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ", multiline=False, size_hint_y=None, height=30))
 
                                 # Diverter resistance measurements (6 values: H1 x2, H2 x2, H3 x2)
-                                details_container.add_widget(Label(text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)", size_hint_y=None, height=25, bold=True))
+                                details_container.add_widget(Label(text=S["MESSAGES"].get("MEASUREMENT_RESISTANCE_HEADER", "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)"), size_hint_y=None, height=25, bold=True))
                                 div_row1 = BoxLayout(size_hint_y=None, height=32)
                                 div_h1_a = TextInput(hint_text="H1-1", multiline=False)
                                 div_h1_b = TextInput(hint_text="H1-2", multiline=False)
@@ -6190,7 +6202,7 @@ class SubstationApp(App):
                             # Legacy breaker measurement UI (MV and other categories)
                             details_container.add_widget(
                                 Label(
-                                    text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ (Φ-ΓΗ):",
+                                    text=S["MESSAGES"].get("INSULATION_MEASUREMENT_CLOSED_HEADER", "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ (Φ-ΓΗ):"),
                                     size_hint_y=None,
                                     height=25,
                                     bold=True,
@@ -6198,8 +6210,8 @@ class SubstationApp(App):
                             )
 
                             closed_fa_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            closed_fa_layout.add_widget(Label(text="ΦΑ-ΓΗ:", size_hint_x=0.15))
-                            ins_closed_fa = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
+                            closed_fa_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FA_GND", "ΦΑ-Γη:"), size_hint_x=0.15))
+                            ins_closed_fa = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.35, multiline=False)
                             closed_fa_layout.add_widget(ins_closed_fa)
                             ins_closed_fa_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             closed_fa_layout.add_widget(ins_closed_fa_unit)
@@ -6207,8 +6219,8 @@ class SubstationApp(App):
                             details_container.add_widget(closed_fa_layout)
 
                             closed_fb_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            closed_fb_layout.add_widget(Label(text="ΦΒ-ΓΗ:", size_hint_x=0.15))
-                            ins_closed_fb = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
+                            closed_fb_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FB_GND", "ΦΒ-Γη:"), size_hint_x=0.15))
+                            ins_closed_fb = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.35, multiline=False)
                             closed_fb_layout.add_widget(ins_closed_fb)
                             ins_closed_fb_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             closed_fb_layout.add_widget(ins_closed_fb_unit)
@@ -6216,18 +6228,18 @@ class SubstationApp(App):
                             details_container.add_widget(closed_fb_layout)
 
                             closed_fc_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            closed_fc_layout.add_widget(Label(text="ΦΓ-ΓΗ:", size_hint_x=0.15))
-                            ins_closed_fc = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
+                            closed_fc_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FC_GND", "ΦΓ-Γη:"), size_hint_x=0.15))
+                            ins_closed_fc = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.35, multiline=False)
                             closed_fc_layout.add_widget(ins_closed_fc)
                             ins_closed_fc_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             closed_fc_layout.add_widget(ins_closed_fc_unit)
                             closed_fc_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(closed_fc_layout)
 
-                            details_container.add_widget(Label(text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (Φ-Φ):", size_hint_y=None, height=25, bold=True))
+                            details_container.add_widget(Label(text=S["MESSAGES"].get("INSULATION_MEASUREMENT_OPEN_HEADER", "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (Φ-Φ):"), size_hint_y=None, height=25, bold=True))
                             open_fa_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            open_fa_layout.add_widget(Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15))
-                            ins_open_fa = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
+                            open_fa_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
+                            ins_open_fa = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.35, multiline=False)
                             open_fa_layout.add_widget(ins_open_fa)
                             ins_open_fa_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             open_fa_layout.add_widget(ins_open_fa_unit)
@@ -6235,8 +6247,8 @@ class SubstationApp(App):
                             details_container.add_widget(open_fa_layout)
 
                             open_fb_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            open_fb_layout.add_widget(Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15))
-                            ins_open_fb = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
+                            open_fb_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ:"), size_hint_x=0.15))
+                            ins_open_fb = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.35, multiline=False)
                             open_fb_layout.add_widget(ins_open_fb)
                             ins_open_fb_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             open_fb_layout.add_widget(ins_open_fb_unit)
@@ -6244,24 +6256,24 @@ class SubstationApp(App):
                             details_container.add_widget(open_fb_layout)
 
                             open_fc_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            open_fc_layout.add_widget(Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15))
-                            ins_open_fc = TextInput(hint_text="0.0", size_hint_x=0.35, multiline=False)
+                            open_fc_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FC", "ΦΓ-ΦΓ:"), size_hint_x=0.15))
+                            ins_open_fc = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.35, multiline=False)
                             open_fc_layout.add_widget(ins_open_fc)
                             ins_open_fc_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
                             open_fc_layout.add_widget(ins_open_fc_unit)
                             open_fc_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(open_fc_layout)
 
-                            details_container.add_widget(Label(text="ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (μΩ) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:", size_hint_y=None, height=25, bold=True))
+                            details_container.add_widget(Label(text=S["MESSAGES"].get("INSULATION_PASSAGE_MEASUREMENT_CLOSED_HEADER", "ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (μΩ) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:"), size_hint_y=None, height=25, bold=True))
                             contact_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            contact_layout.add_widget(Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15))
-                            cont_fa = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
+                            contact_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
+                            cont_fa = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                             contact_layout.add_widget(cont_fa)
-                            contact_layout.add_widget(Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15))
-                            cont_fb = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
+                            contact_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ:"), size_hint_x=0.15))
+                            cont_fb = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                             contact_layout.add_widget(cont_fb)
-                            contact_layout.add_widget(Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15))
-                            cont_fc = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
+                            contact_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FC", "ΦΓ-ΦΓ:"), size_hint_x=0.15))
+                            cont_fc = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                             contact_layout.add_widget(cont_fc)
                             details_container.add_widget(contact_layout)
 
@@ -6409,10 +6421,10 @@ class SubstationApp(App):
                                 sf6_methodology_input = None
 
                             # VIDAR (vacuum) inputs for MV Vacuum breakers (single-row layout)
-                            if elem_type == "Διακόπτης ΜΤ" and breaker_category in ["Vacuum", "Κενού"]:
+                            if elem_type == self.ELEM_BREAKER_MT and breaker_category in ["Vacuum", "Κενού"]:
                                 details_container.add_widget(
                                     Label(
-                                        text="ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):",
+                                        text=S["MESSAGES"].get("VIDAR_VACUUM_CHECK_LABEL", "ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):"),
                                         size_hint_y=None,
                                         height=25,
                                         bold=True,
@@ -6420,14 +6432,14 @@ class SubstationApp(App):
                                 )
 
                                 vidar_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                                vidar_layout.add_widget(Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15))
-                                vidar_fa = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
+                                vidar_layout.add_widget(Label(text=S["MESSAGES"].get("VIDAR_LABEL_FA", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
+                                vidar_fa = TextInput(hint_text=S["MESSAGES"].get("VIDAR_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                                 vidar_layout.add_widget(vidar_fa)
-                                vidar_layout.add_widget(Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15))
-                                vidar_fb = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
+                                vidar_layout.add_widget(Label(text=S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ:"), size_hint_x=0.15))
+                                vidar_fb = TextInput(hint_text=S["MESSAGES"].get("VIDAR_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                                 vidar_layout.add_widget(vidar_fb)
-                                vidar_layout.add_widget(Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15))
-                                vidar_fc = TextInput(hint_text="0.0", size_hint_x=0.25, multiline=False)
+                                vidar_layout.add_widget(Label(text=S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ:"), size_hint_x=0.15))
+                                vidar_fc = TextInput(hint_text=S["MESSAGES"].get("VIDAR_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                                 vidar_layout.add_widget(vidar_fc)
                                 details_container.add_widget(vidar_layout)
 
@@ -6551,7 +6563,7 @@ class SubstationApp(App):
                                     details_container.add_widget(TextInput(hint_text="ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ", multiline=False, size_hint_y=None, height=30))
 
                                     # Diverter resistance measurements (6 values: H1 x2, H2 x2, H3 x2)
-                                    details_container.add_widget(Label(text="ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)", size_hint_y=None, height=25, bold=True))
+                                    details_container.add_widget(Label(text=S["MESSAGES"].get("MEASUREMENT_RESISTANCE_HEADER", "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)"), size_hint_y=None, height=25, bold=True))
                                     div_row1 = BoxLayout(size_hint_y=None, height=32)
                                     div_h1_a = TextInput(hint_text="H1-1", multiline=False)
                                     div_h1_b = TextInput(hint_text="H1-2", multiline=False)
@@ -6998,8 +7010,8 @@ class SubstationApp(App):
 
                     if sf6_leakage_val is not None and not sf6_leak_methodology_val:
                         show_message_popup(
-                            "Σφάλμα",
-                            "Για διαρροή SF6 απαιτείται συμπλήρωση μεθοδολογίας (Πλήρωση/Αντικατάσταση).",
+                            S["TITLES"].get("ERROR", "Σφάλμα"),
+                            S["MESSAGES"].get("SF6_LEAK_METHODOLOGY_REQUIRED", "Για διαρροή SF6 απαιτείται συμπλήρωση μεθοδολογίας (Πλήρωση/Αντικατάσταση)."),
                         )
                         return
 
@@ -7198,10 +7210,15 @@ class SubstationApp(App):
             )
             if after_save_callback:
                 show_message_popup(
-                    "Επιτυχία", success_msg, callback=lambda: after_save_callback()
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    S["MESSAGES"].get("MAINTENANCE_UPDATED" if maintenance_record else "MAINTENANCE_CREATED", success_msg),
+                    callback=lambda: after_save_callback(),
                 )
             else:
-                show_message_popup(S["TITLES"]["SUCCESS"], success_msg)
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    S["MESSAGES"].get("MAINTENANCE_UPDATED" if maintenance_record else "MAINTENANCE_CREATED", success_msg),
+                )
 
         save_btn = Button(text=S["BUTTONS"]["SAVE"])
         save_btn.bind(on_press=lambda x: save_maintenance())
@@ -7255,7 +7272,7 @@ class SubstationApp(App):
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
-        filter_bar.add_widget(Label(text="Φίλτρο Υποσταθμού:", size_hint_x=0.3))
+        filter_bar.add_widget(Label(text=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού:"), size_hint_x=0.3))
         substation_values = ["(Όλα)"] + sorted(substation_map.keys())
         substation_spinner = Spinner(
             text="(Όλα)", values=substation_values, size_hint_x=0.7
@@ -7321,12 +7338,12 @@ class SubstationApp(App):
                 )
                 header.add_widget(
                     Label(
-                        text=f"Συντήρηση: {display_name}", bold=True, size_hint_x=0.45
+                        text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.45
                     )
                 )
                 header.add_widget(Label(text=f"Ημ/νία: {date_time}", size_hint_x=0.2))
                 edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.11)
-                email_btn = Button(text="Email", size_hint_x=0.12)
+                email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.12)
                 delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.12)
 
                 def make_delete_handler(m_id, p):
@@ -7354,7 +7371,7 @@ class SubstationApp(App):
                     crew_text = ", ".join(crew) if crew else "-"
                     resp_text = responsible if responsible else "-"
                     people_label = Label(
-                        text=f"Υπεύθυνος: {resp_text} | Ομάδα: {crew_text}",
+                        text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
                         size_hint_y=None,
                         height=25,
                     )
@@ -7371,7 +7388,7 @@ class SubstationApp(App):
                 # Overall comments
                 if overall_comments:
                     comment_label = Label(
-                        text=f"Σχόλια: {overall_comments}", size_hint_y=None, height=30
+                        text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=overall_comments), size_hint_y=None, height=30
                     )
                     comment_label.bind(
                         width=lambda instance, value: setattr(
@@ -7397,7 +7414,7 @@ class SubstationApp(App):
 
                 # Elements list
                 elements_label = Label(
-                    text="Στοιχεία που συντηρήθηκαν:",
+                    text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
                     size_hint_y=None,
                     height=25,
                     bold=True,
@@ -7420,7 +7437,7 @@ class SubstationApp(App):
                         f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
                     )
                     if elem_comments:
-                        elem_text += f"\n    Σχόλια: {elem_comments}"
+                        elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
 
                     elem_label = Label(
                         text=elem_text, size_hint_x=0.6, size_hint_y=None
@@ -7440,7 +7457,7 @@ class SubstationApp(App):
                     buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
 
                     view_btn = Button(
-                        text="Εμφ.",
+                        text=S["MESSAGES"].get("VIEW_SHORT", "Εμφ."),
                         size_hint_x=0.34,
                         size_hint_y=None,
                         height=35,
@@ -7458,11 +7475,11 @@ class SubstationApp(App):
                     buttons_container.add_widget(view_btn)
 
                     if (
-                        "Διακόπτης" in elem_type
+                        S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
                         and breaker_category in self.BREAKER_CATEGORIES_ALL
                     ):
                         pdf_btn = Button(
-                            text="PDF",
+                            text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
                             size_hint_x=0.5,
                             size_hint_y=None,
                             height=35,
@@ -7560,10 +7577,10 @@ class SubstationApp(App):
                 substation_name, date_time
             )
             header.add_widget(
-                Label(text=f"Συντήρηση: {display_name}", bold=True, size_hint_x=0.6)
+                Label(text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.6)
             )
             edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.12)
-            email_btn = Button(text="Email", size_hint_x=0.13)
+            email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.13)
             delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.15)
 
             def make_delete_handler(m_id, p):
@@ -7601,7 +7618,7 @@ class SubstationApp(App):
                 crew_text = ", ".join(crew) if crew else "-"
                 resp_text = responsible if responsible else "-"
                 people_label = Label(
-                    text=f"Υπεύθυνος: {resp_text} | Ομάδα: {crew_text}",
+                    text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
                     size_hint_y=None,
                     height=25,
                 )
@@ -7618,7 +7635,7 @@ class SubstationApp(App):
             # Overall comments
             if overall_comments:
                 comment_label = Label(
-                    text=f"Σχόλια: {overall_comments}", size_hint_y=None, height=30
+                    text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=overall_comments), size_hint_y=None, height=30
                 )
                 comment_label.bind(
                     width=lambda instance, value: setattr(
@@ -7644,7 +7661,7 @@ class SubstationApp(App):
 
             # Elements list
             elements_label = Label(
-                text="Στοιχεία που συντηρήθηκαν:",
+                text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
                 size_hint_y=None,
                 height=25,
                 bold=True,
@@ -7665,7 +7682,7 @@ class SubstationApp(App):
 
                 elem_text = f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
                 if elem_comments:
-                    elem_text += f"\n    Σχόλια: {elem_comments}"
+                    elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
 
                 elem_label = Label(text=elem_text, size_hint_x=0.6, size_hint_y=None)
                 elem_label.bind(
@@ -7683,7 +7700,7 @@ class SubstationApp(App):
                 buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
 
                 view_btn = Button(
-                    text="Εμφ.",
+                    text=S["MESSAGES"].get("VIEW_SHORT", "Εμφ."),
                     size_hint_x=0.34,
                     size_hint_y=None,
                     height=35,
@@ -7699,11 +7716,11 @@ class SubstationApp(App):
                 buttons_container.add_widget(view_btn)
 
                 if (
-                    "Διακόπτης" in elem_type
+                    S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
                     and breaker_category in self.BREAKER_CATEGORIES_ALL
                 ):
                     pdf_btn = Button(
-                        text="PDF",
+                        text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
                         size_hint_x=0.5,
                         size_hint_y=None,
                         height=35,
@@ -7730,7 +7747,7 @@ class SubstationApp(App):
             main_layout.add_widget(scroll)
 
         # Close button
-        close_btn = Button(text="Κλείσιμο", size_hint_y=0.1)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
         close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
 
@@ -7941,19 +7958,19 @@ class SubstationApp(App):
             add_section("Στοιχεία Συντήρησης")
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, "Υποσταθμός", sub_name or "-")
-            add_kv_row(grid, "Ημερομηνία", maint_date or "-")
-            add_kv_row(grid, "Τύπος Συντήρησης", maint_type or "-")
-            add_kv_row(grid, "Χειριστής", maint_user or "-")
-            add_kv_row(grid, "Τομέας", division or "-")
-            add_kv_row(grid, "Τοποθεσία", sub_location or "-")
+            add_kv_row(grid, S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός:"), sub_name or "-")
+            add_kv_row(grid, S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία:"), maint_date or "-")
+            add_kv_row(grid, S["MESSAGES"].get("MAINT_TYPE_LABEL", "Τύπος Συντήρησης"), maint_type or "-")
+            add_kv_row(grid, S["MESSAGES"].get("MAINT_USER_LABEL", "Χειριστής"), maint_user or "-")
+            add_kv_row(grid, S["MESSAGES"].get("DIVISION_LABEL", "Τομέας"), division or "-")
+            add_kv_row(grid, S["MESSAGES"].get("LOC", "Τοποθεσία"), sub_location or "-")
             content.add_widget(grid)
 
             add_section("Στοιχεία Διακόπτη")
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, "Τύπος", elem_type or "-")
-            add_kv_row(grid, "Όνομα", elem_name or "-")
+            add_kv_row(grid, S["MESSAGES"].get("ELEMENT_TYPE_LABEL", "Τύπος"), elem_type or "-")
+            add_kv_row(grid, S["MESSAGES"].get("NAME_LABEL", "Όνομα"), elem_name or "-")
             add_kv_row(grid, "S/N", serial_number or "-")
             add_kv_row(grid, "Κατασκευαστής", manufacturer or "-")
             if model_name or model_manufacturer:
@@ -7965,37 +7982,37 @@ class SubstationApp(App):
             add_kv_row(grid, "Μοντέλο (Στοιχείο)", model or "-")
             add_kv_row(grid, "Κατηγορία Διακόπτη", breaker_cat or "-")
             add_kv_row(grid, "Τάση", voltage_level or "-")
-            add_kv_row(grid, "Πύλη", gate or "-")
+            add_kv_row(grid, S["MESSAGES"].get("GATE_LABEL", "Πύλη"), gate or "-")
             add_kv_row(grid, "Έτος Κατασκευής", manufacture_year or "-")
             content.add_widget(grid)
 
-            add_section("Σχόλια Συντήρησης")
+            add_section(S["MESSAGES"].get("MAINTENANCE_COMMENTS_SECTION", "Σχόλια Συντήρησης"))
             content.add_widget(make_wrapped_label(maint_comments or "-", bold=False))
 
-        add_section("Σχόλια Στοιχείου")
+        add_section(S["MESSAGES"].get("ELEMENT_COMMENTS_SECTION", "Σχόλια Στοιχείου"))
         content.add_widget(make_wrapped_label(element_comments or "-", bold=False))
 
         if has_measurements:
-            add_section("Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)")
+            add_section(S["MESSAGES"].get("INSULATION_RESISTANCE_CLOSED_TITLE", "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)"))
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, "ΦΑ-Γη", fmt(ins_closed_fa, ins_closed_fa_unit))
-            add_kv_row(grid, "ΦΒ-Γη", fmt(ins_closed_fb, ins_closed_fb_unit))
-            add_kv_row(grid, "ΦΓ-Γη", fmt(ins_closed_fc, ins_closed_fc_unit))
+            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FA_GND", "ΦΑ-Γη"), fmt(ins_closed_fa, ins_closed_fa_unit))
+            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FB_GND", "ΦΒ-Γη"), fmt(ins_closed_fb, ins_closed_fb_unit))
+            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FC_GND", "ΦΓ-Γη"), fmt(ins_closed_fc, ins_closed_fc_unit))
             content.add_widget(grid)
 
-            add_section("Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)")
+            add_section(S["MESSAGES"].get("INSULATION_RESISTANCE_OPEN_TITLE", "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)"))
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, "ΦΑ-ΦΑ", fmt(ins_open_fa, ins_open_fa_unit))
-            add_kv_row(grid, "ΦΒ-ΦΒ", fmt(ins_open_fb, ins_open_fb_unit))
-            add_kv_row(grid, "ΦΓ-ΦΓ", fmt(ins_open_fc, ins_open_fc_unit))
+            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ"), fmt(ins_open_fa, ins_open_fa_unit))
+            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ"), fmt(ins_open_fb, ins_open_fb_unit))
+            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FC", "ΦΓ-ΦΓ"), fmt(ins_open_fc, ins_open_fc_unit))
             content.add_widget(grid)
 
-            add_section("Αντίσταση Διέλευσης (μΩ)")
+            add_section(S["MESSAGES"].get("INSULATION_PASSAGE_TITLE", "Αντίσταση Διέλευσης (μΩ)"))
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, "ΦΑ-ΦΑ", fmt(cont_fa))
+            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ"), fmt(cont_fa))
             add_kv_row(grid, "ΦΒ-ΦΒ", fmt(cont_fb))
             add_kv_row(grid, "ΦΓ-ΦΓ", fmt(cont_fc))
             content.add_widget(grid)
@@ -8052,21 +8069,21 @@ class SubstationApp(App):
         if (
             has_measurements
             and breaker_category in ["Vacuum", "Κενού"]
-            and elem_type == "Διακόπτης ΜΤ"
+            and elem_type == self.ELEM_BREAKER_MT
             and any([vidar_fa, vidar_fb, vidar_fc])
         ):
-            add_section("Έλεγχος Κενού (VIDAR)")
+            add_section(S["MESSAGES"].get("VIDAR_SECTION_TITLE", "Έλεγχος Κενού (VIDAR)"))
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, "ΦΑ-ΦΑ", fmt(vidar_fa))
-            add_kv_row(grid, "ΦΒ-ΦΒ", fmt(vidar_fb))
-            add_kv_row(grid, "ΦΓ-ΦΓ", fmt(vidar_fc))
+            add_kv_row(grid, S["MESSAGES"].get("VIDAR_LABEL_FA", "ΦΑ-ΦΑ"), fmt(vidar_fa))
+            add_kv_row(grid, S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ"), fmt(vidar_fb))
+            add_kv_row(grid, S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ"), fmt(vidar_fc))
             content.add_widget(grid)
 
         scroll.add_widget(content)
         main_layout.add_widget(scroll)
 
-        close_btn = Button(text="Κλείσιμο", size_hint_y=None, height=40)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
         close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
 
@@ -8086,7 +8103,7 @@ class SubstationApp(App):
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",
-            "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση;",
+            S["MESSAGES"].get("CONFIRM_DELETE_MAINT_FMT", "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση?"),
             yes_callback=confirm,
             yes_color=(1, 0, 0, 1),
             yes_text="ΝΑΙ",

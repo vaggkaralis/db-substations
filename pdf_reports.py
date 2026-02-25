@@ -28,6 +28,10 @@ from datetime import datetime
 
 from strings import STRINGS as S
 
+# Canonical breaker element names
+ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
+
 
 class MaintenanceReportGenerator:
     """Generate maintenance reports for circuit breakers"""
@@ -1423,13 +1427,13 @@ class SF6LeakReportGenerator:
 
         total_leakage = sum([r[3] or 0 for r in rows])
 
-        c.execute("""
+        c.execute(f"""
             SELECT SUM(COALESCE(em.sf6_capacity_kg, 0))
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
             WHERE e.operating_status = 'Ενεργή'
               AND e.breaker_category = 'SF6'
-              AND e.element_type IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')
+              AND e.element_type IN ('{ELEM_BREAKER_YT}', '{ELEM_BREAKER_MT}')
             """)
         installed_sf6 = c.fetchone()[0] or 0.0
         percentage = (total_leakage / installed_sf6 * 100) if installed_sf6 else 0.0

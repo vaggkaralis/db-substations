@@ -139,8 +139,8 @@ def show_add_element_popup(app, instance):
     # Update gates when substation changes
     def on_substation_change(spinner, text):
         substation_id = app.substations_map[text]
-        if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-            if breaker_type_spinner.text == "Διασυνδετικός":
+        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
+            if breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 available_gates = app.get_available_gates(substation_id, True)
             else:
                 available_gates = app.get_available_gates(substation_id, False)
@@ -164,8 +164,8 @@ def show_add_element_popup(app, instance):
 
     def on_breaker_type_change(spinner, text):
         substation_id = app.substations_map[substation_spinner.text]
-        if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-            if text == "Διασυνδετικός":
+        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
+            if text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 available_gates = app.get_available_gates(substation_id, True)
             else:
                 available_gates = app.get_available_gates(substation_id, False)
@@ -235,11 +235,12 @@ def show_add_element_popup(app, instance):
             model_spinner.values = display_names
             model_spinner.text = display_names[0]
         else:
-            model_spinner.values = ["Επιλέξτε μοντέλο"]
-            model_spinner.text = "Επιλέξτε μοντέλο"
+            prompt = S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
+            model_spinner.values = [prompt]
+            model_spinner.text = prompt
 
     def on_element_type_change(spinner, text):
-        if text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+        if text in app.BREAKER_ELEMENT_TYPES:
             breaker_category_options = app._get_breaker_categories_for_element_type(text)
             breaker_category_spinner.values = breaker_category_options
             if breaker_category_spinner.text not in breaker_category_options:
@@ -259,13 +260,13 @@ def show_add_element_popup(app, instance):
                 layout.remove_widget(breaker_category_spinner)
             load_models_for_category(text, None)
 
-        if text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+        if text in app.BREAKER_ELEMENT_TYPES:
             if breaker_type_label not in layout.children:
                 idx = layout.children.index(model_spinner)
                 layout.add_widget(breaker_type_spinner, index=idx)
                 layout.add_widget(breaker_type_label, index=idx + 1)
             substation_id = app.substations_map[substation_spinner.text]
-            if breaker_type_spinner.text == "Διασυνδετικός":
+            if breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 available_gates = app.get_available_gates(substation_id, True)
             else:
                 available_gates = app.get_available_gates(substation_id, False)
@@ -372,14 +373,14 @@ def show_add_element_popup(app, instance):
         ):
             values["operating_status"] = field_inputs["operating_status"].text
 
-        if element_type == "Διακόπτης ΥΤ":
+        if element_type == app.ELEM_BREAKER_YT:
             is_main_switch = 1
-        elif element_type == "Διακόπτης ΜΤ":
-            if breaker_type_spinner.text == "Κεντρικός":
+        elif element_type == app.ELEM_BREAKER_MT:
+            if breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός"):
                 is_main_switch = 1
-            elif breaker_type_spinner.text == "Διασυνδετικός":
+            elif breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 is_main_switch = 2
-            elif breaker_type_spinner.text == "Διακόπτης Πυκνωτών":
+            elif breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"):
                 is_main_switch = 3
             else:
                 is_main_switch = 0
@@ -397,7 +398,7 @@ def show_add_element_popup(app, instance):
             return
 
         breaker_category_value = None
-        if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+        if element_type in app.BREAKER_ELEMENT_TYPES:
             breaker_category_value = breaker_category_spinner.text
 
         try:
@@ -423,7 +424,8 @@ def show_add_element_popup(app, instance):
             )
         except ValueError:
             show_message_popup(
-                "Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!"
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get("MODEL_SERVICE_CYCLE_NUM", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!"),
             )
             return
 
@@ -434,8 +436,8 @@ def show_add_element_popup(app, instance):
         )
         if c.fetchone():
             show_message_popup(
-                "Σφάλμα",
-                f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get("ELEMENT_DUPLICATE", f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!'),
             )
             return
 
@@ -481,8 +483,8 @@ def show_add_element_popup(app, instance):
 
         popup.dismiss()
         show_message_popup(
-            "Επιτυχία",
-            f"Στοιχείο προστέθηκε στον {substation_name}!",
+            S["TITLES"]["SUCCESS"],
+            S["MESSAGES"].get("ELEMENT_ADDED", f"Στοιχείο προστέθηκε στον {substation_name}!"),
             callback=lambda: app._display_substations(substation_name),
         )
 
@@ -508,7 +510,7 @@ def _copy_common_delete_logic(app, element_id, substation_id, parent_popup, subs
     row = c.fetchone()
     if row:
         elem_type, gate, is_main = row
-        if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and is_main == 1:
+        if elem_type in app.BREAKER_ELEMENT_TYPES and is_main == 1:
             gate_value = gate or ""
             c.execute(
                 "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
@@ -519,8 +521,8 @@ def _copy_common_delete_logic(app, element_id, substation_id, parent_popup, subs
                 from popups import show_message_popup
 
                 show_message_popup(
-                    "Σφάλμα",
-                    f"Η πύλη '{gate_value or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Η πύλη '{gate_value or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό {app.ELEM_BREAKER_YT if elem_type==app.ELEM_BREAKER_YT else app.ELEM_BREAKER_MT}.",
                 )
                 return False
     return True
@@ -609,28 +611,13 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
             model_name,
             is_main_switch,
         ) in inactive_elements:
-            elem_layout = BoxLayout(
-                size_hint_y=None, height=80, spacing=5, orientation="vertical"
-            )
+            elem_layout = BoxLayout(size_hint_y=None, height=80, spacing=5, orientation="vertical")
 
             display_elem_type = elem_type
-            if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-                if elem_type == "Διακόπτης ΥΤ":
-                    pass
-                elif is_main_switch == 1:
-                    pass
-                elif is_main_switch == 2:
-                    pass
-                elif is_main_switch == 3:
-                    pass
-                else:
-                    pass
-                display_elem_type = app._format_elem_type(elem_type, is_main_switch)
+            # Keep display as-is; additional logic can be added later
 
             info_text = f"[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'} (id:{elem_id})"
-            elem_label = Label(
-                text=info_text, size_hint_y=None, height=50, markup=True
-            )
+            elem_label = Label(text=info_text, size_hint_y=None, height=50, markup=True)
             elem_layout.add_widget(elem_label)
 
             btn_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
@@ -746,7 +733,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
 
     # Model selection
     breaker_category_label = Label(
-        text="Κατηγορία Διακόπτη:", size_hint_y=None, height=30
+        text=S["MESSAGES"].get("BREAKER_CATEGORY_LABEL", "Κατηγορία Διακόπτη:"), size_hint_y=None, height=30
     )
     breaker_category_options = app._get_breaker_categories_for_element_type(
         elem_type
@@ -763,11 +750,11 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
         height=40,
     )
 
-    if elem_type in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+    if elem_type in app.BREAKER_ELEMENT_TYPES:
         layout.add_widget(breaker_category_label)
         layout.add_widget(breaker_category_spinner)
 
-    layout.add_widget(Label(text="Μοντέλο:", size_hint_y=None, height=30))
+    layout.add_widget(Label(text=S["MESSAGES"].get("MODEL_LABEL", "Μοντέλο:"), size_hint_y=None, height=30))
 
     # Load all models for this element type
     c.execute(
@@ -803,7 +790,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
             else model_spinner.values[0]
         )
 
-    if elem_type in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+    if elem_type in app.BREAKER_ELEMENT_TYPES:
         breaker_category_spinner.bind(
             text=lambda spinner, text: load_models_for_breaker_category(text)
         )
@@ -815,7 +802,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
 
     # Gate selection
     layout.add_widget(Label(text=S["MESSAGES"].get("GATE_LABEL", "Πύλη (Gate):"), size_hint_y=None, height=30))
-    is_interconnection = elem_type == "Διακόπτης ΜΤ" and is_main_switch == 2
+    is_interconnection = elem_type == app.ELEM_BREAKER_MT and is_main_switch == 2
     available_gates = app.get_available_gates(substation_id, is_interconnection)
     current_gate_text = gate if gate else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
     if current_gate_text not in available_gates:
@@ -828,15 +815,15 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     # Breaker type selection
     breaker_type_label = Label(text=S["MESSAGES"].get("BREAKER_TYPE_LABEL", "Τύπος Διακόπτη:"), size_hint_y=None, height=30)
     if is_main_switch == 1:
-        current_breaker_type = "Κεντρικός"
+        current_breaker_type = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
     elif is_main_switch == 2:
-        current_breaker_type = "Διασυνδετικός"
+        current_breaker_type = S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός")
     elif is_main_switch == 3:
-        current_breaker_type = "Διακόπτης Πυκνωτών"
+        current_breaker_type = S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών")
     else:
-        current_breaker_type = "Γραμμής"
+        current_breaker_type = S["MESSAGES"].get("BREAKER_LABEL_LINE", "Γραμμής")
 
-    if elem_type == "Διακόπτης ΥΤ":
+    if elem_type == app.ELEM_BREAKER_YT:
         breaker_type_spinner = Spinner(
             text="Κεντρικός",
             values=["Κεντρικός"],
@@ -853,7 +840,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
         )
 
     def on_breaker_type_change(spinner, text):
-        is_interconnection = text == "Διασυνδετικός"
+        is_interconnection = text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός")
         available_gates = app.get_available_gates(
             substation_id, is_interconnection
         )
@@ -865,7 +852,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
 
     breaker_type_spinner.bind(text=on_breaker_type_change)
 
-    if elem_type in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+    if elem_type in app.BREAKER_ELEMENT_TYPES:
         layout.add_widget(breaker_type_label)
         layout.add_widget(breaker_type_spinner)
 
@@ -927,7 +914,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
     def save_changes():
         name_val = field_inputs["name"].text.strip()
         if not name_val:
-            show_message_popup(S["TITLES"]["ERROR"], "Το όνομα είναι υποχρεωτικό!")
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("NAME_REQUIRED", "Το όνομα είναι υποχρεωτικό!"))
             return
 
         try:
@@ -965,25 +952,26 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
         )
 
         breaker_category_value = None
-        if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+        if elem_type in app.BREAKER_ELEMENT_TYPES:
             breaker_category_value = breaker_category_spinner.text
 
-        if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and (
+        if elem_type in app.BREAKER_ELEMENT_TYPES and (
             breaker_category_value is None or str(breaker_category_value).strip() == ""
         ):
             show_message_popup(
-                "Σφάλμα", "Η κατηγορία διακόπτη είναι υποχρεωτική για τους διακόπτες!"
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("PLEASE_SELECT_BREAKER_CATEGORY", "Η κατηγορία διακόπτη είναι υποχρεωτική για τους διακόπτες!")
             )
             return
 
-        if elem_type == "Διακόπτης ΥΤ":
+        if elem_type == app.ELEM_BREAKER_YT:
             new_is_main_switch = 1
-        elif elem_type == "Διακόπτης ΜΤ":
-            if breaker_type_spinner.text == "Κεντρικός":
+        elif elem_type == app.ELEM_BREAKER_MT:
+            if breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός"):
                 new_is_main_switch = 1
-            elif breaker_type_spinner.text == "Διασυνδετικός":
+            elif breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 new_is_main_switch = 2
-            elif breaker_type_spinner.text == "Διακόπτης Πυκνωτών":
+            elif breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"):
                 new_is_main_switch = 3
             else:
                 new_is_main_switch = 0
@@ -1003,7 +991,7 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
             return
 
         try:
-            if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+            if elem_type in app.BREAKER_ELEMENT_TYPES:
                 if is_main_switch == 1 and (
                     new_is_main_switch != 1 or gate_value != (gate or "")
                 ):
@@ -1015,8 +1003,8 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
                     remaining = c.fetchone()[0]
                     if remaining == 0:
                         show_message_popup(
-                            "Σφάλμα",
-                            f"Η πύλη '{old_gate or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό { 'Διακόπτης ΥΤ' if elem_type=='Διακόπτης ΥΤ' else 'Διακόπτης ΜΤ' }.",
+                            S["TITLES"].get("ERROR", "Σφάλμα"),
+                            f"Η πύλη '{old_gate or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό {app.ELEM_BREAKER_YT if elem_type==app.ELEM_BREAKER_YT else app.ELEM_BREAKER_MT}.",
                         )
                         return
         except Exception:
@@ -1158,14 +1146,14 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
     )
     input_layout.add_widget(gate_spinner)
 
-    input_layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
-    rated_power_input = TextInput(hint_text="π.χ. 50", size_hint_y=None, height=40, multiline=False)
+    input_layout.add_widget(Label(text=S["MESSAGES"].get("RATED_POWER_LABEL", "Ονομαστική Ισχύς (MVA):"), size_hint_y=None, height=30))
+    rated_power_input = TextInput(hint_text=S["MESSAGES"].get("RATED_POWER_HINT", "π.χ. 50"), size_hint_y=None, height=40, multiline=False)
     input_layout.add_widget(rated_power_input)
 
     def on_substation_change(spinner, text):
         selected_substation_id = substation_map[text]
-        if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-            if breaker_type_spinner.text == "Διασυνδετικός":
+        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
+            if breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 available_gates = app.get_available_gates(selected_substation_id, True)
             else:
                 available_gates = app.get_available_gates(selected_substation_id, False)
@@ -1178,7 +1166,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
 
     substation_spinner.bind(text=on_substation_change)
 
-    breaker_type_label = Label(text="Τύπος Διακόπτη:", size_hint_y=None, height=30)
+    breaker_type_label = Label(text=S["MESSAGES"].get("BREAKER_TYPE_LABEL", "Τύπος Διακόπτη:"), size_hint_y=None, height=30)
     breaker_type_spinner = Spinner(
         text=app.BREAKER_TYPES[0],
         values=app.BREAKER_TYPES,
@@ -1188,8 +1176,8 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
 
     def on_breaker_type_change(spinner, text):
         selected_substation_id = substation_map[substation_spinner.text]
-        if element_spinner.text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-            if text == "Διασυνδετικός":
+        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
+            if text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 available_gates = app.get_available_gates(selected_substation_id, True)
             else:
                 available_gates = app.get_available_gates(selected_substation_id, False)
@@ -1247,7 +1235,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
 
         models_data.clear()
         if models:
-            if category in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+            if category in app.BREAKER_ELEMENT_TYPES:
                 if selected_breaker_category:
                     filtered_models = [m for m in models if (m[5] or "").strip().lower() == selected_breaker_category.lower()]
                 else:
@@ -1280,13 +1268,15 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
                         "breaker_category": m[5] or "",
                     }
                 model_spinner.values = display_names
-                model_spinner.text = (display_names[0] if display_names else "Επιλέξτε μοντέλο")
+                prompt = S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
+                model_spinner.text = (display_names[0] if display_names else prompt)
         else:
-            model_spinner.values = ["Επιλέξτε μοντέλο"]
-            model_spinner.text = "Επιλέξτε μοντέλο"
+            prompt = S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
+            model_spinner.values = [prompt]
+            model_spinner.text = prompt
 
     def on_element_type_change(spinner, text):
-        if text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+        if text in app.BREAKER_ELEMENT_TYPES:
             breaker_category_options = app._get_breaker_categories_for_element_type(text)
             breaker_category_spinner.values = breaker_category_options
             if breaker_category_spinner.text not in breaker_category_options:
@@ -1304,7 +1294,7 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
                 input_layout.remove_widget(breaker_category_spinner)
             load_models_for_category(text, None)
 
-        if text == "Διακόπτης ΜΤ":
+        if text == app.ELEM_BREAKER_MT:
             if breaker_type_label not in input_layout.children:
                 input_layout.add_widget(
                     breaker_type_spinner,
@@ -1410,14 +1400,14 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
             show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε όνομα στοιχείου!")
             return
 
-        if element_type == "Διακόπτης ΥΤ":
+        if element_type == app.ELEM_BREAKER_YT:
             is_main_switch = 1
-        elif element_type == "Διακόπτης ΜΤ":
-            if breaker_type_spinner.text == "Κεντρικός":
+        elif element_type == app.ELEM_BREAKER_MT:
+            if breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός"):
                 is_main_switch = 1
-            elif breaker_type_spinner.text == "Διασυνδετικός":
+            elif breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
                 is_main_switch = 2
-            elif breaker_type_spinner.text == "Διακόπτης Πυκνωτών":
+            elif breaker_type_spinner.text == S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"):
                 is_main_switch = 3
             else:
                 is_main_switch = 0
@@ -1429,10 +1419,10 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
         )
 
         breaker_category_value = None
-        if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
+        if element_type in app.BREAKER_ELEMENT_TYPES:
             breaker_category_value = breaker_category_spinner.text
 
-        if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and (
+        if element_type in app.BREAKER_ELEMENT_TYPES and (
             breaker_category_value is None or str(breaker_category_value).strip() == ""
         ):
             show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_BREAKER_CATEGORY"])

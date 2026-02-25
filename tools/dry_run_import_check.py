@@ -6,6 +6,10 @@ import pandas as pd
 # Ensure project root is on sys.path so importers can be imported when running from tools/
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from importers import _map_columns
+from strings import STRINGS as S
+
+# canonical breaker substring for heuristic checks
+ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης")
 
 
 def analyze(file_path: str):
@@ -85,7 +89,8 @@ def analyze(file_path: str):
         is_breaker = False
         if element_col and pd.notna(row.get(element_col, None)):
             elem_val = str(row.get(element_col)).lower()
-            if 'διακόπτης' in elem_val or 'υτ' in elem_val or 'μτ' in elem_val or 'breaker' in elem_val:
+            # use canonical substring match (case-insensitive)
+            if ELEMENT_BREAKER_SUBSTR.lower() in elem_val or 'υτ' in elem_val or 'μτ' in elem_val or 'breaker' in elem_val:
                 is_breaker = True
         # fallback: if breaker column exists and other heuristics fail, assume non-breaker
         if is_breaker and not br:

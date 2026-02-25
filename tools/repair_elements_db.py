@@ -20,14 +20,19 @@ if not os.path.exists(DB):
     sys.exit(2)
 
 try:
-    # Import lightweight mappings from import_validator
+    # Import lightweight mappings and canonical constants from import_validator
     from import_validator import (BREAKER_CATEGORY_MAPPINGS,
                                   ELEMENT_TYPE_MAPPINGS)
+    from strings import STRINGS as S
+    ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+    ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 except Exception:
-    # Fallback conservative sets
+    # Fallback conservative sets and canonical names
+    ELEM_BREAKER_YT = "Διακόπτης ΥΤ"
+    ELEM_BREAKER_MT = "Διακόπτης ΜΤ"
     ELEMENT_TYPE_MAPPINGS = {
-        "Διακόπτης ΥΤ": [],
-        "Διακόπτης ΜΤ": [],
+        ELEM_BREAKER_YT: [],
+        ELEM_BREAKER_MT: [],
         "Μετασχηματιστής 150/20KV": [],
         "Μετασχηματιστής 20/0.4KV": [],
     }
@@ -35,8 +40,8 @@ except Exception:
 
 # Allowed categories per element type (business rule)
 ALLOWED_BREAKER_CATEGORIES = {
-    "Διακόπτης ΥΤ": ["SF6", "Ελαίου"],
-    "Διακόπτης ΜΤ": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
+    ELEM_BREAKER_YT: ["SF6", "Ελαίου"],
+    ELEM_BREAKER_MT: ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
 }
 
 allowed_element_types = list(ELEMENT_TYPE_MAPPINGS.keys()) if ELEMENT_TYPE_MAPPINGS else list(ALLOWED_BREAKER_CATEGORIES.keys())

@@ -1,5 +1,10 @@
 from database import init_db
 from DBrun import SubstationApp
+from strings import STRINGS as S
+
+# canonical breaker names for tests
+ELEM_BREAKER_YT = S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
 
 def setup_app_with_substation_and_transformers(transformer_names):
@@ -46,12 +51,12 @@ def test_get_available_gates_inter_true_false():
 def test_breaker_category_and_format_helpers():
     app = SubstationApp()
     # Categories
-    hv_cats = app._get_breaker_categories_for_element_type("Διακόπτης ΥΤ")
-    mv_cats = app._get_breaker_categories_for_element_type("Διακόπτης ΜΤ")
+    hv_cats = app._get_breaker_categories_for_element_type(ELEM_BREAKER_YT)
+    mv_cats = app._get_breaker_categories_for_element_type(ELEM_BREAKER_MT)
     assert "SF6" in hv_cats
     assert "Πτωχού Ελαίου" in mv_cats
 
     # Format elem type
-    assert app._format_elem_type("Διακόπτης ΥΤ", 1).startswith("Διακόπτης ΥΤ")
-    assert "Κεντρικός" in app._format_elem_type("Διακόπτης ΥΤ", 1)
-    assert "Διασυνδετικός" in app._format_elem_type("Διακόπτης ΜΤ", 2)
+    assert app._format_elem_type(ELEM_BREAKER_YT, 1).startswith(ELEM_BREAKER_YT)
+    assert "Κεντρικός" in app._format_elem_type(ELEM_BREAKER_YT, 1)
+    assert "Διασυνδετικός" in app._format_elem_type(ELEM_BREAKER_MT, 2)

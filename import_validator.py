@@ -14,6 +14,11 @@ try:
 except Exception:
     S = {"MESSAGES": {}}
 
+# Canonical breaker element names
+ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
+ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης")
+
 
 # Expected column mappings (internal name -> display names)
 COLUMN_MAPPINGS = {
@@ -260,7 +265,7 @@ def detect_column_mismatches(df_columns: List[str], df=None) -> Dict[str, any]:
                         break
                     # Try fuzzy match against known element types
                     match = find_best_match(v, ELEMENT_TYPE_MAPPINGS, threshold=0.6)
-                    if match and match[0] in ("Διακόπτης ΥΤ", "Διακόπτης ΜΤ"):
+                    if match and match[0] in (ELEM_BREAKER_YT, ELEM_BREAKER_MT):
                         need_breaker_type = True
                         break
 
@@ -491,7 +496,7 @@ def analyze_import_data(df, column_mapping: Dict, conn) -> Dict:
 
         # Check breaker role (if applicable)
         breaker_role = get_value(row, "Breaker Role")
-        if breaker_role and elem_type and "Διακόπτης" in str(elem_type):
+        if breaker_role and elem_type and ELEMENT_BREAKER_SUBSTR in str(elem_type):
             canonical, confidence, alternatives = validate_breaker_role(breaker_role)
             if canonical and confidence < 0.95:
                 issues.append(
@@ -521,7 +526,7 @@ def analyze_import_data(df, column_mapping: Dict, conn) -> Dict:
 
         # Check breaker category
         breaker_cat = get_value(row, "Τύπος Διακόπτη")
-        if breaker_cat and elem_type and "Διακόπτης" in str(elem_type):
+        if breaker_cat and elem_type and ELEMENT_BREAKER_SUBSTR in str(elem_type):
             canonical, confidence, alternatives = validate_breaker_category(breaker_cat)
             # Use centralized breaker category lists when available to avoid
             # duplicating the same lists across modules.
@@ -556,7 +561,7 @@ def analyze_import_data(df, column_mapping: Dict, conn) -> Dict:
                         "Ελαίου"
                         if (
                             canonical == "Πτωχού Ελαίου"
-                            and str(elem_type) == "Διακόπτης ΥΤ"
+                            and str(elem_type) == ELEM_BREAKER_YT
                         )
                         else None
                     )

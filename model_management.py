@@ -7,6 +7,10 @@ import os
 from popups import ask_open_file, show_message_popup
 from strings import STRINGS as S
 
+# Canonical breaker element names
+ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
+
 
 def show_models_management(app_instance):
     """Show model management interface"""
@@ -68,8 +72,8 @@ def show_models_management(app_instance):
 
             # Define priority order for common categories
             priority_categories = [
-                "Διακόπτης ΜΤ",
-                "Διακόπτης ΥΤ",
+                ELEM_BREAKER_MT,
+                    ELEM_BREAKER_YT,
                 "Μετασχηματιστής 150/20KV",
                 "Motor Drive",
             ]
@@ -109,7 +113,7 @@ def show_models_management(app_instance):
                     grid.add_widget(category_label)
 
                     # For MV and HV breakers, group by breaker category (SF6, Κενού, etc.)
-                    if category_name in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+                    if category_name in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]:
                         # Group by breaker category
                         breaker_groups = OrderedDict()
                         breaker_order = (
@@ -552,7 +556,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             layout.remove_widget(sf6_capacity_input)
 
         # Add them back only if circuit breaker is selected
-        if text in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+        if text in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]:
             breaker_categories = app_instance._get_breaker_categories_for_element_type(
                 text
             )
@@ -574,7 +578,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             layout.remove_widget(sf6_capacity_label)
             layout.remove_widget(sf6_capacity_input)
         if (
-            category_spinner.text in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]
+            category_spinner.text in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
             and breaker_spinner.text == "SF6"
         ):
             idx = layout.children.index(model_name_input)
@@ -613,7 +617,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
 
         breaker_cat = (
             breaker_spinner.text
-            if category_spinner.text in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]
+            if category_spinner.text in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
             else ""
         )
 
@@ -760,7 +764,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     layout.add_widget(space_spinner)
 
     # Breaker category (if applicable)
-    if category in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"]:
+    if category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]:
         layout.add_widget(
             Label(text="Κατηγορία Διακόπτη:", size_hint_y=None, height=30)
         )
@@ -783,7 +787,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     # SF6 capacity (kg) - only for SF6 breaker models
     sf6_capacity_input = None
-    if category in ["Διακόπτης ΜΤ", "Διακόπτης ΥΤ"] and breaker_cat == "SF6":
+    if category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT] and breaker_cat == "SF6":
         layout.add_widget(
             Label(text="Χωρητικότητα SF6 (kg):", size_hint_y=None, height=30)
         )

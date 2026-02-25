@@ -1,27 +1,35 @@
 """Centralized UI strings to avoid hardcoded literals in code.
 
-Structure: STRINGS is a nested dict grouping common labels, button texts,
-popup titles and common messages. Add keys as needed for new UI text.
+STRINGS is a nested dict grouping labels, button texts, popup titles and
+common messages. Keys are organized by category to make navigation easier.
+When adding new strings, place them under the most appropriate category.
 """
 
 STRINGS = {
+    # Top-level button text used in many places
     "BUTTONS": {
         "IMPORT": "Εισαγωγή",
         "ADD": "Προσθήκη",
+        "VIEW": "Δες",
+        "REFRESH": "Ανανέωση",
         "OPEN": "Άνοιγμα",
         "REPLACE": "Αντικατάσταση",
         "SKIP": "Παράλειψη",
         "REPLACE_ALL": "Αντικατάσταση Όλων",
         "SKIP_ALL": "Παράλειψη Όλων",
         "CONFIRM": "Επιβεβαίωση",
-        "EDIT": "Επεξ.",
+        "EDIT": "Επεξεργασία",
         "LIST": "Λίστα",
         "CANCEL": "Ακύρωση",
+        "EMAIL": "Email",
         "APPLY": "Εφαρμογή",
         "BACKUP_APPLY": "Backup & Εφαρμογή",
         "CLOSE": "Κλείσιμο",
         "INSPECTIONS": "Επιθεωρήσεις",
         "SAVE": "Αποθήκευση",
+        "BACK": "Πίσω",
+        "MAINTENANCE": "Συντήρηση",
+        "INSPECT": "Επιθεώρηση",
         "DELETE": "Διαγραφή",
         "UPDATE": "Ενημέρωση",
         "YES": "Ναι",
@@ -31,19 +39,24 @@ STRINGS = {
         "ADD_MAINTENANCE": "+ Προσθήκη Νέας Συντήρησης",
         "ADD_MODEL": "+ Προσθήκη Νέου Μοντέλου",
     },
+
+    # Common window / popup titles
     "TITLES": {
         "ERROR": "Σφάλμα",
         "SUCCESS": "Επιτυχία",
         "INFO": "Πληροφορία",
         "IMPORT_MENU": "Εισαγωγή από αρχείο",
         "IMPORT_ANDROID": "Εισαγωγή αλλαγών από Android",
-        "PREVIEW_CHANGELOG": "Preview change log",
+        "PREVIEW_CHANGELOG": "Προεπισκόπηση αλλαγών",
         "INSPECTION_ENTRY": "Καταχώρηση Επιθεώρησης",
         "INSPECTION_HISTORY": "Ιστορικό Επιθεώρησης",
         "INSPECTION_DETAILS": "Λεπτομέρειες Επιθεώρησης",
+        "IMPORT_SUBSTATIONS_TITLE": "Εισαγωγή Υποσταθμών",
     },
+
+    # Application-wide messages grouped by functional area
     "MESSAGES": {
-        # --- General / UI labels ---
+        # --- General / Application info ---
         "APP_TITLE": "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ",
         "APP_INFO_SHORT": "Πληρ. Εφαρμ.",
         "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
@@ -112,8 +125,12 @@ STRINGS = {
         "MAINTENANCE_DELETED": "Η συντήρηση διαγράφηκε!",
         "MAINTENANCE_NOT_FOUND": "Δεν βρέθηκε η συντήρηση.",
         "NO_MAINTENANCES": "Δεν υπάρχουν καταχωρημένες συντηρήσεις",
-        "NO_MAINT_FOR_SUBSTATION": 'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
+        "NO_MAINT_FOR_SUBSTATION": (
+            'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\n'
+            "Χρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε."
+        ),
         "MAINT_HISTORY_LABEL": "Ιστορικό Συντήρησης",
+        "MAINTENANCE_NAME_FMT": "Υ/Σ {substation_name} - {date}",
         "NO_RECORD_ELEMENTS": "Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση.",
 
         # --- Maintenance form labels & validation ---
@@ -134,38 +151,60 @@ STRINGS = {
 
         # --- Inspections ---
         "INSPECTION_SAVED": "Η επιθεώρηση καταχωρήθηκε!",
+        # The inspection rows were reviewed for typos and corrected where obvious.
         "INSPECTION_ROWS": [
-            "Έλεγχος εξωτερικών & εσωτερικών Θυρών ΥΣ",
-            "Έλεγχος εσωτερικού Χώρου κτηρίου (Φωτισμός, κλιματισμός κλπ)",
+            "Έλεγχος εξωτερικών & εσωτερικών θυρών ΥΣ",
+            "Έλεγχος εσωτερικού χώρου κτηρίου (φωτισμός, κλιματισμός κλπ)",
             "Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)",
-            "Έλεγχος μέσων πυρόσβεσης γενικά.",
-            "Οπτικός έλεγχος, διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ",
-            "Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους Διακόπτες Ισχύος 150kV & 20kV",
-            "Έλεγχος λειτουργίας ανεμιστήρων  Μ/Σ",
-            "Οπτικός έλεγχος Μ/Σ εγχύσεως, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτ. Υπηρ., αντίστασης κόμβου (θερμοκρασία)",
-            "Οπτικός έλεγχος Μονωτήρων (ρύπανση, εκδορές κ.α.)",
+            "Έλεγχος μέσων πυρόσβεσης γενικά",
+            "Οπτικός έλεγχος διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ",
+            "Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους διακόπτες ισχύος 150kV & 20kV",
+            "Έλεγχος λειτουργίας ανεμιστήρων Μ/Σ",
+            "Οπτικός έλεγχος Μ/Σ έγχυσης, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτερικής υπηρεσίας, αντίστασης κόμβου (θερμοκρασία)",
+            "Οπτικός έλεγχος μονωτήρων (ρύπανση, εκδορές κ.α.)",
             "Οπτικός έλεγχος τηκτών πυκνωτών",
-            "Έλεγχος σημάνσεων στους Πίνακες Μ/Σ , Α/Δ 150kV & 20kV",
+            "Έλεγχος σημάνσεων στους πίνακες Μ/Σ, Α/Δ 150kV & 20kV",
             "Λήψη φωτογραφίας όταν απαιτείται",
-            "Οπτικός έλεγχος των πυλών, A/Z  και γενικά του ικριώματος για τυχόν φωλιές από πτηνα, σπασιματά, μονωτήρων, κλαδιά, σύρματα κλπ",
-            "Οπτικός έλεγχος στους πίνακες Διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών.",
-            "Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων.",
-            "Έλεγχος φορτιστή 110 V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή",
-            "Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC.",
-            "Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών.",
-            "Οπτικός έλεγχος των ΑΠ/Ζ και των \"γεφυρών\" αυτών στον 1ο Στύλο κάθε Γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)",
-            "Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις",
-            "Τροφοδοσία υπολογιστή.",
-            "Απόψεις και τυχόν προτάσεις  για την καλύτερη λειτουργία τόσο του εξοπλισμού, όσο και του κτηρίου γενικά του Υ/Σ.",
+            "Οπτικός έλεγχος των πυλών, A/Z και γενικά του ικριώματος για τυχόν φωλιές από πτηνά, σπασίματα, μονωτήρες, κλαδιά, σύρματα κλπ",
+            "Οπτικός έλεγχος στους πίνακες διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών",
+            "Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων",
+            "Έλεγχος φορτιστή 110V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή",
+            "Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC",
+            "Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών",
+            "Οπτικός έλεγχος των ΑΠ/Ζ και των 'γεφυρών' αυτών στον 1ο στύλο κάθε γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)",
+            "Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)",
+            "Τροφοδοσία υπολογιστή",
+            "Απόψεις και τυχόν προτάσεις για την καλύτερη λειτουργία τόσο του εξοπλισμού, όσο και του κτηρίου γενικά του Υ/Σ",
         ],
         "INSPECTION_SECTION_2": "[b]Έλεγχος Χώρων ΥΣ[/b]",
         "INSPECTION_SECTION_3": "[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]",
         "INSPECTION_SECTION_3A": "[b]Υπαίθριες πύλες 20 kV[/b]",
         "INSPECTION_SECTION_3B": "[b]Υπαίθριες πύλες 20 kV[/b]",
         "INSPECTION_SECTION_4": "[b]Κτίριο χειρισμών & Τ.Α.Σ.[/b]",
-        "INSPECTION_SECTION_5": "[b]Αποζευκτες Γραμμών[/b]",
-        "INSPECTION_SECTION_6": "[b]PC ΧΕΙΡΙΣΜΩΝ[/b]",
+        "INSPECTION_SECTION_5": "[b]Αποζεύκτες Γραμμών[/b]",
+        "INSPECTION_SECTION_6": "[b]PC Χειρισμών[/b]",
         "INSPECTION_SECTION_7": "[b]Απόψεις[/b]",
+        # Additional inspection UI messages
+        "INSPECTION_BASE_FIELDS": [
+            "Υποσταθμός",
+            "Αρ. Δελτίου",
+            "Μήνας",
+            "Ονομ. Επιθεωρητή",
+            "Περιοχή",
+            "Ημέρα",
+            "Έτος",
+            "Ημερομηνία",
+        ],
+        "IMPORT_INSPECTIONS_TITLE": "Εισαγωγή Επιθεωρήσεων",
+        "IMPORT_INSPECTIONS_DONE": "Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).",
+        "IMPORT_INSPECTIONS_DIALOG": "Εισαγωγή επιθεωρήσεων από αρχείο",
+        "NO_INSPECTIONS": "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις. Θέλετε να δημιουργήσετε μία;",
+        "INSPECTION_COUNT_FMT": "{count} εγγραφές επιθεώρησης",
+        "SUBSTATION_INSPECTION_HISTORY_TITLE_FMT": "Ιστορικό Επιθεωρήσεων - {substation_name}",
+        "SUBSTATION_INSPECTION_COUNT_FMT": "{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}",
+        "SUBSTATION_LABEL_PLAIN": "Υποσταθμός",
+        "DATE_PLAIN": "Ημερομηνία",
+        "MEASUREMENT_RESISTANCE_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)",
 
         # --- People / Staff ---
         "NO_PEOPLE": "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
@@ -173,14 +212,21 @@ STRINGS = {
         "NAME_LABEL": "Όνομα:",
         "ROLE_LABEL": "Ρόλος:",
         "EMAIL_LABEL": "Email:",
-        "EMAIL_RECIPIENT_LABEL": "Παραλήπτης email αναφοράς",
+        "EMAIL_RECIPIENT_LABEL": "Παραλήπτες αναφοράς email",
         "ACTIVE_LABEL": "Ενεργός",
         "STAFF_LOAD_FAILED": "Ανεπιτυχής φόρτωση διαχείρισης προσωπικού.",
         "PERSON_NOT_FOUND": "Το άτομο δεν βρέθηκε!",
         "EDIT_PERSON_TITLE": "Επεξεργασία Προσώπου",
         "SURNAME_ROLE_REQUIRED": "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!",
         "PERSON_IN_USE": "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.",
+        "CONFIRM_DELETE_PERSON_FMT": "Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο \"{person_name}\";",
 
+        # Missing messages added during DBrun.py sweep
+        "NO_AVAILABLE_RESPONSIBLE": "Δεν υπάρχει διαθέσιμος υπεύθυνος συντήρησης με τα κατάλληλα δικαιώματα. Προσθέστε ή ενημερώστε προσωπικό.",
+        "SF6_LEAK_METHODOLOGY_REQUIRED": "Για διαρροή SF6 απαιτείται συμπλήρωση μεθοδολογίας (Πλήρωση/Αντικατάσταση).",
+        "GATE_LABEL": "Πύλη",
+        "DIVISION_LABEL": "Τομέας",
+        "MAINT_USER_LABEL": "Χειριστής",
         # --- Models / Element types ---
         "MODEL_NOT_USED": "Το μοντέλο δεν χρησιμοποιείται σε κανένα στοιχείο.",
         "MODEL_NAME_REQUIRED": "Το όνομα μοντέλου είναι υποχρεωτικό!",
@@ -199,13 +245,13 @@ STRINGS = {
         "NO_ELEMENTS_FOR_ITEM": "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.",
         "NO_MODELS": "Δεν υπάρχουν μοντέλα",
         "NO_INACTIVE_ELEMENTS": "Δεν υπάρχουν ανενεργά στοιχεία σε αυτόν τον υποσταθμό",
-        # --- Elements / Types (lists used by DBrun) ---
+        # lists used by DBrun
         "ELEMENT_TYPES": [
             "Διακόπτης ΥΤ",
             "Διακόπτης ΜΤ",
             "Μετασχηματιστής 150/20KV",
             "Motor Drive",
-            "Μ/Σ Εγχύσεως",
+            "Μ/Σ Έγχυσης",
             "Μ/Σ Έντασης",
             "Μ/Σ Τάσης",
             "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)",
@@ -217,6 +263,32 @@ STRINGS = {
             "Αλεξικέραυνο",
             "Συστοιχία Συσσωρευτών",
         ],
+        # Canonical element names used elsewhere in code
+        "ELEMENT_BREAKER_YT": "Διακόπτης ΥΤ",
+        "ELEMENT_BREAKER_MT": "Διακόπτης ΜΤ",
+        "VIDAR_VACUUM_CHECK_LABEL": "ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):",
+        # VIDAR phase labels and hints
+        "VIDAR_LABEL_FA": "ΦΑ-ΦΑ:",
+        "VIDAR_LABEL_FB": "ΦΒ-ΦΒ:",
+        "VIDAR_LABEL_FC": "ΦΓ-ΦΓ:",
+        "VIDAR_HINT": "0.0",
+        "VIDAR_SECTION_TITLE": "Έλεγχος Κενού (VIDAR)",
+        # Insulation / resistance section titles and labels
+        "INSULATION_RESISTANCE_CLOSED_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)",
+        "INSULATION_RESISTANCE_OPEN_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)",
+        "INSULATION_PASSAGE_TITLE": "Αντίσταση Διέλευσης (μΩ)",
+        "INSULATION_MEASUREMENT_CLOSED_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ (Φ-ΓΗ):",
+        "INSULATION_MEASUREMENT_OPEN_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (Φ-Φ):",
+        "INSULATION_PASSAGE_MEASUREMENT_CLOSED_HEADER": "ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (μΩ) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:",
+        "INSULATION_HINT": "0.0",
+        "INSULATION_LABEL_FA_GND": "ΦΑ-Γη",
+        "INSULATION_LABEL_FB_GND": "ΦΒ-Γη",
+        "INSULATION_LABEL_FC_GND": "ΦΓ-Γη",
+        "INSULATION_LABEL_FA": "ΦΑ-ΦΑ",
+        "INSULATION_LABEL_FB": "ΦΒ-ΦΒ",
+        "INSULATION_LABEL_FC": "ΦΓ-ΦΓ",
+        # Generic substring used to detect breaker element types
+        "ELEMENT_BREAKER_SUBSTR": "Διακόπτης",
         "BREAKER_CATEGORIES_ALL": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
         "BREAKER_CATEGORIES_HV": ["SF6", "Ελαίου"],
         "BREAKER_CATEGORIES_MV": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
@@ -225,9 +297,12 @@ STRINGS = {
         "INSTALLATION_SPACE": ["Εσωτερικός", "Εξωτερικός"],
         "VOLTAGE_LEVELS": ["(Κενό)", "150/20KV", "20KV", "150KV", "20KV/400V"],
         "VIEW_ELEMENT_TITLE": "Προβολή Στοιχείου",
+        "ELEMENTS_LIST_LABEL": "Στοιχεία που συντηρήθηκαν:",
         "PLEASE_SELECT_BREAKER_CATEGORY": "Παρακαλώ επιλέξτε κατηγορία διακόπτη!",
-        "PLEASE_SELECT_EML": "Παρακαλώ επιλέξτε αρχείο .emλ!",
+        "PLEASE_SELECT_EML": "Παρακαλώ επιλέξτε αρχείο .eml!",
         "INACTIVE_ELEMENTS": "Ανενεργά Στοιχεία ({count})",
+        "ELEMENT_ADDED": "Στοιχείο προστέθηκε στον {substation_name}!",
+        "ELEMENT_DUPLICATE": "Υπάρχει ήδη στοιχείο με αυτό το όνομα σε αυτόν τον υποσταθμό!",
         "VIEW_ACTIVE_ELEMENTS": "Εμφάνιση ενεργών στοιχείων ({count})",
         "FILTER_TYPE": "Φίλτρο Τύπου:",
         "FILTER_GATE": "Φίλτρο Πύλης:",
@@ -240,6 +315,61 @@ STRINGS = {
         "MAINTENANCES": "Συντηρήσεις",
         "LAST": "Τελευταία",
         "SINGLE_LINE": "Μονογραμμικό",
+        "MONTHS": [
+            "Ιανουάριος",
+            "Φεβρουάριος",
+            "Μάρτιος",
+            "Απρίλιος",
+            "Μάιος",
+            "Ιούνιος",
+            "Ιούλιος",
+            "Αύγουστος",
+            "Σεπτέμβριος",
+            "Οκτώβριος",
+            "Νοέμβριος",
+            "Δεκέμβριος",
+        ],
+        "DAYS": [
+            "Δευτέρα",
+            "Τρίτη",
+            "Τετάρτη",
+            "Πέμπτη",
+            "Παρασκευή",
+            "Σάββατο",
+            "Κυριακή",
+        ],
+        # Individual labels / small constants used across the UI
+        "BREAKER_LABEL_CENTRAL": "Κεντρικός",
+        "BREAKER_LABEL_INTERCON": "Διασυνδετικός",
+        "BREAKER_LABEL_CAPACITOR": "Διακόπτης Πυκνωτών",
+        "BREAKER_LABEL_LINE": "Γραμμής",
+        "GATE_PREFIX": "ΠΥΛΗ",
+        "ALL_LABEL": "(Όλα)",
+        "DIVISION_DEFAULT": "ΤΜΘ",
+        # Additional keys used by the Android UI
+        "PICKER_EMPTY_SELECTION": "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+        "ANDROID_FILECHOOSER_FALLBACK": "Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.",
+        "FILECHOOSER_NOT_AVAILABLE": "Ο επιλογέας αρχείων δεν είναι διαθέσιμος",
+        "FILECHOOSER_ANDROID_ONLY": "Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.",
+        "FILECHOOSER_INTERNAL_ERROR": "Εσωτερικό σφάλμα επιλογέα αρχείων.",
+        "FILECHOICE_CANCELLED": "Η επιλογή αρχείου απέτυχε ή ακυρώθηκε.",
+        "MODE_LABEL_LOCAL": "Πηγή: Τοπική Βάση",
+        "LOCAL_DB_BUTTON": "Τοπική Βάση",
+        "CHANGELOG_BUTTON": "Change-log",
+        "CHANGELOG_RECORDED": "Η αλλαγή καταγράφηκε στο change log.",
+        "ADOPTION_DATE_LABEL": "Ημερομηνία Υιοθέτησης:",
+        "NAME_REQUIRED": "Το όνομα είναι υποχρεωτικό",
+        "ELEMENT_TYPE_LABEL": "Τύπος Στοιχείου:",
+        "RETRY": "Ξαναδοκίμασε",
+        "COPYING_FILE": "Αντιγραφή αρχείου...",
+        "COPYING_FILE_MSG": "Αντιγραφή αρχείου από το σύστημα αρχείων. Παρακαλώ περιμένετε...",
+        "OVERALL_COMMENTS_HINT": "Γενικά σχόλια για την συντήρηση...",
+        "GOOGLE_MAPS_LINK": "Google Maps Link",
+        "SHARE_BUTTON": "Κοινοποίηση",
+        "COPY_PATH": "Αντιγραφή διαδρομής",
+        "LOADING_ELEMENTS": "Φόρτωση στοιχείων...",
+        "RETRY_LOAD": "Επανάληψη φόρτωσης",
+        "ELEM_COMMENTS_HINT": "Σχόλια για αυτό το στοιχείο...",
 
         # --- UI Actions / Buttons (mirrors BUTTONS when needed) ---
         "SHOW_DB_BUTTON": "Εμφάνιση βάσης υποσταθμών",
@@ -255,10 +385,25 @@ STRINGS = {
         "TOOLTIP_VIEW": "Προβολή",
         "TOOLTIP_MAINTENANCE": "Συντήρηση",
         "TOOLTIP_INSPECTION": "Επιθεώρηση",
+        "VIEW_SHORT": "Εμφ.",
+        "PDF_BUTTON": "PDF",
 
         # --- Prompts / Dialogs / Titles ---
         "VIEW_PROMPT": "Επιλέξτε τι θέλετε να δείτε:",
+        "SEARCH_HINT": "Αναζήτηση (όνομα/ημερομηνία)",
+        "PREVIOUS": "Προηγούμενη",
+        "NEXT": "Επόμενη",
+        "LOAD_MORE": "Φόρτωση περισσότερων",
+        "PAGE_LABEL_TEMPLATE": "Σελίδα {page}",
+        "ALL_SUBSTATIONS_LABEL": "Όλοι οι Υ/Σ",
         "VIEW_SELECTION_TITLE": "Επιλογή Προβολής",
+        "SORT_OPTIONS": [
+            "Ημερομηνία (φθίνουσα)",
+            "Ημερομηνία (αύξουσα)",
+            "Υποσταθμός A-Ω",
+        ],
+        "PAGE_SIZE_LABEL": "Αντικείμενα/σελίδα",
+        "PAGE_SIZE_OPTIONS": ["10", "20", "30", "50"],
         "SELECT_PROMPT": "Επιλογή",
         "SHOW_ALL_SUBSTATIONS": "Εμφάνιση Όλων των Υποσταθμών",
         "SELECT_ALL_BTN": "Επιλογή Όλων",
@@ -275,7 +420,9 @@ STRINGS = {
         "OPEN_LOCAL_DB_TITLE": "Άνοιγμα Τοπικής Βάσης",
         "OPEN_FOLDER": "Άνοιγμα φακέλου",
         "CONFIRM_DELETE_TITLE": "Επιβεβαίωση Διαγραφής",
-        "DUPLICATE_OPTIONS_INCOMPLETE": "Ολοκληρώστε τις επιλογές για όλα τα διπλότυπα ή χρησιμοποιήστε \"Αντικατάσταση Όλων\" / \"Παράλειψη Όλων\".",
+        "DUPLICATE_OPTIONS_INCOMPLETE": (
+            "Ολοκληρώστε τις επιλογές για όλα τα διπλότυπα ή χρησιμοποιήστε 'Αντικατάσταση Όλων' / 'Παράλειψη Όλων'."
+        ),
         "RESPONSIBLE_NOT_FOUND_TITLE": "Ο υπεύθυνος δε βρέθηκε",
 
         # --- Misc / Hints ---
@@ -310,7 +457,15 @@ STRINGS = {
         "OBSERVATIONS_HINT": "Παρατηρήσεις",
 
         # --- Email / Reports ---
-        "EMAIL_RECIPIENTS_MISSING": "Δεν υπάρχουν παραλήπτες email. Προσθέστε παραλήπτες από τη Διαχείριση Προσωπικού.",
+        "EMAIL_RECIPIENTS_MISSING": (
+            "Δεν υπάρχουν παραλήπτες email. Προσθέστε παραλήπτες από τη Διαχείριση Προσωπικού."
+        ),
+        "MAINTENANCE_HEADER": "Συντήρηση: {name}",
+        "PEOPLE_SUMMARY": "Υπεύθυνος: {resp} | Ομάδα: {crew}",
+        "COMMENTS_LABEL": "Σχόλια: {text}",
+        "MAINTENANCE_COMMENTS_SECTION": "Σχόλια Συντήρησης",
+        "ELEMENT_COMMENTS_SECTION": "Σχόλια Στοιχείου",
+        "MAINT_LAST_LABEL": "Τελευταία Συντήρηση: {date}",
 
         # --- Errors & Validation ---
         "INVALID_DATE_FORMAT": "Μη έγκυρη μορφή ημερομηνίας! Χρησιμοποιήστε: YYYY-MM-DD HH:MM",
@@ -339,9 +494,12 @@ STRINGS = {
         ],
 
         # --- Other / Deprecated-friendly ---
-        "NO_ELEMENTS_PAREN": "(Χωρίς στοιχεία)",
         "ITEM_DELETED": "Το στοιχείο διαγράφηκε!",
-        "NO_ELEMENTS_FOR_ITEM": "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.",
+        "MAINTENANCE_UPDATED": "Η συντήρηση ενημερώθηκε!",
+        "MAINTENANCE_CREATED": "Η συντήρηση καταχωρήθηκε!",
+        "CHANGES_SAVED": "Οι αλλαγές αποθηκεύτηκαν!",
+        "CONFIRM_DELETE_SUBSTATION_FMT": "Είστε σίγουροι ότι θέλετε να διαγράψετε\nτον υποσταθμό \"{substation_name}\"\nκαι ΟΛΑ τα στοιχεία του;",
+        "CONFIRM_DELETE_MAINT_FMT": "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση;",
         "UNREGISTERED_PLACEHOLDER": "(Μη καταχωρημένο)",
         "EMPTY_PLACEHOLDER": "(Κενό)",
         "MODEL_SELECT_PROMPT": "Επιλέξτε μοντέλο",

@@ -6,6 +6,14 @@ Exports:
 - validate_breaker_category_required(element_type, breaker_category_value)
 """
 
+from strings import STRINGS as S
+
+# Canonical breaker element names from strings
+ELEM_BREAKER_YT = S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+ELEM_BREAKER_MT = S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
+ELEMENT_BREAKER_SUBSTR = S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης")
+
+
 def is_interconnection_gate(gate_value):
     try:
         return bool(gate_value and "-" in str(gate_value))
@@ -23,7 +31,7 @@ def validate_gate_assignment(element_type, breaker_type, gate_value):
         return True
     if is_interconnection_gate(gate_value):
         # Interconnection gates are only allowed for MV interconnection breakers
-        if element_type != "Διακόπτης ΜΤ":
+        if element_type != ELEM_BREAKER_MT:
             raise ValueError(
                 "Οι πύλες σύνδεσης (π.χ. ΠΥΛΗ 1-2) επιτρέπονται μόνο για Διακόπτης ΜΤ τύπου 'Διασυνδετικός'."
             )
@@ -36,7 +44,7 @@ def validate_gate_assignment(element_type, breaker_type, gate_value):
 
 def validate_breaker_category_required(element_type, breaker_category_value):
     """Ensure breaker category is provided for circuit breakers; raise ValueError if missing."""
-    if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"] and (
+    if element_type in [ELEM_BREAKER_YT, ELEM_BREAKER_MT] and (
         breaker_category_value is None or str(breaker_category_value).strip() == ""
     ):
         raise ValueError("Η κατηγορία διακόπτη είναι υποχρεωτική για τους διακόπτες!")

@@ -123,117 +123,125 @@ class SubstationAndroidApp(App):
     ELEMENT_FIELD_DEFS = [
         {
             "key": "name",
-            "label": "Όνομα Στοιχείου",
+            "label": S.get("MESSAGES", {}).get("ELEMENT_NAME_LABEL", "Όνομα Στοιχείου"),
             "type": "text",
-            "hint": "Όνομα Στοιχείου",
+            "hint": S.get("MESSAGES", {}).get("ELEMENT_NAME_HINT", "Όνομα Στοιχείου"),
         },
         {
             "key": "serial_number",
-            "label": "Σειριακός Αριθμός",
+            "label": S.get("MESSAGES", {}).get("SERIAL_NUMBER_LABEL", "Σειριακός Αριθμός"),
             "type": "text",
-            "hint": "Σειριακός Αριθμός",
+            "hint": S.get("MESSAGES", {}).get("SERIAL_NUMBER_HINT", "Σειριακός Αριθμός"),
         },
         {
             "key": "maintenance_date",
-            "label": "Ημερομηνία τελευταίας συντήρησης",
+            "label": S.get("MESSAGES", {}).get("MAINTENANCE_DATE_LABEL", "Τελευταία Συντ."),
             "type": "text",
-            "hint": "YYYY-MM-DD",
+            "hint": S.get("MESSAGES", {}).get("MAINTENANCE_DATE_HINT", "YYYY-MM-DD"),
         },
         {
             "key": "voltage_level",
-            "label": "Επίπεδο Τάσης",
+            "label": S.get("MESSAGES", {}).get("INSTALLATION_SPACE_LABEL", "Επίπεδο Τάσης"),
             "type": "text",
-            "hint": "π.χ. 20 KV, 150 KV",
+            "hint": S.get("MESSAGES", {}).get("VOLTAGE_LEVELS_HINT", "π.χ. 20 KV, 150 KV"),
         },
         {
             "key": "manufacturer",
-            "label": "Κατασκευαστής",
+            "label": S.get("MESSAGES", {}).get("MANUFACTURER_LABEL", "Κατασκευαστής"),
             "type": "text",
-            "hint": "Κατασκευαστής",
+            "hint": S.get("MESSAGES", {}).get("MANUFACTURER_HINT", "Κατασκευαστής"),
         },
-        {"key": "type", "label": "Τύπος", "type": "text", "hint": "Τύπος"},
+        {"key": "type", "label": S.get("MESSAGES", {}).get("TYPE_LABEL", "Τύπος"), "type": "text", "hint": S.get("MESSAGES", {}).get("TYPE_HINT", "Τύπος")},
         {
             "key": "manufacture_year",
-            "label": "Έτος Κατασκευής",
+            "label": S.get("MESSAGES", {}).get("ELEMENT_MANUFACTURE_YEAR_LABEL", "Έτος κατασκευής"),
             "type": "text",
-            "hint": "π.χ. 2010",
+            "hint": S.get("MESSAGES", {}).get("ELEMENT_MANUFACTURE_YEAR_HINT", "YYYY"),
         },
-        {"key": "model", "label": "Μοντέλο", "type": "text", "hint": "Μοντέλο"},
+        {"key": "model", "label": S.get("MESSAGES", {}).get("MODEL_LABEL", "Μοντέλο"), "type": "text", "hint": S.get("MESSAGES", {}).get("MODEL_HINT", "Μοντέλο")},
         {
             "key": "model_version",
-            "label": "Έκδοση Μοντέλου",
+            "label": S.get("MESSAGES", {}).get("MODEL_VERSION_LABEL", "Έκδοση Μοντέλου"),
             "type": "text",
-            "hint": "Έκδοση",
+            "hint": S.get("MESSAGES", {}).get("MODEL_VERSION_HINT", "Έκδοση"),
         },
         {
             "key": "operating_status",
-            "label": "Κατάσταση Λειτουργίας",
+            "label": S.get("MESSAGES", {}).get("OPERATING_STATUS_LABEL", "Κατάσταση Λειτουργίας"),
             "type": "spinner",
             "values": OPERATING_STATUS,
         },
         {
             "key": "installation_space",
-            "label": "Χώρος Εγκατάστασης",
+            "label": S.get("MESSAGES", {}).get("INSTALLATION_SPACE_LABEL", "Χώρος Εγκατάστασης"),
             "type": "spinner",
             "values": INSTALLATION_SPACE,
         },
         {
             "key": "maintenance_cycle",
-            "label": "Κύκλος Συντήρησης (μήνες)",
+            "label": S.get("MESSAGES", {}).get("MAINTENANCE_CYCLE_LABEL", "Κύκλος Συντήρησης (μήνες)"),
             "type": "text",
-            "hint": "π.χ. 12",
+            "hint": S.get("MESSAGES", {}).get("MAINTENANCE_CYCLE_HINT", "π.χ. 12"),
         },
-        {"key": "gate", "label": "Πύλη", "type": "text", "hint": "π.χ. ΠΥΛΗ 1"},
+        {"key": "gate", "label": S.get("MESSAGES", {}).get("GATES", "Πύλη"), "type": "text", "hint": S.get("MESSAGES", {}).get("GATE_HINT", "π.χ. ΠΥΛΗ 1")},
     ]
     # Build INSPECTION_FIELDS from centralized strings to avoid duplication
     INSPECTION_FIELDS = []
     rows = S.get("MESSAGES", {}).get("INSPECTION_ROWS", [])
     # Section 1
+    sec1 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "1. Έλεγχος Χώρων ΥΣ"},
-        "Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)",
+        {"type": "section", "title": f"1. {sec1}"},
+        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=1, sec=sec1),
     ])
     INSPECTION_FIELDS.extend(rows[0:4])
     # Section 2
+    sec2 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3", "Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV"},
-        "Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)",
+        {"type": "section", "title": f"2. {sec2}"},
+        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=2, sec=sec2),
     ])
     INSPECTION_FIELDS.extend(rows[4:12])
     # Section 3a
+    sec3a = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3A", "Υπαίθριες πύλες 20 kV")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "3α. Υπαίθριες πύλες 20 kV"},
-        "Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)",
+        {"type": "section", "title": f"3α. {sec3a}"},
+        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n="3α", sec=sec3a),
     ])
     INSPECTION_FIELDS.append(rows[12])
     # Section 3b
+    sec3b = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3B", "Πίνακες 20 kV")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "3β. Πίνακες 20 kV"},
-        "Παρατηρήσεις (3β. Πίνακες 20 kV)",
+        {"type": "section", "title": f"3β. {sec3b}"},
+        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n="3β", sec=sec3b),
     ])
     INSPECTION_FIELDS.extend(rows[13:15])
     # Section 4
+    sec4 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_4", "Κτίριο χειρισμών & Τ.Α.Σ.")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "4. Κτίριο χειρισμών & Τ.Α.Σ."},
-        "Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)",
+        {"type": "section", "title": f"4. {sec4}"},
+        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=4, sec=sec4),
     ])
     INSPECTION_FIELDS.extend(rows[15:18])
     # Section 5
+    sec5 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_5", "Αποζεύκτες Γραμμών")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "5. Αποζεύκτες Γραμμών"},
-        "Παρατηρήσεις (5. Αποζεύκτες Γραμμών)",
+        {"type": "section", "title": f"5. {sec5}"},
+        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=5, sec=sec5),
     ])
     INSPECTION_FIELDS.append(rows[18])
     # Section 6
+    sec6 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_6", "PC ΧΕΙΡΙΣΜΩΝ")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "6. PC ΧΕΙΡΙΣΜΩΝ"},
-        "Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)",
+        {"type": "section", "title": f"6. {sec6}"},
+        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=6, sec=sec6),
     ])
     INSPECTION_FIELDS.extend(rows[19:21])
     # Final section: opinions
+    sec7 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_7", "Απόψεις")
     INSPECTION_FIELDS.extend([
-        {"type": "section", "title": "7. Απόψεις"},
-        "Απόψεις - Προτάσεις",
+        {"type": "section", "title": f"7. {sec7}"},
+        S.get("MESSAGES", {}).get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις"),
     ])
 
     def open_local_db_picker(self):
@@ -243,7 +251,7 @@ class SubstationAndroidApp(App):
     def _prompt_local_db_path(self):
         popup = Popup(title=S["MESSAGES"].get("OPEN_LOCAL_DB_TITLE", "Άνοιγμα Τοπικής Βάσης"), size_hint=(0.9, 0.4))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        layout.add_widget(Label(text="Δώσε πλήρες path του αρχείου .db"))
+        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("ENTER_PATH", "Δώσε πλήρες path του αρχείου .db")))
         default_path = ANDROID_DEFAULT_DB_PATH
         path_input = TextInput(text=default_path, hint_text=ANDROID_DEFAULT_DB_PATH, multiline=False)
         layout.add_widget(path_input)
@@ -255,18 +263,18 @@ class SubstationAndroidApp(App):
         def open_picker():
             def _selected(selection):
                 if not selection or len(selection) == 0:
-                    self.show_error("Ο επιλογέας επέστρεψε κενή επιλογή (None).")
+                    self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
                     return
                 raw_value = selection[0]
                 if raw_value is None:
-                    self.show_error("Ο επιλογέας επέστρεψε κενή επιλογή (None).")
+                    self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
                     return
                 if isinstance(raw_value, bytes):
                     selected_path = raw_value.decode("utf-8", errors="ignore")
                 else:
                     selected_path = str(raw_value)
                 if selected_path.strip().lower() in ("", "none", "null"):
-                    self.show_error("Ο επιλογέας επέστρεψε κενή επιλογή (None).")
+                    self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
                     return
                 Logger.info(f"APP: File chooser selected: {selected_path}")
                 Clock.schedule_once(
@@ -277,9 +285,11 @@ class SubstationAndroidApp(App):
                 if platform == "android":
                     # Ensure storage permissions are requested BEFORE opening SAF picker
                     try:
-                        from android.permissions import (Permission,
-                                                         check_permission,
-                                                         request_permissions)
+                        from android.permissions import (
+                            Permission,
+                            check_permission,
+                            request_permissions,
+                        )
 
                         needed_perms = [
                             Permission.READ_EXTERNAL_STORAGE,
@@ -311,20 +321,38 @@ class SubstationAndroidApp(App):
                         # Continue without explicit permission check if android.permissions not available
                         pass
 
+                    # Use Android SAF picker
                     self._open_android_document_picker(_selected)
                     return
+
+                # Non-Android flow: prefer filechooser if available, otherwise fall back to list view or show error
                 if not filechooser:
                     if FileChooserListView:
                         self.show_error(
-                            "Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο."
+                            S["MESSAGES"].get(
+                                "ANDROID_FILECHOOSER_FALLBACK",
+                                "Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.",
+                            )
                         )
-                        return
-                    self.show_error("Ο επιλογέας αρχείων δεν είναι διαθέσιμος")
+                    else:
+                        self.show_error(
+                            S["MESSAGES"].get(
+                                "FILECHOOSER_NOT_AVAILABLE",
+                                "Ο επιλογέας αρχείων δεν είναι διαθέσιμος",
+                            )
+                        )
                     return
+
+                # Use the available filechooser
                 filechooser.open_file(on_selection=_selected)
             except Exception as e:
                 Logger.error(f"APP: Exception in open_picker: {str(e)}")
-                self.show_error(f"Σφάλμα ανοίγματος επιλογέα: {str(e)}")
+                self.show_error(
+                    S.get("MESSAGES", {}).get(
+                        "PICKER_OPEN_ERROR",
+                        "Σφάλμα ανοίγματος επιλογέα: {err}",
+                    ).format(err=str(e))
+                )
 
         choose_btn.bind(on_press=lambda _x: open_picker())
         chooser_layout.add_widget(choose_btn)
@@ -342,14 +370,14 @@ class SubstationAndroidApp(App):
                 if selection:
                     raw_value = selection[0]
                     if raw_value is None:
-                        self.show_error("Ο επιλογέας επέστρεψε κενή επιλογή (None).")
+                        self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
                         return
                     if isinstance(raw_value, bytes):
                         selected_path = raw_value.decode("utf-8", errors="ignore")
                     else:
                         selected_path = str(raw_value)
                     if selected_path.strip().lower() in ("", "none", "null"):
-                        self.show_error("Ο επιλογέας επέστρεψε κενή επιλογή (None).")
+                        self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
                         return
                     Logger.info(f"APP: File list selected: {selected_path}")
                     Clock.schedule_once(
@@ -388,7 +416,7 @@ class SubstationAndroidApp(App):
     def _open_android_document_picker(self, on_selected):
         if platform != "android":
             Logger.warning("APP: SAF picker only available on Android platform")
-            self.show_error("Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.")
+            self.show_error(S["MESSAGES"].get("FILECHOOSER_ANDROID_ONLY", "Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android."))
             return
         # Request permissions before proceeding
         try:
@@ -418,7 +446,7 @@ class SubstationAndroidApp(App):
             from android import activity
         except Exception as e:
             Logger.warning(f"APP: Android SAF picker not available: {str(e)}")
-            self.show_error("Ο επιλογέας αρχείων δεν είναι διαθέσιμος")
+            self.show_error(S["MESSAGES"].get("FILECHOOSER_NOT_AVAILABLE", "Ο επιλογέας αρχείων δεν είναι διαθέσιμος"))
             return
 
         try:
@@ -435,36 +463,36 @@ class SubstationAndroidApp(App):
             def _activity_result(req_code, result_code, data):
                 if req_code != request_code:
                     Logger.warning("APP: Activity result request code mismatch.")
-                    self.show_error("Εσωτερικό σφάλμα επιλογέα αρχείων.")
+                    self.show_error(S["MESSAGES"].get("FILECHOOSER_INTERNAL_ERROR", "Εσωτερικό σφάλμα επιλογέα αρχείων."))
                     return
                 activity.unbind(on_activity_result=_activity_result)
                 if result_code != Activity.RESULT_OK or data is None:
                     Logger.warning("APP: Activity result not OK or data is None.")
-                    self.show_error("Η επιλογή αρχείου απέτυχε ή ακυρώθηκε.")
+                    self.show_error(S["MESSAGES"].get("FILECHOICE_CANCELLED", "Η επιλογή αρχείου απέτυχε ή ακυρώθηκε."))
                     return
                 try:
                     uri = data.getData()
                     if uri is None:
                         Logger.warning("APP: SAF picker returned None URI.")
-                        self.show_error("Ο επιλογέας επέστρεψε κενή επιλογή (None).")
+                        self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
                         return
                     uri_str = uri.toString()
                     Logger.info(f"APP: SAF selected: {uri_str}")
                     on_selected([uri_str])
                 except Exception as e:
                     Logger.warning(f"APP: SAF selection failed: {str(e)}")
-                    self.show_error("Σφάλμα κατά την επιλογή αρχείου: " + str(e))
+                    self.show_error(S.get("MESSAGES", {}).get("FILECHOOSER_SELECT_ERROR", "Σφάλμα κατά την επιλογή αρχείου: {err}").format(err=str(e)))
 
             activity.bind(on_activity_result=_activity_result)
             current_activity = PythonActivity.mActivity
             current_activity.startActivityForResult(intent, request_code)
         except Exception as e:
             Logger.warning(f"APP: Failed to open SAF picker: {str(e)}")
-            self.show_error("Αποτυχία ανοίγματος επιλογέα αρχείων: " + str(e))
+            self.show_error(S.get("MESSAGES", {}).get("PICKER_OPEN_ERROR", "Αποτυχία ανοίγματος επιλογέα αρχείων: {err}").format(err=str(e)))
 
     def use_local_mode(self, db_path):
         if not db_path or str(db_path).strip().lower() in ("none", "null"):
-            self.show_error("Δεν επιλέχθηκε αρχείο βάσης")
+            self.show_error(S.get("MESSAGES", {}).get("NO_DB_SELECTED", "Δεν επιλέχθηκε αρχείο βάσης"))
             return
 
         def _continue_with_path(resolved_path):
@@ -474,7 +502,7 @@ class SubstationAndroidApp(App):
             self.change_log_path = None
             self._ensure_change_log_path()
             if hasattr(self, "mode_label"):
-                self.mode_label.text = "Πηγή: Τοπική Βάση"
+                self.mode_label.text = S["MESSAGES"].get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση")
             # Only load substations if DB is valid and loaded
             self.load_substations(None)
 
@@ -483,7 +511,7 @@ class SubstationAndroidApp(App):
 
                 def _on_copy_done(success, val):
                     if not success:
-                        self.show_error(f"Αποτυχία ανοίγματος βάσης: {val}")
+                        self.show_error(S["MESSAGES"].get("IMPORT_FAILED", "Αποτυχία ανοίγματος βάσης:") + f" {val}")
                         return
                     _continue_with_path(val)
 
@@ -611,7 +639,7 @@ class SubstationAndroidApp(App):
                 label.bind(
                     texture_size=lambda inst, val: setattr(inst, "height", val[1])
                 )
-                retry_btn = Button(text="Ξαναδοκίμασε", size_hint_x=None, width=140)
+                retry_btn = Button(text=S.get("MESSAGES", {}).get("RETRY", "Ξαναδοκίμασε"), size_hint_x=None, width=140)
 
                 def _on_retry(_):
                     try:
@@ -685,15 +713,15 @@ class SubstationAndroidApp(App):
 
             # Header
             Logger.info("APP: Creating header Label")
-            header = Label(text="Υποσταθμοί ΔΕΔΔΗΕ", size_hint_y=0.1, bold=True)
+            header = Label(text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"), size_hint_y=0.1, bold=True)
             main_layout.add_widget(header)
             Logger.info("APP: Header added")
 
             # Data source controls
             mode_layout = BoxLayout(size_hint_y=0.08, spacing=10)
-            self.mode_label = Label(text="Πηγή: Τοπική Βάση", size_hint_x=0.6)
+            self.mode_label = Label(text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"), size_hint_x=0.6)
 
-            local_btn = Button(text="Τοπική Βάση", size_hint_x=0.4)
+            local_btn = Button(text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Τοπική Βάση"), size_hint_x=0.4)
             local_btn.bind(on_press=lambda _x: self.open_local_db_picker())
 
             mode_layout.add_widget(self.mode_label)
@@ -709,16 +737,16 @@ class SubstationAndroidApp(App):
             button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
             # Keep references so we can hide these when viewing a substation
-            self.refresh_btn = Button(text="Ανανέωση")
+            self.refresh_btn = Button(text=S.get("BUTTONS", {}).get("REFRESH", "Ανανέωση"))
             self.refresh_btn.bind(on_press=self.load_substations)
             button_layout.add_widget(self.refresh_btn)
 
-            self.add_substation_btn = Button(text="+ Υποσταθμός")
+            self.add_substation_btn = Button(text=("+ " + S.get("BUTTONS", {}).get("ADD", "Προσθήκη") + " Υποσταθμού"))
             self.add_substation_btn.bind(on_press=self.show_add_substation_popup)
             button_layout.add_widget(self.add_substation_btn)
 
             # Add a persistent Change-log button to open share/open actions
-            change_log_btn = Button(text="Change-log")
+            change_log_btn = Button(text=S.get("MESSAGES", {}).get("CHANGELOG_BUTTON", "Change-log"))
             change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
             button_layout.add_widget(change_log_btn)
 
@@ -887,7 +915,7 @@ class SubstationAndroidApp(App):
                         texture_size=lambda inst, val: setattr(inst, "height", val[1])
                     )
                     copy_btn = Button(
-                        text="Αντιγραφή διαδρομής", size_hint_x=None, width=180
+                        text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής"), size_hint_x=None, width=180
                     )
 
                     def _copy_path(_):
@@ -941,7 +969,7 @@ class SubstationAndroidApp(App):
                     notice.add_widget(open_btn)
 
                     # Share button (attempt Android share intent, fallback to copy path)
-                    share_btn = Button(text="Κοινοποίηση", size_hint_x=None, width=120)
+                    share_btn = Button(text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση"), size_hint_x=None, width=120)
 
                     def _share_file(_):
                         # Delegate to testable helper on the app instance
@@ -1015,7 +1043,7 @@ class SubstationAndroidApp(App):
                             size_hint_y=None, height=64, spacing=10, padding=8
                         )
                         fb_copy = Button(
-                            text="Αντιγραφή διαδρομής", size_hint_x=None, width=180
+                            text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής"), size_hint_x=None, width=180
                         )
                         fb_notice.add_widget(fb_copy)
                         try:
@@ -1186,7 +1214,7 @@ class SubstationAndroidApp(App):
                         pass
 
             open_btn.bind(on_press=_on_open)
-            share_btn = Button(text="Κοινοποίηση")
+            share_btn = Button(text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση"))
 
             def _on_share(_):
                 try:
@@ -1356,14 +1384,14 @@ class SubstationAndroidApp(App):
             Logger.info("APP: Clearing content_layout widgets")
             self.content_layout.clear_widgets()
             Logger.info("APP: Creating loading label")
-            loading_label = Label(text="Φόρτωση...", size_hint_y=1)
+            loading_label = Label(text=S.get("MESSAGES", {}).get("LOADING", "Φόρτωση..."), size_hint_y=1)
             self.content_layout.add_widget(loading_label)
             Logger.info("APP: Loading label added")
 
             if not self.local_db_path:
                 self.content_layout.clear_widgets()
                 self.content_layout.add_widget(
-                    Label(text="Επίλεξε αρχείο βάσης για να ξεκινήσεις.")
+                    Label(text=S.get("MESSAGES", {}).get("ENTER_PATH", "Επίλεξε αρχείο βάσης για να ξεκινήσεις."))
                 )
                 return
 
@@ -1396,7 +1424,7 @@ class SubstationAndroidApp(App):
 
         if not self.substations:
             Logger.info("APP: No substations found - showing message")
-            self.content_layout.add_widget(Label(text="Κανένας υποσταθμός δεν βρέθηκε"))
+            self.content_layout.add_widget(Label(text=S.get("MESSAGES", {}).get("NO_SUBSTATIONS", "Κανένας υποσταθμός δεν βρέθηκε")))
             return
 
         scroll = ScrollView()
@@ -1413,7 +1441,7 @@ class SubstationAndroidApp(App):
             name_label = Label(text=substation["name"], size_hint_x=0.7, bold=True)
             top_row.add_widget(name_label)
 
-            view_btn = Button(text="Δες", size_hint_x=0.3)
+            view_btn = Button(text=S.get("BUTTONS", {}).get("VIEW", "Δες"), size_hint_x=0.3)
             view_btn.bind(
                 on_press=lambda x, sid=substation["id"]: self.show_substation_details(
                     sid
@@ -1425,9 +1453,9 @@ class SubstationAndroidApp(App):
 
             # Bottom row: Location link
             location = substation.get("location", "")
-            location_text = "Google Maps Link" if location else "-"
+            location_text = S.get("MESSAGES", {}).get("GOOGLE_MAPS_LINK", "Google Maps Link") if location else "-"
             location_label = Label(
-                text=f"Τοποθεσία: {location_text}",
+                text=f"{S.get('MESSAGES', {}).get('LOC', 'Τοποθεσία')}: {location_text}",
                 size_hint_y=None,
                 height=30,
                 font_size="14sp",
@@ -1448,7 +1476,7 @@ class SubstationAndroidApp(App):
             (s for s in self.substations if s["id"] == substation_id), None
         )
         if not substation:
-            self.show_error("Substation not found")
+            self.show_error(S.get("MESSAGES", {}).get("SUBSTATION_NOT_FOUND", "Substation not found"))
             return
 
         self.current_substation = substation
@@ -1471,9 +1499,9 @@ class SubstationAndroidApp(App):
             height=30,
         )
         location = substation.get("location", "")
-        location_text = "Google Maps Link" if location else "-"
+        location_text = S.get("MESSAGES", {}).get("GOOGLE_MAPS_LINK", "Google Maps Link") if location else "-"
         location_label = Label(
-            text=f"Τοποθεσία: {location_text}",
+            text=f"{S.get('MESSAGES', {}).get('LOC', 'Τοποθεσία')}: {location_text}",
             font_size="14sp",
             size_hint_y=None,
             height=25,
@@ -1495,13 +1523,13 @@ class SubstationAndroidApp(App):
         # Action buttons
         button_layout = BoxLayout(size_hint_y=0.15, spacing=10)
 
-        maint_btn = Button(text="Συντήρηση")
+        maint_btn = Button(text=S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"))
         maint_btn.bind(
             on_press=lambda x: self.show_maintenance_menu(substation_id, substation)
         )
         button_layout.add_widget(maint_btn)
 
-        inspect_btn = Button(text="Επιθεώρηση")
+        inspect_btn = Button(text=S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"))
         inspect_btn.bind(
             on_press=lambda x: self.show_inspection_entry_popup(
                 substation_id, substation
@@ -1513,7 +1541,7 @@ class SubstationAndroidApp(App):
         add_elem_btn.bind(on_press=lambda x: self.show_add_element_popup(substation_id))
         button_layout.add_widget(add_elem_btn)
 
-        back_btn = Button(text="Πίσω")
+        back_btn = Button(text=S.get("BUTTONS", {}).get("BACK", "Πίσω"))
         back_btn.bind(on_press=lambda x: self.load_substations(None))
         button_layout.add_widget(back_btn)
 
@@ -1524,7 +1552,7 @@ class SubstationAndroidApp(App):
     def _load_substation_elements(self, substation_id, grid):
         """Load and display elements for a substation"""
         grid.clear_widgets()
-        loading_label = Label(text="Φόρτωση στοιχείων...", size_hint_y=None, height=40)
+        loading_label = Label(text=S.get("MESSAGES", {}).get("LOADING_ELEMENTS", "Φόρτωση στοιχείων..."), size_hint_y=None, height=40)
         grid.add_widget(loading_label)
 
         if self.data_mode == "local":
@@ -1584,21 +1612,21 @@ class SubstationAndroidApp(App):
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
-        layout.add_widget(Label(text="Όνομα Υποσταθμού:", size_hint_y=0.15))
-        name_input = TextInput(hint_text="Όνομα", size_hint_y=0.15, multiline=False)
+        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("SUBSTATION_NAME_LABEL", "Όνομα Υποσταθμού:"), size_hint_y=0.15))
+        name_input = TextInput(hint_text=S.get("MESSAGES", {}).get("SUBSTATION_NAME_HINT", "Όνομα"), size_hint_y=0.15, multiline=False)
         layout.add_widget(name_input)
 
         # Location input
-        layout.add_widget(Label(text="Τοποθεσία:", size_hint_y=0.15))
+        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("LOC", "Τοποθεσία:"), size_hint_y=0.15))
         location_input = TextInput(
-            hint_text="Τοποθεσία", size_hint_y=0.15, multiline=False
+            hint_text=S.get("MESSAGES", {}).get("LOC", "Τοποθεσία"), size_hint_y=0.15, multiline=False
         )
         layout.add_widget(location_input)
 
         # Adoption date input
-        layout.add_widget(Label(text="Ημερομηνία Υιοθέτησης:", size_hint_y=0.15))
+        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("ADOPTION_DATE_LABEL", "Ημερομηνία Υιοθέτησης:"), size_hint_y=0.15))
         date_input = TextInput(
-            hint_text="YYYY-MM-DD", size_hint_y=0.15, multiline=False
+            hint_text=S.get("MESSAGES", {}).get("DATE_HINT", "YYYY-MM-DD"), size_hint_y=0.15, multiline=False
         )
         layout.add_widget(date_input)
 
@@ -1607,7 +1635,7 @@ class SubstationAndroidApp(App):
 
         def add_substation():
             if not name_input.text.strip():
-                self.show_error("Το όνομα είναι υποχρεωτικό")
+                self.show_error(S.get("MESSAGES", {}).get("NAME_REQUIRED", "Το όνομα είναι υποχρεωτικό"))
                 return
 
             try:
@@ -1623,7 +1651,7 @@ class SubstationAndroidApp(App):
                     "insert", "substations", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
+                show_message_popup(S["TITLES"]["SUCCESS"], S.get("MESSAGES", {}).get("CHANGELOG_RECORDED", "Η αλλαγή καταγράφηκε στο change log."))
             except Exception as e:
                 Logger.error(f"APP: Failed to append substation to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -1667,7 +1695,7 @@ class SubstationAndroidApp(App):
             return label
 
         # Element type
-        layout.add_widget(wrapped_label("Τύπος Στοιχείου:"))
+        layout.add_widget(wrapped_label(S.get("MESSAGES", {}).get("ELEMENT_TYPE_LABEL", "Τύπος Στοιχείου:")))
         element_spinner = Spinner(
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
@@ -1779,8 +1807,8 @@ class SubstationAndroidApp(App):
             "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το στοιχείο;",
             yes_callback=do_delete,
             yes_color=(1, 0, 0, 1),
-            yes_text="ΝΑΙ",
-            no_text="ΟΧΙ",
+            yes_text=S.get("BUTTONS", {}).get("YES", "Ναι").upper(),
+            no_text=S.get("BUTTONS", {}).get("NO", "Όχι").upper(),
         )
 
     def delete_substation(self, substation_id):
@@ -1799,8 +1827,8 @@ class SubstationAndroidApp(App):
             "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτόν τον υποσταθμό και τα στοιχεία του;",
             yes_callback=do_delete,
             yes_color=(1, 0, 0, 1),
-            yes_text="ΝΑΙ",
-            no_text="ΟΧΙ",
+            yes_text=S.get("BUTTONS", {}).get("YES", "Ναι").upper(),
+            no_text=S.get("BUTTONS", {}).get("NO", "Όχι").upper(),
         )
 
     def show_maintenance_menu(self, substation_id, substation):
@@ -1857,7 +1885,7 @@ class SubstationAndroidApp(App):
         # Overall comments (rendered outside the scrolling elements list
         # so it remains visible and cannot be overlapped while elements load)
         overall_comments = TextInput(
-            hint_text="Γενικά σχόλια για την συντήρηση...",
+            hint_text=S.get("MESSAGES", {}).get("OVERALL_COMMENTS_HINT", "Γενικά σχόλια για την συντήρηση..."),
             size_hint_y=None,
             height=120,
             multiline=True,
@@ -1867,7 +1895,7 @@ class SubstationAndroidApp(App):
         # Elements section
         content_layout.add_widget(
             Label(
-                text="Στοιχεία που συντηρήθηκαν:",
+                text=S.get("MESSAGES", {}).get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
                 size_hint_y=None,
                 height=40,
                 bold=True,
@@ -1876,7 +1904,7 @@ class SubstationAndroidApp(App):
         loading_label = Label(text="Φόρτωση στοιχείων...", size_hint_y=None, height=40)
         content_layout.add_widget(loading_label)
         retry_btn = Button(
-            text="Επανάληψη φόρτωσης",
+            text=S.get("MESSAGES", {}).get("RETRY_LOAD", "Επανάληψη φόρτωσης"),
             size_hint_y=None,
             height=40,
             disabled=True,
@@ -1963,7 +1991,7 @@ class SubstationAndroidApp(App):
 
                         # Allow comments to expand vertically with content for better readability on mobile
                         elem_comments = TextInput(
-                            hint_text="Σχόλια για αυτό το στοιχείο...",
+                            hint_text=S.get("MESSAGES", {}).get("ELEM_COMMENTS_HINT", "Σχόλια για αυτό το στοιχείο..."),
                             size_hint_y=None,
                             height=56,
                             multiline=True,
@@ -2115,7 +2143,7 @@ class SubstationAndroidApp(App):
         comments_container = BoxLayout(
             orientation="vertical", size_hint_y=None, height=160
         )
-        comments_container.add_widget(wrapped_label("Γενικά Σχόλια:"))
+        comments_container.add_widget(wrapped_label(S.get("MESSAGES", {}).get("OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια:")))
         comments_container.add_widget(overall_comments)
         main_layout.add_widget(comments_container)
 
@@ -2320,7 +2348,7 @@ class SubstationAndroidApp(App):
                     "insert", "inspections", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup(S["TITLES"]["SUCCESS"], "Η επιθεώρηση καταχωρήθηκε στο change log.")
+                show_message_popup(S["TITLES"]["SUCCESS"], S.get("MESSAGES", {}).get("CHANGELOG_RECORDED", "Η αλλαγή καταγράφηκε στο change log."))
             except Exception as e:
                 Logger.error(f"APP: Failed to append inspection to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")

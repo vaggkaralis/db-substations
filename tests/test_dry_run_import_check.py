@@ -2,6 +2,9 @@ import pandas as pd
 
 from import_validator import validate_breaker_category
 from importers import _map_columns
+from strings import STRINGS as S
+
+ELEM_BREAKER_MT = S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
 
 def _count_missing_breakers_and_models(df: pd.DataFrame):
@@ -63,8 +66,8 @@ def _count_missing_breakers_and_models(df: pd.DataFrame):
 def test_map_columns_and_models_count():
     # create a dataframe with synonym headers and mixed rows
     data = [
-        {'Όνομα': 'B1', 'Τύπος': 'Διακόπτης ΜΤ', 'Μοντέλο': 'M1', 'Τύπος Διακόπτη': 'SF6'},
-        {'Όνομα': 'B2', 'Τύπος': 'Διακόπτης ΜΤ', 'Μοντέλο': '', 'Τύπος Διακόπτη': ''},
+        {'Όνομα': 'B1', 'Τύπος': ELEM_BREAKER_MT, 'Μοντέλο': 'M1', 'Τύπος Διακόπτη': 'SF6'},
+        {'Όνομα': 'B2', 'Τύπος': ELEM_BREAKER_MT, 'Μοντέλο': '', 'Τύπος Διακόπτη': ''},
         {'Όνομα': 'T1', 'Τύπος': 'Μετασχηματιστής 150/20KV', 'Μοντέλο': 'TX1'},
     ]
     df = pd.DataFrame(data)

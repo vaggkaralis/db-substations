@@ -7,6 +7,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import inspect
 
 import importers
+from strings import STRINGS as S
+ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
 print('--- import_elements_from_csv source ---')
 print(inspect.getsource(importers.import_elements_from_csv))
@@ -50,7 +52,7 @@ class FakeDF(list):
                 return RowLike(list(row.values()))
         return Iloc(self)
 
-rows=[{"Substation Name":"S1","Element Type":"Διακόπτης ΜΤ","Name":"Breaker1","Serial Number":"SN1","Gate":"G1","Operating Status":"Ενεργή","Model Name":"M200","Model Manufacturer":"Acme"}]
+rows=[{"Substation Name":"S1","Element Type":ELEM_BREAKER_MT,"Name":"Breaker1","Serial Number":"SN1","Gate":"G1","Operating Status":"Ενεργή","Model Name":"M200","Model Manufacturer":"Acme"}]
 cols=["Substation Name","Element Type","Name","Serial Number","Gate","Operating Status","Model Name","Model Manufacturer"]
 fake_pd=FakePD(rows,cols)
 importers.pd=fake_pd
@@ -61,7 +63,7 @@ cur.execute("CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT UNIQUE)
 cur.execute("CREATE TABLE element_models (id INTEGER PRIMARY KEY, element_category TEXT, model_name TEXT, manufacturer TEXT)")
 cur.execute("CREATE TABLE elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, gate TEXT, is_main_switch INTEGER, breaker_category TEXT, element_model_id INTEGER, operating_status TEXT)")
 cur.execute("INSERT INTO substations (id, name) VALUES (?,?)",(1,'S1'))
-cur.execute("INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?,?,?)",('Διακόπτης ΜΤ','M200','Acme'))
+cur.execute("INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?,?,?)",(ELEM_BREAKER_MT,'M200','Acme'))
 conn.commit()
 
 
