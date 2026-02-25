@@ -1020,7 +1020,7 @@ class SubstationApp(App):
         # Get DB version and compatibility info
         db_version = get_db_version_string()
         compat_result = is_db_compatible()
-        compat_status = "✓ Συμβατή" if compat_result["compatible"] else "✗ Ασύμβατη"
+        compat_status = "Συμβατή" if compat_result["compatible"] else "Ασύμβατη"
         
         info_text_plain = S["MESSAGES"].get(
             "APP_INFO_BODY",

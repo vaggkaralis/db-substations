@@ -73,7 +73,7 @@ class PeopleManager:
             for cat, items in grouped.items():
                 if not items:
                     continue
-                header = Label(text=f"[b]{cat}[/b]", markup=True, color=self.app.theme.get("primary", (0.05, 0.18, 0.36, 1)), size_hint_y=None, height=30)
+                header = Label(text=f"[b]{cat} ({len(items)})[/b]", markup=True, color=self.app.theme.get("primary", (0.05, 0.18, 0.36, 1)), size_hint_y=None, height=30)
                 list_layout.add_widget(header)
 
                 def _role_priority(role):
