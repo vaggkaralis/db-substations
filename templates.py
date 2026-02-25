@@ -5,7 +5,7 @@ try:
 except ImportError:
     openpyxl = None
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 TEMPLATE_SUBSTATIONS = "substations_import_template.xlsx"
 TEMPLATE_ELEMENTS = "elements_import_template.xlsx"

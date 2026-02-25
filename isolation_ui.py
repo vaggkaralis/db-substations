@@ -1,4 +1,4 @@
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 
 def show_isolation_requests(app, instance=None):

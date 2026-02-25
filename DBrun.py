@@ -12,16 +12,23 @@ from importers import (import_elements_from_csv, import_elements_from_excel,
                        import_substations_from_excel)
 from popups import show_message_popup
 from settings import DB_PATH
-from strings import (STRINGS as S, get_current_language, set_current_language,
-                     get_current_user, set_current_user, clear_current_user,
-                     is_user_responsible_capable, is_db_compatible,
-                     get_app_version_string, get_db_version_string,
-                     get_db_path, set_db_path)
+from strings_proxy import STRINGS as S
+from config_manager import (get_current_language, set_current_language,
+                            get_current_user, set_current_user, clear_current_user,
+                            get_db_path, set_db_path)
+from db_version import is_db_compatible, get_app_version_string, get_db_version_string
+from validation import is_user_responsible_capable
 
-# Short placeholders centralized for readability
-UNREG = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
-EMPTY = S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
-MODEL_PROMPT = S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
+# Lazy-evaluated strings (called at runtime, not import time)
+def get_unreg():
+    """Get unregistered placeholder string in current language"""
+    return S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+def get_empty():
+    """Get empty placeholder string in current language"""
+    return S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+def get_model_prompt():
+    """Get model select prompt string in current language"""
+    return S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
 import importlib
 
 from email_eml_parser import parse_eml_file
@@ -1171,6 +1178,9 @@ class SubstationApp(App):
         lang_row.add_widget(lang_spinner)
         content.add_widget(lang_row)
 
+        # Add spacer for better visual separation
+        content.add_widget(Widget(size_hint_y=None, height=15))
+
         # Database path display and selection
         db_path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=80, spacing=5)
         
@@ -1219,7 +1229,7 @@ class SubstationApp(App):
                 show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), str(e))
         
         def _reset_db_path(*_args):
-            from strings import clear_db_path
+            from config_manager import clear_db_path
             if clear_db_path():
                 db_path_display.text = S["MESSAGES"].get("DB_PATH_DEFAULT", "(Προεπιλεγμένη)")
                 show_message_popup(
@@ -2328,13 +2338,11 @@ class SubstationApp(App):
             # Page-size control with a small header so users understand purpose
             page_label_header = Label(text=S["MESSAGES"].get("PAGE_SIZE_LABEL", 'Αντικείμενα/σελίδα'), size_hint_x=0.08)
             page_size_spinner = Spinner(text=S["MESSAGES"].get("PAGE_SIZE_OPTIONS", ['10','20','30','50'])[2], values=tuple(S["MESSAGES"].get("PAGE_SIZE_OPTIONS", ['10','20','30','50'])), size_hint_x=0.08)
-            lazy_toggle = ToggleButton(text=S["MESSAGES"].get("LOAD_MORE", 'Load more'), state='normal', size_hint_x=0.14)
             ctrl_row.add_widget(sub_spinner)
             ctrl_row.add_widget(search_input)
             ctrl_row.add_widget(sort_spinner)
             ctrl_row.add_widget(page_label_header)
             ctrl_row.add_widget(page_size_spinner)
-            ctrl_row.add_widget(lazy_toggle)
             main.add_widget(ctrl_row)
 
             # Hidden hint area that appears when a simple search returns
@@ -2703,13 +2711,6 @@ class SubstationApp(App):
                 state['page'] = 1
                 _render()
 
-            def _on_lazy_toggle(btn):
-                state['lazy'] = (btn.state == 'down')
-                state['offset'] = 0
-                state['page'] = 1
-                state['total'] = None
-                _render()
-
             # bindings
             page_size_spinner.bind(text=_set_page_size)
             search_input.bind(text=lambda inst, val: _search_changed(inst))
@@ -2723,19 +2724,15 @@ class SubstationApp(App):
             next_btn.bind(on_press=_next)
             load_more_btn.bind(on_press=_load_more)
             sort_spinner.bind(text=_on_sort_change)
-            lazy_toggle.bind(on_release=_on_lazy_toggle)
             close.bind(on_press=lambda _btn: popup.dismiss())
 
             # initial render
             _render()
             popup.open()
         except Exception:
-            try:
-                import logging
-                logging.exception('_show_inspection_history_failed')
-            except Exception:
-                pass
-            return None
+            import logging
+            logging.exception('_show_inspection_history_failed')
+        return None
 
     def get_available_gates(self, substation_id, is_interconnection=None):
         """Get available gates (ΠΥΛΗ) based on existing transformers in the substation
@@ -2777,7 +2774,7 @@ class SubstationApp(App):
             gates = regular + inter
 
         # Always include option for unassigned
-        return [UNREG] + gates
+        return [get_unreg()] + gates
 
     def show_import_menu(self, instance):
         from imports import show_import_menu as _f
@@ -3519,7 +3516,7 @@ class SubstationApp(App):
                 gate_values.extend(sorted([g for g in gate_set if g.startswith(gate_prefix)]))
                 gate_values.extend(sorted([g for g in gate_set if not g.startswith(gate_prefix)]))
                 if has_unassigned:
-                    gate_values.append(UNREG)
+                    gate_values.append(get_unreg())
                 current_gate_filter = gate_filter or all_label
                 if current_gate_filter not in gate_values:
                     current_gate_filter = all_label
@@ -3560,7 +3557,7 @@ class SubstationApp(App):
                     query += " AND e.element_type=?"
                     params.append(current_type_filter)
                 if current_gate_filter != "(Όλα)":
-                    if current_gate_filter == UNREG:
+                    if current_gate_filter == get_unreg():
                         query += " AND (e.gate IS NULL OR e.gate='')"
                     else:
                         query += " AND e.gate=?"
@@ -3643,7 +3640,7 @@ class SubstationApp(App):
                             installation_space,
                         ) = elem
 
-                        gate_key = gate if gate else UNREG
+                        gate_key = gate if gate else get_unreg()
                         if gate_key not in gates_dict:
                             gates_dict[gate_key] = []
                         gates_dict[gate_key].append(elem)
@@ -3657,8 +3654,9 @@ class SubstationApp(App):
                     sorted_gates = sorted(
                         [g for g in gates_dict.keys() if g.startswith("ΠΥΛΗ")]
                     )
-                    if UNREG in gates_dict:
-                        sorted_gates.append(UNREG)
+                    unreg_val = get_unreg()
+                    if unreg_val in gates_dict:
+                        sorted_gates.append(unreg_val)
 
                     for gate_name in sorted_gates:
                         gate_elements = gates_dict[gate_name]
@@ -5987,7 +5985,7 @@ class SubstationApp(App):
                     model_name,
                 ) = elem
 
-                gate_key = gate if gate else UNREG
+                gate_key = gate if gate else get_unreg()
                 if gate_key not in gates_dict:
                     gates_dict[gate_key] = []
                 gates_dict[gate_key].append(elem)
@@ -6001,8 +5999,9 @@ class SubstationApp(App):
             sorted_gates = sorted(
                 [g for g in gates_dict.keys() if g.startswith("ΠΥΛΗ")]
             )
-            if UNREG in gates_dict:
-                sorted_gates.append(UNREG)
+            unreg_val = get_unreg()
+            if unreg_val in gates_dict:
+                sorted_gates.append(unreg_val)
 
             # Display elements grouped by gate
             for gate_name in sorted_gates:

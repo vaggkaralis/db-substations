@@ -5,7 +5,7 @@ import shutil
 import sqlite3
 
 from settings import DB_PATH
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 

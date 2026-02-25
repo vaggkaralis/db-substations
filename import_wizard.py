@@ -15,7 +15,7 @@ except ImportError:
     pd = None
 
 try:
-    from strings import STRINGS as S
+    from strings_proxy import STRINGS as S
 except Exception:
     S = {"BUTTONS": {"CANCEL": "Ακύρωση"}, "TITLES": {}, "MESSAGES": {}}
 from import_validator import (COLUMN_MAPPINGS, analyze_import_data,

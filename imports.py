@@ -1,6 +1,6 @@
 import os
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 
 def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["TITLES"]["IMPORT_MENU"], filetypes=None, chooser_filters=None):

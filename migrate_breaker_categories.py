@@ -9,7 +9,7 @@ import shutil
 import sqlite3
 from datetime import datetime
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 # derive canonical breaker element names from centralized strings when available
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")

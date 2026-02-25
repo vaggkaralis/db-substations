@@ -6,7 +6,7 @@ Exports:
 - validate_breaker_category_required(element_type, breaker_category_value)
 """
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 # Canonical breaker element names from strings
 ELEM_BREAKER_YT = S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
@@ -58,16 +58,9 @@ def filter_people_for_maintenance(people_rows, responsible_person_id=None):
     If responsible_person_id is provided but the person isn't in allowed responsible
     roles, they are prepended to the responsible_people list so they remain selectable.
     """
-    allowed_responsible_roles = {
-        "Μηχανικός",
-        "Τομεάρχης ΤΕΙ",
-        "Υποτομεάρχης ΤΕΙ",
-        "Ειδικό Στέλεχος Γ'",
-    }
-
     people = list(people_rows)
     # Use canonical role matching to be tolerant to diacritics/variants in DB
-    responsible_people = [p for p in people if canonical_role(p[2]) in allowed_responsible_roles]
+    responsible_people = [p for p in people if canonical_role(p[2]) in ALLOWED_RESPONSIBLE_ROLES]
     crew_people = [p for p in people if canonical_role(p[2]) != "Υποστήριξη"]
 
     # If a preselected responsible person isn't in the allowed list, prepend them so they remain selectable
@@ -100,6 +93,8 @@ ROLE_CATEGORIES = {
     "Τεχνικοί": {"Εργοδηγός", "Αρχιτεχνίτης", "Τεχνίτης", "Χειριστής"},
     "Λοιπά": {"Υποστήριξη"},
 }
+
+ALLOWED_RESPONSIBLE_ROLES = ROLE_CATEGORIES["Μηχανικοί"]
 
 
 def categorize_role(role_value):
@@ -210,3 +205,15 @@ def canonical_role(role_value):
             return pr
 
     return None
+
+
+def is_user_responsible_capable(role: str) -> bool:
+    """Check if a user role can be assigned as maintenance responsible.
+    
+    Args:
+        role: The role name to check
+    
+    Returns:
+        True if the role can be assigned as maintenance responsible
+    """
+    return role in ALLOWED_RESPONSIBLE_ROLES

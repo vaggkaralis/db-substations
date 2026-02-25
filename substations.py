@@ -3,7 +3,7 @@ Delegating wrappers for substation-related UI functions.
 These thin functions call methods on the `app` instance (SubstationApp).
 They allow incremental extraction without changing the large `DBrun.py` logic.
 """
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 
 def show_add_substation_popup_delegate(app, instance=None):

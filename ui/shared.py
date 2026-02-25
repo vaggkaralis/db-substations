@@ -10,7 +10,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 # FloatLayout is optional in test environments where Kivy isn't installed.
 try:

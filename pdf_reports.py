@@ -26,7 +26,7 @@ import os
 import unicodedata
 from datetime import datetime
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 # Canonical breaker element names
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")

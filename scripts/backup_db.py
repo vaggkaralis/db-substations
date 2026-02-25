@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 try:
     from settings import DB_PATH
-    from strings import get_db_version_string
+    from db_version import get_db_version_string
 except ImportError as e:
     print(f"Error importing modules: {e}")
     print("Make sure you're running this script from the project root directory.")

@@ -8,7 +8,7 @@ except ImportError:
     pd = None
 
 try:
-    from strings import STRINGS as S
+    from strings_proxy import STRINGS as S
 except Exception:
     S = {"MESSAGES": {}}
 

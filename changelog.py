@@ -86,7 +86,7 @@ def import_android_changes_from_file(app, file_path):
         except Exception as e:
             show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την εισαγωγή: {e}")
 
-    from strings import STRINGS as S
+    from strings_proxy import STRINGS as S
 
     apply_btn = Button(text=S["BUTTONS"]["APPLY"])
     apply_btn.bind(on_press=_apply_only)

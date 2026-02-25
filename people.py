@@ -9,7 +9,7 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 
 from popups import ask_open_file, show_message_popup
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 from validation import PEOPLE_ROLES, canonical_role, group_people_by_category
 
 

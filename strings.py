@@ -1,45 +1,9 @@
 """Centralized UI strings to avoid hardcoded literals in code.
 
-STRINGS is a nested dict grouping labels, button texts, popup titles and
-common messages. Keys are organized by category to make navigation easier.
-When adding new strings, place them under the most appropriate category.
+STRINGS_EL/STRINGS_EN are nested dicts grouping labels, button texts, popup
+titles, and common messages. Keys are organized by category to make navigation
+easier. When adding new strings, place them under the most appropriate category.
 """
-
-from datetime import datetime
-import json
-import os
-
-
-DEFAULT_LANGUAGE = "el"
-SUPPORTED_LANGUAGES = ("el", "en")
-SETTINGS_FILE = os.environ.get(
-    "APP_SETTINGS_PATH",
-    os.path.join(os.path.dirname(__file__), "app_settings.json"),
-)
-
-
-def _load_app_settings():
-    try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _save_app_settings(settings: dict) -> None:
-    try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as fh:
-            json.dump(settings, fh, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-
-_settings = _load_app_settings()
-CURRENT_LANGUAGE = _settings.get("language", DEFAULT_LANGUAGE)
-if CURRENT_LANGUAGE not in SUPPORTED_LANGUAGES:
-    CURRENT_LANGUAGE = DEFAULT_LANGUAGE
-
 
 STRINGS_EL = {
     # Top-level button text used in many places
@@ -58,10 +22,6 @@ STRINGS_EL = {
         "LIST": "Λίστα",
         "CANCEL": "Ακύρωση",
         "EMAIL": "Email",
-        "APPLY": "Εφαρμογή",
-        "BACKUP_APPLY": "Backup & Εφαρμογή",
-        "CLOSE": "Κλείσιμο",
-        "INSPECTIONS": "Επιθεωρήσεις",
         "SAVE": "Αποθήκευση",
         "BACK": "Πίσω",
         "MAINTENANCE": "Συντήρηση",
@@ -70,289 +30,17 @@ STRINGS_EL = {
         "UPDATE": "Ενημέρωση",
         "YES": "Ναι",
         "NO": "Όχι",
-        "OK": "OK",
+        "OK": "ΟΚ",
         "COPY": "Αντιγραφή",
-        "BROWSE_FILE": "Αναζήτηση αρχείου",
+        "BROWSE_FILE": "Επιλογή αρχείου",
         "ADD_MAINTENANCE": "+ Προσθήκη Νέας Συντήρησης",
         "ADD_MODEL": "+ Προσθήκη Νέου Μοντέλου",
         "LOGIN": "Σύνδεση",
         "LOGOUT": "Αποσύνδεση",
         "RESET": "Επαναφορά",
-    },
-
-    # Common window / popup titles
-    "TITLES": {
-        "ERROR": "Σφάλμα",
-        "SUCCESS": "Επιτυχία",
-        "INFO": "Πληροφορία",
-        "IMPORT_MENU": "Εισαγωγή από αρχείο",
-        "IMPORT_ANDROID": "Εισαγωγή αλλαγών από Android",
-        "PREVIEW_CHANGELOG": "Προεπισκόπηση αλλαγών",
-        "INSPECTION_ENTRY": "Καταχώρηση Επιθεώρησης",
-        "INSPECTION_HISTORY": "Ιστορικό Επιθεώρησης",
-        "INSPECTION_DETAILS": "Λεπτομέρειες Επιθεώρησης",
-        "IMPORT_SUBSTATIONS_TITLE": "Εισαγωγή Υποσταθμών",
-        "SETTINGS": "Ρυθμίσεις",
-        "LOGIN": "Σύνδεση",
-    },
-
-    # Application-wide messages grouped by functional area
-    "MESSAGES": {
-        # --- General / Application info ---
-        "APP_TITLE": "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ",
-        "APP_INFO_SHORT": "Πληρ. Εφαρμ.",
-        "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
-        "APP_INFO_BODY": (
-            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\n"
-            "Έκδοση: {version}\n"
-            "Έκδοση Βάσης Δεδομένων: {db_version}\n"
-            "Συμβατότητα: {compat_status}\n\n"
-            "Λειτουργίες εφαρμογής:\n"
-            "• Προβολή και διαχείριση βάσης υποσταθμών\n"
-            "• Προσθήκη/επεξεργασία/διαγραφή υποσταθμών και στοιχείων\n"
-            "• Κατηγορίες διακοπτών (SF6/Ελαίου/Πτωχού Ελαίου)\n"
-            "• Διαχείριση τύπων στοιχείων (μοντέλα/κατασκευαστές/κύκλοι)\n"
-            "• Καταχώρηση συντηρήσεων\n"
-            "• Εισαγωγή συντήρησης από e-mail (.eml)\n"
-            "• Ιστορικό συντηρήσεων (όλων/ανά υποσταθμό)\n"
-            "• Μετρήσεις διακοπτών (μόνωση/διέλευση/χειρισμοί)\n"
-            "• Ποιότητα αερίου SF6 & διαρροές (kg)\n"
-            "• Διαχείριση SF6 (αναφορά διαρροών ανά έτος)\n"
-            "• Εξαγωγή Excel αναφορών SF6 (σύνοψη & ανά υποσταθμό)\n"
-            "• Εκτύπωση PDF αναφορών συντήρησης\n"
-            "• Επιθεωρήσεις (καταχώρηση/προβολή/ιστορικό)\n"
-            "• Αιτήσεις απομόνωσης\n"
-            "• Εισαγωγή υποσταθμών/στοιχείων από CSV/Excel\n"
-            "• Αναφορές PDF & Excel\n\n"
-            "Φάκελος εφαρμογής: {app_dir}"
-        ),
-        "LOADING": "Φόρτωση...",
-        "COPY": "Αντιγραφή",
-        "DASH": "-",
-
-        # --- Files / Import / PDF ---
-        "ENTER_PATH": "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!",
-        "FILE_PATH_LABEL": "Διαδρομή αρχείου:",
-        "FILE_PATH_HINT": "Διαδρομή αρχείου",
-        "FILE_NOT_FOUND": "Το αρχείο δεν βρέθηκε!",
-        "PLEASE_SELECT_PDF": "Παρακαλώ επιλέξτε αρχείο PDF!",
-        "UNSUPPORTED_FILE_FORMAT": "Μη υποστηριζόμενη μορφή αρχείου",
-        "FILE_HAS_NO_DATA": "Το αρχείο δεν περιέχει δεδομένα.",
-        "IMPORT_FAILED": "Αποτυχία εισαγωγής:",
-        "IMPORT_SUCCESS": "Επιτυχής εισαγωγή.",
-        "SELECT_MONOGRAM_PDF_TITLE": "Επιλογή Μονογραμμικού PDF",
-        "CHANGELOG_FILE_LABEL": "Διαδρομή αρχείου change log (.jsonl):",
-
-        # --- Substations / DB ---
-        "NO_SUBSTATIONS": "Δεν υπάρχουν υποσταθμοί!",
-        "EMPTY_DB": "Κενή βάση",
-        "ADD_NEW_SUBSTATION_PROMPT": "Ή προσθέστε νέο υποσταθμό:",
-        "PLEASE_SELECT_OR_ADD_SUBSTATION": "Παρακαλώ επιλέξτε υποσταθμό ή προσθέστε νέο.",
-        "ENTER_SUBSTATION_NAME": "Παρακαλώ εισάγετε όνομα υποσταθμού!",
-        "SUBSTATION_LABEL": "Υποσταθμός:",
-        "SUBSTATION_NAME_LABEL": "Όνομα Υποσταθμού:",
-        "SUBSTATION_NAME_HINT": "Όνομα Υποσταθμού",
-        "SUBSTATION_NEW_HINT": "Όνομα νέου υποσταθμού",
-        "SUBSTATION_IS_THESSALONIKI": "Υ/Σ Θεσσαλονίκης",
-        "SUBSTATION_ADDED": "Υποσταθμός προστέθηκε!",
-        "SUBSTATION_EXISTS": "Ο υποσταθμός υπάρχει ήδη.",
-        "SELECT_SUBSTATION": "Επιλογή Υποσταθμού:",
-        "SELECT_SUBSTATION_BTN": "Επιλογή Υποσταθμού",
-        "PROMPT_SUBSTATION_NOT_FOUND_TITLE": "Ο υποσταθμός δε βρέθηκε",
-        "PROMPT_SUBSTATION_SELECT": "Επιλέξτε υποσταθμό για την εισαγωγή:",
-        "SUBSTATION_NOT_FOUND": "Δεν βρέθηκε υποσταθμός.",
-        "MISSING_SUBSTATIONS_WILL_CREATE": "Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:",
-        "NEW_SUBSTATIONS_TITLE": "Νέοι Υποσταθμοί Εντοπίστηκαν",
-
-        # --- Maintenance / Records ---
-        "MAINTENANCE_SAVED_CHANGELOG": "Η συντήρηση καταχωρήθηκε στο change log.",
-        "MAINTENANCE_DELETED": "Η συντήρηση διαγράφηκε!",
-        "MAINTENANCE_NOT_FOUND": "Δεν βρέθηκε η συντήρηση.",
-        "NO_MAINTENANCES": "Δεν υπάρχουν καταχωρημένες συντηρήσεις",
-        "NO_MAINT_FOR_SUBSTATION": (
-            'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\n'
-            "Χρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε."
-        ),
-        "MAINT_HISTORY_LABEL": "Ιστορικό Συντήρησης",
-        "MAINTENANCE_NAME_FMT": "Υ/Σ {substation_name} - {date}",
-        "NO_RECORD_ELEMENTS": "Δεν υπάρχουν στοιχεία για αυτή τη συντήρηση.",
-
-        # --- Maintenance form labels & validation ---
-        "DATE_TIME_LABEL": "Ημερομηνία & Ώρα:",
-        "DATE_REQUIRED": "Η ημερομηνία είναι υποχρεωτική!",
-        "DATE_PREFIX": "Ημ/νία:",
-        "MAINT_TYPE_LABEL": "Τύπος Συντήρησης:",
-        "MAINTENANCE_TYPES": ["Επαναληπτική συντήρηση", "Βλάβη", "Οπτικός έλεγχος"],
-        "MAINT_TYPE_DEFAULT": "Επαναληπτική συντήρηση",
-        "RESPONSIBLE_LABEL": "Υπεύθυνος Συντήρησης (υποχρεωτικό):",
-        "RESPONSIBLE_REQUIRED": "Ο υπεύθυνος συντήρησης είναι υποχρεωτικός!",
-        "CREW_LABEL": "Ομάδα Συντήρησης (προαιρετικό):",
-        "OVERALL_COMMENTS_LABEL": "Γενικά Σχόλια Συντήρησης:",
-        "ELEMENTS_SECTION_LABEL": "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
-        "NO_ELEMENTS_IN_SUBSTATION": "Δεν υπάρχουν στοιχεία σε αυτόν τον υποσταθμό",
-        "SELECT_AT_LEAST_ONE_ELEMENT": "Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!",
-        "ADD_ELEMENT_BEFORE_CONTINUE": "Προσθέστε τουλάχιστον ένα στοιχείο πριν τη συνέχεια.",
-
-        # --- Inspections ---
-        "INSPECTION_SAVED": "Η επιθεώρηση καταχωρήθηκε!",
-        # The inspection rows were reviewed for typos and corrected where obvious.
-        "INSPECTION_ROWS": [
-            "Έλεγχος εξωτερικών & εσωτερικών θυρών ΥΣ",
-            "Έλεγχος εσωτερικού χώρου κτηρίου (φωτισμός, κλιματισμός κλπ)",
-            "Έλεγχος περιβάλλοντος χώρου (βλάστηση, δένδρα, φωτισμός κλπ)",
-            "Έλεγχος μέσων πυρόσβεσης γενικά",
-            "Οπτικός έλεγχος διαρροής/στάθμης/θερμοκρασίας λαδιού, silica gel στον Μ/Σ",
-            "Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους διακόπτες ισχύος 150kV & 20kV",
-            "Έλεγχος λειτουργίας ανεμιστήρων Μ/Σ",
-            "Οπτικός έλεγχος Μ/Σ έγχυσης, ΜΣΕ, ΜΣΤ, Μ/Σ εσωτερικής υπηρεσίας, αντίστασης κόμβου (θερμοκρασία)",
-            "Οπτικός έλεγχος μονωτήρων (ρύπανση, εκδορές κ.α.)",
-            "Οπτικός έλεγχος τηκτών πυκνωτών",
-            "Έλεγχος σημάνσεων στους πίνακες Μ/Σ, Α/Δ 150kV & 20kV",
-            "Λήψη φωτογραφίας όταν απαιτείται",
-            "Οπτικός έλεγχος των πυλών, A/Z και γενικά του ικριώματος για τυχόν φωλιές από πτηνά, σπασίματα, μονωτήρες, κλαδιά, σύρματα κλπ",
-            "Οπτικός έλεγχος στους πίνακες διακοπτών 20kV (αναγγελίες, ενδείξεις οργάνων, πόρτες) και έλεγχος θορύβων, ιονισμών",
-            "Έλεγχοι υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρων, θερμαντικών, φορητών πυροσβεστήρων",
-            "Έλεγχος φορτιστή 110V οπτικά με έλεγχο της τάσης, έντασης και καταγραφή",
-            "Έλεγχος για alarm έλλειψης DC στον γενικό πίνακα DC",
-            "Οπτικός έλεγχος διαρροών στοιχείων συσσωρευτών",
-            "Οπτικός έλεγχος των ΑΠ/Ζ και των 'γεφυρών' αυτών στον 1ο στύλο κάθε γραμμής (σπασμένοι ΑΠ/Ζ, μονωτήρες, εκτονωμένα Α/Ξ κλπ)",
-            "Έλεγχος λειτουργίας ψηφιακού συστήματος (χειρισμοί, ενδείξεις, σημάνσεις)",
-            "Τροφοδοσία υπολογιστή",
-            "Απόψεις και τυχόν προτάσεις για την καλύτερη λειτουργία τόσο του εξοπλισμού, όσο και του κτηρίου γενικά του Υ/Σ",
-        ],
-        "INSPECTION_SECTION_2": "[b]Έλεγχος Χώρων ΥΣ[/b]",
-        "INSPECTION_SECTION_3": "[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]",
-        "INSPECTION_SECTION_3A": "[b]Υπαίθριες πύλες 20 kV[/b]",
-        "INSPECTION_SECTION_3B": "[b]Υπαίθριες πύλες 20 kV[/b]",
-        "INSPECTION_SECTION_4": "[b]Κτίριο χειρισμών & Τ.Α.Σ.[/b]",
-        "INSPECTION_SECTION_5": "[b]Αποζεύκτες Γραμμών[/b]",
-        "INSPECTION_SECTION_6": "[b]PC Χειρισμών[/b]",
-        "INSPECTION_SECTION_7": "[b]Απόψεις[/b]",
-        # Additional inspection UI messages
-        "INSPECTION_BASE_FIELDS": [
-            "Υποσταθμός",
-            "Αρ. Δελτίου",
-            "Μήνας",
-            "Ονομ. Επιθεωρητή",
-            "Περιοχή",
-            "Ημέρα",
-            "Έτος",
-            "Ημερομηνία",
-        ],
-        "IMPORT_INSPECTIONS_TITLE": "Εισαγωγή Επιθεωρήσεων",
-        "IMPORT_INSPECTIONS_DONE": "Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).",
-        "IMPORT_INSPECTIONS_DIALOG": "Εισαγωγή επιθεωρήσεων από αρχείο",
-        "NO_INSPECTIONS": "Δεν υπάρχουν καταχωρημένες επιθεωρήσεις. Θέλετε να δημιουργήσετε μία;",
-        "INSPECTION_COUNT_FMT": "{count} εγγραφές επιθεώρησης",
-        "SUBSTATION_INSPECTION_HISTORY_TITLE_FMT": "Ιστορικό Επιθεωρήσεων - {substation_name}",
-        "SUBSTATION_INSPECTION_COUNT_FMT": "{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}",
-        "SUBSTATION_LABEL_PLAIN": "Υποσταθμός",
-        "DATE_PLAIN": "Ημερομηνία",
-        "MEASUREMENT_RESISTANCE_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)",
-
-        # --- People / Staff ---
-        "NO_PEOPLE": "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό.",
-        "SURNAME_LABEL": "Επώνυμο:",
-        "NAME_LABEL": "Όνομα:",
-        "ROLE_LABEL": "Ρόλος:",
-        "EMAIL_LABEL": "Email:",
-        "EMAIL_RECIPIENT_LABEL": "Παραλήπτες αναφοράς email",
-        "ACTIVE_LABEL": "Ενεργός",
-        "STAFF_LOAD_FAILED": "Ανεπιτυχής φόρτωση διαχείρισης προσωπικού.",
-        "PERSON_NOT_FOUND": "Το άτομο δεν βρέθηκε!",
-        "EDIT_PERSON_TITLE": "Επεξεργασία Προσώπου",
-        "SURNAME_ROLE_REQUIRED": "Το επώνυμο και ο ρόλος είναι υποχρεωτικά!",
-        "PERSON_IN_USE": "Το άτομο έχει χρησιμοποιηθεί σε συντηρήσεις. Διαγράψτε το μόνο αφού αφαιρεθεί από το ιστορικό ή απενεργοποιήστε το.",
-        "CONFIRM_DELETE_PERSON_FMT": "Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο \"{person_name}\";",
-
-        # Missing messages added during DBrun.py sweep
-        "NO_AVAILABLE_RESPONSIBLE": "Δεν υπάρχει διαθέσιμος υπεύθυνος συντήρησης με τα κατάλληλα δικαιώματα. Προσθέστε ή ενημερώστε προσωπικό.",
-        "SF6_LEAK_METHODOLOGY_REQUIRED": "Για διαρροή SF6 απαιτείται συμπλήρωση μεθοδολογίας (Πλήρωση/Αντικατάσταση).",
-        "GATE_LABEL": "Πύλη",
-        "DIVISION_LABEL": "Τομέας",
-        "MAINT_USER_LABEL": "Χειριστής",
-        # --- Models / Element types ---
-        "MODEL_NOT_USED": "Το μοντέλο δεν χρησιμοποιείται σε κανένα στοιχείο.",
-        "MODEL_NAME_REQUIRED": "Το όνομα μοντέλου είναι υποχρεωτικό!",
-        "MODEL_SERVICE_CYCLE_NUM": "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!",
-        "MODEL_POWER_NUM": "Η ονομαστική ισχύς πρέπει να είναι αριθμός!",
-        "MODEL_ADDED": "Το μοντέλο προστέθηκε!",
-        "MODEL_DELETED": "Το μοντέλο διαγράφηκε επιτυχώς!",
-        "MODEL_NOT_FOUND": "Το μοντέλο δεν βρέθηκε!",
-        "MODEL_CHECK_TITLE": "Έλεγχος Μοντέλων",
-        "NEW_MODELS_HEADER": "[b]Νέα Μοντέλα (θα προστεθούν):[/b]",
-        "EXISTING_MODELS_DIFF_HEADER": "[b]Υπάρχοντα Μοντέλα με Διαφορετικά Δεδομένα:[/b]",
-
-        # --- Elements / Types / Filters ---
-        "NO_ELEMENTS": "Κανένα στοιχείο",
-        "NO_ELEMENTS_PAREN": "(Χωρίς στοιχεία)",
-        "NO_ELEMENTS_FOR_ITEM": "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο.",
-        "NO_MODELS": "Δεν υπάρχουν μοντέλα",
-        "NO_INACTIVE_ELEMENTS": "Δεν υπάρχουν ανενεργά στοιχεία σε αυτόν τον υποσταθμό",
-        # lists used by DBrun
-        "ELEMENT_TYPES": [
-            "Διακόπτης ΥΤ",
-            "Διακόπτης ΜΤ",
-            "Μετασχηματιστής 150/20KV",
-            "Motor Drive",
-            "Μ/Σ Έγχυσης",
-            "Μ/Σ Έντασης",
-            "Μ/Σ Τάσης",
-            "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)",
-            "Αποζεύκτης",
-            "Ασφαλειοαποζεύκτης",
-            "Γειωτής",
-            "Συστοιχία Πυκνωτών",
-            "Αντίσταση Κόμβου",
-            "Αλεξικέραυνο",
-            "Συστοιχία Συσσωρευτών",
-        ],
-        # Canonical element names used elsewhere in code
-        "ELEMENT_BREAKER_YT": "Διακόπτης ΥΤ",
-        "ELEMENT_BREAKER_MT": "Διακόπτης ΜΤ",
-        "VIDAR_VACUUM_CHECK_LABEL": "ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):",
-        # VIDAR phase labels and hints
-        "VIDAR_LABEL_FB": "ΦΒ-ΦΒ:",
-        "VIDAR_LABEL_FC": "ΦΓ-ΦΓ:",
-        "VIDAR_HINT": "0.0",
-        "VIDAR_SECTION_TITLE": "Έλεγχος Κενού (VIDAR)",
-        # unified phase-to-phase label used by both insulation and vidar
-        "PHASE_TO_PHASE_LABEL": "ΦΑ-ΦΑ",
-        "PHASE_TO_PHASE_LABEL_COLON": "ΦΑ-ΦΑ:",
-        # backwards-compatible aliases (deprecated) - use PHASE_TO_PHASE_LABEL variants instead
-        # "INSULATION_LABEL_FA": "ΦΑ-ΦΑ",  # DEPRECATED: use PHASE_TO_PHASE_LABEL
-        # "VIDAR_LABEL_FA": "ΦΑ-ΦΑ:",  # DEPRECATED: use PHASE_TO_PHASE_LABEL_COLON
-        # Insulation / resistance section titles and labels
-        "INSULATION_RESISTANCE_CLOSED_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)",
-        "INSULATION_RESISTANCE_OPEN_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)",
-        "INSULATION_PASSAGE_TITLE": "Αντίσταση Διέλευσης (μΩ)",
-        "INSULATION_MEASUREMENT_CLOSED_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ (Φ-ΓΗ):",
-        "INSULATION_MEASUREMENT_OPEN_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (Φ-Φ):",
-        "INSULATION_PASSAGE_MEASUREMENT_CLOSED_HEADER": "ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (μΩ) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:",
-        "INSULATION_HINT": "0.0",
-        "INSULATION_LABEL_FA_GND": "ΦΑ-Γη",
-        "INSULATION_LABEL_FB_GND": "ΦΒ-Γη",
-        "INSULATION_LABEL_FC_GND": "ΦΓ-Γη",
-        "INSULATION_LABEL_FA": "ΦΑ-ΦΑ",
-        "INSULATION_LABEL_FB": "ΦΒ-ΦΒ",
-        "INSULATION_LABEL_FC": "ΦΓ-ΦΓ",
-        # Generic substring used to detect breaker element types
-        "ELEMENT_BREAKER_SUBSTR": "Διακόπτης",
-        "BREAKER_CATEGORIES_ALL": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
-        "BREAKER_CATEGORIES_HV": ["SF6", "Ελαίου"],
-        "BREAKER_CATEGORIES_MV": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
-        "BREAKER_TYPES": ["Κεντρικός", "Γραμμής", "Διασυνδετικός", "Διακόπτης Πυκνωτών"],
-        "OPERATING_STATUS": ["Ενεργή", "Ανενεργή"],
-        "INSTALLATION_SPACE": ["Εσωτερικός", "Εξωτερικός"],
-        "VOLTAGE_LEVELS": ["(Κενό)", "150/20KV", "20KV", "150KV", "20KV/400V"],
-        "VIEW_ELEMENT_TITLE": "Προβολή Στοιχείου",
-        "ELEMENTS_LIST_LABEL": "Στοιχεία που συντηρήθηκαν:",
-        "PLEASE_SELECT_BREAKER_CATEGORY": "Παρακαλώ επιλέξτε κατηγορία διακόπτη!",
-        "PLEASE_SELECT_EML": "Παρακαλώ επιλέξτε αρχείο .eml!",
-        "INACTIVE_ELEMENTS": "Ανενεργά Στοιχεία ({count})",
-        "ELEMENT_ADDED": "Στοιχείο προστέθηκε στον {substation_name}!",
-        "ELEMENT_DUPLICATE": "Υπάρχει ήδη στοιχείο με αυτό το όνομα σε αυτόν τον υποσταθμό!",
-        "VIEW_ACTIVE_ELEMENTS": "Προβολή ενεργών στοιχείων ({count})",
+        "APPLY": "Εφαρμογή",
+        "BACKUP_APPLY": "Backup & Εφαρμογή",
+        "CLOSE": "Κλείσιμο",
         "FILTER_TYPE": "Φίλτρο Τύπου:",
         "FILTER_GATE": "Φίλτρο Πύλης:",
         "FILTER_SUBSTATION": "Φίλτρο Υποσταθμού:",
@@ -362,6 +50,7 @@ STRINGS_EL = {
         "GATES": "Πύλες",
         "CAPACITORS": "Πυκνωτές",
         "MAINTENANCES": "Συντηρήσεις",
+        "INSPECTIONS": "Επιθεωρήσεις",
         "LAST": "Τελευταία",
         "SINGLE_LINE": "Μονογραμμικό",
         "MONTHS": [
@@ -485,6 +174,68 @@ STRINGS_EL = {
         "ELEMENT_MANUFACTURE_YEAR_HINT": "YYYY",
         "MAINTENANCE_DATE_LABEL": "Τελευταία Συντ.",
         "MAINTENANCE_DATE_HINT": "YYYY-MM-DD",
+        "SELECT_SUBSTATION": "Επιλογή Υποσταθμού:",
+        "SELECT_SUBSTATION_BTN": "Επιλογή Υποσταθμού",
+        "NAME_LABEL": "Όνομα:",
+        "SURNAME_LABEL": "Επώνυμο:",
+        "ROLE_LABEL": "Ρόλος:",
+        "PHONE_LABEL": "Τηλέφωνο:",
+        "EMAIL_LABEL": "Email:",
+        "ACTIVE_LABEL": "Ενεργή",
+        "INACTIVE_LABEL": "Ανενεργή",
+        "CREW_LABEL": "Συνεργείο Συντήρησης (προαιρετικό):",
+        "RESPONSIBLE_LABEL": "Υπεύθυνος:",
+        "DATE_PREFIX": "Ημερομηνία:",
+        "DATE_PLAIN": "Ημερομηνία",
+        "DIVISION_LABEL": "Τομέας",
+        "APP_TITLE": "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ",
+        "APP_INFO_SHORT": "Πληρ. Εφαρμ.",
+        "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
+        "LOADING": "Φόρτωση...",
+        "ELEMENT_ADDED": "Το στοιχείο προστέθηκε στον {substation_name}!",
+        "SUBSTATION_ADDED": "Ο υποσταθμός {substation_name} προστέθηκε!",
+        "DATE_TIME_LABEL": "Ημερομηνία & Ώρα:",
+        "START_DATE_LABEL": "Ημ/νία Έναρξης:",
+        "END_DATE_LABEL": "Ημ/νία Λήξης:",
+        "DATE_REQUIRED": "Η ημερομηνία είναι υποχρεωτική!",
+        "IMPORT_FAILED": "Η εισαγωγή απέτυχε:",
+        "IMPORT_SUCCESS": "Επιτυχής εισαγωγή!",
+        "NO_FILE_SELECTED": "Δεν επιλέχθηκε αρχείο.",
+        "GATE_LABEL": "Πύλη:",
+        "ELEMENT_BREAKER_YT": "Διακόπτης ΥΤ",
+        "ELEMENT_BREAKER_MT": "Διακόπτης ΜΤ",
+        "ELEMENT_BREAKER_SUBSTR": "Διακόπτης",
+        "IMPORT_MENU": "Εισαγωγή από αρχείο",
+        "INSPECTION_ENTRY": "Καταχώρηση Επιθεώρησης",
+        "INSPECTION_HISTORY": "Ιστορικό Επιθεωρήσεων",
+        "MAINT_HISTORY_LABEL": "Ιστορικό Συντηρήσεων",
+        "SUBSTATION_INSPECTION_HISTORY_TITLE_FMT": "Ιστορικό Επιθεωρήσεων - {substation_name}",
+        "SUBSTATION_LABEL": "Υποσταθμός:",
+        "SUBSTATION_LABEL_PLAIN": "Υποσταθμός",
+        "SUBSTATION_NAME_LABEL": "Όνομα Υποσταθμού:",
+        "SUBSTATION_NAME_HINT": "Όνομα Υποσταθμού",
+        "SUBSTATION_NEW_HINT": "Νέο όνομα υποσταθμού",
+        "ELEMENTS_LIST_LABEL": "Στοιχεία που συντηρήθηκαν:",
+        "ELEMENTS_SECTION_LABEL": "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
+        "VIEW_ACTIVE_ELEMENTS": "Προβολή ενεργών στοιχείων ({count})",
+        "INACTIVE_ELEMENTS": "Ανενεργά στοιχεία ({count})",
+        "OVERALL_COMMENTS_LABEL": "Γενικά Σχόλια Συντήρησης:",
+        "MAINT_TYPE_LABEL": "Τύπος Συντήρησης:",
+        "MAINT_USER_LABEL": "Χειριστής",
+        "EDIT_PERSON_TITLE": "Επεξεργασία Ατόμου",
+        "ADD_NEW_SUBSTATION_PROMPT": "Ή προσθέστε νέο υποσταθμό:",
+        "NEW_SUBSTATIONS_TITLE": "Νέοι Υποσταθμοί Εντοπίστηκαν",
+        "IMPORT_INSPECTIONS_TITLE": "Εισαγωγή Επιθεωρήσεων",
+        "MODEL_CHECK_TITLE": "Έλεγχος Μοντέλου",
+        "NEW_MODELS_HEADER": "[b]Νέα Μοντέλα (θα προστεθούν):[/b]",
+        "EXISTING_MODELS_DIFF_HEADER": "[b]Υπάρχοντα Μοντέλα με Διαφορετικά Δεδομένα:[/b]",
+        "PROMPT_SUBSTATION_NOT_FOUND_TITLE": "Ο υποσταθμός δε βρέθηκε",
+        "PROMPT_SUBSTATION_SELECT": "Επιλέξτε υποσταθμό για εισαγωγή:",
+        "SELECT_MONOGRAM_PDF_TITLE": "Επιλέξτε μονογραμμικό PDF",
+        "FILE_PATH_LABEL": "Διαδρομή αρχείου:",
+        "FILE_PATH_HINT": "Διαδρομή αρχείου",
+        "CHANGELOG_FILE_LABEL": "Διαδρομή αρχείου change log (.jsonl):",
+        "EMAIL_RECIPIENT_LABEL": "Παραλήπτες email αναφοράς",
         "MANUFACTURER_LABEL": "Κατασκευαστής",
         "MANUFACTURER_HINT": "Κατασκευαστής",
         "MODEL_LABEL": "Μοντέλο",
@@ -1242,295 +993,3 @@ STRINGS_EN = {
     },
 }
 
-
-def get_current_language() -> str:
-    return CURRENT_LANGUAGE
-
-
-def set_current_language(language: str) -> bool:
-    global CURRENT_LANGUAGE
-    if language not in SUPPORTED_LANGUAGES:
-        return False
-    CURRENT_LANGUAGE = language
-    settings = _load_app_settings()
-    settings["language"] = language
-    _save_app_settings(settings)
-    return True
-
-
-def get_strings(language: str | None = None) -> dict:
-    lang = language or CURRENT_LANGUAGE
-    if lang not in ("el", "en"):
-        lang = DEFAULT_LANGUAGE
-    return {"el": STRINGS_EL, "en": STRINGS_EN}[lang]
-
-
-# User session management
-def get_current_user() -> dict | None:
-    """Return the current logged-in user dict with keys: id, name, role.
-    
-    Returns None if no user is logged in.
-    """
-    settings = _load_app_settings()
-    user_data = settings.get("current_user")
-    if not user_data or not isinstance(user_data, dict):
-        return None
-    # Validate required fields
-    if not all(k in user_data for k in ("id", "name", "role")):
-        return None
-    return user_data
-
-
-def set_current_user(user_id: int, name: str, role: str) -> bool:
-    """Set the current logged-in user and save to settings.
-    
-    Args:
-        user_id: Database ID of the person
-        name: Full name of the person
-        role: Role of the person
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        settings = _load_app_settings()
-        settings["current_user"] = {
-            "id": int(user_id),
-            "name": str(name),
-            "role": str(role),
-        }
-        _save_app_settings(settings)
-        return True
-    except Exception:
-        return False
-
-
-def clear_current_user() -> bool:
-    """Clear the current logged-in user (logout).
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        settings = _load_app_settings()
-        if "current_user" in settings:
-            del settings["current_user"]
-        _save_app_settings(settings)
-        return True
-    except Exception:
-        return False
-
-
-# Database path management
-def get_db_path() -> str:
-    """Get the current database path setting.
-    
-    Returns:
-        Database path from app_settings.json, or None if not set (uses default)
-    """
-    settings = _load_app_settings()
-    return settings.get("db_path")
-
-
-def set_db_path(db_path: str) -> bool:
-    """Save a database path setting.
-    
-    Args:
-        db_path: Full path to the database file
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        settings = _load_app_settings()
-        settings["db_path"] = str(db_path)
-        _save_app_settings(settings)
-        return True
-    except Exception:
-        return False
-
-
-def clear_db_path() -> bool:
-    """Clear the saved database path setting (revert to default).
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        settings = _load_app_settings()
-        if "db_path" in settings:
-            del settings["db_path"]
-        _save_app_settings(settings)
-        return True
-    except Exception:
-        return False
-
-
-def is_user_responsible_capable(role: str) -> bool:
-    """Check if a user role can be assigned as maintenance responsible.
-    
-    Args:
-        role: The role name to check
-    
-    Returns:
-        True if the role can be maintenance responsible
-    """
-    allowed_responsible_roles = {
-        "Μηχανικός",
-        "Τομεάρχης ΤΕΙ",
-        "Υποτομεάρχης ΤΕΙ",
-        "Ειδικό Στέλεχος Γ'",
-    }
-    return role in allowed_responsible_roles
-
-
-# Database versioning configuration
-DB_METADATA_PATH = os.environ.get(
-    "DB_METADATA_PATH",
-    os.path.join(os.path.dirname(__file__), "db_metadata.json"),
-)
-
-# Define app version → DB version compatibility matrix
-# Maps app versions to the min/max DB versions they can work with
-DB_COMPATIBILITY = {
-    "2.0.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
-    "2.1.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
-    "3.0.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
-}
-
-
-def _get_db_metadata() -> dict:
-    """Load database metadata from db_metadata.json.
-    
-    Returns:
-        Dictionary with db_version, last_migration, created_at, app_version_created
-    """
-    try:
-        with open(DB_METADATA_PATH, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        # If metadata doesn't exist yet, return defaults for initial version
-        return {
-            "db_version": "1.0.0",
-            "last_migration": "000_initial_schema",
-            "created_at": datetime.now().isoformat(),
-            "app_version_created": get_app_version_string(),
-        }
-
-
-def _save_db_metadata(metadata: dict) -> None:
-    """Save database metadata to db_metadata.json.
-    
-    Args:
-        metadata: Dictionary with database version information
-    """
-    try:
-        with open(DB_METADATA_PATH, "w", encoding="utf-8") as fh:
-            json.dump(metadata, fh, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-
-def get_app_version_string() -> str:
-    """Get the current application version.
-    
-    Returns:
-        Version string (e.g., '2.0.0')
-    """
-    return os.environ.get("APP_VERSION", "2.0.0")
-
-
-def get_db_version_string() -> str:
-    """Get the current database version.
-    
-    Returns:
-        Version string (e.g., '1.0.0')
-    """
-    metadata = _get_db_metadata()
-    return metadata.get("db_version", "1.0.0")
-
-
-def is_db_compatible(app_version: str = None, db_version: str = None) -> dict:
-    """Check if the database version is compatible with the app version.
-    
-    Args:
-        app_version: App version to check (defaults to current APP_VERSION)
-        db_version: DB version to check (defaults to current db version)
-    
-    Returns:
-        Dictionary with keys:
-            - 'compatible': bool - True if versions are compatible
-            - 'app_version': str - The app version checked
-            - 'db_version': str - The db version checked
-            - 'message': str - Human-readable compatibility message
-    """
-    if app_version is None:
-        app_version = get_app_version_string()
-    if db_version is None:
-        db_version = get_db_version_string()
-    
-    # Get compatibility requirements for this app version
-    compat_spec = DB_COMPATIBILITY.get(app_version, {})
-    if not compat_spec:
-        return {
-            "compatible": False,
-            "app_version": app_version,
-            "db_version": db_version,
-            "message": f"App version {app_version} not recognized in compatibility matrix"
-        }
-    
-    min_db = compat_spec.get("min_db", "1.0.0")
-    max_db = compat_spec.get("max_db", "1.0.0")
-    
-    # Simple version comparison (assumes MAJOR.MINOR.PATCH format)
-    def parse_version(v_str):
-        try:
-            parts = v_str.split(".")
-            return tuple(int(p) for p in parts)
-        except (ValueError, AttributeError):
-            return (0, 0, 0)
-    
-    db_tuple = parse_version(db_version)
-    min_tuple = parse_version(min_db)
-    max_tuple = parse_version(max_db)
-    
-    is_compatible = min_tuple <= db_tuple <= max_tuple
-    
-    if is_compatible:
-        message = f"✓ Compatible: App {app_version} with DB {db_version}"
-    else:
-        message = f"✗ Incompatible: App {app_version} requires DB {min_db}-{max_db}, but DB is {db_version}"
-    
-    return {
-        "compatible": is_compatible,
-        "app_version": app_version,
-        "db_version": db_version,
-        "message": message
-    }
-
-
-class _StringsProxy:
-    def __init__(self, data: dict):
-        self._data = data
-
-    def _current(self) -> dict:
-        return self._data.get(CURRENT_LANGUAGE, self._data[DEFAULT_LANGUAGE])
-
-    def __getitem__(self, key):
-        return self._current()[key]
-
-    def get(self, key, default=None):
-        return self._current().get(key, default)
-
-    def keys(self):
-        return self._current().keys()
-
-    def items(self):
-        return self._current().items()
-
-    def __contains__(self, item):
-        return item in self._current()
-
-
-STRINGS = _StringsProxy({"el": STRINGS_EL, "en": STRINGS_EN})

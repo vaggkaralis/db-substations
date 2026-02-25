@@ -3,7 +3,7 @@ import json
 import pandas as pd
 
 from popups import ask_save_file, show_message_popup
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 
 def _safe_sheet_name(name: str) -> str:

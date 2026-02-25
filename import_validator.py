@@ -10,7 +10,7 @@ except ImportError:
 
 # Centralized UI/literal strings and canonical lists
 try:
-    from strings import S
+    from strings_proxy import STRINGS as S
 except Exception:
     S = {"MESSAGES": {}}
 

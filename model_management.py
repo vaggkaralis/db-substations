@@ -5,7 +5,7 @@ Model Management UI Functions for Element Models
 import os
 
 from popups import ask_open_file, show_message_popup
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 # Canonical breaker element names
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")

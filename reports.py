@@ -5,7 +5,7 @@ import sys
 
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from popups import show_message_popup
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 
 def show_sf6_management_popup(app, instance=None):

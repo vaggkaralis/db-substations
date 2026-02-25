@@ -2,7 +2,7 @@ import pandas as pd
 
 from import_validator import validate_breaker_category
 from importers import _map_columns
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 ELEM_BREAKER_MT = S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 

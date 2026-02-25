@@ -23,7 +23,7 @@ except Exception:
     ANDROID_DEFAULT_DB_PATH = "/storage/emulated/0/Download/substations.db"
 
 try:
-    from strings import STRINGS as S
+    from strings_proxy import STRINGS as S
 except Exception:
     S = {"BUTTONS": {}, "TITLES": {}, "MESSAGES": {}}
 
@@ -2371,7 +2371,7 @@ class SubstationAndroidApp(App):
         # Ensure popup creation runs on the Kivy main thread (some callers may be on worker threads)
         def _show(dt=None):
             try:
-                from strings import STRINGS as S
+                from strings_proxy import STRINGS as S
                 show_message_popup(S["TITLES"]["ERROR"], message)
             except Exception as e:
                 Logger.error(f"APP: show_error failed to open popup: {e}")

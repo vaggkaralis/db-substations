@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 
 def _get_inspection_fallback_fields():

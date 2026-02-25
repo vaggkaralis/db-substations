@@ -4,7 +4,7 @@ These thin wrappers call the app instance methods to keep behavior unchanged
 while allowing incremental extraction.
 """
 
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 from validation import (validate_breaker_category_required,
                         validate_gate_assignment)
 

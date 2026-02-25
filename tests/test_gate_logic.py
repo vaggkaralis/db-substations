@@ -1,6 +1,6 @@
 from database import init_db
 from DBrun import SubstationApp
-from strings import STRINGS as S
+from strings_proxy import STRINGS as S
 
 # canonical breaker names for tests
 ELEM_BREAKER_YT = S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
