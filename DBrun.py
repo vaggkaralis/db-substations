@@ -14,7 +14,8 @@ from popups import show_message_popup
 from settings import DB_PATH
 from strings import (STRINGS as S, get_current_language, set_current_language,
                      get_current_user, set_current_user, clear_current_user,
-                     is_user_responsible_capable)
+                     is_user_responsible_capable, is_db_compatible,
+                     get_app_version_string, get_db_version_string)
 
 # Short placeholders centralized for readability
 UNREG = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
@@ -336,7 +337,30 @@ class SubstationApp(App):
         Clock.schedule_once(self._finish_build, 0)
         return self.root_layout
 
+    def _check_db_compatibility(self):
+        """Check if the database version is compatible with the app version.
+        
+        Returns:
+            True if compatible, False otherwise
+        """
+        compat_result = is_db_compatible()
+        if not compat_result["compatible"]:
+            # Show error dialog with incompatibility message
+            error_title = S["MESSAGES"].get("ERROR_TITLE", "Σφάλμα")
+            error_msg = (
+                f"Σφάλμα συμβατότητας βάσης δεδομένων\n\n"
+                f"{compat_result['message']}\n\n"
+                f"Παρακαλώ ανανεώστε την εφαρμογή ή τη βάση δεδομένων."
+            )
+            show_message_popup(title=error_title, message=error_msg)
+            return False
+        return True
+
     def _finish_build(self, *_args):
+        # Check DB compatibility before proceeding
+        if not self._check_db_compatibility():
+            return
+        
         # Always show login popup at startup (will pre-select last user)
         self.show_login_popup(on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0))
     
@@ -992,10 +1016,16 @@ class SubstationApp(App):
         version = self._get_app_version()
 
         app_dir = os.path.dirname(__file__)
+        
+        # Get DB version and compatibility info
+        db_version = get_db_version_string()
+        compat_result = is_db_compatible()
+        compat_status = "✓ Συμβατή" if compat_result["compatible"] else "✗ Ασύμβατη"
+        
         info_text_plain = S["MESSAGES"].get(
             "APP_INFO_BODY",
-            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\nΈκδοση: {version}\n\nΦάκελος εφαρμογής: {app_dir}"
-        ).format(version=version, app_dir=app_dir)
+            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\nΈκδοση: {version}\n\nΦάκελος εφαρμογής: {app_dir}\n\nΈκδοση ΒΔ: {db_version}\nΣυμβατότητα: {compat_status}"
+        ).format(version=version, app_dir=app_dir, db_version=db_version, compat_status=compat_status)
 
         popup = Popup(title=S["MESSAGES"].get("APP_INFO_TITLE", "Πληροφορίες Εφαρμογής"), size_hint=(0.7, 0.6))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
