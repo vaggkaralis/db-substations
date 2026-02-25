@@ -155,6 +155,8 @@ STRINGS_EL = {
         "ADD_MANUAL": "Προσθήκη Manual",
         "ADD_ELEMENTS_PROMPT": "Προσθέστε στοιχεία για τον νέο υποσταθμό πριν τη συνέχεια:",
         "CONTINUE": "Συνέχεια",
+        "DB_INTEGRITY_WARNING": "Προειδοποίηση Ακεραιότητας Βάσης",
+        "DB_INTEGRITY_ERROR": "Σφάλμα Ακεραιότητας Βάσης",
         "OPEN_LOCAL_DB_TITLE": "Άνοιγμα Τοπικής Βάσης",
         "OPEN_FOLDER": "Άνοιγμα φακέλου",
         "CONFIRM_DELETE_TITLE": "Επιβεβαίωση Διαγραφής",

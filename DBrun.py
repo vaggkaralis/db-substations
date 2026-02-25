@@ -17,6 +17,7 @@ from config_manager import (get_current_language, set_current_language,
                             get_current_user, set_current_user, clear_current_user,
                             get_db_path, set_db_path)
 from db_version import is_db_compatible, get_app_version_string, get_db_version_string
+from db_integrity import check_database_integrity
 from validation import is_user_responsible_capable
 
 # Lazy-evaluated strings (called at runtime, not import time)
@@ -364,9 +365,111 @@ class SubstationApp(App):
             return False
         return True
 
+    def _check_db_integrity(self):
+        """Check database integrity to detect corruption or data issues.
+        
+        Returns:
+            True if integrity check passed or user chose to continue, False to abort
+        """
+        db_path = get_db_path() or DB_PATH
+        
+        # Perform quick integrity check (fast, essential checks only)
+        integrity_result = check_database_integrity(db_path, quick_check=True)
+        
+        if integrity_result.errors:
+            # Critical errors - block app startup
+            error_title = S["MESSAGES"].get("ERROR_TITLE", "Σφάλμα")
+            error_msg = (
+                "Η βάση δεδομένων έχει κρίσιμα προβλήματα ακεραιότητας:\n\n"
+                + "\n".join(f"• {err}" for err in integrity_result.errors[:5])
+            )
+            if len(integrity_result.errors) > 5:
+                error_msg += f"\n... και {len(integrity_result.errors) - 5} ακόμα προβλήματα"
+            
+            error_msg += (
+                "\n\nΗ εφαρμογή δε μπορεί να συνεχίσει με αυτή τη βάση δεδομένων.\n"
+                "Παρακαλώ επαναφέρετε ένα αντίγραφο ασφαλείας ή επικοινωνήστε με υποστήριξη."
+            )
+            show_message_popup(title=error_title, message=error_msg)
+            return False
+        
+        if integrity_result.warnings:
+            # Warnings - show but allow user to continue
+            warning_title = "Προειδοποίηση"
+            warning_msg = (
+                "Η βάση δεδομένων έχει κάποια προβλήματα που χρήζουν προσοχής:\n\n"
+                + "\n".join(f"• {warn}" for warn in integrity_result.warnings[:5])
+            )
+            if len(integrity_result.warnings) > 5:
+                warning_msg += f"\n... και {len(integrity_result.warnings) - 5} ακόμα προειδοποιήσεις"
+            
+            warning_msg += "\n\nΘέλετε να συνεχίσετε;"
+            
+            # Create confirmation popup
+            from kivy.uix.popup import Popup
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.label import Label
+            from kivy.uix.button import Button
+            
+            popup = Popup(title=warning_title, size_hint=(0.7, 0.6))
+            layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            
+            # Warning message (scrollable)
+            from kivy.uix.scrollview import ScrollView
+            scroll = ScrollView()
+            msg_label = Label(
+                text=warning_msg, 
+                size_hint_y=None,
+                text_size=(None, None),
+                halign='left',
+                valign='top'
+            )
+            msg_label.bind(size=msg_label.setter('text_size'))
+            msg_label.bind(texture_size=msg_label.setter('size'))
+            scroll.add_widget(msg_label)
+            layout.add_widget(scroll)
+            
+            # Buttons
+            btn_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+            
+            continue_clicked = [False]
+            
+            def on_continue(*args):
+                continue_clicked[0] = True
+                popup.dismiss()
+            
+            def on_cancel(*args):
+                popup.dismiss()
+            
+            continue_btn = Button(text=S["BUTTONS"].get("CONTINUE", "Συνέχεια"))
+            continue_btn.bind(on_press=on_continue)
+            btn_layout.add_widget(continue_btn)
+            
+            cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+            cancel_btn.bind(on_press=on_cancel)
+            btn_layout.add_widget(cancel_btn)
+            
+            layout.add_widget(btn_layout)
+            popup.content = layout
+            popup.open()
+            
+            # Wait for user decision (blocking)
+            from kivy.clock import Clock
+            while popup._window is not None:
+                Clock.tick()
+            
+            return continue_clicked[0]
+        
+        # No errors or warnings - all good
+        return True
+
     def _finish_build(self, *_args):
         # Check DB compatibility before proceeding
         if not self._check_db_compatibility():
+            return
+        
+        # Check DB integrity before proceeding
+        if not self._check_db_integrity():
             return
         
         # Always show login popup at startup (will pre-select last user)
