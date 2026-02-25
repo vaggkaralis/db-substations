@@ -5,12 +5,47 @@ common messages. Keys are organized by category to make navigation easier.
 When adding new strings, place them under the most appropriate category.
 """
 
-STRINGS = {
+import json
+import os
+
+
+DEFAULT_LANGUAGE = "el"
+SUPPORTED_LANGUAGES = ("el", "en")
+SETTINGS_FILE = os.environ.get(
+    "APP_SETTINGS_PATH",
+    os.path.join(os.path.dirname(__file__), "app_settings.json"),
+)
+
+
+def _load_app_settings():
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_app_settings(settings: dict) -> None:
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(settings, fh, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+_settings = _load_app_settings()
+CURRENT_LANGUAGE = _settings.get("language", DEFAULT_LANGUAGE)
+if CURRENT_LANGUAGE not in SUPPORTED_LANGUAGES:
+    CURRENT_LANGUAGE = DEFAULT_LANGUAGE
+
+
+STRINGS_EL = {
     # Top-level button text used in many places
     "BUTTONS": {
         "IMPORT": "Εισαγωγή",
         "ADD": "Προσθήκη",
-        "VIEW": "Δες",
+        "VIEW": "Προβολή",
         "REFRESH": "Ανανέωση",
         "OPEN": "Άνοιγμα",
         "REPLACE": "Αντικατάσταση",
@@ -34,6 +69,7 @@ STRINGS = {
         "UPDATE": "Ενημέρωση",
         "YES": "Ναι",
         "NO": "Όχι",
+        "OK": "OK",
         "COPY": "Αντιγραφή",
         "BROWSE_FILE": "Αναζήτηση αρχείου",
         "ADD_MAINTENANCE": "+ Προσθήκη Νέας Συντήρησης",
@@ -52,6 +88,7 @@ STRINGS = {
         "INSPECTION_HISTORY": "Ιστορικό Επιθεώρησης",
         "INSPECTION_DETAILS": "Λεπτομέρειες Επιθεώρησης",
         "IMPORT_SUBSTATIONS_TITLE": "Εισαγωγή Υποσταθμών",
+        "SETTINGS": "Ρυθμίσεις",
     },
 
     # Application-wide messages grouped by functional area
@@ -268,11 +305,16 @@ STRINGS = {
         "ELEMENT_BREAKER_MT": "Διακόπτης ΜΤ",
         "VIDAR_VACUUM_CHECK_LABEL": "ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):",
         # VIDAR phase labels and hints
-        "VIDAR_LABEL_FA": "ΦΑ-ΦΑ:",
         "VIDAR_LABEL_FB": "ΦΒ-ΦΒ:",
         "VIDAR_LABEL_FC": "ΦΓ-ΦΓ:",
         "VIDAR_HINT": "0.0",
         "VIDAR_SECTION_TITLE": "Έλεγχος Κενού (VIDAR)",
+        # unified phase-to-phase label used by both insulation and vidar
+        "PHASE_TO_PHASE_LABEL": "ΦΑ-ΦΑ",
+        "PHASE_TO_PHASE_LABEL_COLON": "ΦΑ-ΦΑ:",
+        # backwards-compatible aliases (deprecated) - use PHASE_TO_PHASE_LABEL variants instead
+        # "INSULATION_LABEL_FA": "ΦΑ-ΦΑ",  # DEPRECATED: use PHASE_TO_PHASE_LABEL
+        # "VIDAR_LABEL_FA": "ΦΑ-ΦΑ:",  # DEPRECATED: use PHASE_TO_PHASE_LABEL_COLON
         # Insulation / resistance section titles and labels
         "INSULATION_RESISTANCE_CLOSED_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)",
         "INSULATION_RESISTANCE_OPEN_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)",
@@ -303,7 +345,7 @@ STRINGS = {
         "INACTIVE_ELEMENTS": "Ανενεργά Στοιχεία ({count})",
         "ELEMENT_ADDED": "Στοιχείο προστέθηκε στον {substation_name}!",
         "ELEMENT_DUPLICATE": "Υπάρχει ήδη στοιχείο με αυτό το όνομα σε αυτόν τον υποσταθμό!",
-        "VIEW_ACTIVE_ELEMENTS": "Εμφάνιση ενεργών στοιχείων ({count})",
+        "VIEW_ACTIVE_ELEMENTS": "Προβολή ενεργών στοιχείων ({count})",
         "FILTER_TYPE": "Φίλτρο Τύπου:",
         "FILTER_GATE": "Φίλτρο Πύλης:",
         "FILTER_SUBSTATION": "Φίλτρο Υποσταθμού:",
@@ -372,7 +414,7 @@ STRINGS = {
         "ELEM_COMMENTS_HINT": "Σχόλια για αυτό το στοιχείο...",
 
         # --- UI Actions / Buttons (mirrors BUTTONS when needed) ---
-        "SHOW_DB_BUTTON": "Εμφάνιση βάσης υποσταθμών",
+        "SHOW_DB_BUTTON": "Προβολή βάσης υποσταθμών",
         "IMPORT_BUTTON": "Εισαγωγή από αρχείο",
         "MAINTENANCE_BUTTON": "Συντηρήσεις",
         "INSPECTION_BUTTON": "Επιθεωρήσεις",
@@ -385,7 +427,7 @@ STRINGS = {
         "TOOLTIP_VIEW": "Προβολή",
         "TOOLTIP_MAINTENANCE": "Συντήρηση",
         "TOOLTIP_INSPECTION": "Επιθεώρηση",
-        "VIEW_SHORT": "Εμφ.",
+        "VIEW_SHORT": "Προβ.",
         "PDF_BUTTON": "PDF",
 
         # --- Prompts / Dialogs / Titles ---
@@ -405,7 +447,7 @@ STRINGS = {
         "PAGE_SIZE_LABEL": "Αντικείμενα/σελίδα",
         "PAGE_SIZE_OPTIONS": ["10", "20", "30", "50"],
         "SELECT_PROMPT": "Επιλογή",
-        "SHOW_ALL_SUBSTATIONS": "Εμφάνιση Όλων των Υποσταθμών",
+        "SHOW_ALL_SUBSTATIONS": "Προβολή Όλων των Υποσταθμών",
         "SELECT_ALL_BTN": "Επιλογή Όλων",
         "ADD_MENU_TITLE": "Προσθήκη υποσταθμών και στοιχείων",
         "ADD_SUBSTATION_BTN": "Προσθήκη Νέου Υποσταθμού",
@@ -506,5 +548,697 @@ STRINGS = {
         "BREAKER_TYPE_LABEL": "Τύπος Διακόπτη:",
         "BREAKER_CATEGORY_LABEL": "Κατηγορία Διακόπτη:",
         "RATED_POWER_HINT": "π.χ. 50",
+        # --- Settings / Language ---
+        "SETTINGS_TOOLTIP": "Ρυθμίσεις",
+        "LANGUAGE_LABEL": "Γλώσσα:",
+        "LANGUAGE_OPTION_EL": "Ελληνικά",
+        "LANGUAGE_OPTION_EN": "English",
+        "LANGUAGE_SAVED_RESTART": "Η γλώσσα αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+        # --- File dialogs ---
+        "FILE_DIALOG_SELECT_TITLE": "Επιλογή αρχείου",
+        "FILE_DIALOG_SAVE_TITLE": "Αποθήκευση αρχείου",
+        "FILE_DIALOG_ALL_FILES": "Όλα τα αρχεία",
+        # --- Reports / SF6 ---
+        "SF6_MANAGEMENT_TITLE": "Διαχείριση SF6",
+        "PRINT": "Εκτύπωση",
+        "EXCEL": "Excel",
+        "ELEMENT_LABEL": "Στοιχείο",
+        "LEAKAGE_LABEL": "Διαρροή (kg)",
+        "NO_LEAK_ENTRIES": "Δεν υπάρχουν καταχωρήσεις διαρροών για το έτος.",
+        "PDF_CREATED": "Το PDF δημιουργήθηκε:\n{path}",
+        "PDF_CREATE_FAILED": "Αποτυχία δημιουργίας PDF:\n{err}",
+        "EXCEL_CREATED": "Το Excel δημιουργήθηκε:\n{path}",
+        "EXCEL_CREATE_FAILED": "Αποτυχία δημιουργίας Excel:\n{err}",
+        "PDF_CREATED_TITLE": "PDF Δημιουργήθηκε",
+        "PDF_ELEMENT_CREATED_FMT": (
+            "Το αρχείο PDF για το στοιχείο \"{element_name}\"\n"
+            "δημιουργήθηκε επιτυχώς!\n\n"
+            "Αποθηκεύτηκε στο:\n{pdf_path}"
+        ),
+        "OPEN_FILE_NOT_FOUND": "Το αρχείο δεν βρέθηκε!",
+        "OPEN_FILE_ERROR_TITLE": "Σφάλμα",
+        "OPEN_FILE_ERROR_PREFIX": "Αποτυχία ανοίγματος αρχείου:\n",
+        "OPENPYXL_MISSING_EXCEL_EXPORT": "Δεν βρέθηκε το πακέτο openpyxl. Εγκαταστήστε το για εξαγωγή Excel.",
+        "SF6_SUMMARY_FMT": (
+            "Εγκατεστημένο SF6 (ενεργά): {installed_sf6:.2f} kg | "
+            "Ενεργά στοιχεία SF6: {active_elements} | Υποσταθμοί με SF6: {active_substations}\n"
+            "Έτος: {year_value} | Διαρροές: {total_leakage:.2f} kg | Ποσοστό: {percentage:.2f}%"
+        ),
+        "SF6_SUMMARY_SHEET_TITLE": "Σύνοψη",
+        "SF6_SUMMARY_TOTAL_INSTALLED": "ΣΥΝΟΛΙΚΗ ΕΓΚΑΤΕΣΤΗΜΕΝΗ ΠΟΣΟΤΗΤΑ (kg)",
+        "SF6_SUMMARY_LEAKS_YEAR_FMT": "ΔΙΑΡΡΟΕΣ {year} (kg)",
+        "SF6_SUMMARY_PERCENT_YEAR_FMT": "ΠΟΣΟΣΤΟ ΔΙΑΡΡΟΩΝ {year}",
+        "SF6_SUBSTATION_HEADER": "Υποσταθμός",
+        "SF6_TOTAL_LEAKAGE_HEADER": "Σύνολο Διαρροών (kg)",
+        "SF6_TABLE_TITLE": "ΠΙΝΑΚΑΣ 4: ΠΗΓΗ ΕΚΠΟΜΠΩΝ ΑΠΟ ΕΞΟΠΛΙΣΜΟ ΧΡΗΣΗΣ SF6",
+        "SF6_TABLE_HEADERS": [
+            "Α/Α",
+            "ΒΟΚ ή ΠΕΡΙΟΧΗ",
+            "ΕΓΚΑΤΑΣΤΑΣΗ (Πχ. Όνομα Υ/Σ)",
+            "ΜΟΝΑΔΑ ΜΕΤΡΗΣΗΣ",
+            "ΠΛΗΡΩΣΗ Ή ΑΝΤΙΚΑΤΑΣΤΑΣΗ (ΜΕΘΟΔΟΛΟΓΙΑ)",
+            "ΣΥΝΟΛΙΚΗ ΕΓΚΑΤΕΣΤΗΜΕΝΗ ΠΟΣΟΤΗΤΑ (kg)",
+            "ΠΟΣΟΤΗΤΑ ΔΙΑΡΡΟΩΝ (kg)",
+            "ΗΜ/ΝΙΑ",
+            "ΥΠΕΥΘΥΝΟΣ ΣΥΝΕΡΓΕΙΟΥ",
+            "ΥΠΟΓΡΑΦΗ",
+        ],
+        "ORG_SHORT": "ΔΕΕΔ",
+        "TEMPLATE_SUBSTATIONS_EXAMPLES": [
+            ("Υποσταθμός Α", "https://maps.google.com/?q=example1", "2025-01-15"),
+            ("Υποσταθμός Β", "https://maps.google.com/?q=example2", "2025-01-20"),
+        ],
+        "TEMPLATE_ELEMENTS_EXAMPLES": [
+            (
+                "Υποσταθμός Α",
+                "Διακόπτης ΜΤ",
+                "Main Breaker",
+                "SN-001",
+                "2025-01-20",
+                "SF6",
+                "Κεντρικός",
+                "Ενεργή",
+                "ΠΥΛΗ 1",
+                "SF6-400",
+                "ABB",
+                "Εσωτερικού",
+            ),
+            (
+                "Υποσταθμός Α",
+                "Μετασχηματιστής 150/20KV",
+                "Transformer 1",
+                "SN-002",
+                "2025-01-18",
+                "",
+                "",
+                "Ενεργή",
+                "ΠΥΛΗ 1",
+                "GEAFOL",
+                "Siemens",
+                "Εξωτερικού",
+            ),
+        ],
+        "ERROR_FMT": "Σφάλμα: {exc}",
     },
 }
+
+STRINGS_EN = {
+    "BUTTONS": {
+        "IMPORT": "Import",
+        "ADD": "Add",
+        "VIEW": "View",
+        "REFRESH": "Refresh",
+        "OPEN": "Open",
+        "REPLACE": "Replace",
+        "SKIP": "Skip",
+        "REPLACE_ALL": "Replace All",
+        "SKIP_ALL": "Skip All",
+        "CONFIRM": "Confirm",
+        "EDIT": "Edit",
+        "LIST": "List",
+        "CANCEL": "Cancel",
+        "EMAIL": "Email",
+        "APPLY": "Apply",
+        "BACKUP_APPLY": "Backup & Apply",
+        "CLOSE": "Close",
+        "INSPECTIONS": "Inspections",
+        "SAVE": "Save",
+        "BACK": "Back",
+        "MAINTENANCE": "Maintenance",
+        "INSPECT": "Inspect",
+        "DELETE": "Delete",
+        "UPDATE": "Update",
+        "YES": "Yes",
+        "NO": "No",
+        "OK": "OK",
+        "COPY": "Copy",
+        "BROWSE_FILE": "Browse file",
+        "ADD_MAINTENANCE": "+ Add New Maintenance",
+        "ADD_MODEL": "+ Add New Model",
+    },
+    "TITLES": {
+        "ERROR": "Error",
+        "SUCCESS": "Success",
+        "INFO": "Info",
+        "IMPORT_MENU": "Import from file",
+        "IMPORT_ANDROID": "Import changes from Android",
+        "PREVIEW_CHANGELOG": "Change log preview",
+        "INSPECTION_ENTRY": "Inspection Entry",
+        "INSPECTION_HISTORY": "Inspection History",
+        "INSPECTION_DETAILS": "Inspection Details",
+        "IMPORT_SUBSTATIONS_TITLE": "Import Substations",
+        "SETTINGS": "Settings",
+    },
+    "MESSAGES": {
+        "APP_TITLE": "HEDNO Substations DEDD/KSMTH/TEI",
+        "APP_INFO_SHORT": "App Info",
+        "APP_INFO_TITLE": "Application Information",
+        "APP_INFO_BODY": (
+            "HEDNO Substations DEDD/KSMTH/TEI\n"
+            "Version: {version}\n\n"
+            "Application features:\n"
+            "• View and manage substation database\n"
+            "• Add/edit/delete substations and elements\n"
+            "• Circuit breaker categories (SF6/Oil/Low Oil)\n"
+            "• Manage element types (models/manufacturers/cycles)\n"
+            "• Maintenance records\n"
+            "• Import maintenance from e-mail (.eml)\n"
+            "• Maintenance history (all/by substation)\n"
+            "• Breaker measurements (insulation/passage/operations)\n"
+            "• SF6 gas quality & leaks (kg)\n"
+            "• SF6 management (leakage report by year)\n"
+            "• Export SF6 Excel reports (summary & per substation)\n"
+            "• Print maintenance PDF reports\n"
+            "• Inspections (entry/view/history)\n"
+            "• Isolation requests\n"
+            "• Import substations/elements from CSV/Excel\n"
+            "• PDF & Excel reports\n\n"
+            "App folder: {app_dir}"
+        ),
+        "LOADING": "Loading...",
+        "COPY": "Copy",
+        "DASH": "-",
+        "ENTER_PATH": "Please enter a path or select a file!",
+        "FILE_PATH_LABEL": "File path:",
+        "FILE_PATH_HINT": "File path",
+        "FILE_NOT_FOUND": "File not found!",
+        "PLEASE_SELECT_PDF": "Please select a PDF file!",
+        "UNSUPPORTED_FILE_FORMAT": "Unsupported file format",
+        "FILE_HAS_NO_DATA": "The file contains no data.",
+        "IMPORT_FAILED": "Import failed:",
+        "IMPORT_SUCCESS": "Import successful.",
+        "SELECT_MONOGRAM_PDF_TITLE": "Select single-line PDF",
+        "CHANGELOG_FILE_LABEL": "Change log file path (.jsonl):",
+        "NO_SUBSTATIONS": "No substations!",
+        "EMPTY_DB": "Empty database",
+        "ADD_NEW_SUBSTATION_PROMPT": "Or add a new substation:",
+        "PLEASE_SELECT_OR_ADD_SUBSTATION": "Please select a substation or add a new one.",
+        "ENTER_SUBSTATION_NAME": "Please enter substation name!",
+        "SUBSTATION_LABEL": "Substation:",
+        "SUBSTATION_NAME_LABEL": "Substation Name:",
+        "SUBSTATION_NAME_HINT": "Substation Name",
+        "SUBSTATION_NEW_HINT": "New substation name",
+        "SUBSTATION_IS_THESSALONIKI": "Thessaloniki Substation",
+        "SUBSTATION_ADDED": "Substation added!",
+        "SUBSTATION_EXISTS": "Substation already exists.",
+        "SELECT_SUBSTATION": "Select Substation:",
+        "SELECT_SUBSTATION_BTN": "Select Substation",
+        "PROMPT_SUBSTATION_NOT_FOUND_TITLE": "Substation not found",
+        "PROMPT_SUBSTATION_SELECT": "Select substation for import:",
+        "SUBSTATION_NOT_FOUND": "Substation not found.",
+        "MISSING_SUBSTATIONS_WILL_CREATE": "The following substations do not exist and will be created:",
+        "NEW_SUBSTATIONS_TITLE": "New Substations Detected",
+        "MAINTENANCE_SAVED_CHANGELOG": "Maintenance was recorded in the change log.",
+        "MAINTENANCE_DELETED": "Maintenance deleted!",
+        "MAINTENANCE_NOT_FOUND": "Maintenance not found.",
+        "NO_MAINTENANCES": "No maintenance records",
+        "NO_MAINT_FOR_SUBSTATION": (
+            "No maintenance records for substation \"{substation_name}\".\n"
+            "Use the button above to add one."
+        ),
+        "MAINT_HISTORY_LABEL": "Maintenance History",
+        "MAINTENANCE_NAME_FMT": "SS {substation_name} - {date}",
+        "NO_RECORD_ELEMENTS": "No elements for this maintenance.",
+        "DATE_TIME_LABEL": "Date & Time:",
+        "DATE_REQUIRED": "Date is required!",
+        "DATE_PREFIX": "Date:",
+        "MAINT_TYPE_LABEL": "Maintenance Type:",
+        "MAINTENANCE_TYPES": ["Recurring maintenance", "Fault", "Visual inspection"],
+        "MAINT_TYPE_DEFAULT": "Recurring maintenance",
+        "RESPONSIBLE_LABEL": "Maintenance Responsible (required):",
+        "RESPONSIBLE_REQUIRED": "Maintenance responsible is required!",
+        "CREW_LABEL": "Maintenance Crew (optional):",
+        "OVERALL_COMMENTS_LABEL": "General Maintenance Comments:",
+        "ELEMENTS_SECTION_LABEL": "Elements maintained (at least 1):",
+        "NO_ELEMENTS_IN_SUBSTATION": "There are no elements in this substation",
+        "SELECT_AT_LEAST_ONE_ELEMENT": "You must select at least one element!",
+        "ADD_ELEMENT_BEFORE_CONTINUE": "Add at least one element before continuing.",
+        "INSPECTION_SAVED": "Inspection saved!",
+        "INSPECTION_ROWS": [
+            "Check external & internal doors of the substation",
+            "Check interior of the building (lighting, air conditioning, etc)",
+            "Check surrounding area (vegetation, trees, lighting, etc)",
+            "General inspection of fire protection equipment",
+            "Visual check for oil leakage/level/temperature, silica gel on the transformer",
+            "Visual check for oil leakage or SF6 pressure or air pressure on 150kV & 20kV circuit breakers",
+            "Check transformer fan operation",
+            "Visual check of injection transformer, CTs, VTs, service transformer, neutral resistor (temperature)",
+            "Visual check of insulators (pollution, scratches, etc)",
+            "Visual check of fuses and capacitors",
+            "Check markings on transformer panels, 150kV & 20kV switchgear",
+            "Take photo when required",
+            "Visual check of gates, A/Z and general structures for nests, breaks, insulators, branches, wires, etc",
+            "Visual check on 20kV switchgear panels (alarms, indications, doors) and check for noise/ionization",
+            "Check for humidity (basement, cable channels), dehumidifiers, heaters, portable fire extinguishers",
+            "Check 110V charger visually with voltage/current measurement and recording",
+            "Check for DC loss alarm on main DC panel",
+            "Visual check for leaks in battery elements",
+            "Visual check of generators and their bridges on the 1st pole of each line (broken, insulators, etc)",
+            "Check operation of digital system (operations, indications, markings)",
+            "PC power supply",
+            "Views and suggestions for better operation of equipment and building in general",
+        ],
+        "INSPECTION_SECTION_2": "[b]Substation Areas Check[/b]",
+        "INSPECTION_SECTION_3": "[b]150/20kV Transformer & 150kV/20kV Breakers[/b]",
+        "INSPECTION_SECTION_3A": "[b]Outdoor 20 kV gates[/b]",
+        "INSPECTION_SECTION_3B": "[b]Outdoor 20 kV gates[/b]",
+        "INSPECTION_SECTION_4": "[b]Control building & Aux. Services[/b]",
+        "INSPECTION_SECTION_5": "[b]Line Disconnectors[/b]",
+        "INSPECTION_SECTION_6": "[b]Control PC[/b]",
+        "INSPECTION_SECTION_7": "[b]Views[/b]",
+        "INSPECTION_BASE_FIELDS": [
+            "Substation",
+            "Form No.",
+            "Month",
+            "Inspector Name",
+            "Region",
+            "Day",
+            "Year",
+            "Date",
+        ],
+        "IMPORT_INSPECTIONS_TITLE": "Import Inspections",
+        "IMPORT_INSPECTIONS_DONE": "Import completed ({inserted} records).",
+        "IMPORT_INSPECTIONS_DIALOG": "Import inspections from file",
+        "NO_INSPECTIONS": "There are no inspection records. Do you want to create one?",
+        "INSPECTION_COUNT_FMT": "{count} inspection records",
+        "SUBSTATION_INSPECTION_HISTORY_TITLE_FMT": "Inspection History - {substation_name}",
+        "SUBSTATION_INSPECTION_COUNT_FMT": "{count} inspection records for substation {substation_name}",
+        "SUBSTATION_LABEL_PLAIN": "Substation",
+        "DATE_PLAIN": "Date",
+        "MEASUREMENT_RESISTANCE_HEADER": "RESISTANCE MEASUREMENT (Ohm)",
+        "NO_PEOPLE": "No people recorded. Please add staff.",
+        "SURNAME_LABEL": "Surname:",
+        "NAME_LABEL": "Name:",
+        "ROLE_LABEL": "Role:",
+        "EMAIL_LABEL": "Email:",
+        "EMAIL_RECIPIENT_LABEL": "Email report recipients",
+        "ACTIVE_LABEL": "Active",
+        "STAFF_LOAD_FAILED": "Failed to load staff management.",
+        "PERSON_NOT_FOUND": "Person not found!",
+        "EDIT_PERSON_TITLE": "Edit Person",
+        "SURNAME_ROLE_REQUIRED": "Surname and role are required!",
+        "PERSON_IN_USE": "This person has been used in maintenance. Delete only after removing from history or deactivate.",
+        "CONFIRM_DELETE_PERSON_FMT": "Are you sure you want to delete\nperson \"{person_name}\"?",
+        "NO_AVAILABLE_RESPONSIBLE": "No available maintenance responsible with required permissions. Add or update staff.",
+        "SF6_LEAK_METHODOLOGY_REQUIRED": "SF6 leakage requires a methodology (Filling/Replacement).",
+        "GATE_LABEL": "Gate",
+        "DIVISION_LABEL": "Division",
+        "MAINT_USER_LABEL": "Operator",
+        "MODEL_NOT_USED": "Model is not used by any element.",
+        "MODEL_NAME_REQUIRED": "Model name is required!",
+        "MODEL_SERVICE_CYCLE_NUM": "Maintenance cycle must be a number!",
+        "MODEL_POWER_NUM": "Rated power must be a number!",
+        "MODEL_ADDED": "Model added!",
+        "MODEL_DELETED": "Model deleted successfully!",
+        "MODEL_NOT_FOUND": "Model not found!",
+        "MODEL_CHECK_TITLE": "Model Check",
+        "NEW_MODELS_HEADER": "[b]New Models (will be added):[/b]",
+        "EXISTING_MODELS_DIFF_HEADER": "[b]Existing Models with Different Data:[/b]",
+        "NO_ELEMENTS": "No elements",
+        "NO_ELEMENTS_PAREN": "(No elements)",
+        "NO_ELEMENTS_FOR_ITEM": "No elements registered for this item.",
+        "NO_MODELS": "No models",
+        "NO_INACTIVE_ELEMENTS": "No inactive elements in this substation",
+        "ELEMENT_TYPES": [
+            "Διακόπτης ΥΤ",
+            "Διακόπτης ΜΤ",
+            "Μετασχηματιστής 150/20KV",
+            "Motor Drive",
+            "Μ/Σ Έγχυσης",
+            "Μ/Σ Έντασης",
+            "Μ/Σ Τάσης",
+            "Μ/Σ ΧΤ/ΜΤ (ΒΜΣ)",
+            "Αποζεύκτης",
+            "Ασφαλειοαποζεύκτης",
+            "Γειωτής",
+            "Συστοιχία Πυκνωτών",
+            "Αντίσταση Κόμβου",
+            "Αλεξικέραυνο",
+            "Συστοιχία Συσσωρευτών",
+        ],
+        "ELEMENT_BREAKER_YT": "Διακόπτης ΥΤ",
+        "ELEMENT_BREAKER_MT": "Διακόπτης ΜΤ",
+        "VIDAR_VACUUM_CHECK_LABEL": "VACUUM CHECK (VIDAR):",
+        "VIDAR_LABEL_FB": "FB-FB:",
+        "VIDAR_LABEL_FC": "FC-FC:",
+        "VIDAR_HINT": "0.0",
+        "VIDAR_SECTION_TITLE": "VIDAR Vacuum Check",
+        "PHASE_TO_PHASE_LABEL": "FA-FA",
+        "PHASE_TO_PHASE_LABEL_COLON": "FA-FA:",
+        "INSULATION_RESISTANCE_CLOSED_TITLE": "Insulation Resistance - Breaker Closed (Ground)",
+        "INSULATION_RESISTANCE_OPEN_TITLE": "Insulation Resistance - Breaker Open (Phase-Phase)",
+        "INSULATION_PASSAGE_TITLE": "Passage Resistance (uOhm)",
+        "INSULATION_MEASUREMENT_CLOSED_HEADER": "INSULATION RESISTANCE MEASUREMENT - BREAKER CLOSED (PH-GND):",
+        "INSULATION_MEASUREMENT_OPEN_HEADER": "INSULATION RESISTANCE MEASUREMENT - BREAKER OPEN (PH-PH):",
+        "INSULATION_PASSAGE_MEASUREMENT_CLOSED_HEADER": "PASSAGE RESISTANCE (uOhm) - BREAKER CLOSED:",
+        "INSULATION_HINT": "0.0",
+        "INSULATION_LABEL_FA_GND": "FA-GND",
+        "INSULATION_LABEL_FB_GND": "FB-GND",
+        "INSULATION_LABEL_FC_GND": "FC-GND",
+        "INSULATION_LABEL_FA": "FA-FA",
+        "INSULATION_LABEL_FB": "FB-FB",
+        "INSULATION_LABEL_FC": "FC-FC",
+        "ELEMENT_BREAKER_SUBSTR": "Διακόπτης",
+        "BREAKER_CATEGORIES_ALL": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
+        "BREAKER_CATEGORIES_HV": ["SF6", "Ελαίου"],
+        "BREAKER_CATEGORIES_MV": ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"],
+        "BREAKER_TYPES": ["Κεντρικός", "Γραμμής", "Διασυνδετικός", "Διακόπτης Πυκνωτών"],
+        "OPERATING_STATUS": ["Ενεργή", "Ανενεργή"],
+        "INSTALLATION_SPACE": ["Εσωτερικός", "Εξωτερικός"],
+        "VOLTAGE_LEVELS": ["(Κενό)", "150/20KV", "20KV", "150KV", "20KV/400V"],
+        "VIEW_ELEMENT_TITLE": "View Element",
+        "ELEMENTS_LIST_LABEL": "Elements maintained:",
+        "PLEASE_SELECT_BREAKER_CATEGORY": "Please select breaker category!",
+        "PLEASE_SELECT_EML": "Please select a .eml file!",
+        "INACTIVE_ELEMENTS": "Inactive Elements ({count})",
+        "ELEMENT_ADDED": "Element added to {substation_name}!",
+        "ELEMENT_DUPLICATE": "An element with this name already exists in this substation!",
+        "VIEW_ACTIVE_ELEMENTS": "View active elements ({count})",
+        "FILTER_TYPE": "Type filter:",
+        "FILTER_GATE": "Gate filter:",
+        "FILTER_SUBSTATION": "Substation filter:",
+        "LOC": "Location",
+        "ADOPTION": "Adoption",
+        "INFO": "Details",
+        "GATES": "Gates",
+        "CAPACITORS": "Capacitors",
+        "MAINTENANCES": "Maintenances",
+        "LAST": "Last",
+        "SINGLE_LINE": "Single-line",
+        "MONTHS": [
+            "Ιανουάριος",
+            "Φεβρουάριος",
+            "Μάρτιος",
+            "Απρίλιος",
+            "Μάιος",
+            "Ιούνιος",
+            "Ιούλιος",
+            "Αύγουστος",
+            "Σεπτέμβριος",
+            "Οκτώβριος",
+            "Νοέμβριος",
+            "Δεκέμβριος",
+        ],
+        "DAYS": [
+            "Δευτέρα",
+            "Τρίτη",
+            "Τετάρτη",
+            "Πέμπτη",
+            "Παρασκευή",
+            "Σάββατο",
+            "Κυριακή",
+        ],
+        "BREAKER_LABEL_CENTRAL": "Κεντρικός",
+        "BREAKER_LABEL_INTERCON": "Διασυνδετικός",
+        "BREAKER_LABEL_CAPACITOR": "Διακόπτης Πυκνωτών",
+        "BREAKER_LABEL_LINE": "Γραμμής",
+        "GATE_PREFIX": "ΠΥΛΗ",
+        "ALL_LABEL": "(All)",
+        "DIVISION_DEFAULT": "ΤΜΘ",
+        "PICKER_EMPTY_SELECTION": "Picker returned empty selection (None).",
+        "ANDROID_FILECHOOSER_FALLBACK": "Android file chooser is not available. Use the file list in the window.",
+        "FILECHOOSER_NOT_AVAILABLE": "File chooser is not available",
+        "FILECHOOSER_ANDROID_ONLY": "File chooser is available only on Android.",
+        "FILECHOOSER_INTERNAL_ERROR": "File chooser internal error.",
+        "FILECHOICE_CANCELLED": "File choice failed or was canceled.",
+        "MODE_LABEL_LOCAL": "Source: Local Database",
+        "LOCAL_DB_BUTTON": "Local Database",
+        "CHANGELOG_BUTTON": "Change-log",
+        "CHANGELOG_RECORDED": "Change recorded in the change log.",
+        "ADOPTION_DATE_LABEL": "Adoption Date:",
+        "NAME_REQUIRED": "Name is required",
+        "ELEMENT_TYPE_LABEL": "Element Type:",
+        "RETRY": "Retry",
+        "COPYING_FILE": "Copying file...",
+        "COPYING_FILE_MSG": "Copying file from filesystem. Please wait...",
+        "OVERALL_COMMENTS_HINT": "General maintenance comments...",
+        "GOOGLE_MAPS_LINK": "Google Maps Link",
+        "SHARE_BUTTON": "Share",
+        "COPY_PATH": "Copy path",
+        "LOADING_ELEMENTS": "Loading elements...",
+        "RETRY_LOAD": "Retry loading",
+        "ELEM_COMMENTS_HINT": "Comments for this element...",
+        "SHOW_DB_BUTTON": "View substations database",
+        "IMPORT_BUTTON": "Import from file",
+        "MAINTENANCE_BUTTON": "Maintenances",
+        "INSPECTION_BUTTON": "Inspections",
+        "ISOLATION_BUTTON": "Isolation Requests",
+        "SF6_BUTTON": "SF6",
+        "MODELS_BUTTON": "Manage Element Types",
+        "PEOPLE_BUTTON": "Manage Staff",
+        "TOOLTIP_EDIT": "Edit",
+        "TOOLTIP_DELETE": "Delete",
+        "TOOLTIP_VIEW": "View",
+        "TOOLTIP_MAINTENANCE": "Maintenance",
+        "TOOLTIP_INSPECTION": "Inspection",
+        "VIEW_SHORT": "View",
+        "PDF_BUTTON": "PDF",
+        "VIEW_PROMPT": "Select what you want to view:",
+        "SEARCH_HINT": "Search (name/date)",
+        "PREVIOUS": "Previous",
+        "NEXT": "Next",
+        "LOAD_MORE": "Load more",
+        "PAGE_LABEL_TEMPLATE": "Page {page}",
+        "ALL_SUBSTATIONS_LABEL": "All substations",
+        "VIEW_SELECTION_TITLE": "View Selection",
+        "SORT_OPTIONS": [
+            "Date (desc)",
+            "Date (asc)",
+            "Substation A-Z",
+        ],
+        "PAGE_SIZE_LABEL": "Items per page",
+        "PAGE_SIZE_OPTIONS": ["10", "20", "30", "50"],
+        "SELECT_PROMPT": "Select",
+        "SHOW_ALL_SUBSTATIONS": "View All Substations",
+        "SELECT_ALL_BTN": "Select All",
+        "ADD_MENU_TITLE": "Add substations and elements",
+        "ADD_SUBSTATION_BTN": "Add New Substation",
+        "ADD_ELEMENT_BTN": "Add New Element",
+        "ADD_ELEMENTS_TITLE": "Add elements",
+        "ADD_SUBSTATION_TITLE": "Add Substation",
+        "ADD_ELEMENT_TITLE": "Add Element",
+        "ADD_MODEL_TITLE": "Add New Model",
+        "ADD_MANUAL": "Add Manual",
+        "ADD_ELEMENTS_PROMPT": "Add elements for the new substation before continuing:",
+        "CONTINUE": "Continue",
+        "OPEN_LOCAL_DB_TITLE": "Open Local Database",
+        "OPEN_FOLDER": "Open folder",
+        "CONFIRM_DELETE_TITLE": "Delete Confirmation",
+        "DUPLICATE_OPTIONS_INCOMPLETE": (
+            "Complete the choices for all duplicates or use 'Replace All' / 'Skip All'."
+        ),
+        "RESPONSIBLE_NOT_FOUND_TITLE": "Responsible not found",
+        "FORM_NUMBER": "Form No.:",
+        "FORM_NUMBER_HINT": "Form No.",
+        "ELEMENT_NAME_LABEL": "Element Name",
+        "ELEMENT_NAME_HINT": "Element Name",
+        "SERIAL_NUMBER_LABEL": "Serial Number",
+        "SERIAL_NUMBER_HINT": "Serial Number",
+        "ELEMENT_MANUFACTURE_YEAR_LABEL": "Manufacture Year",
+        "ELEMENT_MANUFACTURE_YEAR_HINT": "YYYY",
+        "MAINTENANCE_DATE_LABEL": "Last Maint.",
+        "MAINTENANCE_DATE_HINT": "YYYY-MM-DD",
+        "MANUFACTURER_LABEL": "Manufacturer",
+        "MANUFACTURER_HINT": "Manufacturer",
+        "MODEL_LABEL": "Model",
+        "MODEL_HINT": "Model",
+        "MODEL_VERSION_LABEL": "Model Version",
+        "MODEL_VERSION_HINT": "Version",
+        "INSTALLATION_SPACE_LABEL": "Installation Space",
+        "OPERATING_STATUS_LABEL": "Operating Status",
+        "MAINTENANCE_CYCLE_LABEL": "Maintenance Cycle",
+        "MAINTENANCE_CYCLE_HINT": "Number",
+        "DATE_LABEL": "Date:",
+        "DATE_HINT": "YYYY-MM-DD",
+        "REGION_LABEL": "Region:",
+        "REGION_HINT": "Region",
+        "INSPECTOR_LABEL": "Inspector Name:",
+        "MONTH_LABEL": "Month:",
+        "DAY_LABEL": "Day:",
+        "YEAR_LABEL": "Year:",
+        "OBSERVATIONS_HINT": "Observations",
+        "EMAIL_RECIPIENTS_MISSING": (
+            "No email recipients. Add recipients from Staff Management."
+        ),
+        "MAINTENANCE_HEADER": "Maintenance: {name}",
+        "PEOPLE_SUMMARY": "Responsible: {resp} | Crew: {crew}",
+        "COMMENTS_LABEL": "Comments: {text}",
+        "MAINTENANCE_COMMENTS_SECTION": "Maintenance Comments",
+        "ELEMENT_COMMENTS_SECTION": "Element Comments",
+        "MAINT_LAST_LABEL": "Last Maintenance: {date}",
+        "INVALID_DATE_FORMAT": "Invalid date format! Use: YYYY-MM-DD HH:MM",
+        "END_BEFORE_START": "End date must be after start!",
+        "ERROR_DURING_CHECK_PREFIX": "Error during check: ",
+        "RECORD_NOT_FOUND": "Record not found.",
+        "TEMPLATE_SUBSTATIONS_TITLE": "Substations Template",
+        "TEMPLATE_ELEMENTS_TITLE": "Elements Template",
+        "OPENPYXL_MISSING": "openpyxl is not installed!",
+        "TEMPLATE_SUBSTATIONS_HEADERS": ["Name", "Location", "Adoption Date"],
+        "TEMPLATE_ELEMENTS_HEADERS": [
+            "Substation Name",
+            "Element Type",
+            "Name",
+            "Serial Number",
+            "Maintenance Date",
+            "Breaker Type",
+            "Breaker Role",
+            "Operating Status",
+            "Gate",
+            "Model Name",
+            "Model Manufacturer",
+            "Model Installation Space",
+        ],
+        "ITEM_DELETED": "Element deleted!",
+        "MAINTENANCE_UPDATED": "Maintenance updated!",
+        "MAINTENANCE_CREATED": "Maintenance created!",
+        "CHANGES_SAVED": "Changes saved!",
+        "CONFIRM_DELETE_SUBSTATION_FMT": (
+            "Are you sure you want to delete\n"
+            "substation \"{substation_name}\"\n"
+            "and ALL its elements?"
+        ),
+        "CONFIRM_DELETE_MAINT_FMT": "Are you sure you want to delete\nthis maintenance?",
+        "UNREGISTERED_PLACEHOLDER": "(Unregistered)",
+        "EMPTY_PLACEHOLDER": "(Empty)",
+        "MODEL_SELECT_PROMPT": "Select model",
+        "BREAKER_TYPE_LABEL": "Breaker Type:",
+        "BREAKER_CATEGORY_LABEL": "Breaker Category:",
+        "RATED_POWER_HINT": "e.g. 50",
+        "SETTINGS_TOOLTIP": "Settings",
+        "LANGUAGE_LABEL": "Language:",
+        "LANGUAGE_OPTION_EL": "Greek",
+        "LANGUAGE_OPTION_EN": "English",
+        "LANGUAGE_SAVED_RESTART": "Language saved. Restart the app to apply.",
+        "FILE_DIALOG_SELECT_TITLE": "Select file",
+        "FILE_DIALOG_SAVE_TITLE": "Save file",
+        "FILE_DIALOG_ALL_FILES": "All files",
+        "SF6_MANAGEMENT_TITLE": "SF6 Management",
+        "PRINT": "Print",
+        "EXCEL": "Excel",
+        "ELEMENT_LABEL": "Element",
+        "LEAKAGE_LABEL": "Leakage (kg)",
+        "NO_LEAK_ENTRIES": "No leakage entries for the year.",
+        "PDF_CREATED": "PDF created:\n{path}",
+        "PDF_CREATE_FAILED": "Failed to create PDF:\n{err}",
+        "EXCEL_CREATED": "Excel created:\n{path}",
+        "EXCEL_CREATE_FAILED": "Failed to create Excel:\n{err}",
+        "PDF_CREATED_TITLE": "PDF Created",
+        "PDF_ELEMENT_CREATED_FMT": (
+            "The PDF file for element \"{element_name}\"\n"
+            "was created successfully!\n\n"
+            "Saved to:\n{pdf_path}"
+        ),
+        "OPEN_FILE_NOT_FOUND": "File not found!",
+        "OPEN_FILE_ERROR_TITLE": "Error",
+        "OPEN_FILE_ERROR_PREFIX": "Failed to open file:\n",
+        "OPENPYXL_MISSING_EXCEL_EXPORT": "openpyxl package not found. Install it for Excel export.",
+        "SF6_SUMMARY_FMT": (
+            "Installed SF6 (active): {installed_sf6:.2f} kg | "
+            "Active SF6 elements: {active_elements} | Substations with SF6: {active_substations}\n"
+            "Year: {year_value} | Leakages: {total_leakage:.2f} kg | Percentage: {percentage:.2f}%"
+        ),
+        "SF6_SUMMARY_SHEET_TITLE": "Summary",
+        "SF6_SUMMARY_TOTAL_INSTALLED": "TOTAL INSTALLED AMOUNT (kg)",
+        "SF6_SUMMARY_LEAKS_YEAR_FMT": "LEAKAGES {year} (kg)",
+        "SF6_SUMMARY_PERCENT_YEAR_FMT": "LEAKAGE PERCENT {year}",
+        "SF6_SUBSTATION_HEADER": "Substation",
+        "SF6_TOTAL_LEAKAGE_HEADER": "Total Leakages (kg)",
+        "SF6_TABLE_TITLE": "TABLE 4: EMISSIONS SOURCE FROM SF6 EQUIPMENT",
+        "SF6_TABLE_HEADERS": [
+            "No.",
+            "BOK or Region",
+            "Facility (e.g., Substation Name)",
+            "Measurement Unit",
+            "Filling or Replacement (Methodology)",
+            "TOTAL INSTALLED AMOUNT (kg)",
+            "LEAKAGE AMOUNT (kg)",
+            "DATE",
+            "CREW RESPONSIBLE",
+            "SIGNATURE",
+        ],
+        "ORG_SHORT": "HEDNO",
+        "TEMPLATE_SUBSTATIONS_EXAMPLES": [
+            ("Substation A", "https://maps.google.com/?q=example1", "2025-01-15"),
+            ("Substation B", "https://maps.google.com/?q=example2", "2025-01-20"),
+        ],
+        "TEMPLATE_ELEMENTS_EXAMPLES": [
+            (
+                "Substation A",
+                "Διακόπτης ΜΤ",
+                "Main Breaker",
+                "SN-001",
+                "2025-01-20",
+                "SF6",
+                "Κεντρικός",
+                "Ενεργή",
+                "ΠΥΛΗ 1",
+                "SF6-400",
+                "ABB",
+                "Εσωτερικού",
+            ),
+            (
+                "Substation A",
+                "Μετασχηματιστής 150/20KV",
+                "Transformer 1",
+                "SN-002",
+                "2025-01-18",
+                "",
+                "",
+                "Ενεργή",
+                "ΠΥΛΗ 1",
+                "GEAFOL",
+                "Siemens",
+                "Εξωτερικού",
+            ),
+        ],
+        "ERROR_FMT": "Error: {exc}",
+    },
+}
+
+
+def get_current_language() -> str:
+    return CURRENT_LANGUAGE
+
+
+def set_current_language(language: str) -> bool:
+    global CURRENT_LANGUAGE
+    if language not in SUPPORTED_LANGUAGES:
+        return False
+    CURRENT_LANGUAGE = language
+    settings = _load_app_settings()
+    settings["language"] = language
+    _save_app_settings(settings)
+    return True
+
+
+def get_strings(language: str | None = None) -> dict:
+    lang = language or CURRENT_LANGUAGE
+    if lang not in ("el", "en"):
+        lang = DEFAULT_LANGUAGE
+    return {"el": STRINGS_EL, "en": STRINGS_EN}[lang]
+
+
+class _StringsProxy:
+    def __init__(self, data: dict):
+        self._data = data
+
+    def _current(self) -> dict:
+        return self._data.get(CURRENT_LANGUAGE, self._data[DEFAULT_LANGUAGE])
+
+    def __getitem__(self, key):
+        return self._current()[key]
+
+    def get(self, key, default=None):
+        return self._current().get(key, default)
+
+    def keys(self):
+        return self._current().keys()
+
+    def items(self):
+        return self._current().items()
+
+    def __contains__(self, item):
+        return item in self._current()
+
+
+STRINGS = _StringsProxy({"el": STRINGS_EL, "en": STRINGS_EN})

@@ -1,4 +1,6 @@
-﻿from kivy.core.window import Window
+﻿import math
+
+from kivy.core.window import Window
 from kivy.graphics import Color, Ellipse, Line, Rectangle
 from kivy.properties import ListProperty, StringProperty
 from kivy.uix.behaviors import ButtonBehavior
@@ -177,6 +179,20 @@ class IconWidget(Widget):
                     width=line_w,
                 )
                 Ellipse(pos=(x + w * 0.46, y + h * 0.68), size=(w * 0.08, h * 0.08))
+            elif self.icon_type == "settings":
+                cx = x + w * 0.5
+                cy = y + h * 0.5
+                radius = min(w, h) * 0.28
+                Line(circle=(cx, cy, radius), width=line_w)
+                tooth_len = min(w, h) * 0.12
+                for angle in range(0, 360, 60):
+                    rad = math.radians(angle)
+                    x1 = cx + math.cos(rad) * (radius + tooth_len * 0.2)
+                    y1 = cy + math.sin(rad) * (radius + tooth_len * 0.2)
+                    x2 = cx + math.cos(rad) * (radius + tooth_len)
+                    y2 = cy + math.sin(rad) * (radius + tooth_len)
+                    Line(points=[x1, y1, x2, y2], width=line_w)
+                Line(circle=(cx, cy, radius * 0.4), width=line_w)
             elif self.icon_type == "edit":
                 # clearer pencil / edit icon: body, tip, and eraser
                 body_w = w * 0.6

@@ -1441,7 +1441,7 @@ class SubstationAndroidApp(App):
             name_label = Label(text=substation["name"], size_hint_x=0.7, bold=True)
             top_row.add_widget(name_label)
 
-            view_btn = Button(text=S.get("BUTTONS", {}).get("VIEW", "Δες"), size_hint_x=0.3)
+            view_btn = Button(text=S.get("BUTTONS", {}).get("VIEW", "Προβολή"), size_hint_x=0.3)
             view_btn.bind(
                 on_press=lambda x, sid=substation["id"]: self.show_substation_details(
                     sid

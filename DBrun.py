@@ -11,7 +11,7 @@ from importers import (import_elements_from_csv, import_elements_from_excel,
                        import_substations_from_csv,
                        import_substations_from_excel)
 from popups import show_message_popup
-from strings import STRINGS as S
+from strings import STRINGS as S, get_current_language, set_current_language
 
 # Short placeholders centralized for readability
 UNREG = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
@@ -344,10 +344,18 @@ class SubstationApp(App):
             pass
         self._add_logo_to_layout(layout, height=120, reserve=True)
 
-        # Top-right small app info button
+        # Top bar with settings and app info
         top_bar = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=40, padding=10
         )
+        self.settings_btn = IconOnlyButton(
+            icon_type="settings",
+            icon_color=list(self.theme.get("primary", (0.05, 0.18, 0.36, 1))),
+            size=(34, 34),
+            tooltip=S["MESSAGES"].get("SETTINGS_TOOLTIP", "Ρυθμίσεις"),
+        )
+        self.settings_btn.bind(on_press=self.show_settings_popup)
+        top_bar.add_widget(self.settings_btn)
         top_bar.add_widget(Widget())
         self.app_info_btn = Button(
             text=S["MESSAGES"].get("APP_INFO_SHORT", "Πληρ. Εφαρμ."),
@@ -361,7 +369,7 @@ class SubstationApp(App):
         layout.add_widget(top_bar)
 
         self.show_btn = IconButton(
-            text=S["MESSAGES"].get("SHOW_DB_BUTTON", "Εμφάνιση βάσης υποσταθμών"), icon_type="database", theme=self.theme
+            text=S["MESSAGES"].get("SHOW_DB_BUTTON", "Προβολή βάσης υποσταθμών"), icon_type="database", theme=self.theme
         )
         self.show_btn.bind(on_press=self.show_records)
         self.import_btn = IconButton(
@@ -1074,6 +1082,58 @@ class SubstationApp(App):
             Window.unbind(on_key_down=_handle_info_keys)
 
         popup.bind(on_open=_on_open, on_dismiss=_on_dismiss)
+        popup.open()
+
+    def show_settings_popup(self, instance=None):
+        """Show settings popup for language selection."""
+        popup = Popup(title=S["TITLES"].get("SETTINGS", "Ρυθμίσεις"), size_hint=(0.5, 0.4))
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        lang_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        lang_row.add_widget(Label(text=S["MESSAGES"].get("LANGUAGE_LABEL", "Γλώσσα:"), size_hint_x=0.4))
+
+        language_options = [
+            ("el", S["MESSAGES"].get("LANGUAGE_OPTION_EL", "Ελληνικά")),
+            ("en", S["MESSAGES"].get("LANGUAGE_OPTION_EN", "English")),
+        ]
+        labels = [label for _, label in language_options]
+        current_code = get_current_language()
+        current_label = dict(language_options).get(current_code, labels[0])
+        lang_spinner = Spinner(text=current_label, values=labels)
+        lang_row.add_widget(lang_spinner)
+        layout.add_widget(lang_row)
+
+        buttons = BoxLayout(size_hint_y=None, height=40, spacing=10)
+        apply_btn = Button(text=S["BUTTONS"].get("APPLY", "Εφαρμογή"))
+        close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"))
+
+        def _apply_language(*_args):
+            selected_label = lang_spinner.text
+            selected_code = None
+            for code, label in language_options:
+                if label == selected_label:
+                    selected_code = code
+                    break
+            if not selected_code:
+                popup.dismiss()
+                return
+            if set_current_language(selected_code):
+                show_message_popup(
+                    S["TITLES"].get("INFO", "Πληροφορία"),
+                    S["MESSAGES"].get(
+                        "LANGUAGE_SAVED_RESTART",
+                        "Η γλώσσα αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+                    ),
+                )
+            popup.dismiss()
+
+        apply_btn.bind(on_press=_apply_language)
+        close_btn.bind(on_press=popup.dismiss)
+        buttons.add_widget(apply_btn)
+        buttons.add_widget(close_btn)
+        layout.add_widget(buttons)
+
+        popup.content = layout
         popup.open()
 
     def _get_app_version(self):
@@ -2670,7 +2730,7 @@ class SubstationApp(App):
         layout.add_widget(prompt_field)
 
         # "Show All" button
-        show_all_btn = Button(text=S["MESSAGES"].get("SHOW_ALL_SUBSTATIONS", "Εμφάνιση Όλων των Υποσταθμών"), size_hint_y=0.35)
+        show_all_btn = Button(text=S["MESSAGES"].get("SHOW_ALL_SUBSTATIONS", "Προβολή Όλων των Υποσταθμών"), size_hint_y=0.35)
         show_all_btn.bind(
             on_press=lambda x: self._show_all_substations(selection_popup)
         )
@@ -6238,7 +6298,7 @@ class SubstationApp(App):
 
                             details_container.add_widget(Label(text=S["MESSAGES"].get("INSULATION_MEASUREMENT_OPEN_HEADER", "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (Φ-Φ):"), size_hint_y=None, height=25, bold=True))
                             open_fa_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            open_fa_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
+                            open_fa_layout.add_widget(Label(text=S["MESSAGES"].get("PHASE_TO_PHASE_LABEL_COLON", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
                             ins_open_fa = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.35, multiline=False)
                             open_fa_layout.add_widget(ins_open_fa)
                             ins_open_fa_unit = Spinner(text="GΩ", values=["MΩ", "GΩ", "TΩ"], size_hint_x=0.15)
@@ -6266,7 +6326,7 @@ class SubstationApp(App):
 
                             details_container.add_widget(Label(text=S["MESSAGES"].get("INSULATION_PASSAGE_MEASUREMENT_CLOSED_HEADER", "ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (μΩ) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:"), size_hint_y=None, height=25, bold=True))
                             contact_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                            contact_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
+                            contact_layout.add_widget(Label(text=S["MESSAGES"].get("PHASE_TO_PHASE_LABEL_COLON", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
                             cont_fa = TextInput(hint_text=S["MESSAGES"].get("INSULATION_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                             contact_layout.add_widget(cont_fa)
                             contact_layout.add_widget(Label(text=S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ:"), size_hint_x=0.15))
@@ -6432,7 +6492,7 @@ class SubstationApp(App):
                                 )
 
                                 vidar_layout = BoxLayout(size_hint_y=None, height=30, spacing=3)
-                                vidar_layout.add_widget(Label(text=S["MESSAGES"].get("VIDAR_LABEL_FA", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
+                                vidar_layout.add_widget(Label(text=S["MESSAGES"].get("PHASE_TO_PHASE_LABEL_COLON", "ΦΑ-ΦΑ:"), size_hint_x=0.15))
                                 vidar_fa = TextInput(hint_text=S["MESSAGES"].get("VIDAR_HINT", "0.0"), size_hint_x=0.25, multiline=False)
                                 vidar_layout.add_widget(vidar_fa)
                                 vidar_layout.add_widget(Label(text=S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ:"), size_hint_x=0.15))
@@ -7700,7 +7760,7 @@ class SubstationApp(App):
                 buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
 
                 view_btn = Button(
-                    text=S["MESSAGES"].get("VIEW_SHORT", "Εμφ."),
+                    text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."),
                     size_hint_x=0.34,
                     size_hint_y=None,
                     height=35,
@@ -8004,7 +8064,7 @@ class SubstationApp(App):
             add_section(S["MESSAGES"].get("INSULATION_RESISTANCE_OPEN_TITLE", "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)"))
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ"), fmt(ins_open_fa, ins_open_fa_unit))
+            add_kv_row(grid, S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(ins_open_fa, ins_open_fa_unit))
             add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ"), fmt(ins_open_fb, ins_open_fb_unit))
             add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FC", "ΦΓ-ΦΓ"), fmt(ins_open_fc, ins_open_fc_unit))
             content.add_widget(grid)
@@ -8012,7 +8072,7 @@ class SubstationApp(App):
             add_section(S["MESSAGES"].get("INSULATION_PASSAGE_TITLE", "Αντίσταση Διέλευσης (μΩ)"))
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, S["MESSAGES"].get("INSULATION_LABEL_FA", "ΦΑ-ΦΑ"), fmt(cont_fa))
+            add_kv_row(grid, S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(cont_fa))
             add_kv_row(grid, "ΦΒ-ΦΒ", fmt(cont_fb))
             add_kv_row(grid, "ΦΓ-ΦΓ", fmt(cont_fc))
             content.add_widget(grid)
@@ -8075,7 +8135,7 @@ class SubstationApp(App):
             add_section(S["MESSAGES"].get("VIDAR_SECTION_TITLE", "Έλεγχος Κενού (VIDAR)"))
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(grid, S["MESSAGES"].get("VIDAR_LABEL_FA", "ΦΑ-ΦΑ"), fmt(vidar_fa))
+            add_kv_row(grid, S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(vidar_fa))
             add_kv_row(grid, S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ"), fmt(vidar_fb))
             add_kv_row(grid, S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ"), fmt(vidar_fc))
             content.add_widget(grid)
