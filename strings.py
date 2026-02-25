@@ -103,7 +103,9 @@ STRINGS_EL = {
         "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
         "APP_INFO_BODY": (
             "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\n"
-            "Έκδοση: {version}\n\n"
+            "Έκδοση: {version}\n"
+            "Έκδοση ΒΔ: {db_version}\n"
+            "Συμβατότητα: {compat_status}\n\n"
             "Λειτουργίες εφαρμογής:\n"
             "• Προβολή και διαχείριση βάσης υποσταθμών\n"
             "• Προσθήκη/επεξεργασία/διαγραφή υποσταθμών και στοιχείων\n"
@@ -711,7 +713,9 @@ STRINGS_EN = {
         "APP_INFO_TITLE": "Application Information",
         "APP_INFO_BODY": (
             "HEDNO Substations DEDD/KSMTH/TEI\n"
-            "Version: {version}\n\n"
+            "Version: {version}\n"
+            "DB Version: {db_version}\n"
+            "Compatibility: {compat_status}\n\n"
             "Application features:\n"
             "• View and manage substation database\n"
             "• Add/edit/delete substations and elements\n"
