@@ -74,6 +74,8 @@ STRINGS_EL = {
         "BROWSE_FILE": "Αναζήτηση αρχείου",
         "ADD_MAINTENANCE": "+ Προσθήκη Νέας Συντήρησης",
         "ADD_MODEL": "+ Προσθήκη Νέου Μοντέλου",
+        "LOGIN": "Σύνδεση",
+        "LOGOUT": "Αποσύνδεση",
     },
 
     # Common window / popup titles
@@ -89,6 +91,7 @@ STRINGS_EL = {
         "INSPECTION_DETAILS": "Λεπτομέρειες Επιθεώρησης",
         "IMPORT_SUBSTATIONS_TITLE": "Εισαγωγή Υποσταθμών",
         "SETTINGS": "Ρυθμίσεις",
+        "LOGIN": "Σύνδεση",
     },
 
     # Application-wide messages grouped by functional area
@@ -554,6 +557,15 @@ STRINGS_EL = {
         "LANGUAGE_OPTION_EL": "Ελληνικά",
         "LANGUAGE_OPTION_EN": "English",
         "LANGUAGE_SAVED_RESTART": "Η γλώσσα αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+        # --- Login / User Session ---
+        "LOGIN_TITLE": "Σύνδεση Χρήστη",
+        "LOGIN_PROMPT": "Επιλέξτε το όνομά σας για να συνδεθείτε:",
+        "LOGIN_SUCCESS_FMT": "Καλωσορίσατε, {name}!",
+        "USER_LABEL": "Χρήστης:",
+        "LOGGED_IN_AS_FMT": "Συνδεδεμένος ως: {name} ({role})",
+        "NO_USER_LOGGED_IN": "Δεν έχει συνδεθεί χρήστης",
+        "LOGOUT_CONFIRM": "Θέλετε να αποσυνδεθείτε;",
+        "LOGIN_REQUIRED": "Πρέπει να συνδεθείτε για να χρησιμοποιήσετε την εφαρμογή.",
         # --- File dialogs ---
         "FILE_DIALOG_SELECT_TITLE": "Επιλογή αρχείου",
         "FILE_DIALOG_SAVE_TITLE": "Αποθήκευση αρχείου",
@@ -675,6 +687,8 @@ STRINGS_EN = {
         "BROWSE_FILE": "Browse file",
         "ADD_MAINTENANCE": "+ Add New Maintenance",
         "ADD_MODEL": "+ Add New Model",
+        "LOGIN": "Login",
+        "LOGOUT": "Logout",
     },
     "TITLES": {
         "ERROR": "Error",
@@ -688,6 +702,7 @@ STRINGS_EN = {
         "INSPECTION_DETAILS": "Inspection Details",
         "IMPORT_SUBSTATIONS_TITLE": "Import Substations",
         "SETTINGS": "Settings",
+        "LOGIN": "Login",
     },
     "MESSAGES": {
         "APP_TITLE": "HEDNO Substations DEDD/KSMTH/TEI",
@@ -1109,6 +1124,15 @@ STRINGS_EN = {
         "LANGUAGE_OPTION_EL": "Greek",
         "LANGUAGE_OPTION_EN": "English",
         "LANGUAGE_SAVED_RESTART": "Language saved. Restart the app to apply.",
+        # --- Login / User Session ---
+        "LOGIN_TITLE": "User Login",
+        "LOGIN_PROMPT": "Select your name to login:",
+        "LOGIN_SUCCESS_FMT": "Welcome, {name}!",
+        "USER_LABEL": "User:",
+        "LOGGED_IN_AS_FMT": "Logged in as: {name} ({role})",
+        "NO_USER_LOGGED_IN": "No user logged in",
+        "LOGOUT_CONFIRM": "Do you want to logout?",
+        "LOGIN_REQUIRED": "You must login to use the application.",
         "FILE_DIALOG_SELECT_TITLE": "Select file",
         "FILE_DIALOG_SAVE_TITLE": "Save file",
         "FILE_DIALOG_ALL_FILES": "All files",
@@ -1216,6 +1240,80 @@ def get_strings(language: str | None = None) -> dict:
     if lang not in ("el", "en"):
         lang = DEFAULT_LANGUAGE
     return {"el": STRINGS_EL, "en": STRINGS_EN}[lang]
+
+
+# User session management
+def get_current_user() -> dict | None:
+    """Return the current logged-in user dict with keys: id, name, role.
+    
+    Returns None if no user is logged in.
+    """
+    settings = _load_app_settings()
+    user_data = settings.get("current_user")
+    if not user_data or not isinstance(user_data, dict):
+        return None
+    # Validate required fields
+    if not all(k in user_data for k in ("id", "name", "role")):
+        return None
+    return user_data
+
+
+def set_current_user(user_id: int, name: str, role: str) -> bool:
+    """Set the current logged-in user and save to settings.
+    
+    Args:
+        user_id: Database ID of the person
+        name: Full name of the person
+        role: Role of the person
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        settings = _load_app_settings()
+        settings["current_user"] = {
+            "id": int(user_id),
+            "name": str(name),
+            "role": str(role),
+        }
+        _save_app_settings(settings)
+        return True
+    except Exception:
+        return False
+
+
+def clear_current_user() -> bool:
+    """Clear the current logged-in user (logout).
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        settings = _load_app_settings()
+        if "current_user" in settings:
+            del settings["current_user"]
+        _save_app_settings(settings)
+        return True
+    except Exception:
+        return False
+
+
+def is_user_responsible_capable(role: str) -> bool:
+    """Check if a user role can be assigned as maintenance responsible.
+    
+    Args:
+        role: The role name to check
+    
+    Returns:
+        True if the role can be maintenance responsible
+    """
+    allowed_responsible_roles = {
+        "Μηχανικός",
+        "Τομεάρχης ΤΕΙ",
+        "Υποτομεάρχης ΤΕΙ",
+        "Ειδικό Στέλεχος Γ'",
+    }
+    return role in allowed_responsible_roles
 
 
 class _StringsProxy:

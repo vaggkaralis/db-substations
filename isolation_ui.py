@@ -221,8 +221,24 @@ def show_add_isolation_request(app, parent_popup):
 
     layout.add_widget(Label(text="Υποσταθμός:", size_hint_y=None, height=30))
     substation_map = {s[1]: s[0] for s in substations}
-    substation_spinner = Spinner(text=substations[0][1], values=[s[1] for s in substations], size_hint_y=None, height=40)
-    layout.add_widget(substation_spinner)
+    
+    substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+    substation_input = TextInput(text=substations[0][1], readonly=True, size_hint_x=0.7, multiline=False)
+    select_sub_btn = Button(text="Επιλογή", size_hint_x=0.3)
+    substation_row.add_widget(substation_input)
+    substation_row.add_widget(select_sub_btn)
+    layout.add_widget(substation_row)
+
+    def _on_select_substation(sub_name):
+        substation_input.text = sub_name
+
+    def select_substation(*_args):
+        app._show_substation_selection_window_with_callback(
+            popup, substations, on_select=_on_select_substation,
+            title="Επιλογή Υποσταθμού"
+        )
+    
+    select_sub_btn.bind(on_press=select_substation)
 
     layout.add_widget(Label(text="Ημ/νία & Ώρα Έναρξης:", size_hint_y=None, height=30))
     start_input = TextInput(text=datetime.now().strftime("%Y-%m-%d %H:%M"), hint_text="YYYY-MM-DD HH:MM", size_hint_y=None, height=35, multiline=False)
@@ -285,7 +301,7 @@ def show_add_isolation_request(app, parent_popup):
     buttons_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
 
     def save_request():
-        substation_id = substation_map[substation_spinner.text]
+        substation_id = substation_map[substation_input.text]
         start_dt = start_input.text.strip()
         end_dt = end_input.text.strip()
         status = status_spinner.text

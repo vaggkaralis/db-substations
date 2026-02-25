@@ -11,7 +11,10 @@ from importers import (import_elements_from_csv, import_elements_from_excel,
                        import_substations_from_csv,
                        import_substations_from_excel)
 from popups import show_message_popup
-from strings import STRINGS as S, get_current_language, set_current_language
+from settings import DB_PATH
+from strings import (STRINGS as S, get_current_language, set_current_language,
+                     get_current_user, set_current_user, clear_current_user,
+                     is_user_responsible_capable)
 
 # Short placeholders centralized for readability
 UNREG = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
@@ -334,6 +337,11 @@ class SubstationApp(App):
         return self.root_layout
 
     def _finish_build(self, *_args):
+        # Always show login popup at startup (will pre-select last user)
+        self.show_login_popup(on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0))
+    
+    def _build_main_ui(self, *_args):
+        """Build the main application UI after user login."""
         layout = self.root_layout
         # remove the temporary loading label added during build()
         try:
@@ -1085,10 +1093,34 @@ class SubstationApp(App):
         popup.open()
 
     def show_settings_popup(self, instance=None):
-        """Show settings popup for language selection."""
-        popup = Popup(title=S["TITLES"].get("SETTINGS", "Ρυθμίσεις"), size_hint=(0.5, 0.4))
+        """Show settings popup for language selection and user logout."""
+        popup = Popup(title=S["TITLES"].get("SETTINGS", "Ρυθμίσεις"), size_hint=(0.5, 0.5))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
+        # Current user display
+        current_user = get_current_user()
+        if current_user:
+            user_info_text = S["MESSAGES"].get("LOGGED_IN_AS_FMT", "Συνδεδεμένος ως: {name} ({role})").format(
+                name=current_user["name"],
+                role=current_user["role"]
+            )
+        else:
+            user_info_text = S["MESSAGES"].get("NO_USER_LOGGED_IN", "Δεν έχει συνδεθεί χρήστης")
+        
+        user_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        user_row.add_widget(Label(text=user_info_text, size_hint_x=0.7))
+        if current_user:
+            logout_btn = Button(text=S["BUTTONS"].get("LOGOUT", "Αποσύνδεση"), size_hint_x=0.3)
+            
+            def _logout(*_args):
+                popup.dismiss()
+                self.show_logout_confirm()
+            
+            logout_btn.bind(on_press=_logout)
+            user_row.add_widget(logout_btn)
+        layout.add_widget(user_row)
+
+        # Language selection
         lang_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
         lang_row.add_widget(Label(text=S["MESSAGES"].get("LANGUAGE_LABEL", "Γλώσσα:"), size_hint_x=0.4))
 
@@ -1133,6 +1165,121 @@ class SubstationApp(App):
         buttons.add_widget(close_btn)
         layout.add_widget(buttons)
 
+        popup.content = layout
+        popup.open()
+
+    def show_logout_confirm(self):
+        """Show logout confirmation dialog."""
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        from kivy.uix.button import Button
+        
+        popup = Popup(title=S["BUTTONS"].get("LOGOUT", "Αποσύνδεση"), size_hint=(0.4, 0.3))
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        layout.add_widget(Label(text=S["MESSAGES"].get("LOGOUT_CONFIRM", "Θέλετε να αποσυνδεθείτε;")))
+        
+        buttons = BoxLayout(size_hint_y=None, height=40, spacing=10)
+        yes_btn = Button(text=S["BUTTONS"].get("YES", "Ναι"))
+        no_btn = Button(text=S["BUTTONS"].get("NO", "Όχι"))
+        
+        def _confirm_logout(*_args):
+            clear_current_user()
+            popup.dismiss()
+            # Restart app to show login screen
+            self.stop()
+        
+        yes_btn.bind(on_press=_confirm_logout)
+        no_btn.bind(on_press=popup.dismiss)
+        buttons.add_widget(yes_btn)
+        buttons.add_widget(no_btn)
+        layout.add_widget(buttons)
+        
+        popup.content = layout
+        popup.open()
+
+    def show_login_popup(self, on_login_success=None):
+        """Show login popup for user to select their name.
+        
+        Args:
+            on_login_success: Callback to invoke after successful login
+        """
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        from kivy.uix.button import Button
+        from kivy.uix.spinner import Spinner
+        
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        # Get all active people
+        c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE")
+        people = c.fetchall()
+        conn.close()
+        
+        if not people:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("NO_PEOPLE", "Δεν υπάρχουν καταχωρημένα άτομα. Παρακαλώ προσθέστε προσωπικό."),
+            )
+            # Can't continue without people - exit app
+            self.stop()
+            return
+        
+        popup = Popup(
+            title=S["MESSAGES"].get("LOGIN_TITLE", "Σύνδεση Χρήστη"),
+            size_hint=(0.5, 0.4),
+            auto_dismiss=False  # Require login - can't dismiss
+        )
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        
+        layout.add_widget(Label(
+            text=S["MESSAGES"].get("LOGIN_PROMPT", "Επιλέξτε το όνομά σας για να συνδεθείτε:"),
+            size_hint_y=None,
+            height=30
+        ))
+        
+        # Create people map: display name -> (id, name, role)
+        people_map = {f"{p[1]} ({p[2]})": p for p in people}
+        people_labels = list(people_map.keys())
+        
+        # Pre-select last logged-in user if available
+        last_user = get_current_user()
+        default_selection = people_labels[0] if people_labels else ""
+        if last_user:
+            # Find the last user in the people map by matching ID
+            for label, user_data in people_map.items():
+                if user_data[0] == last_user["id"]:
+                    default_selection = label
+                    break
+        
+        user_spinner = Spinner(
+            text=default_selection,
+            values=people_labels,
+            size_hint_y=None,
+            height=40
+        )
+        layout.add_widget(user_spinner)
+        
+        buttons = BoxLayout(size_hint_y=None, height=40, spacing=10)
+        login_btn = Button(text=S["BUTTONS"].get("LOGIN", "Σύνδεση"))
+        
+        def _do_login(*_args):
+            selected_label = user_spinner.text
+            if not selected_label or selected_label not in people_map:
+                return
+            
+            user_id, name, role = people_map[selected_label]
+            if set_current_user(user_id, name, role):
+                popup.dismiss()
+                if on_login_success:
+                    on_login_success()
+        
+        login_btn.bind(on_press=_do_login)
+        buttons.add_widget(login_btn)
+        layout.add_widget(buttons)
+        
         popup.content = layout
         popup.open()
 
@@ -1632,6 +1779,16 @@ class SubstationApp(App):
             )
             return
 
+        # Pre-select logged-in user as inspector
+        inspector_default = people[0] if people else ""
+        current_user = get_current_user()
+        if current_user:
+            # Find the logged-in user's name in the people list
+            for person_name in people:
+                if current_user["name"] == person_name:
+                    inspector_default = person_name
+                    break
+
         row_two = BoxLayout(size_hint_y=None, height=40, spacing=5)
         date_label = Label(text=S["MESSAGES"]["DATE_LABEL"], size_hint_x=0.18)
         date_input = TextInput(
@@ -1645,7 +1802,7 @@ class SubstationApp(App):
         region_input = TextInput(hint_text=S["MESSAGES"].get("REGION_HINT", "Περιοχή"), size_hint_x=0.16, multiline=False)
         inspector_label = Label(text=S["MESSAGES"]["INSPECTOR_LABEL"], size_hint_x=0.12)
         inspector_spinner = Spinner(
-            text=people[0], values=people, size_hint_x=0.18, height=40
+            text=inspector_default, values=people, size_hint_x=0.18, height=40
         )
         row_two.add_widget(date_label)
         row_two.add_widget(date_input)
@@ -5309,15 +5466,29 @@ class SubstationApp(App):
             prefill_substation_name if prefill_substation_name else substations[0][1]
         )
 
-        substation_spinner = Spinner(
-            text=initial_substation,
-            values=[s[1] for s in substations],
-            size_hint_y=None,
-            height=40,
+        substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        substation_input = TextInput(
+            text=initial_substation, readonly=True, size_hint_x=0.7, multiline=False
         )
+        select_sub_btn = Button(text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"), size_hint_x=0.3)
+        substation_row.add_widget(substation_input)
+        substation_row.add_widget(select_sub_btn)
+        
         if maintenance_id:
-            substation_spinner.disabled = True
-        content_layout.add_widget(substation_spinner)
+            select_sub_btn.disabled = True
+        
+        content_layout.add_widget(substation_row)
+
+        def _on_select_substation(sub_name):
+            substation_input.text = sub_name
+
+        def select_substation(*_args):
+            self._show_substation_selection_window_with_callback(
+                popup, substations, on_select=_on_select_substation,
+                title=S["MESSAGES"].get("SELECT_SUBSTATION", "Επιλογή Υποσταθμού")
+            )
+        
+        select_sub_btn.bind(on_press=select_substation)
 
         # Maintenance Type
         content_layout.add_widget(
@@ -5394,8 +5565,23 @@ class SubstationApp(App):
 
         people_map = {f"{p[1]} ({p[2]})": p[0] for p in responsible_people}
         responsible_default_text = list(people_map.keys())[0] if people_map else ""
+        
+        # Pre-fill with logged-in user if they're responsible-capable (for new maintenance only)
+        if not maintenance_id and not prefill_data.get("responsible_id"):
+            current_user = get_current_user()
+            if current_user and is_user_responsible_capable(current_user["role"]):
+                # Find the logged-in user in the responsible people list
+                for label, pid in people_map.items():
+                    if pid == current_user["id"]:
+                        responsible_default_text = label
+                        responsible_person_id = pid
+                        break
+        
+        # Override with prefill data if provided
         if not maintenance_id and prefill_data.get("responsible_id"):
             responsible_person_id = prefill_data.get("responsible_id")
+        
+        # Override with existing maintenance responsible if editing
         if responsible_person_id:
             for label, pid in people_map.items():
                 if pid == responsible_person_id:
@@ -6887,10 +7073,9 @@ class SubstationApp(App):
                                     widget.text = str(data["vidar"].get(key))
 
         # Load initial elements
-        load_elements(substation_spinner.text)
+        load_elements(substation_input.text)
 
-        # Update elements when substation changes
-        substation_spinner.bind(text=lambda spinner, text: load_elements(text))
+        # Update elements when substation changes (via selection callback)
 
         # Add scrollable content to scroll view
         scroll_view.add_widget(content_layout)
@@ -6903,7 +7088,7 @@ class SubstationApp(App):
         add_element_row = BoxLayout(size_hint_y=None, height=45, spacing=10)
 
         def add_element_from_maintenance():
-            substation_name = substation_spinner.text
+            substation_name = substation_input.text
             substation_id = substation_map.get(substation_name)
             if not substation_id:
                 show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("SUBSTATION_NOT_FOUND", "Δεν βρέθηκε υποσταθμός."))
@@ -6964,12 +7149,12 @@ class SubstationApp(App):
                 return
 
             # Insert/update maintenance record with type and user
-            substation_id = substation_map[substation_spinner.text]
+            substation_id = substation_map[substation_input.text]
             maintenance_date = datetime_input.text.strip()
             maintenance_type = maintenance_type_spinner.text
             user_name = ""
             maintenance_name = self._build_maintenance_name(
-                substation_spinner.text, maintenance_date
+                substation_input.text, maintenance_date
             )
             responsible_id = people_map.get(responsible_spinner.text)
 
