@@ -3130,13 +3130,13 @@ class SubstationApp(App):
         c = self.conn.cursor()
         if filter_name:
             c.execute(
-                "SELECT id, name, location, adoption_date, division, monogram_pdf FROM substations WHERE name=?",
+                "SELECT id, name, location, adoption_date, division, monogram_pdf, is_thessaloniki FROM substations WHERE name=?",
                 (filter_name,),
             )
             title = f"Υποσταθμός: {filter_name}"
         else:
             c.execute(
-                "SELECT id, name, location, adoption_date, division, monogram_pdf FROM substations ORDER BY name"
+                "SELECT id, name, location, adoption_date, division, monogram_pdf, is_thessaloniki FROM substations ORDER BY name"
             )
             title = "Εγγραφές Υποσταθμών"
 
@@ -3223,6 +3223,7 @@ class SubstationApp(App):
                 adoption_date,
                 division,
                 monogram_pdf,
+                is_thessaloniki,
             ) in substations:
                 # Substation title in bigger letters with optional Thessaloniki tag
                 sub_title_layout = BoxLayout(size_hint_y=None, height=45, spacing=8)
@@ -3233,15 +3234,7 @@ class SubstationApp(App):
                 )
                 sub_title_layout.add_widget(substation_title)
 
-                try:
-                    c.execute(
-                        "SELECT is_thessaloniki FROM substations WHERE id=?",
-                        (sub_id,),
-                    )
-                    r = c.fetchone()
-                    is_th = bool(r[0]) if r and r[0] else False
-                except Exception:
-                    is_th = False
+                is_th = bool(is_thessaloniki)
 
                 if is_th:
                     th_tag = Button(
