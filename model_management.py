@@ -3,18 +3,19 @@ Model Management UI Functions for Element Models
 """
 
 import os
+
 from popups import ask_open_file, show_message_popup
 from strings import STRINGS as S
 
 
 def show_models_management(app_instance):
     """Show model management interface"""
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
-    from kivy.uix.label import Label
-    from kivy.uix.scrollview import ScrollView
     from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
     from kivy.uix.spinner import Spinner
 
     c = app_instance.conn.cursor()
@@ -456,14 +457,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         category: Pre-selected category (optional)
         callback: Function to call after successful save (optional)
     """
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.label import Label
-    from kivy.uix.textinput import TextInput
-    from kivy.uix.spinner import Spinner
+    from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
-    from popups import show_message_popup
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.textinput import TextInput
 
     popup = Popup(title=S["MESSAGES"].get("ADD_MODEL_TITLE", "Προσθήκη Νέου Μοντέλου"), size_hint=(0.8, 0.8))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -683,14 +683,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
 
 def show_edit_model_popup(app_instance, model_id, parent_popup):
     """Show edit model popup"""
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.label import Label
-    from kivy.uix.textinput import TextInput
-    from kivy.uix.spinner import Spinner
+    from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
-    from popups import show_message_popup
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.textinput import TextInput
 
     c = app_instance.conn.cursor()
     c.execute(
@@ -907,13 +906,12 @@ def _open_manual_pdf(pdf_path):
 
 
 def _select_manual_pdf(app_instance, model_id, parent_popup=None):
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
-    from kivy.uix.label import Label
-    from kivy.uix.textinput import TextInput
     from kivy.uix.filechooser import FileChooserListView
-    from popups import show_message_popup
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.textinput import TextInput
 
     # Try native desktop dialog first
     allow_fallback = False
@@ -1013,11 +1011,6 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
 
 def delete_model(app_instance, model_id, parent_popup):
     """Delete a model"""
-    from kivy.uix.popup import Popup
-    from kivy.uix.boxlayout import BoxLayout
-    from kivy.uix.button import Button
-    from kivy.uix.label import Label
-    from popups import show_message_popup
 
     c = app_instance.conn.cursor()
 
@@ -1059,12 +1052,12 @@ def jump_to_substation(app_instance, substation_name, current_popup):
 
 def show_model_usages(app_instance, model_id, model_name):
     """Show list of substations and elements using this model"""
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
-    from kivy.uix.label import Label
-    from kivy.uix.scrollview import ScrollView
     from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
 
     c = app_instance.conn.cursor()
 

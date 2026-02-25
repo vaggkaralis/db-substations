@@ -1,5 +1,7 @@
 import sqlite3
+
 from settings import DB_PATH
+from strings import STRINGS as S
 
 
 def init_db(db_path: str = None) -> sqlite3.Connection:

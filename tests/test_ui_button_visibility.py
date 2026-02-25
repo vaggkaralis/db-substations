@@ -4,7 +4,7 @@ from android_app import SubstationAndroidApp
 def test_root_buttons_visible_and_hidden(monkeypatch):
     app = SubstationAndroidApp()
     # Build UI to create root buttons
-    root = app.build()
+    app.build()
     assert hasattr(app, "refresh_btn")
     assert hasattr(app, "add_substation_btn")
     # Buttons should be enabled/visible

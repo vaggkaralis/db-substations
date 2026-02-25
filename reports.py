@@ -1,7 +1,7 @@
-import os
-import sys
-import subprocess
 import importlib
+import os
+import subprocess
+import sys
 
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from popups import show_message_popup
@@ -158,10 +158,10 @@ def show_sf6_management_popup(app, instance=None):
 def generate_pdf_report(app, maintenance_id, element_id, element_name):
     """Generate PDF maintenance report (UI wrapper)."""
     # Lazy imports for UI elements
-    Popup = importlib.import_module("kivy.uix.popup").Popup
-    BoxLayout = importlib.import_module("kivy.uix.boxlayout").BoxLayout
-    Button = importlib.import_module("kivy.uix.button").Button
-    Label = importlib.import_module("kivy.uix.label").Label
+    importlib.import_module("kivy.uix.popup").Popup
+    importlib.import_module("kivy.uix.boxlayout").BoxLayout
+    importlib.import_module("kivy.uix.button").Button
+    importlib.import_module("kivy.uix.label").Label
 
     try:
         pdf_path = generate_maintenance_report(app.conn, maintenance_id, element_id)
@@ -211,9 +211,10 @@ def open_file(path, *, not_found_message="Το αρχείο δεν βρέθηκ�
 
     Returns True on success, False on failure.
     """
-    from popups import show_message_popup
     import subprocess
     import sys
+
+    from popups import show_message_popup
 
     if not path or not os.path.exists(path):
         show_message_popup(error_title, not_found_message)
@@ -385,7 +386,7 @@ def _get_sf6_report_data(app, year: str):
 def _export_sf6_excel(app, year: str):
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     except Exception as exc:
         raise RuntimeError(
             "Δεν βρέθηκε το πακέτο openpyxl. Εγκαταστήστε το για εξαγωγή Excel."

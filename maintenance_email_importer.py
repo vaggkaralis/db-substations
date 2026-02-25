@@ -2,7 +2,6 @@
 Shared utilities to import maintenance records from email metadata.
 """
 
-import os
 import re
 import sqlite3
 import unicodedata

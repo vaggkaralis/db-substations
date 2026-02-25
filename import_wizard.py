@@ -1,24 +1,25 @@
 """Import wizard popups for validating and mapping imported data."""
 
-from kivy.uix.popup import Popup
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.spinner import Spinner
-from kivy.uix.scrollview import ScrollView
 from kivy.graphics import Color, Rectangle
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.spinner import Spinner
 
 try:
     import pandas as pd
 except ImportError:
     pd = None
 
-from import_validator import (
-    detect_column_mismatches,
-    analyze_import_data,
-    COLUMN_MAPPINGS,
-)
+try:
+    from strings import STRINGS as S
+except Exception:
+    S = {"BUTTONS": {"CANCEL": "Ακύρωση"}, "TITLES": {}, "MESSAGES": {}}
+from import_validator import (COLUMN_MAPPINGS, analyze_import_data,
+                              detect_column_mismatches)
 
 
 class ColumnMappingPopup:

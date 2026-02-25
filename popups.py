@@ -159,7 +159,6 @@ def ask_save_file(title: str = "Save file", default_name: str = None, filetypes=
     try:
         # Try Win32 API for Save dialog
         import ctypes
-        from ctypes import wintypes
     except Exception:
         ctypes = None
 

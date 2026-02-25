@@ -5,32 +5,27 @@ Generates maintenance reports matching the official templates
 
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        SimpleDocTemplate,
-        Table,
-        TableStyle,
-        Paragraph,
-        Spacer,
-        Image,
-    )
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.pdfbase.pdfmetrics import registerFontFamily
     from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
     from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.pdfmetrics import registerFontFamily
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate,
+                                    Spacer, Table, TableStyle)
 
     _HAS_REPORTLAB = True
 except Exception:
     # Allow importing this module in test environments without reportlab
     _HAS_REPORTLAB = False
+import json
+import logging
 import os
 import unicodedata
-import json
 from datetime import datetime
-import logging
+
 from strings import STRINGS as S
 
 
@@ -99,7 +94,7 @@ class MaintenanceReportGenerator:
                         logging.info("Using font for Greek text: %s", font_name)
                         logging.info("   Path: %s", font_path)
                         return
-                    except Exception as e:
+                    except Exception:
                         logging.exception('Failed to register %s', font_path)
                         continue
 
@@ -320,7 +315,9 @@ class MaintenanceReportGenerator:
             self.normalize_text(subtitle_text.format(substation=substation_name)), subtitle_style
         )
 
-        logo = self._get_logo_flowable(max_width=28 * mm, max_height=20 * mm)
+        # Prefer to let _get_logo_flowable decide unit sizes so module can be
+        # imported even when reportlab (and `mm`) is not available.
+        logo = self._get_logo_flowable()
         if logo:
             logo.hAlign = "RIGHT"
             header_table = Table(
@@ -345,8 +342,20 @@ class MaintenanceReportGenerator:
 
         story.append(Spacer(1, 12))
 
-    def _get_logo_flowable(self, max_width=28 * mm, max_height=20 * mm):
-        """Return a scaled logo Image flowable if available."""
+    def _get_logo_flowable(self, max_width=None, max_height=None):
+        """Return a scaled logo Image flowable if available.
+
+        Use `mm` units if reportlab is present; otherwise fall back to pixels.
+        """
+        # Lazy-resolve mm to avoid NameError when reportlab is not installed
+        try:
+            from reportlab.lib.units import mm as _mm
+        except Exception:
+            _mm = None
+        if max_width is None:
+            max_width = 28 * _mm if _mm is not None else 28
+        if max_height is None:
+            max_height = 20 * _mm if _mm is not None else 20
         logo_path = os.path.join(os.path.dirname(__file__), "logo_deddie.png")
         fallback_path = os.path.join(os.path.dirname(__file__), "deddie_logo.png")
         if not os.path.exists(logo_path) and not os.path.exists(fallback_path):
@@ -1000,8 +1009,20 @@ class InspectionReportGenerator:
             normalized.append(normalized_row)
         return normalized
 
-    def _get_logo_flowable(self, max_width=28 * mm, max_height=20 * mm):
-        """Return a scaled logo Image flowable if available."""
+    def _get_logo_flowable(self, max_width=None, max_height=None):
+        """Return a scaled logo Image flowable if available.
+
+        Use `mm` units if reportlab is present; otherwise fall back to pixels.
+        """
+        # Lazy-resolve mm to avoid NameError when reportlab is not installed
+        try:
+            from reportlab.lib.units import mm as _mm
+        except Exception:
+            _mm = None
+        if max_width is None:
+            max_width = 28 * _mm if _mm is not None else 28
+        if max_height is None:
+            max_height = 20 * _mm if _mm is not None else 20
         logo_path = os.path.join(os.path.dirname(__file__), "logo_deddie.png")
         fallback_path = os.path.join(os.path.dirname(__file__), "deddie_logo.png")
         if not os.path.exists(logo_path) and not os.path.exists(fallback_path):

@@ -1,4 +1,3 @@
-import sqlite3
 from database import init_db
 from DBrun import SubstationApp
 

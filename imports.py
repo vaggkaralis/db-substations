@@ -1,4 +1,5 @@
 import os
+
 from strings import STRINGS as S
 
 
@@ -50,12 +51,12 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
 
     # Fallback: build a Kivy popup with FileChooser
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.label import Label
         from kivy.uix.button import Button
-        from kivy.uix.textinput import TextInput
         from kivy.uix.filechooser import FileChooserListView
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.textinput import TextInput
     except Exception:
         Popup = BoxLayout = Label = Button = TextInput = FileChooserListView = object
 
@@ -123,10 +124,10 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
 
 def show_import_menu(app, instance=None):
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.label import Label
         from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
     except Exception:
         Popup = BoxLayout = Label = Button = object
 

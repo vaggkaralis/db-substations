@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+import logging
 import sqlite3
 import sys
-import logging
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 

@@ -1,5 +1,7 @@
 import sqlite3
+
 import pytest
+
 from database import init_db
 
 

@@ -1,16 +1,16 @@
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.checkbox import CheckBox
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
-from kivy.uix.button import Button
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
-from kivy.uix.checkbox import CheckBox
 from kivy.uix.textinput import TextInput
 
-from validation import PEOPLE_ROLES, group_people_by_category, canonical_role
-from popups import show_message_popup, ask_open_file
+from popups import ask_open_file, show_message_popup
 from strings import STRINGS as S
+from validation import PEOPLE_ROLES, canonical_role, group_people_by_category
 
 
 class PeopleManager:
@@ -144,7 +144,8 @@ class PeopleManager:
 
         def _show_people_io_popup(_instance=None):
             try:
-                from excel_io import export_people, export_people_template, import_people
+                from excel_io import (export_people, export_people_template,
+                                      import_people)
             except Exception:
                 show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("EXCEL_HELPERS_MISSING", "Οι βοηθητικές συναρτήσεις Excel δεν είναι διαθέσιμες."))
                 return

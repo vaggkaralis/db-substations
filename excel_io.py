@@ -1,6 +1,7 @@
-import os
 import json
+
 import pandas as pd
+
 from popups import ask_save_file, show_message_popup
 from strings import STRINGS as S
 
@@ -220,10 +221,6 @@ def import_people(conn, file_path=None):
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εισαγωγή προσωπικού:\n{str(exc)}")
         return False
-import os
-import json
-import pandas as pd
-from popups import ask_save_file, show_message_popup
 
 
 def _safe_sheet_name(name: str) -> str:

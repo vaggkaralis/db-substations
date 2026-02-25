@@ -1,8 +1,8 @@
-import traceback
 import sys
+import traceback
 
 try:
-    import DBrun
+    pass
 except Exception:
     with open('startup_error.log', 'w', encoding='utf-8') as f:
         traceback.print_exc(file=f)

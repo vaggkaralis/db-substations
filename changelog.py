@@ -5,19 +5,19 @@ that shows a preview of a JSONL change-log, offers an optional DB backup, and ap
 the change-log using `apply_change_log_to_db` from `DBrun.py`.
 """
 
-import os
 
 def import_android_changes_from_file(app, file_path):
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.label import Label
         from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
         from kivy.uix.textinput import TextInput
     except Exception:
         Popup = BoxLayout = Label = Button = TextInput = object
 
     from popups import show_message_popup
+
     # Reuse apply_change_log_to_db from DBrun (kept at module level there)
     try:
         from DBrun import apply_change_log_to_db

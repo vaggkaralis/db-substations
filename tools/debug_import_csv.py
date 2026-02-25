@@ -1,10 +1,13 @@
+import os
 import sqlite3
 import sys
-import os
+
 # Ensure project root is on sys.path for direct script execution
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import importers
 import inspect
+
+import importers
+
 print('--- import_elements_from_csv source ---')
 print(inspect.getsource(importers.import_elements_from_csv))
 print('--- end source ---')

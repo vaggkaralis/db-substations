@@ -1,6 +1,6 @@
-from typing import Callable
 import os
 import traceback
+from typing import Callable
 
 try:
     import pandas as pd
@@ -488,12 +488,13 @@ def import_elements_from_excel(
 
             # The element's `manufacturer` should be derived from the element model when possible.
             # Keep the import template focused on `Model Name` and `Model Manufacturer`.
-            manufacturer = None
             breaker_type = (
                 str(row.get("Τύπος Διακόπτη", "")).strip()
                 if pd.notna(row.get("Τύπος Διακόπτη", ""))
                 else ""
             )
+            # Ensure maintenance cycle variable exists before any possible use
+            maintenance_cycle_int = None
             # Normalize breaker category for CSV
             normalized_breaker_category = None
             try:
@@ -1154,17 +1155,32 @@ def import_elements_from_csv(
                 voltage_level = ""
 
             # Do not read per-row `Manufacturer` column; prefer model-derived manufacturer.
-            manufacturer = None
             breaker_type = (
                 str(row.get("Τύπος Διακόπτη", "")).strip()
                 if pd.notna(row.get("Τύπος Διακόπτη", ""))
                 else ""
             )
+            # Normalize breaker category (CSV) - ensure variable exists for later use
+            normalized_breaker_category = None
+            try:
+                from import_validator import validate_breaker_category
+
+                if breaker_type:
+                    match = validate_breaker_category(breaker_type)
+                    normalized_breaker_category = match[0] if match and match[0] else (
+                        breaker_type.strip() or None
+                    )
+                else:
+                    normalized_breaker_category = None
+            except Exception:
+                normalized_breaker_category = breaker_type.strip() if breaker_type else None
             breaker_role = (
                 str(row.get("Breaker Role", "")).strip()
                 if pd.notna(row.get("Breaker Role", ""))
                 else ""
             )
+            # Ensure maintenance cycle variable exists before any possible use
+            maintenance_cycle_int = None
             gate = row.get("Gate", "") if pd.notna(row.get("Gate", "")) else ""
             model_name = (
                 str(row.get("Model Name", "")).strip()

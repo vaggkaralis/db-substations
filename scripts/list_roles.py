@@ -1,5 +1,6 @@
-import sqlite3, os
 import logging
+import os
+import sqlite3
 
 # configure basic logging for script usage
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -40,7 +41,7 @@ for db in candidates:
             logging.info('  %s', r)
         conn.close()
         found = True
-    except Exception as e:
+    except Exception:
         logging.exception(' Error opening %s', db)
 
 if not found:

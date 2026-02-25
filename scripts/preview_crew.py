@@ -1,12 +1,14 @@
+import os
+import sys
+
 from kivy.app import App
+from kivy.core.window import Window
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.checkbox import CheckBox
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
-from kivy.uix.checkbox import CheckBox
-from kivy.uix.anchorlayout import AnchorLayout
-from kivy.core.window import Window
-from kivy.clock import Clock
-import os, sys
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from validation import group_people_by_category
 

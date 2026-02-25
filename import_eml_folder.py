@@ -3,12 +3,12 @@ Import maintenance emails from .eml files in a folder.
 """
 
 import argparse
+import logging
 import os
 
-import logging
-
 from email_eml_parser import parse_eml_file
-from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
+from maintenance_email_importer import (DEFAULT_DB_PATH,
+                                        create_maintenance_from_email)
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 

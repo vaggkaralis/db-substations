@@ -2,14 +2,14 @@
 Android Kivy App for DB Substations - local DB only
 """
 
-import sys
-import traceback
-import os
-import sqlite3
-import shutil
-from datetime import datetime
-import threading
 import json
+import os
+import shutil
+import sqlite3
+import sys
+import threading
+import traceback
+from datetime import datetime
 
 # Set up logging FIRST before any other imports
 from kivy.logger import Logger
@@ -51,8 +51,9 @@ def _global_exception_handler(exc_type, exc_value, exc_traceback):
 sys.excepthook = _global_exception_handler
 
 try:
-    import kivy
     import importlib
+
+    import kivy
 
     Logger.info(f"APP: Kivy version: {kivy.__version__}")
     kivy.require("2.3.0")  # Minimum version with Android Cython modules
@@ -276,11 +277,9 @@ class SubstationAndroidApp(App):
                 if platform == "android":
                     # Ensure storage permissions are requested BEFORE opening SAF picker
                     try:
-                        from android.permissions import (
-                            check_permission,
-                            request_permissions,
-                            Permission,
-                        )
+                        from android.permissions import (Permission,
+                                                         check_permission,
+                                                         request_permissions)
 
                         needed_perms = [
                             Permission.READ_EXTERNAL_STORAGE,
@@ -393,11 +392,8 @@ class SubstationAndroidApp(App):
             return
         # Request permissions before proceeding
         try:
-            from android.permissions import (
-                request_permissions,
-                Permission,
-                check_permission,
-            )
+            from android.permissions import (Permission, check_permission,
+                                             request_permissions)
 
             needed_perms = [
                 Permission.READ_EXTERNAL_STORAGE,
@@ -417,8 +413,9 @@ class SubstationAndroidApp(App):
             # Continue, may work on older Android or if permissions not enforced
 
         try:
-            from android import activity
             from jnius import autoclass
+
+            from android import activity
         except Exception as e:
             Logger.warning(f"APP: Android SAF picker not available: {str(e)}")
             self.show_error("Ο επιλογέας αρχείων δεν είναι διαθέσιμος")
@@ -578,7 +575,7 @@ class SubstationAndroidApp(App):
             Logger.info("APP: Android permissions only required on Android platform")
             return
         try:
-            from android.permissions import request_permissions, Permission
+            from android.permissions import Permission, request_permissions
 
             request_permissions(
                 [
@@ -1126,7 +1123,7 @@ class SubstationAndroidApp(App):
                 title_obj = "Open folder"
             chooser = Intent.createChooser(intent, title_obj)
             current.startActivity(chooser)
-        except Exception as e:
+        except Exception:
             try:
                 # Surface error to the user so the stack/exception is visible in-app
                 import traceback as _tb

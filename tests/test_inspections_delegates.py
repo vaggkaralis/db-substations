@@ -21,14 +21,11 @@ def test_inspection_delegates_call_app_methods(monkeypatch):
 
     app = DummyApp()
 
-    from inspections import (
-        show_inspection_menu_popup_delegate,
-        show_import_inspections_dialog_delegate,
-        show_inspection_history_delegate,
-        show_substation_inspection_history_delegate,
-        show_inspection_details_delegate,
-        import_inspections_from_file,
-    )
+    from inspections import (show_import_inspections_dialog_delegate,
+                             show_inspection_details_delegate,
+                             show_inspection_history_delegate,
+                             show_inspection_menu_popup_delegate,
+                             show_substation_inspection_history_delegate)
 
     # Call delegates
     show_inspection_menu_popup_delegate(app, 'inst')

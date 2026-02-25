@@ -1,9 +1,8 @@
 import pytest
-from validation import (
-    is_interconnection_gate,
-    validate_gate_assignment,
-    validate_breaker_category_required,
-)
+
+from validation import (is_interconnection_gate,
+                        validate_breaker_category_required,
+                        validate_gate_assignment)
 
 
 def test_is_interconnection_gate():

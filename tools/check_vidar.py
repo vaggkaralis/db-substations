@@ -1,5 +1,7 @@
-import sqlite3, os, sys
 import logging
+import os
+import sqlite3
+import sys
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 

@@ -1,6 +1,5 @@
 import json
 import sqlite3
-from pathlib import Path
 
 from DBrun import apply_change_log_to_db
 

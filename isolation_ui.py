@@ -3,17 +3,17 @@ from strings import STRINGS as S
 
 def show_isolation_requests(app, instance=None):
     """Show isolation requests in calendar view (extracted from DBrun)."""
-    from datetime import datetime, timedelta
     from calendar import monthrange
+    from datetime import datetime, timedelta
 
     font_kwargs = app._get_ui_font_kwargs()
 
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
-        from kivy.uix.label import Label
         from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
         from kivy.uix.scrollview import ScrollView
         from kivy.uix.spinner import Spinner
         from kivy.uix.textinput import TextInput
@@ -197,10 +197,10 @@ def show_add_isolation_request(app, parent_popup):
     from datetime import datetime, timedelta
 
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
         from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
         from kivy.uix.spinner import Spinner
         from kivy.uix.textinput import TextInput
     except Exception:
@@ -341,12 +341,12 @@ def show_isolation_request_details(app, request_id, parent_popup):
     from datetime import datetime
 
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
-        from kivy.uix.label import Label
-        from kivy.uix.scrollview import ScrollView
         from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
         from kivy.uix.spinner import Spinner
         from kivy.uix.textinput import TextInput
     except Exception:

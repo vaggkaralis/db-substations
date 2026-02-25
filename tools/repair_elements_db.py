@@ -5,11 +5,11 @@
 
 Run as: python tools/repair_elements_db.py [path_to_db]
 """
-import sqlite3
-import sys
+import logging
 import os
 import random
-import logging
+import sqlite3
+import sys
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -21,7 +21,8 @@ if not os.path.exists(DB):
 
 try:
     # Import lightweight mappings from import_validator
-    from import_validator import ELEMENT_TYPE_MAPPINGS, BREAKER_CATEGORY_MAPPINGS
+    from import_validator import (BREAKER_CATEGORY_MAPPINGS,
+                                  ELEMENT_TYPE_MAPPINGS)
 except Exception:
     # Fallback conservative sets
     ELEMENT_TYPE_MAPPINGS = {

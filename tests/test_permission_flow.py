@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # Ensure project root is on sys.path when running from tests/ directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -61,11 +61,8 @@ def run_permission_test(simulate_granted: bool):
     # Emulate permission check behavior inside open_picker
     try:
         # Call the permission-checking logic from the file chooser branch
-        from android.permissions import (
-            check_permission,
-            request_permissions,
-            Permission,
-        )
+        from android.permissions import (Permission, check_permission,
+                                         request_permissions)
 
         needed_perms = [
             Permission.READ_EXTERNAL_STORAGE,

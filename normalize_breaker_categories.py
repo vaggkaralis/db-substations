@@ -1,12 +1,11 @@
-import shutil
-import sqlite3
-import os
 import datetime
 import logging
+import os
+import shutil
+import sqlite3
 
-from strings import STRINGS as S
 from settings import DB_PATH
-
+from strings import STRINGS as S
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -25,7 +24,7 @@ def backup_db(path):
 
 
 def normalize():
-    bak = backup_db(DB_PATH)
+    backup_db(DB_PATH)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     # Map legacy english to greek

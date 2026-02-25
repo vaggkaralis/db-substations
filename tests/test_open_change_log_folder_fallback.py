@@ -1,4 +1,5 @@
 import sys
+
 from android_app import SubstationAndroidApp
 
 

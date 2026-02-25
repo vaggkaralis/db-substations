@@ -1,6 +1,7 @@
 import pandas as pd
-from importers import _map_columns
+
 from import_validator import validate_breaker_category
+from importers import _map_columns
 
 
 def _count_missing_breakers_and_models(df: pd.DataFrame):

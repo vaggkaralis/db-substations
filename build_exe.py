@@ -3,8 +3,10 @@ Build script to create Windows executable for Substation Management App
 Uses PyInstaller to bundle the Kivy application
 """
 
-import PyInstaller.__main__
 import os
+
+import PyInstaller.__main__
+
 from settings import DB_FILENAME
 
 # Get the directory of this script

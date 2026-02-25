@@ -1,5 +1,6 @@
-import importers
 import sqlite3
+
+import importers
 
 
 class FakePD:

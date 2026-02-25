@@ -4,6 +4,13 @@ These thin wrappers call the app instance methods to keep behavior unchanged
 while allowing incremental extraction.
 """
 
+from strings import STRINGS as S
+from validation import (validate_breaker_category_required,
+                        validate_gate_assignment)
+
+# Common placeholder used in multiple UI helpers
+unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+
 
 def show_add_element_popup_delegate(app, instance=None):
     return app.show_add_element_popup(instance)
@@ -27,7 +34,6 @@ def show_maintenance_element_details_delegate(app, maintenance_id, element_id):
 
 def show_add_element_popup(app, instance):
     from popups import show_message_popup
-    from strings import STRINGS as S
 
     # Get list of substations
     c = app.conn.cursor()
@@ -53,13 +59,13 @@ def show_add_element_popup(app, instance):
     app.substations_map = {s[1]: s[0] for s in substations}
 
     # Create popup
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.label import Label
-    from kivy.uix.textinput import TextInput
-    from kivy.uix.spinner import Spinner
+    from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.textinput import TextInput
 
     popup = Popup(title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"), size_hint=(0.8, 0.9))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -556,12 +562,12 @@ def delete_element(app, element_id, substation_id, parent_popup, substation_name
 
 
 def show_inactive_elements(app, substation_id, substation_name, parent_popup):
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
-    from kivy.uix.label import Label
-    from kivy.uix.scrollview import ScrollView
     from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
 
     c = app.conn.cursor()
     c.execute(
@@ -610,15 +616,15 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
             display_elem_type = elem_type
             if elem_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
                 if elem_type == "Διακόπτης ΥΤ":
-                    breaker_type_label = "Κεντρικός"
+                    pass
                 elif is_main_switch == 1:
-                    breaker_type_label = "Κεντρικός"
+                    pass
                 elif is_main_switch == 2:
-                    breaker_type_label = "Διασυνδετικός"
+                    pass
                 elif is_main_switch == 3:
-                    breaker_type_label = "Διακόπτης Πυκνωτών"
+                    pass
                 else:
-                    breaker_type_label = "Γραμμής"
+                    pass
                 display_elem_type = app._format_elem_type(elem_type, is_main_switch)
 
             info_text = f"[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'} (id:{elem_id})"
@@ -652,14 +658,15 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
 
 
 def show_edit_element_popup(app, element_id, substation_id, parent_popup, substation_name=None, grandparent_popup=None):
-    from popups import show_message_popup
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.label import Label
-    from kivy.uix.textinput import TextInput
-    from kivy.uix.spinner import Spinner
+    from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.textinput import TextInput
+
+    from popups import show_message_popup
 
     # Fetch element data
     c = app.conn.cursor()
@@ -1085,14 +1092,15 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
 
 
 def show_add_element_popup_for_substation(app, substation_id, substation_name, parent_popup):
-    from popups import show_message_popup
-    from kivy.uix.popup import Popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.spinner import Spinner
     from kivy.uix.textinput import TextInput
+
+    from popups import show_message_popup
 
     popup = Popup(title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"), size_hint=(0.8, 0.9))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)

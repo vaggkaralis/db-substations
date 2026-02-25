@@ -1,6 +1,7 @@
-import sqlite3
 import json
+import sqlite3
 import tempfile
+
 from DBrun import apply_change_log_to_db
 
 

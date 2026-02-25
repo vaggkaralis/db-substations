@@ -1,8 +1,9 @@
-import os
-import re
 import json
+import os
 from datetime import datetime
+
 from strings import STRINGS as S
+
 
 def _get_inspection_fallback_fields():
     base = [
@@ -133,21 +134,90 @@ def import_inspections_from_file(app, file_path):
 
     if df.empty:
         from popups import show_message_popup
+        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_HAS_NO_DATA"])
+        return
 
+    # Process rows and insert into inspections table
+    columns = list(df.columns)
+    date_col = _detect_inspection_column(columns, ["ημερομην", "ημ/ν", "date"])
+    substation_col = _detect_inspection_column(columns, ["υποσταθ", "substation"])
 
+    inserted = 0
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    c = app.conn.cursor()
+
+    for _, row in df.iterrows():
+        if hasattr(row, "isna") and row.isna().all():
+            continue
+
+        date_value = row.get(date_col) if date_col else None
+        inspection_date = _parse_inspection_date(date_value) or datetime.now().strftime("%Y-%m-%d")
+        month_key = _derive_month_key(inspection_date)
+
+        substation_name = ""
+        if substation_col:
+            substation_name = _format_inspection_value(row.get(substation_col))
+
+        substation_id = None
+        if substation_name:
+            c.execute("SELECT id FROM substations WHERE name=?", (substation_name,))
+            sub_row = c.fetchone()
+            substation_id = sub_row[0] if sub_row else None
+
+        fields = []
+        for col in columns:
+            value = row.get(col)
+            try:
+                if hasattr(value, 'astype'):
+                    # pandas scalar handling
+                    import pandas as _pd
+
+                    if _pd.isna(value):
+                        value = ""
+            except Exception:
+                pass
+            fields.append({"label": str(col), "value": _format_inspection_value(value)})
+
+        data_json = json.dumps({"fields": fields}, ensure_ascii=False)
+
+        c.execute(
+            """
+            INSERT INTO inspections (
+                substation_id, substation_name, inspection_date,
+                month_key, data_json, source_file, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                substation_id,
+                substation_name,
+                inspection_date,
+                month_key,
+                data_json,
+                os.path.basename(file_path),
+                created_at,
+            ),
+        )
+        inserted += 1
+
+    app.conn.commit()
+    from popups import show_message_popup
+
+    show_message_popup(
+        "Εισαγωγή Επιθεωρήσεων",
+        f"Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).",
+        callback=lambda: app.show_inspection_history(None),
+    )
 
 def _show_edit_inspection_popup(app, inspection_id, fields):
     """Show an edit form for an inspection and save changes back to DB."""
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.scrollview import ScrollView
+        from kivy.uix.button import Button
         from kivy.uix.gridlayout import GridLayout
         from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
         from kivy.uix.textinput import TextInput
-        from kivy.uix.button import Button
-        from kivy.uix.togglebutton import ToggleButton
-        from kivy.clock import Clock
 
         popup = Popup(title=S["TITLES"].get("INSPECTION_DETAILS", "Επεξεργασία Επιθεώρησης"), size_hint=(0.95, 0.9))
         layout = BoxLayout(orientation="vertical", spacing=8, padding=8)
@@ -283,76 +353,8 @@ def _show_edit_inspection_popup(app, inspection_id, fields):
         popup.open()
     except Exception:
         return None
-        show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_HAS_NO_DATA"])
-        return
 
-    columns = list(df.columns)
-    date_col = _detect_inspection_column(columns, ["ημερομην", "ημ/ν", "date"])
-    substation_col = _detect_inspection_column(columns, ["υποσταθ", "substation"])
-
-    inserted = 0
-    created_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-    c = app.conn.cursor()
-
-    for _, row in df.iterrows():
-        if hasattr(row, "isna") and row.isna().all():
-            continue
-
-        date_value = row.get(date_col) if date_col else None
-        inspection_date = _parse_inspection_date(date_value) or datetime.now().strftime("%Y-%m-%d")
-        month_key = _derive_month_key(inspection_date)
-
-        substation_name = ""
-        if substation_col:
-            substation_name = _format_inspection_value(row.get(substation_col))
-
-        substation_id = None
-        if substation_name:
-            c.execute("SELECT id FROM substations WHERE name=?", (substation_name,))
-            sub_row = c.fetchone()
-            substation_id = sub_row[0] if sub_row else None
-
-        fields = []
-        for col in columns:
-            value = row.get(col)
-            try:
-                import pandas as pd
-
-                if pd.isna(value):
-                    value = ""
-            except Exception:
-                pass
-            fields.append({"label": str(col), "value": _format_inspection_value(value)})
-
-        data_json = json.dumps({"fields": fields}, ensure_ascii=False)
-
-        c.execute(
-            """
-            INSERT INTO inspections (
-                substation_id, substation_name, inspection_date,
-                month_key, data_json, source_file, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                substation_id,
-                substation_name,
-                inspection_date,
-                month_key,
-                data_json,
-                os.path.basename(file_path),
-                created_at,
-            ),
-        )
-        inserted += 1
-
-    app.conn.commit()
-    from popups import show_message_popup
-
-    show_message_popup(
-        "Εισαγωγή Επιθεωρήσεων",
-        f"Ολοκληρώθηκε η εισαγωγή ({inserted} εγγραφές).",
-        callback=lambda: app.show_inspection_history(None),
-    )
+    
 
 
 def show_inspection_menu_popup_delegate(app, instance=None):
@@ -376,9 +378,9 @@ def handle_inspection_menu(app, instance=None):
 
     # Default: show a small menu offering to add a new inspection or view history.
     try:
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
+        from kivy.uix.popup import Popup
 
         title = S.get("BUTTONS", {}).get("INSPECTIONS", "Επιθεωρήσεις")
         popup = Popup(title=title, size_hint=(0.6, 0.3))
@@ -545,14 +547,13 @@ def handle_inspection_details(app, inspection_id):
             data = json.loads(data_json)
             fields = data.get("fields", [])
 
-            from kivy.uix.popup import Popup
-            from kivy.uix.scrollview import ScrollView
-            from kivy.uix.gridlayout import GridLayout
-            from kivy.uix.label import Label
+            from kivy.clock import Clock
             from kivy.uix.boxlayout import BoxLayout
             from kivy.uix.button import Button
-            from kivy.uix.textinput import TextInput
-            from kivy.clock import Clock
+            from kivy.uix.gridlayout import GridLayout
+            from kivy.uix.label import Label
+            from kivy.uix.popup import Popup
+            from kivy.uix.scrollview import ScrollView
 
             popup = Popup(title=S["TITLES"].get("INSPECTION_DETAILS", "Λεπτομέρειες Επιθεώρησης"), size_hint=(0.98, 0.95))
             layout = BoxLayout(orientation="vertical", spacing=8, padding=8)

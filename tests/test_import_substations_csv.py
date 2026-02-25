@@ -1,6 +1,5 @@
 import sqlite3
-import tempfile
-import os
+
 from importers import import_substations_from_csv
 
 

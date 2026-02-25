@@ -1,35 +1,33 @@
-﻿import webbrowser
+﻿import json
 import os
 import re
-import subprocess
-import sys
-import unicodedata
-from datetime import datetime
-import json
 import sqlite3
+import unicodedata
+import webbrowser
+from datetime import datetime
+
 from database import init_db
-from importers import (
-    import_elements_from_csv,
-    import_elements_from_excel,
-    import_substations_from_csv,
-    import_substations_from_excel,
-)
+from importers import (import_elements_from_csv, import_elements_from_excel,
+                       import_substations_from_csv,
+                       import_substations_from_excel)
 from popups import show_message_popup
 from strings import STRINGS as S
+
 # Short placeholders centralized for readability
 UNREG = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
 EMPTY = S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
 MODEL_PROMPT = S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
-from reports import create_elements_template, create_substations_template
-from model_management import show_models_management
-from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
-from import_wizard import ColumnMappingPopup, DataValidationPopup
-from email_eml_parser import parse_eml_file
-from popups import ask_open_file
-
 import importlib
+
+from email_eml_parser import parse_eml_file
+from import_wizard import ColumnMappingPopup, DataValidationPopup
+from model_management import show_models_management
+from popups import ask_open_file
+from reports import create_elements_template, create_substations_template
+
 try:
     import kivy
+
     # Ensure the requested Kivy version before loading submodules
     kivy.require("2.3.0")
     import logging
@@ -132,12 +130,8 @@ except Exception:
                 pass
     import logging
     logging.basicConfig()
-from validation import (
-    is_interconnection_gate,
-    validate_gate_assignment,
-    validate_breaker_category_required,
-)
-from validation import PEOPLE_ROLES, filter_people_for_maintenance, group_people_by_category, canonical_role
+from validation import (PEOPLE_ROLES, filter_people_for_maintenance,
+                        group_people_by_category)
 
 
 def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
@@ -210,7 +204,7 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
 # Maximize window on startup
 Window.maximize()
 
-from ui.shared import IconWidget, ShiftSelectableTextInput, IconButton, IconOnlyButton
+from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput
 
 
 class SubstationApp(App):
@@ -1482,7 +1476,7 @@ class SubstationApp(App):
         try:
             from inspections import handle_inspection_menu as _f
             return _f(self, instance)
-        except Exception as e:
+        except Exception:
             try:
                 import traceback
                 with open('inspections_debug.log', 'a', encoding='utf-8') as _fh:
@@ -2224,7 +2218,9 @@ class SubstationApp(App):
                                             fields = data.get('fields', [])
                                         except Exception:
                                             fields = []
-                                        from inspections import _show_edit_inspection_popup as _editfn
+                                        from inspections import \
+                                            _show_edit_inspection_popup as \
+                                            _editfn
                                         try:
                                             _editfn(self, i, fields)
                                         except Exception:
@@ -2285,7 +2281,8 @@ class SubstationApp(App):
                                         fields = data.get('fields', [])
                                     except Exception:
                                         fields = []
-                                    from inspections import _show_edit_inspection_popup as _editfn
+                                    from inspections import \
+                                        _show_edit_inspection_popup as _editfn
                                     try:
                                         _editfn(self, i, fields)
                                     except Exception:
@@ -2917,7 +2914,7 @@ class SubstationApp(App):
 
                 if is_th:
                     th_tag = Button(
-                        text=S["MESSAGES"]["SUBSTATION_IS_THESSALONIKI"],
+                        text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Θεσσαλονίκη"),
                         size_hint_x=0.15,
                         background_color=(1, 0, 0, 1),
                         color=(1, 1, 1, 1),
@@ -3857,10 +3854,10 @@ class SubstationApp(App):
 
     def _show_element_quick_view(self, element_id):
         """Show a small popup with the element's key details (read-only)."""
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.label import Label
         from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
 
         c = self.conn.cursor()
         c.execute(
@@ -4048,6 +4045,7 @@ class SubstationApp(App):
 
         # Save the corrected dataframe back to temporary file
         import tempfile
+
         import pandas as pd
 
         # Create a temporary file with corrected data
@@ -4098,10 +4096,10 @@ class SubstationApp(App):
 
     def _show_new_substations_prompt(self, file_path, new_substations):
         """Prompt user to confirm creation of new substations"""
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
         from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
         from kivy.uix.scrollview import ScrollView
 
         # Make the popup larger so long lists fit; list itself remains scrollable
@@ -4112,10 +4110,11 @@ class SubstationApp(App):
         # Brief header message only; the individual substations are shown in the scrollable list below
         message = S["MESSAGES"].get("MISSING_SUBSTATIONS_WILL_CREATE", "Οι παρακάτω υποσταθμοί δεν υπάρχουν και θα δημιουργηθούν:")
 
-        from kivy.uix.checkbox import CheckBox
         from kivy.graphics import Color, Rectangle
+        from kivy.uix.checkbox import CheckBox
+
         # Header and per-substation checkbox list so user can mark specific substations
-        header = Label(text=S["MESSAGES"]["SUBSTATION_IS_THESSALONIKI"], size_hint_y=None, height=30, bold=True, color=(0.9, 0.1, 0.1, 1))
+        header = Label(text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Θεσσαλονίκη"), size_hint_y=None, height=30, bold=True, color=(0.9, 0.1, 0.1, 1))
         # Brief header message (fixed height) — the list below stays scrollable
         header_label = Label(text=message, size_hint_y=None, height=60)
         header_label.bind(texture_size=header_label.setter("size"))
@@ -4353,7 +4352,8 @@ class SubstationApp(App):
                             breaker_type_raw = ""
                         normalized_bc = None
                         try:
-                            from import_validator import validate_breaker_category
+                            from import_validator import \
+                                validate_breaker_category
 
                             if breaker_type_raw:
                                 match = validate_breaker_category(breaker_type_raw)
@@ -4423,12 +4423,12 @@ class SubstationApp(App):
 
     def _show_model_check_popup(self, file_path, new_models, conflicting_models):
         """Show popup for user to review and approve model changes"""
-        from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
-        from kivy.uix.label import Label
-        from kivy.uix.scrollview import ScrollView
         from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
 
         popup = Popup(title=S["MESSAGES"].get("MODEL_CHECK_TITLE", "Έλεγχος Μοντέλων"), size_hint=(0.85, 0.85))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -5080,313 +5080,7 @@ class SubstationApp(App):
     def show_add_element_popup(self, instance):
         from elements import show_add_element_popup as _f
         return _f(self, instance)
-
-        # Store model data
-        models_data = {}
-
-        def load_models_for_category(category, selected_breaker_category=None):
-            """Load models for selected element category"""
-            models_data_temp, display_names, _ = self._load_models_for_element_type(
-                category, selected_breaker_category
-            )
-            models_data.clear()
-            models_data.update(models_data_temp)
-
-            if display_names:
-                model_spinner.values = display_names
-                model_spinner.text = display_names[0]
-            else:
-                model_spinner.values = [MODEL_PROMPT]
-                model_spinner.text = MODEL_PROMPT
-
-        def on_breaker_category_change(spinner, text):
-            """Reload models when breaker category changes"""
-            current_element_type = element_spinner.text
-            load_models_for_category(current_element_type, text)
-
-        # Function to load models when element type changes
-        def on_element_type_change(spinner, text):
-            # Show/hide breaker category filter for circuit breakers
-            if text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-                breaker_category_options = (
-                    self._get_breaker_categories_for_element_type(text)
-                )
-                breaker_category_spinner.values = breaker_category_options
-                if breaker_category_spinner.text not in breaker_category_options:
-                    breaker_category_spinner.text = (
-                        breaker_category_options[0]
-                        if breaker_category_options
-                        else "SF6"
-                    )
-                if breaker_category_label not in layout.children:
-                    idx = layout.children.index(model_header)
-                    layout.add_widget(breaker_category_spinner, index=idx + 1)
-                    layout.add_widget(breaker_category_label, index=idx + 2)
-                    # Bind the breaker category change event
-                    breaker_category_spinner.bind(text=on_breaker_category_change)
-                load_models_for_category(text, breaker_category_spinner.text)
-            else:
-                if breaker_category_label in layout.children:
-                    breaker_category_spinner.unbind(text=on_breaker_category_change)
-                    layout.remove_widget(breaker_category_label)
-                    layout.remove_widget(breaker_category_spinner)
-                load_models_for_category(text, None)
-
-            # Show breaker type selector for circuit breakers
-            if text in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-                if breaker_type_label not in layout.children:
-                    idx = layout.children.index(model_spinner)
-                    layout.add_widget(breaker_type_spinner, index=idx)
-                    layout.add_widget(breaker_type_label, index=idx + 1)
-                # For breakers show both regular and interconnection gates by default
-                substation_id = self.substations_map[substation_spinner.text]
-                if breaker_type_spinner.text == "Διασυνδετικός":
-                    available_gates = self.get_available_gates(substation_id, True)
-                else:
-                    available_gates = self.get_available_gates(substation_id, False)
-                gate_spinner.values = available_gates
-                gate_spinner.text = (
-                    available_gates[0] if available_gates else UNREG
-                )
-            else:
-                if breaker_type_label in layout.children:
-                    layout.remove_widget(breaker_type_label)
-                    layout.remove_widget(breaker_type_spinner)
-                # Reset to regular gates for non-breaker elements
-                substation_id = self.substations_map[substation_spinner.text]
-                available_gates = self.get_available_gates(substation_id, False)
-                gate_spinner.values = available_gates
-                gate_spinner.text = (
-                    available_gates[0] if available_gates else UNREG
-                )
-
-            # Auto-select voltage level based on element type
-            # update allowed options then set text (no empty option for restricted types)
-            _derived = self._derive_voltage_level(text)
-            voltage_level_spinner.values = [_derived] if _derived else list(self.VOLTAGE_LEVELS)
-            voltage_level_spinner.text = _derived or EMPTY
-
-        element_spinner.bind(text=on_element_type_change)
-        on_element_type_change(element_spinner, element_spinner.text)
-
-        # Dynamic element fields (auto-filled from model, can be overridden)
-        field_inputs = {}
-        for field in self.ELEMENT_FIELD_DEFS:
-            layout.add_widget(
-                Label(text=f"{field['label']}:", size_hint_y=None, height=30)
-            )
-            if field.get("type") == "spinner":
-                spinner = Spinner(
-                    text=field["values"][0],
-                    values=field["values"],
-                    size_hint_y=None,
-                    height=40,
-                )
-                field_inputs[field["key"]] = spinner
-                layout.add_widget(spinner)
-            else:
-                ti = TextInput(
-                    hint_text=field.get("hint", ""),
-                    size_hint_y=None,
-                    height=40,
-                    multiline=False,
-                )
-                field_inputs[field["key"]] = ti
-                layout.add_widget(ti)
-
-        # Auto-fill fields when model is selected
-        def on_model_selected(spinner, text):
-            if text in models_data:
-                model = models_data[text]
-                # Auto-fill fields from model
-                field_inputs["manufacturer"].text = model["manufacturer"]
-                field_inputs["model"].text = model["model_name"]
-                field_inputs["maintenance_cycle"].text = str(model["maintenance_cycle"])
-                field_inputs["installation_space"].text = model["installation_space"]
-
-        model_spinner.bind(text=on_model_selected)
-
-        # Add model button action
-        def open_add_model():
-            from model_management import show_add_model_popup
-
-            def reload_models():
-                load_models_for_category(element_spinner.text)
-
-            show_add_model_popup(
-                self, callback=reload_models, category=element_spinner.text
-            )
-
-        add_model_btn.bind(on_press=lambda x: open_add_model())
-
-        scroll.add_widget(layout)
-        main_layout.add_widget(scroll)
-
-        # Buttons layout
-        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
-
-        def add_element():
-            substation_name = substation_spinner.text
-            substation_id = self.substations_map[substation_name]
-            element_type = element_spinner.text
-
-            name_val = (
-                field_inputs["name"].text
-                if hasattr(field_inputs["name"], "text")
-                else field_inputs["name"].text
-            )
-            if not name_val:
-                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("ENTER_ELEMENT_NAME", "Παρακαλώ εισάγετε όνομα στοιχείου!"))
-                return
-
-            # Gather values
-            values = {
-                key: (
-                    field_inputs[key].text
-                    if hasattr(field_inputs[key], "text")
-                    else field_inputs[key].text
-                )
-                for key in field_inputs
-            }
-            if "operating_status" in values and hasattr(
-                field_inputs["operating_status"], "text"
-            ):
-                values["operating_status"] = field_inputs["operating_status"].text
-
-            # Determine is_main_switch based on element type and breaker type
-            # HV breakers are always main breakers (is_main_switch=1)
-            if element_type == "Διακόπτης ΥΤ":
-                is_main_switch = 1
-            elif element_type == "Διακόπτης ΜΤ":
-                if breaker_type_spinner.text == "Κεντρικός":
-                    is_main_switch = 1
-                elif breaker_type_spinner.text == "Διασυνδετικός":
-                    is_main_switch = 2
-                elif breaker_type_spinner.text == "Διακόπτης Πυκνωτών":
-                    is_main_switch = 3
-                else:
-                    is_main_switch = 0
-            else:
-                is_main_switch = 0
-
-            # Get gate assignment
-            gate_value = (
-                gate_spinner.text if gate_spinner.text != UNREG else ""
-            )
-
-            try:
-                validate_gate_assignment(element_type, breaker_type_spinner.text, gate_value)
-            except ValueError as e:
-                show_message_popup(S["TITLES"]["ERROR"], str(e))
-                return
-
-            # Get breaker category for circuit breakers
-            breaker_category_value = None
-            if element_type in ["Διακόπτης ΥΤ", "Διακόπτης ΜΤ"]:
-                breaker_category_value = breaker_category_spinner.text
-
-            try:
-                validate_breaker_category_required(element_type, breaker_category_value)
-            except ValueError as e:
-                show_message_popup(S["TITLES"]["ERROR"], str(e))
-                return
-
-            # Get model_id if selected
-            model_id = None
-            if model_spinner.text in models_data:
-                model_id = models_data[model_spinner.text]["id"]
-
-            # Rated power handling
-            rated_power_val = ""
-            try:
-                rated_power_val = rated_power_input.text.strip()
-            except Exception:
-                rated_power_val = ""
-
-            # Validate maintenance_cycle is a number
-            maintenance_cycle = values.get("maintenance_cycle", "0")
-            try:
-                maintenance_cycle_int = (
-                    int(maintenance_cycle) if maintenance_cycle else 0
-                )
-            except ValueError:
-                show_message_popup(
-                    "Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!"
-                )
-                return
-
-            # Check for unique name within substation
-            c = self.conn.cursor()
-            c.execute(
-                "SELECT id FROM elements WHERE substation_id=? AND name=?",
-                (substation_id, name_val),
-            )
-            if c.fetchone():
-                show_message_popup(
-                    "Σφάλμα",
-                    f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
-                )
-                return
-
-            voltage_level_value = (
-                voltage_level_spinner.text
-                if voltage_level_spinner.text != EMPTY
-                else ""
-            )
-
-            c.execute(
-                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    substation_id,
-                    element_type,
-                    values.get("name", ""),
-                    (values.get("serial_number", "") or "").strip(),
-                    values.get("maintenance_date", ""),
-                    voltage_level_value,
-                    values.get("manufacturer", ""),
-                    values.get("model", ""),
-                    values.get("model_version", ""),
-                    values.get("installation_space", "Εσωτερικός"),
-                    values.get("operating_status", "Ενεργή"),
-                    maintenance_cycle_int,
-                    model_id,
-                    values.get("manufacture_year", ""),
-                    gate_value,
-                    is_main_switch,
-                    breaker_category_value,
-                    (None if rated_power_val == "" else float(rated_power_val.replace(",", "."))) if rated_power_val else None,
-                ),
-            )
-            self.conn.commit()
-            # If a model was selected and a rated power was provided, persist it
-            # on the model so future elements inherit the model-rated power.
-            try:
-                if model_id and rated_power_val:
-                    rp_val = None if rated_power_val == "" else float(rated_power_val.replace(",", "."))
-                    if rp_val is not None:
-                        c.execute("UPDATE element_models SET power_mva=? WHERE id=?", (rp_val, model_id))
-                        self.conn.commit()
-            except Exception:
-                pass
-
-            popup.dismiss()
-            show_message_popup(
-                "Επιτυχία",
-                f"Στοιχείο προστέθηκε στον {substation_name}!",
-                callback=lambda: self._display_substations(substation_name),
-            )
-
-        add_btn = Button(text=S["BUTTONS"]["ADD"])
-        add_btn.bind(on_press=lambda x: add_element())
-        buttons_layout.add_widget(add_btn)
-
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
-        cancel_btn.bind(on_press=popup.dismiss)
-        buttons_layout.add_widget(cancel_btn)
-
-        main_layout.add_widget(buttons_layout)
-        popup.content = main_layout
-        popup.open()
+    
 
     def show_add_element_popup_for_substation(
         self, substation_id, substation_name, parent_popup
@@ -5657,7 +5351,6 @@ class SubstationApp(App):
         content_layout.add_widget(crew_actions)
 
         # Create a table-like, multi-column layout for crew checkboxes so many people fit
-        import math
 
         preferred_col_width = 280
         max_cols = 5
@@ -6490,7 +6183,7 @@ class SubstationApp(App):
                                 measurements.setdefault("temp_trip", (trip_oil, trip_x1, trip_x3))
                                 measurements.setdefault("diverter_res", (div_h1_a, div_h1_b, div_h2_a, div_h2_b, div_h3_a, div_h3_b))
                             except Exception as _ex:
-                                import traceback, logging
+                                import logging
                                 logging.exception(f"Error building transformer UI for element {eid}: {_ex}")
 
                         elif is_breaker:

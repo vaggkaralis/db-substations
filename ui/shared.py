@@ -1,12 +1,13 @@
 ﻿from kivy.core.window import Window
-from kivy.uix.widget import Widget
-from kivy.properties import StringProperty, ListProperty
-from kivy.graphics import Color, Line, Ellipse, Rectangle
-from kivy.uix.textinput import TextInput
+from kivy.graphics import Color, Ellipse, Line, Rectangle
+from kivy.properties import ListProperty, StringProperty
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
 from kivy.uix.image import Image
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
+
 from strings import STRINGS as S
 
 # FloatLayout is optional in test environments where Kivy isn't installed.
@@ -518,10 +519,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 # Add tooltip to Window to avoid affecting root layout sizing.
                 try:
                     Window.add_widget(lbl)
-                    added = True
                 except Exception:
                     # Fallback: try an app-level overlay if Window doesn't accept widgets
-                    added = False
                     try:
                         from kivy.app import App
 
@@ -540,7 +539,6 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                                     overlay = None
                         if overlay:
                             overlay.add_widget(lbl)
-                            added = True
                     except Exception:
                         return
 
