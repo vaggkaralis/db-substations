@@ -3643,10 +3643,10 @@ class SubstationApp(App):
                           SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
                               e.voltage_level, e.power_mva, e.manufacturer, e.manufacture_year, e.gate, e.is_main_switch,
                            em.breaker_category, em.model_name, em.manufacturer as model_manufacturer,
-                           e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.power_mva as model_power_mva, em.installation_space
+                           e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.power_mva as model_power_mva, em.installation_space, e.operating_status, em.manual_pdf
                     FROM elements e 
                     LEFT JOIN element_models em ON e.element_model_id = em.id 
-                    WHERE e.substation_id=? AND (e.operating_status IS NULL OR e.operating_status='Ενεργή') 
+                    WHERE e.substation_id=?
                 """
                 params = [sub_id]
                 if current_type_filter != "(Όλα)":
@@ -3660,9 +3660,13 @@ class SubstationApp(App):
                         params.append(current_gate_filter)
                 query += " ORDER BY e.gate"
                 c.execute(query, params)
-                elements = c.fetchall()
+                all_elements = c.fetchall()
+                
+                # Split into active and inactive
+                active_elements = [e for e in all_elements if not e[18] or e[18] == 'Ενεργή']  # Index 18 is operating_status
+                inactive_elements = [e for e in all_elements if e[18] and e[18] == 'Ανενεργή']
 
-                if elements:
+                if active_elements or inactive_elements:
                     # Define sort priority for element types
                     def get_element_priority(elem):
                         (
@@ -3684,6 +3688,8 @@ class SubstationApp(App):
                             model_maintenance_cycle,
                             model_power_mva,
                             installation_space,
+                            operating_status,
+                            manual_pdf,
                         ) = elem
 
                         # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV line breakers, MV capacitor breakers, rest
@@ -3712,9 +3718,9 @@ class SubstationApp(App):
                         else:
                             return (8, elem_name)
 
-                    # Group elements by gate
+                    # Group active elements by gate
                     gates_dict = {}
-                    for elem in elements:
+                    for elem in active_elements:
                         (
                             elem_id,
                             elem_type,
@@ -3734,6 +3740,8 @@ class SubstationApp(App):
                             model_maintenance_cycle,
                             model_power_mva,
                             installation_space,
+                            operating_status,
+                            manual_pdf,
                         ) = elem
 
                         gate_key = gate if gate else get_unreg()
@@ -3753,18 +3761,23 @@ class SubstationApp(App):
                     unreg_val = get_unreg()
                     if unreg_val in gates_dict:
                         sorted_gates.append(unreg_val)
+                    
+                    # Note: inactive elements are shown in a separate menu via show_inactive_elements()
+                    # They are NOT displayed here in the main element list
 
                     for gate_name in sorted_gates:
                         gate_elements = gates_dict[gate_name]
 
                         # Gate header with count
                         element_count = len(gate_elements)
+                        # Use red color for inactive gate header
+                        header_color = (1, 0, 0, 1) if gate_name == "Ανενεργά" else (0.2, 0.6, 1, 1)
                         gate_label = Label(
                             text=f"   {gate_name} ({element_count} στοιχεία)",
                             size_hint_y=None,
                             height=35,
                             bold=True,
-                            color=(0.2, 0.6, 1, 1),  # Blue color for gate headers
+                            color=header_color,
                         )
                         grid.add_widget(gate_label)
 
@@ -3789,6 +3802,8 @@ class SubstationApp(App):
                                 model_maintenance_cycle,
                                 model_power_mva,
                                 installation_space,
+                                operating_status,
+                                manual_pdf,
                             ) = elem
 
                             # Check if maintenance is overdue or missing
@@ -3827,6 +3842,11 @@ class SubstationApp(App):
                                 maint_display = f"[color=ff0000][b]Τελ. Συντ.: {maintenance_date or '-'}[/b][/color]"
                             else:
                                 maint_display = f"Τελ. Συντ.: {maintenance_date or '-'}"
+                            
+                            # Add inactive indicator
+                            inactive_marker = ""
+                            if operating_status and operating_status == 'Ανενεργή':
+                                inactive_marker = " [color=ff0000][b][ΑΝΕΝΕΡΓΟ][/b][/color]"
 
                             # Create element text with multiple lines for better readability
                             # Add breaker type label for circuit breakers
@@ -3853,7 +3873,7 @@ class SubstationApp(App):
                             )
                             effective_power = model_power_mva if (model_power_mva is not None) else power_mva
                             power_display = f"{effective_power} MVA" if effective_power else "-"
-                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
+                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}{inactive_marker}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
 
                             # Create a horizontal layout for element and buttons
                             elem_layout = BoxLayout(size_hint_y=None, spacing=5)
@@ -3878,16 +3898,32 @@ class SubstationApp(App):
                             )
                             elem_layout.add_widget(elem_label)
 
-                            # Button container (icon-only buttons: view, edit, delete)
+                            # Button container (icon-only buttons: manual, view, edit, delete)
                             btn_box = BoxLayout(size_hint_x=0.25, spacing=6)
 
+                            # Add manual button if manual_pdf exists
+                            if manual_pdf and os.path.exists(manual_pdf):
+                                manual_btn = IconOnlyButton(icon_type="book", icon_color=(0.8, 0.4, 0, 1))
+                                manual_btn.size_hint_x = 0.25
+                                manual_btn.bind(on_press=lambda x, mp=manual_pdf: self._open_model_manual(mp))
+                                btn_box.add_widget(manual_btn)
+                                # Adjust button sizes when manual exists
+                                view_size = 0.25
+                                edit_size = 0.25
+                                delete_size = 0.25
+                            else:
+                                # Adjust button sizes when no manual
+                                view_size = 0.33
+                                edit_size = 0.33
+                                delete_size = 0.34
+
                             view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("text", (0.12,0.12,0.12,1)))
-                            view_btn.size_hint_x = 0.33
+                            view_btn.size_hint_x = view_size
                             view_btn.bind(on_press=lambda x, eid=elem_id: (self._show_element_quick_view(eid)))
                             btn_box.add_widget(view_btn)
 
                             edit_elem_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)))
-                            edit_elem_btn.size_hint_x = 0.33
+                            edit_elem_btn.size_hint_x = edit_size
                             edit_elem_btn.bind(
                                 on_press=lambda x, eid=elem_id, sid=sub_id, sname=sub_name, p=popup: (
                                     self.show_edit_element_popup(eid, sid, p, sname)
@@ -3896,7 +3932,7 @@ class SubstationApp(App):
                             btn_box.add_widget(edit_elem_btn)
 
                             delete_elem_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1))
-                            delete_elem_btn.size_hint_x = 0.34
+                            delete_elem_btn.size_hint_x = delete_size
                             delete_elem_btn.bind(
                                 on_press=lambda x, eid=elem_id, ename=elem_name, sid=sub_id, sname=sub_name, p=popup: (
                                     self.confirm_delete_element(
@@ -4287,10 +4323,11 @@ class SubstationApp(App):
         from kivy.uix.button import Button
         from kivy.uix.label import Label
         from kivy.uix.popup import Popup
+        from kivy.uix.widget import Widget
 
         c = self.conn.cursor()
         c.execute(
-            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, em.power_mva AS model_power_mva FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
+            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, em.power_mva AS model_power_mva, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
             (element_id,),
         )
         row = c.fetchone()
@@ -4308,6 +4345,7 @@ class SubstationApp(App):
             installation_space,
             maintenance_date,
             model_power_mva,
+            manual_pdf,
         ) = row
 
         effective_power = model_power_mva if (model_power_mva is not None) else power_mva
@@ -4327,6 +4365,13 @@ class SubstationApp(App):
             layout.add_widget(Label(text=l, size_hint_y=None, height=28))
 
         btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        
+        # Add manual button if available
+        if manual_pdf and os.path.exists(manual_pdf):
+            manual_btn = Button(text=S["MESSAGES"].get("MANUAL_LABEL", "Manual"))
+            manual_btn.bind(on_press=lambda x: self._open_model_manual(manual_pdf))
+            btn_row.add_widget(manual_btn)
+        
         close_btn = Button(text=S["BUTTONS"]["CLOSE"])
 
         def _close(_x):
@@ -5681,6 +5726,7 @@ class SubstationApp(App):
 
         def _on_select_substation(sub_name):
             substation_input.text = sub_name
+            load_elements(sub_name)  # Reload elements when substation changes
 
         def select_substation(*_args):
             self._show_substation_selection_window_with_callback(
@@ -7788,9 +7834,10 @@ class SubstationApp(App):
                     )
                 )
                 header.add_widget(Label(text=f"Ημ/νία: {date_time}", size_hint_x=0.2))
-                edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.11)
-                email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.12)
-                delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.12)
+                from ui.shared import IconOnlyButton
+                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
+                delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+                email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.1)
 
                 def make_delete_handler(m_id, p):
                     return lambda x: self.confirm_delete_maintenance(m_id, p)
@@ -8025,9 +8072,10 @@ class SubstationApp(App):
             header.add_widget(
                 Label(text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.6)
             )
-            edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.12)
+            from ui.shared import IconOnlyButton
+            edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
+            delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
             email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.13)
-            delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.15)
 
             def make_delete_handler(m_id, p):
                 return lambda x: self.confirm_delete_maintenance_for_substation(
@@ -8219,6 +8267,32 @@ class SubstationApp(App):
         from inspections import handle_inspection_details as _f
         return _f(self, inspection_id)
 
+    def _open_model_manual(self, manual_path):
+        """Open a model's manual (can be a file or folder)."""
+        from reports import open_file
+        
+        if not manual_path or not os.path.exists(manual_path):
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get("MANUAL_NOT_FOUND", "Το εγχειρίδιο δεν βρέθηκε!")
+            )
+            return False
+        
+        # Check if it's a directory
+        if os.path.isdir(manual_path):
+            return open_file(
+                manual_path,
+                not_found_message=S["MESSAGES"].get("MANUAL_NOT_FOUND", "Το εγχειρίδιο δεν βρέθηκε!"),
+                error_prefix=S["MESSAGES"].get("OPEN_MANUAL_ERROR", "Αποτυχία ανοίγματος εγχειριδίου:\n")
+            )
+        else:
+            # It's a file (PDF or other)
+            return open_file(
+                manual_path,
+                not_found_message=S["MESSAGES"].get("MANUAL_NOT_FOUND", "Το εγχειρίδιο δεν βρέθηκε!"),
+                error_prefix=S["MESSAGES"].get("OPEN_MANUAL_ERROR", "Αποτυχία ανοίγματος εγχειριδίου:\n")
+            )
+
     def show_maintenance_element_details(
         self, maintenance_id, element_id, element_name
     ):
@@ -8230,7 +8304,7 @@ class SubstationApp(App):
                    s.name as substation_name, s.location, s.division,
                    e.element_type, e.name, e.serial_number, e.manufacturer, e.model,
                    e.breaker_category, e.voltage_level, e.gate, e.manufacture_year,
-                   em.model_name, em.manufacturer as model_manufacturer
+                   em.model_name, em.manufacturer as model_manufacturer, em.manual_pdf
             FROM maintenance m
             JOIN substations s ON m.substation_id = s.id
             JOIN elements e ON e.id = ?
@@ -8399,6 +8473,7 @@ class SubstationApp(App):
                 manufacture_year,
                 model_name,
                 model_manufacturer,
+                manual_pdf,
             ) = header_row
 
             add_section("Στοιχεία Συντήρησης")
@@ -8529,9 +8604,20 @@ class SubstationApp(App):
         scroll.add_widget(content)
         main_layout.add_widget(scroll)
 
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
+        # Bottom buttons
+        buttons_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
+        
+        # Show manual button if model has a manual
+        if header_row and manual_pdf and os.path.exists(manual_pdf):
+            manual_btn = Button(text=S["MESSAGES"].get("MANUAL_LABEL", "Manual"))
+            manual_btn.bind(on_press=lambda x: self._open_model_manual(manual_pdf))
+            buttons_layout.add_widget(manual_btn)
+        
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"])
         close_btn.bind(on_press=popup.dismiss)
-        main_layout.add_widget(close_btn)
+        buttons_layout.add_widget(close_btn)
+        
+        main_layout.add_widget(buttons_layout)
 
         popup.content = main_layout
         popup.open()

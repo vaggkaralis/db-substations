@@ -122,8 +122,7 @@ STRINGS_EL = {
         "TOOLTIP_DELETE": "Διαγραφή",
         "TOOLTIP_VIEW": "Προβολή",
         "TOOLTIP_MAINTENANCE": "Συντήρηση",
-        "TOOLTIP_INSPECTION": "Επιθεώρηση",
-        "VIEW_SHORT": "Προβ.",
+        "TOOLTIP_INSPECTION": "Επιθεώρηση",        "TOOLTIP_MANUAL": "Manual",        "VIEW_SHORT": "Προβ.",
         "PDF_BUTTON": "PDF",
 
         # --- Prompts / Dialogs / Titles ---
@@ -223,6 +222,8 @@ STRINGS_EL = {
         "INACTIVE_ELEMENTS": "Ανενεργά στοιχεία ({count})",
         "OVERALL_COMMENTS_LABEL": "Γενικά Σχόλια Συντήρησης:",
         "MAINT_TYPE_LABEL": "Τύπος Συντήρησης:",
+        "MAINTENANCE_TYPES": ["Επαναληπτική συντήρηση", "Βλάβη", "Οπτική επιθεώρηση"],
+        "MAINT_TYPE_DEFAULT": "Επαναληπτική συντήρηση",
         "MAINT_USER_LABEL": "Χειριστής",
         "EDIT_PERSON_TITLE": "Επεξεργασία Ατόμου",
         "ADD_NEW_SUBSTATION_PROMPT": "Ή προσθέστε νέο υποσταθμό:",
@@ -774,6 +775,7 @@ STRINGS_EN = {
         "TOOLTIP_VIEW": "View",
         "TOOLTIP_MAINTENANCE": "Maintenance",
         "TOOLTIP_INSPECTION": "Inspection",
+        "TOOLTIP_MANUAL": "Manual",
         "VIEW_SHORT": "View",
         "PDF_BUTTON": "PDF",
         "VIEW_PROMPT": "Select what you want to view:",

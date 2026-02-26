@@ -6,6 +6,7 @@ import os
 
 from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
+from ui.shared import IconOnlyButton
 
 # Canonical breaker element names
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
@@ -223,7 +224,7 @@ def show_models_management(app_instance):
                                     )
 
                                     # Buttons
-                                    btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
+                                    btn_box = BoxLayout(size_hint_x=0.45, spacing=5)
 
                                     list_btn = Button(text=S["BUTTONS"]["LIST"], size_hint_x=0.25)
                                     list_btn.bind(
@@ -250,7 +251,7 @@ def show_models_management(app_instance):
                                     )
                                     btn_box.add_widget(manual_btn)
 
-                                    edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.25)
+                                    edit_btn = IconOnlyButton(icon_type="edit", icon_color=(0.2, 0.6, 1, 1), size=(45, 45))
                                     edit_btn.bind(
                                         on_press=lambda x, mid=model_id: (
                                             show_edit_model_popup(
@@ -260,7 +261,7 @@ def show_models_management(app_instance):
                                     )
                                     btn_box.add_widget(edit_btn)
 
-                                    delete_btn = Button(text=S["BUTTONS"].get("DELETE_SHORT", "Διαγρ."), size_hint_x=0.25)
+                                    delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(40, 40))
                                     delete_btn.bind(
                                         on_press=lambda x, mid=model_id: delete_model(
                                             app_instance, mid, popup
@@ -358,7 +359,7 @@ def show_models_management(app_instance):
                             header.add_widget(Label(text=(f"Ισχ.: {header_power_str}"), size_hint_x=0.10))
 
                             # Buttons
-                            btn_box = BoxLayout(size_hint_x=0.45, spacing=3)
+                            btn_box = BoxLayout(size_hint_x=0.45, spacing=5)
 
                             list_btn = Button(text=S["BUTTONS"]["LIST"], size_hint_x=0.25)
                             list_btn.bind(
@@ -381,7 +382,7 @@ def show_models_management(app_instance):
                             )
                             btn_box.add_widget(manual_btn)
 
-                            edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.25)
+                            edit_btn = IconOnlyButton(icon_type="edit", icon_color=(0.2, 0.6, 1, 1), size=(45, 45))
                             edit_btn.bind(
                                 on_press=lambda x, mid=model_id: show_edit_model_popup(
                                     app_instance, mid, popup
@@ -389,7 +390,7 @@ def show_models_management(app_instance):
                             )
                             btn_box.add_widget(edit_btn)
 
-                            delete_btn = Button(text=S["BUTTONS"].get("DELETE_SHORT", "Διαγρ."), size_hint_x=0.25)
+                            delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(40, 40))
                             delete_btn.bind(
                                 on_press=lambda x, mid=model_id: delete_model(
                                     app_instance, mid, popup
@@ -905,8 +906,23 @@ def _handle_manual_pdf(app_instance, model_id, manual_pdf, parent_popup=None):
 
 
 def _open_manual_pdf(pdf_path):
+    """Open a model's manual (can be a file or folder)."""
     from reports import open_file as _open
-    return _open(pdf_path, not_found_message="Το αρχείο δεν βρέθηκε!", error_prefix="Αποτυχία ανοίγματος PDF:\n")
+    
+    if not pdf_path or not os.path.exists(pdf_path):
+        from popups import show_message_popup
+        show_message_popup(
+            "Σφάλμα",
+            "Το εγχειρίδιο δεν βρέθηκε!"
+        )
+        return False
+    
+    # Works for both files and folders
+    return _open(
+        pdf_path,
+        not_found_message="Το εγχειρίδιο δεν βρέθηκε!",
+        error_prefix="Αποτυχία ανοίγματος εγχειριδίου:\n"
+    )
 
 
 def _select_manual_pdf(app_instance, model_id, parent_popup=None):
@@ -929,14 +945,15 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
 
     if fp:
         if not os.path.exists(fp):
-            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο/φάκελος δεν βρέθηκε!")
             return
-        if not fp.lower().endswith(".pdf"):
-            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_PDF"])
+        # Accept either a PDF file or a directory
+        if not os.path.isdir(fp) and not fp.lower().endswith(".pdf"):
+            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF ή φάκελο!")
             return
         c = app_instance.conn.cursor()
         c.execute(
-            "UPDATE models SET manual_pdf=? WHERE id=?",
+            "UPDATE element_models SET manual_pdf=? WHERE id=?",
             (fp, model_id),
         )
         app_instance.conn.commit()
@@ -951,14 +968,14 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
         # user cancelled native dialog -> do nothing
         return
 
-    popup = Popup(title="Επιλογή Manual PDF", size_hint=(0.9, 0.9))
+    popup = Popup(title="Επιλογή Manual (PDF ή Φάκελος)", size_hint=(0.9, 0.9))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-    path_label = Label(text="Διαδρομή αρχείου:", size_hint_y=0.1)
+    path_label = Label(text="Διαδρομή αρχείου ή φακέλου:", size_hint_y=0.1)
     layout.add_widget(path_label)
 
     path_input = TextInput(
-        hint_text=S.get("MESSAGES", {}).get("FILE_PATH_HINT", "Διαδρομή αρχείου"), size_hint_y=0.12, multiline=False
+        hint_text="Διαδρομή αρχείου PDF ή φακέλου", size_hint_y=0.12, multiline=False
     )
     layout.add_widget(path_input)
 
@@ -982,11 +999,12 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
             return
 
         if not os.path.exists(file_path):
-            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο δεν βρέθηκε!")
+            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο/φάκελος δεν βρέθηκε!")
             return
 
-        if not file_path.lower().endswith(".pdf"):
-            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_PDF"])
+        # Accept either a PDF file or a directory
+        if not os.path.isdir(file_path) and not file_path.lower().endswith(".pdf"):
+            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF ή φάκελο!")
             return
 
         c = app_instance.conn.cursor()
@@ -1109,7 +1127,29 @@ def show_model_usages(app_instance, model_id, model_name):
             model_power_val = _row[0] if _row and _row[0] is not None else None
         except Exception:
             model_power_val = None
+        
+        # Group elements by substation and status
+        substation_groups = {}
+        substation_order = []
         for elem_data in usages:
+            operating_status = elem_data[7]
+            substation_name = elem_data[11]
+            substation_id = elem_data[12]
+            status_val = operating_status.strip() if operating_status else ""
+            is_inactive = status_val == "Ανενεργή"
+            if substation_name not in substation_groups:
+                substation_groups[substation_name] = {
+                    "id": substation_id,
+                    "active": [],
+                    "inactive": [],
+                }
+                substation_order.append(substation_name)
+            if is_inactive:
+                substation_groups[substation_name]["inactive"].append(elem_data)
+            else:
+                substation_groups[substation_name]["active"].append(elem_data)
+
+        def add_element_box(elem_data, is_inactive):
             (
                 elem_id,
                 elem_type,
@@ -1126,60 +1166,6 @@ def show_model_usages(app_instance, model_id, model_name):
                 substation_id,
             ) = elem_data
 
-            # Substation header (only when it changes)
-            if current_substation != substation_name:
-                current_substation = substation_name
-
-                # Create a layout for substation header with button
-                substation_header_layout = BoxLayout(
-                    size_hint_y=None, height=40, spacing=10
-                )
-
-                substation_header = Label(
-                    text=f"[b][size=18]{substation_name}[/size][/b]",
-                    size_hint_x=0.6,
-                    markup=True,
-                    halign="left",
-                    valign="middle",
-                )
-                substation_header.bind(size=substation_header.setter("text_size"))
-                substation_header_layout.add_widget(substation_header)
-
-                # If substation is Thessaloniki, show a red filled label next to the name
-                try:
-                    c.execute(
-                        "SELECT is_thessaloniki FROM substations WHERE id=?",
-                        (substation_id,),
-                    )
-                    row = c.fetchone()
-                    is_th = bool(row[0]) if row and row[0] else False
-                except Exception:
-                    is_th = False
-
-                if is_th:
-                    th_label = Button(
-                        text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Υ/Σ Θεσσαλονίκης"),
-                        size_hint_x=0.2,
-                        background_color=(1, 0, 0, 1),
-                        color=(1, 1, 1, 1),
-                        background_normal="",
-                        background_down="",
-                    )
-                    # keep as a visual tag (no-op) but not disabled so text color remains bright
-                    th_label.bind(on_press=lambda *a: None)
-                    substation_header_layout.add_widget(th_label)
-
-                # Add button to jump to substation elements view
-                jump_btn = Button(text="Μετάβαση στον Υποσταθμό", size_hint_x=0.2)
-                jump_btn.bind(
-                    on_press=lambda x, sname=substation_name, p=popup: (
-                        jump_to_substation(app_instance, sname, p)
-                    )
-                )
-                substation_header_layout.add_widget(jump_btn)
-
-                grid.add_widget(substation_header_layout)
-
             # Element details box
             elem_box = BoxLayout(
                 size_hint_y=None,
@@ -1191,8 +1177,9 @@ def show_model_usages(app_instance, model_id, model_name):
 
             # Element name and type (bold, larger)
             breaker_info = f" | {breaker_category}" if breaker_category else ""
+            inactive_marker = " [color=ff0000][b]ΑΝΕΝΕΡΓΟ[/b][/color]" if is_inactive else ""
             name_text = (
-                f"[b][size=16]{elem_name}[/size][/b] - {elem_type}{breaker_info}"
+                f"[b][size=16]{elem_name}[/size][/b] - {elem_type}{breaker_info}{inactive_marker}"
             )
             name_label = Label(
                 text=name_text,
@@ -1222,7 +1209,11 @@ def show_model_usages(app_instance, model_id, model_name):
 
             # Manufacturer, installation space, operating status, model power (format like substation details)
             display_power_str = f"{model_power_val} MVA" if model_power_val is not None else "-"
-            details_text = f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | Κατάστ.: {operating_status or 'Ενεργή'} | Ισχ.: {display_power_str}"
+            status_display = "Ανενεργή" if is_inactive else (operating_status or "Ενεργή")
+            details_text = (
+                f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | "
+                f"Κατάστ.: {status_display} | Ισχ.: {display_power_str}"
+            )
             details_label = Label(
                 text=details_text,
                 size_hint_y=None,
@@ -1246,6 +1237,87 @@ def show_model_usages(app_instance, model_id, model_name):
             elem_box.add_widget(maint_label)
 
             grid.add_widget(elem_box)
+
+        for substation_name in substation_order:
+            group = substation_groups[substation_name]
+            substation_id = group["id"]
+            active_elements = group["active"]
+            inactive_elements = group["inactive"]
+            active_count = len(active_elements)
+            inactive_count = len(inactive_elements)
+            total_count = active_count + inactive_count
+
+            # Substation header
+            current_substation = substation_name
+            count_text = f" ({total_count}/{inactive_count})"
+
+            # Create a layout for substation header with button
+            substation_header_layout = BoxLayout(
+                size_hint_y=None, height=40, spacing=10
+            )
+
+            substation_header = Label(
+                text=f"[b][size=18]{substation_name}{count_text}[/size][/b]",
+                size_hint_x=0.6,
+                markup=True,
+                halign="left",
+                valign="middle",
+            )
+            substation_header.bind(size=substation_header.setter("text_size"))
+            substation_header_layout.add_widget(substation_header)
+
+            # If substation is Thessaloniki, show a red filled label next to the name
+            try:
+                c.execute(
+                    "SELECT is_thessaloniki FROM substations WHERE id=?",
+                    (substation_id,),
+                )
+                row = c.fetchone()
+                is_th = bool(row[0]) if row and row[0] else False
+            except Exception:
+                is_th = False
+
+            if is_th:
+                th_label = Button(
+                    text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Υ/Σ Θεσσαλονίκης"),
+                    size_hint_x=0.2,
+                    background_color=(1, 0, 0, 1),
+                    color=(1, 1, 1, 1),
+                    background_normal="",
+                    background_down="",
+                )
+                # keep as a visual tag (no-op) but not disabled so text color remains bright
+                th_label.bind(on_press=lambda *a: None)
+                substation_header_layout.add_widget(th_label)
+
+            # Add button to jump to substation elements view
+            jump_btn = Button(text="Μετάβαση στον Υποσταθμό", size_hint_x=0.2)
+            jump_btn.bind(
+                on_press=lambda x, sname=substation_name, p=popup: (
+                    jump_to_substation(app_instance, sname, p)
+                )
+            )
+            substation_header_layout.add_widget(jump_btn)
+
+            grid.add_widget(substation_header_layout)
+
+            for elem_data in active_elements:
+                add_element_box(elem_data, False)
+
+            if inactive_elements:
+                inactive_label = Label(
+                    text=f"[b][color=ff0000]Ανενεργά ({inactive_count})[/color][/b]",
+                    size_hint_y=None,
+                    height=30,
+                    markup=True,
+                    halign="left",
+                    valign="middle",
+                )
+                inactive_label.bind(size=inactive_label.setter("text_size"))
+                grid.add_widget(inactive_label)
+
+                for elem_data in inactive_elements:
+                    add_element_box(elem_data, True)
 
         scroll.add_widget(grid)
         main_layout.add_widget(scroll)

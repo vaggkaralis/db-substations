@@ -11,6 +11,7 @@ from kivy.uix.textinput import TextInput
 from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
 from validation import PEOPLE_ROLES, canonical_role, group_people_by_category
+from ui.shared import IconOnlyButton
 
 
 class PeopleManager:
@@ -93,8 +94,10 @@ class PeopleManager:
                     receiver_text = S["BUTTONS"].get("YES", "Ναι") if report_receiver else S["BUTTONS"].get("NO", "Όχι")
                     row.add_widget(Label(text=f"{name} ({role}) | {email_text} | Παραλήπτης: {receiver_text} | {status}", size_hint_x=0.8))
 
-                    edit_btn = Button(text=S["BUTTONS"]["EDIT"], size_hint_x=0.1)
-                    delete_btn = Button(text=S["BUTTONS"]["DELETE"], size_hint_x=0.1)
+                    edit_btn = IconOnlyButton(icon_type="edit", icon_color=(0.2, 0.6, 1, 1), size=(35, 35))
+                    edit_btn.size_hint_x = 0.1
+                    delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+                    delete_btn.size_hint_x = 0.1
 
                     def make_delete(pid, pname):
                         return lambda x: self._confirm_delete_person(pid, pname, refresh_list)

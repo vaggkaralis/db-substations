@@ -194,24 +194,63 @@ class IconWidget(Widget):
                     Line(points=[x1, y1, x2, y2], width=line_w)
                 Line(circle=(cx, cy, radius * 0.4), width=line_w)
             elif self.icon_type == "edit":
-                # clearer pencil / edit icon: body, tip, and eraser
-                body_w = w * 0.6
-                body_h = h * 0.18
-                body_x = x + w * 0.18
-                body_y = y + h * 0.36
-                # pencil body (slanted)
-                Line(points=[body_x, body_y, body_x + body_w, body_y + body_h * 2], width=max(1.0, line_w))
-                # tip (triangle)
-                tip_pts = [body_x + body_w, body_y + body_h * 2, body_x + body_w + w * 0.12, body_y + body_h * 2 - h * 0.08, body_x + body_w, body_y + body_h * 2 - h * 0.06]
-                Line(points=tip_pts, width=max(1.0, line_w))
-                # outline for tip
-                Line(points=[body_x + body_w + w * 0.12, body_y + body_h * 2 - h * 0.08, body_x + body_w, body_y + body_h * 2 - h * 0.06], width=max(0.8, line_w * 0.8))
-                # eraser at the back
-                eraser_w = w * 0.14
-                eraser_h = body_h
-                Rectangle(pos=(body_x - eraser_w * 0.9, body_y - eraser_h * 0.2), size=(eraser_w, eraser_h))
-                # divide line between eraser and body
-                Line(points=[body_x - eraser_w * 0.9 + 2, body_y - eraser_h * 0.2 + 2, body_x - eraser_w * 0.9 + 2, body_y - eraser_h * 0.2 + eraser_h - 2], width=max(0.8, line_w * 0.8))
+                # Pencil icon rotated 220 degrees counterclockwise: pointing bottom-left
+                cx = x + w * 0.5  # Center of icon
+                cy = y + h * 0.5
+                angle = math.radians(220)  # 220 degrees counterclockwise
+                cos_a = math.cos(angle)
+                sin_a = math.sin(angle)
+                
+                def rotate_point(px, py):
+                    """Rotate point around center by angle"""
+                    px_rel = px - cx
+                    py_rel = py - cy
+                    new_x = cx + px_rel * cos_a - py_rel * sin_a
+                    new_y = cy + px_rel * sin_a + py_rel * cos_a
+                    return new_x, new_y
+                
+                # Original pencil points (before rotation)
+                shaft_x = x + w * 0.15
+                shaft_y = y + h * 0.25
+                shaft_w = w * 0.55
+                shaft_h = h * 0.15
+                
+                # Pencil shaft corners
+                p1 = rotate_point(shaft_x, shaft_y)
+                p2 = rotate_point(shaft_x + shaft_w, shaft_y)
+                p3 = rotate_point(shaft_x + shaft_w, shaft_y + shaft_h)
+                p4 = rotate_point(shaft_x, shaft_y + shaft_h)
+                
+                # Draw rotated shaft
+                Line(points=[p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], p4[0], p4[1], p1[0], p1[1]], width=max(1.2, line_w))
+                
+                # Pencil tip points
+                tip_px = shaft_x + shaft_w
+                tip_py = shaft_y + shaft_h * 0.5
+                tip_left = rotate_point(tip_px, tip_py)
+                tip_right = rotate_point(tip_px + h * 0.12, tip_py)
+                tip_top = rotate_point(tip_px, tip_py - h * 0.08)
+                
+                # Draw rotated tip
+                Line(points=[tip_left[0], tip_left[1], tip_right[0], tip_right[1], tip_top[0], tip_top[1], tip_left[0], tip_left[1]], width=max(1.2, line_w))
+                
+                # Eraser at the back
+                eraser_x = shaft_x - w * 0.08
+                eraser_y = shaft_y
+                eraser_w = w * 0.08
+                eraser_h = shaft_h
+                
+                # Eraser corners
+                e1 = rotate_point(eraser_x, eraser_y)
+                e2 = rotate_point(eraser_x + eraser_w, eraser_y)
+                e3 = rotate_point(eraser_x + eraser_w, eraser_y + eraser_h)
+                e4 = rotate_point(eraser_x, eraser_y + eraser_h)
+                
+                # Draw rotated eraser
+                Line(points=[e1[0], e1[1], e2[0], e2[1], e3[0], e3[1], e4[0], e4[1], e1[0], e1[1]], width=max(1.0, line_w))
+                
+                # Metal band between eraser and pencil
+                Line(points=[e2[0], e2[1], e3[0], e3[1]], width=max(1.0, line_w * 1.5))
             elif self.icon_type == "delete":
                 # clearer trash can icon: lid, can body, and slats
                 lid_h = h * 0.12
@@ -245,6 +284,20 @@ class IconWidget(Widget):
                 Line(points=[cx - rx, cy, cx, cy - ry * 0.9, cx + rx, cy], width=max(1.0, line_w))
                 # pupil
                 Ellipse(pos=(cx - rx * 0.25, cy - ry * 0.25), size=(rx * 0.5, ry * 0.5))
+            elif self.icon_type == "book":
+                # book/manual icon: spine and pages
+                book_x = x + w * 0.2
+                book_y = y + h * 0.15
+                book_w = w * 0.6
+                book_h = h * 0.7
+                # book outline
+                Line(rectangle=(book_x, book_y, book_w, book_h), width=max(1.2, line_w))
+                # spine
+                Line(points=[book_x + book_w * 0.15, book_y, book_x + book_w * 0.15, book_y + book_h], width=max(1.2, line_w))
+                # pages (horizontal lines)
+                for i in range(1, 4):
+                    py = book_y + (book_h * i / 4.5)
+                    Line(points=[book_x + book_w * 0.25, py, book_x + book_w * 0.85, py], width=max(0.8, line_w * 0.7))
 
 
 class ShiftSelectableTextInput(TextInput):
@@ -398,8 +451,15 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         size = kwargs.pop("size", (40, 40))
         # allow explicit tooltip override
         tooltip_text = kwargs.pop("tooltip", None)
+        # capture size_hint before passing to super
+        size_hint = kwargs.pop("size_hint", None)
+        size_hint_x = kwargs.pop("size_hint_x", None)
         super().__init__(**kwargs)
-        self.size_hint = (None, None)
+        # only lock size if no size_hint specified
+        if size_hint is None and size_hint_x is None:
+            self.size_hint = (None, None)
+        elif size_hint_x is not None:
+            self.size_hint_x = size_hint_x
         self.size = size
         self.orientation = "horizontal"
         self.padding = (2, 2)
@@ -411,10 +471,13 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         else:
             self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.icon_color, size_hint=(None, None))
 
-        # initial icon sizing
+        # icon stays fixed size and centered in button
         dim = max(24, int(self.height * 0.85))
         self.icon.size = (dim, dim)
-        self.icon.pos_hint = {"center_y": 0.5}
+        # use size_hint for natural centering in BoxLayout, not pos_hint
+        self.icon.size_hint_x = None
+        self.icon.size_hint_y = None
+        
         self.add_widget(self.icon)
 
         self.bind(size=self._update_icon_size)
@@ -428,6 +491,7 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             "eye": S["MESSAGES"].get("TOOLTIP_VIEW", "Προβολή"),
             "maintenance": S["MESSAGES"].get("TOOLTIP_MAINTENANCE", "Συντήρηση"),
             "inspection": S["MESSAGES"].get("TOOLTIP_INSPECTION", "Επιθεώρηση"),
+            "book": S["MESSAGES"].get("TOOLTIP_MANUAL", "Manual"),
         }
         if tooltip_text:
             self.tooltip = tooltip_text

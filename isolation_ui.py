@@ -1,4 +1,5 @@
 from strings_proxy import STRINGS as S
+from ui.shared import IconOnlyButton
 
 
 def show_isolation_requests(app, instance=None):
@@ -492,7 +493,8 @@ def show_isolation_request_details(app, request_id, parent_popup):
     update_btn = Button(text=S["BUTTONS"]["UPDATE"])
     update_btn.bind(on_press=lambda x: update_request())
     buttons_layout.add_widget(update_btn)
-    delete_btn = Button(text=S["BUTTONS"]["DELETE"], background_color=(0.8, 0.2, 0.2, 1))
+    delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+    delete_btn.size_hint_x = 0.25
     delete_btn.bind(on_press=lambda x: delete_request())
     buttons_layout.add_widget(delete_btn)
 

@@ -7,6 +7,7 @@ while allowing incremental extraction.
 from strings_proxy import STRINGS as S
 from validation import (validate_breaker_category_required,
                         validate_gate_assignment)
+from ui.shared import IconOnlyButton
 
 # Common placeholder used in multiple UI helpers
 unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
@@ -575,7 +576,7 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
     c.execute(
         """
             SELECT e.id, e.element_type, e.name, e.serial_number, 
-                   em.manufacturer as model_manufacturer, em.model_name, e.is_main_switch
+                   em.manufacturer as model_manufacturer, em.model_name, e.is_main_switch, em.manual_pdf
             FROM elements e 
             LEFT JOIN element_models em ON e.element_model_id = em.id
             WHERE e.substation_id=? AND e.operating_status='Ανενεργή' 
@@ -610,6 +611,7 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
             model_manufacturer,
             model_name,
             is_main_switch,
+            manual_pdf,
         ) in inactive_elements:
             elem_layout = BoxLayout(size_hint_y=None, height=80, spacing=5, orientation="vertical")
 
@@ -622,7 +624,16 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
 
             btn_layout = BoxLayout(size_hint_y=None, height=30, spacing=5)
 
-            edit_btn = Button(text=S["BUTTONS"]["EDIT"])
+            # Add manual button if manual_pdf exists
+            import os
+            if manual_pdf and os.path.exists(manual_pdf):
+                manual_btn = IconOnlyButton(icon_type="book", icon_color=(0.8, 0.4, 0, 1), size=(30, 30))
+                manual_btn.size_hint_x = 0.15
+                manual_btn.bind(on_press=lambda x, mp=manual_pdf: app._open_model_manual(mp))
+                btn_layout.add_widget(manual_btn)
+
+            edit_btn = IconOnlyButton(icon_type="edit", icon_color=app.theme.get("primary", (0.2, 0.6, 1, 1)), size=(30, 30))
+            edit_btn.size_hint_x = 0.2
             edit_btn.bind(
                 on_press=lambda x, eid=elem_id, sid=substation_id, sname=substation_name, p=popup, gp=parent_popup: (
                     app.show_edit_element_popup(eid, sid, p, sname, gp)
