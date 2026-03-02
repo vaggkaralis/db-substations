@@ -8123,185 +8123,185 @@ class SubstationApp(App):
             grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
             grid.bind(minimum_height=grid.setter("height"))
 
-        for maint_id, maint_name, date_time, overall_comments in maintenance_records:
-            # Maintenance card
-            card = BoxLayout(
-                orientation="vertical", size_hint_y=None, padding=5, spacing=5
-            )
-            card.bind(minimum_height=card.setter("height"))
-
-            # Header
-            header = BoxLayout(size_hint_y=None, height=40, spacing=5)
-            display_name = maint_name or self._build_maintenance_name(
-                substation_name, date_time
-            )
-            header.add_widget(
-                Label(text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.6)
-            )
-            from ui.shared import IconOnlyButton
-            edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
-            delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-            email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.13)
-
-            def make_delete_handler(m_id, p):
-                return lambda x: self.confirm_delete_maintenance_for_substation(
-                    m_id, p, substation_id, substation_name, parent_display_popup
+            for maint_id, maint_name, date_time, overall_comments in maintenance_records:
+                # Maintenance card
+                card = BoxLayout(
+                    orientation="vertical", size_hint_y=None, padding=5, spacing=5
                 )
+                card.bind(minimum_height=card.setter("height"))
 
-            delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
-
-            def make_email_handler(m_id):
-                return lambda x: self.send_maintenance_email_report(m_id)
-
-            email_btn.bind(on_press=make_email_handler(maint_id))
-
-            def make_edit_handler(m_id, p):
-                return lambda x: self.show_maintenance_menu(
-                    None,
-                    substation_name,
-                    p,
-                    m_id,
-                    lambda: self.show_substation_maintenance_history(
-                        substation_id, substation_name, parent_display_popup
-                    ),
+                # Header
+                header = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                display_name = maint_name or self._build_maintenance_name(
+                    substation_name, date_time
                 )
-
-            edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
-            header.add_widget(edit_btn)
-            header.add_widget(email_btn)
-            header.add_widget(delete_btn)
-            card.add_widget(header)
-
-            # Responsible and crew
-            responsible, crew = self._get_maintenance_people(maint_id)
-            if responsible or crew:
-                crew_text = ", ".join(crew) if crew else "-"
-                resp_text = responsible if responsible else "-"
-                people_label = Label(
-                    text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
-                    size_hint_y=None,
-                    height=25,
+                header.add_widget(
+                    Label(text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.6)
                 )
-                people_label.bind(
-                    width=lambda instance, value: setattr(
-                        instance, "text_size", (value, None)
-                    ),
-                    texture_size=lambda instance, value: setattr(
-                        instance, "height", value[1] + 6
-                    ),
-                )
-                card.add_widget(people_label)
+                from ui.shared import IconOnlyButton
+                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
+                delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+                email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.13)
 
-            # Overall comments
-            if overall_comments:
-                comment_label = Label(
-                    text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=overall_comments), size_hint_y=None, height=30
-                )
-                comment_label.bind(
-                    width=lambda instance, value: setattr(
-                        instance, "text_size", (value, None)
-                    ),
-                    texture_size=lambda instance, value: setattr(
-                        instance, "height", value[1] + 6
-                    ),
-                )
-                card.add_widget(comment_label)
-
-            # Get elements for this maintenance
-            c.execute(
-                """
-                SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
-                FROM maintenance_elements me
-                JOIN elements e ON me.element_id = e.id
-                WHERE me.maintenance_id = ?
-            """,
-                (maint_id,),
-            )
-            elements = c.fetchall()
-
-            # Elements list
-            elements_label = Label(
-                text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
-                size_hint_y=None,
-                height=25,
-                bold=True,
-            )
-            card.add_widget(elements_label)
-
-            for (
-                elem_id,
-                elem_type,
-                elem_name,
-                serial_num,
-                elem_comments,
-                breaker_category,
-            ) in elements:
-                # Element info with optional PDF button
-                elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                elem_row.bind(minimum_height=elem_row.setter("height"))
-
-                elem_text = f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
-                if elem_comments:
-                    elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
-
-                elem_label = Label(text=elem_text, size_hint_x=0.6, size_hint_y=None)
-                elem_label.bind(
-                    width=lambda instance, value: setattr(
-                        instance, "text_size", (value, None)
-                    ),
-                    texture_size=lambda instance, value: (
-                        setattr(instance, "height", value[1] + 6),
-                        setattr(elem_row, "height", max(40, value[1] + 10)),
-                    ),
-                )
-                elem_row.add_widget(elem_label)
-
-                # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES_ALL)
-                buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
-
-                view_btn = Button(
-                    text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."),
-                    size_hint_x=0.34,
-                    size_hint_y=None,
-                    height=35,
-                    **font_kwargs,
-                )
-
-                def make_view_handler(m_id, e_id, e_name):
-                    return lambda x: self.show_maintenance_element_details(
-                        m_id, e_id, e_name
+                def make_delete_handler(m_id, p):
+                    return lambda x: self.confirm_delete_maintenance_for_substation(
+                        m_id, p, substation_id, substation_name, parent_display_popup
                     )
 
-                view_btn.bind(on_press=make_view_handler(maint_id, elem_id, elem_name))
-                buttons_container.add_widget(view_btn)
+                delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
 
-                if (
-                    S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
-                    and breaker_category in self.BREAKER_CATEGORIES_ALL
-                ):
-                    pdf_btn = Button(
-                        text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
-                        size_hint_x=0.5,
+                def make_email_handler(m_id):
+                    return lambda x: self.send_maintenance_email_report(m_id)
+
+                email_btn.bind(on_press=make_email_handler(maint_id))
+
+                def make_edit_handler(m_id, p):
+                    return lambda x: self.show_maintenance_menu(
+                        None,
+                        substation_name,
+                        p,
+                        m_id,
+                        lambda: self.show_substation_maintenance_history(
+                            substation_id, substation_name, parent_display_popup
+                        ),
+                    )
+
+                edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
+                header.add_widget(edit_btn)
+                header.add_widget(email_btn)
+                header.add_widget(delete_btn)
+                card.add_widget(header)
+
+                # Responsible and crew
+                responsible, crew = self._get_maintenance_people(maint_id)
+                if responsible or crew:
+                    crew_text = ", ".join(crew) if crew else "-"
+                    resp_text = responsible if responsible else "-"
+                    people_label = Label(
+                        text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
+                        size_hint_y=None,
+                        height=25,
+                    )
+                    people_label.bind(
+                        width=lambda instance, value: setattr(
+                            instance, "text_size", (value, None)
+                        ),
+                        texture_size=lambda instance, value: setattr(
+                            instance, "height", value[1] + 6
+                        ),
+                    )
+                    card.add_widget(people_label)
+
+                # Overall comments
+                if overall_comments:
+                    comment_label = Label(
+                        text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=overall_comments), size_hint_y=None, height=30
+                    )
+                    comment_label.bind(
+                        width=lambda instance, value: setattr(
+                            instance, "text_size", (value, None)
+                        ),
+                        texture_size=lambda instance, value: setattr(
+                            instance, "height", value[1] + 6
+                        ),
+                    )
+                    card.add_widget(comment_label)
+
+                # Get elements for this maintenance
+                c.execute(
+                    """
+                    SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
+                    FROM maintenance_elements me
+                    JOIN elements e ON me.element_id = e.id
+                    WHERE me.maintenance_id = ?
+                """,
+                    (maint_id,),
+                )
+                elements = c.fetchall()
+
+                # Elements list
+                elements_label = Label(
+                    text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
+                    size_hint_y=None,
+                    height=25,
+                    bold=True,
+                )
+                card.add_widget(elements_label)
+
+                for (
+                    elem_id,
+                    elem_type,
+                    elem_name,
+                    serial_num,
+                    elem_comments,
+                    breaker_category,
+                ) in elements:
+                    # Element info with optional PDF button
+                    elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                    elem_row.bind(minimum_height=elem_row.setter("height"))
+
+                    elem_text = f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
+                    if elem_comments:
+                        elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
+
+                    elem_label = Label(text=elem_text, size_hint_x=0.6, size_hint_y=None)
+                    elem_label.bind(
+                        width=lambda instance, value: setattr(
+                            instance, "text_size", (value, None)
+                        ),
+                        texture_size=lambda instance, value: (
+                            setattr(instance, "height", value[1] + 6),
+                            setattr(elem_row, "height", max(40, value[1] + 10)),
+                        ),
+                    )
+                    elem_row.add_widget(elem_label)
+
+                    # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES_ALL)
+                    buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
+
+                    view_btn = Button(
+                        text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."),
+                        size_hint_x=0.34,
                         size_hint_y=None,
                         height=35,
                         **font_kwargs,
                     )
 
-                    def make_pdf_handler(m_id, e_id, e_name):
-                        return lambda x: self.generate_pdf_report(m_id, e_id, e_name)
+                    def make_view_handler(m_id, e_id, e_name):
+                        return lambda x: self.show_maintenance_element_details(
+                            m_id, e_id, e_name
+                        )
 
-                    pdf_btn.bind(
-                        on_press=make_pdf_handler(maint_id, elem_id, elem_name)
-                    )
-                    buttons_container.add_widget(pdf_btn)
-                else:
-                    buttons_container.add_widget(Label(text="", size_hint_x=0.5))
+                    view_btn.bind(on_press=make_view_handler(maint_id, elem_id, elem_name))
+                    buttons_container.add_widget(view_btn)
 
-                elem_row.add_widget(buttons_container)
+                    if (
+                        S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
+                        and breaker_category in self.BREAKER_CATEGORIES_ALL
+                    ):
+                        pdf_btn = Button(
+                            text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
+                            size_hint_x=0.5,
+                            size_hint_y=None,
+                            height=35,
+                            **font_kwargs,
+                        )
 
-                card.add_widget(elem_row)
+                        def make_pdf_handler(m_id, e_id, e_name):
+                            return lambda x: self.generate_pdf_report(m_id, e_id, e_name)
 
-            grid.add_widget(card)
+                        pdf_btn.bind(
+                            on_press=make_pdf_handler(maint_id, elem_id, elem_name)
+                        )
+                        buttons_container.add_widget(pdf_btn)
+                    else:
+                        buttons_container.add_widget(Label(text="", size_hint_x=0.5))
+
+                    elem_row.add_widget(buttons_container)
+
+                    card.add_widget(elem_row)
+
+                grid.add_widget(card)
 
             scroll.add_widget(grid)
             main_layout.add_widget(scroll)
