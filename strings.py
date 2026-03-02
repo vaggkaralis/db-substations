@@ -210,6 +210,7 @@ STRINGS_EL = {
         "INSPECTION_ENTRY": "Καταχώρηση Επιθεώρησης",
         "INSPECTION_HISTORY": "Ιστορικό Επιθεωρήσεων",
         "MAINT_HISTORY_LABEL": "Ιστορικό Συντηρήσεων",
+        "MAINTENANCE_NAME_FMT": "Υ/Σ {substation_name} - {date}",
         "ELEMENT_MAINT_HISTORY_TITLE": "Ιστορικό Συντηρήσεων Στοιχείου - {element_name}",
         "NO_MAINTENANCE_HISTORY": "Δεν υπάρχει ιστορικό συντηρήσεων για αυτό το στοιχείο",
         "VIEW_FULL_MAINTENANCE": "Πλήρης αναφορά",
@@ -549,7 +550,7 @@ STRINGS_EN = {
             "Use the button above to add one."
         ),
         "MAINT_HISTORY_LABEL": "Maintenance History",
-        "MAINTENANCE_NAME_FMT": "SS {substation_name} - {date}",
+        "MAINTENANCE_NAME_FMT": "Υ/Σ {substation_name} - {date}",
         "NO_RECORD_ELEMENTS": "No elements for this maintenance.",
         "DATE_TIME_LABEL": "Date & Time:",
         "DATE_REQUIRED": "Date is required!",
