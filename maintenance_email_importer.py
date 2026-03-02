@@ -30,6 +30,8 @@ _SUBSTATION_ALIASES = {
     "ν ελβετια": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
     "ν ελβετιας": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
     "ν ελβετιασ": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",  # with final sigma
+    "νε ελβετιας": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
+    "νε ελβετιασ": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
     # Μ.ΜΠΟΤΣΑΡΗ
     "μποτσαρη": "Μ.ΜΠΟΤΣΑΡΗ (ΘΕΣΣΑΛΟΝΙΚΗ VIII)",
     "μ μποτσαρη": "Μ.ΜΠΟΤΣΑΡΗ (ΘΕΣΣΑΛΟΝΙΚΗ VIII)",
@@ -50,6 +52,17 @@ _SUBSTATION_ALIASES = {
     "υ/σ δοξας": "ΔΟΞΑ (ΘΕΣΣΑΛΟΝΙΚΗ I)",
     # ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ
     "κυτ θεσσαλονικης": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
+        # ΚΥΤ ΦΙΛΙΠΠΩΝ
+        "κυτ φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "κυτ φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "κυτ φιλιππων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+        "κυτ φιλλιπων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "κυυτ θεσσαλονικης": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
     "κυτ θεσσαλονικησ": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
     "κυυτ θεσσαλονικησ": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",  # with final sigma and double upsilon
@@ -71,6 +84,13 @@ _SUBSTATION_ALIASES = {
     "σερβιων": "ΣΕΡΒΙΑ",
     "υσ σερβιων": "ΣΕΡΒΙΑ",
     "υ/σ σερβιων": "ΣΕΡΒΙΑ",
+    # ΣΚΟΤΙΝΑ (περιοχή ΠΛΑΤΑΜΩΝΑ)
+    "σκοτινα": "ΠΛΑΤΑΜΩΝΑΣ",
+    "σκοτινας": "ΠΛΑΤΑΜΩΝΑΣ",
+    "μσ2 σκοτινα": "ΠΛΑΤΑΜΩΝΑΣ",
+    "σκοτινα μσ2": "ΠΛΑΤΑΜΩΝΑΣ",
+    "υς σκοτινα": "ΠΛΑΤΑΜΩΝΑΣ",
+    "υ/σ σκοτινα": "ΠΛΑΤΑΜΩΝΑΣ",
     # ΓΙΑΝΝΙΤΣΑ (Ν.ΠΕΛΛΑ) - also known as Πέλλας
     "πελλα": "ΓΙΑΝΝΙΤΣΑ (Ν.ΠΕΛΛΑ)",
     "πελλας": "ΓΙΑΝΝΙΤΣΑ (Ν.ΠΕΛΛΑ)",
@@ -78,7 +98,24 @@ _SUBSTATION_ALIASES = {
     "γιαννιτσης": "ΓΙΑΝΝΙΤΣΑ (Ν.ΠΕΛΛΑ)",
     "υσ πελλας": "ΓΙΑΝΝΙΤΣΑ (Ν.ΠΕΛΛΑ)",
     "υ/σ πελλας": "ΓΙΑΝΝΙΤΣΑ (Ν.ΠΕΛΛΑ)",
+    # ΣΧΟΛΑΡΙ
+    "σχολαριου": "ΣΧΟΛΑΡΙ (ΘΕΣΣΑΛΟΝΙΚΗ VI)",
+    "υσ σχολαριου": "ΣΧΟΛΑΡΙ (ΘΕΣΣΑΛΟΝΙΚΗ VI)",
+    "υ σ σχολαριου": "ΣΧΟΛΑΡΙ (ΘΕΣΣΑΛΟΝΙΚΗ VI)",
+    "υσ σχολαρι": "ΣΧΟΛΑΡΙ (ΘΕΣΣΑΛΟΝΙΚΗ VI)",
+    "υ σ σχολαρι": "ΣΧΟΛΑΡΙ (ΘΕΣΣΑΛΟΝΙΚΗ VI)",
+    # ΜΑΓΙΚΟ ΞΑΝΘΗΣ
+    "μαγικου": "ΜΑΓΙΚΟ ΞΑΝΘΗΣ",
+    "υσ μαγικου": "ΜΑΓΙΚΟ ΞΑΝΘΗΣ",
+    "υ σ μαγικου": "ΜΑΓΙΚΟ ΞΑΝΘΗΣ",
 }
+
+
+def _normalize_for_alias_lookup(value: str) -> str:
+    normalized = _normalize_text(value)
+    normalized = re.sub(r"[^0-9a-zα-ω]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
 
 
 def _lookup_substation_by_name(conn, substation_name: str):
@@ -86,7 +123,21 @@ def _lookup_substation_by_name(conn, substation_name: str):
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations WHERE name = ?", (substation_name,))
     row = c.fetchone()
-    return dict(row) if row else None
+    if row:
+        return dict(row)
+
+    # Fallback: normalized lookup (handles punctuation/spacing variations)
+    wanted = _normalize_for_alias_lookup(substation_name)
+    if not wanted:
+        return None
+
+    c.execute("SELECT id, name FROM substations")
+    for db_row in c.fetchall():
+        db_name_norm = _normalize_for_alias_lookup(db_row["name"])
+        if db_name_norm == wanted:
+            return dict(db_row)
+
+    return None
 
 def _get_table_columns(conn, table_name):
     cur = conn.cursor()
@@ -98,6 +149,7 @@ def _parse_subject_for_substation_and_date(subject: str):
     if not subject:
         return None, None
     subject = subject.strip()
+    subject = re.sub(r"^\s*(?:fwd|fw|re)\s*:\s*", "", subject, flags=re.IGNORECASE)
     date_match = None
 
     patterns = [
@@ -135,7 +187,7 @@ def _parse_subject_for_substation_and_date(subject: str):
 def _match_substation_by_name(conn, subject_substation: str):
     if not subject_substation:
         return None
-    normalized_subject = _normalize_text(subject_substation)
+    normalized_subject = _normalize_for_alias_lookup(subject_substation)
     if not normalized_subject:
         return None
 
@@ -176,7 +228,7 @@ def _match_substation_in_text(conn, text: str):
         return None
 
     # Check if any alias appears in the text - prioritize longer/more specific aliases
-    normalized_text = _normalize_text(text)
+    normalized_text = _normalize_for_alias_lookup(text)
     best_alias_match = None
     best_alias_length = 0
     
@@ -210,8 +262,8 @@ def _match_substation_in_text(conn, text: str):
 
     # Return the match with the most tokens (most specific/longer match)
     if matches:
-        matches.sort(reverse=True)
-        return matches[0][1]
+        best = max(matches, key=lambda item: item[0])
+        return best[1]
 
     return None
 

@@ -161,6 +161,23 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     cursor.execute("PRAGMA table_info(elements)")
     elem_columns = [column[1] for column in cursor.fetchall()]
 
+    # Performance indexes for maintenance history views/import joins
+    try:
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_substation_date ON maintenance(substation_id, date_time DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_date ON maintenance(date_time DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_elements_maintenance ON maintenance_elements(maintenance_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_people_maintenance ON maintenance_people(maintenance_id)"
+        )
+    except Exception:
+        pass
+
     # Ensure database-level constraint: for circuit breakers (Διακόπτης ΥΤ/Διακόπτης ΜΤ)
     # breaker_category must be non-empty. We implement this by creating a new
     # `elements` table with a CHECK constraint and migrating existing data if the

@@ -39,6 +39,10 @@ def _trim_first_message(text: str) -> str:
     lines = text.splitlines()
     trimmed = []
     skip_headers = False  # Flag to skip forwarded/original message headers
+    content_started = False
+    
+    def _is_header_line(value: str) -> bool:
+        return any(pat.search(value) for pat in _HEADER_PATTERNS)
     
     for line in lines:
         stripped = line.strip()
@@ -47,6 +51,13 @@ def _trim_first_message(text: str) -> str:
         is_separator = any(pat.search(line) for pat in _SEPARATOR_PATTERNS)
         
         if is_separator:
+            skip_headers = True
+            continue
+
+        # Some PST/plain-text bodies start directly with a mail header block
+        # (From/Sent/To/Subject/Cc) without a forwarded separator line.
+        # Skip that initial header block until the first blank line.
+        if not content_started and _is_header_line(line):
             skip_headers = True
             continue
         
@@ -64,6 +75,8 @@ def _trim_first_message(text: str) -> str:
             break
         
         trimmed.append(line)
+        if stripped:
+            content_started = True
 
     result = "\n".join(trimmed).strip()
     return result or text.strip()

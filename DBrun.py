@@ -5785,9 +5785,6 @@ class SubstationApp(App):
         substation_row.add_widget(substation_input)
         substation_row.add_widget(select_sub_btn)
         
-        if maintenance_id:
-            select_sub_btn.disabled = True
-        
         content_layout.add_widget(substation_row)
 
         def _on_select_substation(sub_name):
@@ -7810,19 +7807,17 @@ class SubstationApp(App):
     def show_maintenance_history(self, instance):
         """Show maintenance history"""
         font_kwargs = self._get_ui_font_kwargs()
+        history_limit = 80
         c = self.conn.cursor()
         c.execute("SELECT id, name FROM substations")
-        substation_map = {row[1]: row[0] for row in c.fetchall()}
+        all_substations_raw = c.fetchall()
+        substation_map = {row[1]: row[0] for row in all_substations_raw}
+        all_substations = sorted(all_substations_raw, key=lambda row: row[1])
 
-        c.execute("""
-            SELECT m.id, s.name, m.name, m.date_time, m.overall_comments
-            FROM maintenance m
-            JOIN substations s ON m.substation_id = s.id
-            ORDER BY m.date_time DESC
-        """)
-        all_records = c.fetchall()
+        c.execute("SELECT COUNT(*) FROM maintenance")
+        all_records_count = c.fetchone()[0]
 
-        if not all_records:
+        if not all_records_count:
             show_message_popup(S["TITLES"]["INFO"], S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"))
             return
 
@@ -7830,17 +7825,22 @@ class SubstationApp(App):
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
-        filter_bar.add_widget(Label(text=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού:"), size_hint_x=0.3))
-        substation_values = ["(Όλα)"] + sorted(substation_map.keys())
-        substation_spinner = Spinner(
-            text="(Όλα)", values=substation_values, size_hint_x=0.7
+        filter_bar.add_widget(Label(text=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού:"), size_hint_x=0.22))
+        substation_input = TextInput(
+            text="(Όλα)", readonly=True, multiline=False, size_hint_x=0.48
         )
-        filter_bar.add_widget(substation_spinner)
+        filter_bar.add_widget(substation_input)
+        select_sub_btn = Button(text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"), size_hint_x=0.15)
+        filter_bar.add_widget(select_sub_btn)
+        show_all_btn = Button(text=S["MESSAGES"].get("ALL_LABEL", "(Όλα)"), size_hint_x=0.15)
+        filter_bar.add_widget(show_all_btn)
         main_layout.add_widget(filter_bar)
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
         grid.bind(minimum_height=grid.setter("height"))
+        info_label = Label(text="", size_hint_y=None, height=24)
+        main_layout.add_widget(info_label)
 
         def fetch_records(selected_substation):
             if selected_substation and selected_substation != "(Όλα)":
@@ -7851,8 +7851,9 @@ class SubstationApp(App):
                     JOIN substations s ON m.substation_id = s.id
                     WHERE s.name = ?
                     ORDER BY m.date_time DESC
+                    LIMIT ?
                 """,
-                    (selected_substation,),
+                    (selected_substation, history_limit),
                 )
             else:
                 c.execute("""
@@ -7860,12 +7861,33 @@ class SubstationApp(App):
                     FROM maintenance m
                     JOIN substations s ON m.substation_id = s.id
                     ORDER BY m.date_time DESC
-                """)
+                    LIMIT ?
+                """, (history_limit,))
             return c.fetchall()
+
+        def fetch_total_count(selected_substation):
+            if selected_substation and selected_substation != "(Όλα)":
+                c.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM maintenance m
+                    JOIN substations s ON m.substation_id = s.id
+                    WHERE s.name = ?
+                """,
+                    (selected_substation,),
+                )
+            else:
+                c.execute("SELECT COUNT(*) FROM maintenance")
+            return c.fetchone()[0]
 
         def render_records(selected_substation):
             grid.clear_widgets()
             maintenance_records = fetch_records(selected_substation)
+            total_count = fetch_total_count(selected_substation)
+            if total_count > len(maintenance_records):
+                info_label.text = f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_count} συντηρήσεις."
+            else:
+                info_label.text = ""
             if not maintenance_records:
                 grid.add_widget(
                     Label(
@@ -7875,6 +7897,50 @@ class SubstationApp(App):
                     )
                 )
                 return
+
+            maint_ids = [row[0] for row in maintenance_records]
+            people_by_maint = {}
+            elements_by_maint = {}
+
+            if maint_ids:
+                placeholders = ",".join(["?"] * len(maint_ids))
+
+                # Bulk fetch responsible/crew people for all maintenance rows in this view
+                c.execute(
+                    f"""
+                    SELECT mp.maintenance_id, p.name, mp.role
+                    FROM maintenance_people mp
+                    JOIN people p ON mp.person_id = p.id
+                    WHERE mp.maintenance_id IN ({placeholders})
+                    ORDER BY p.name
+                    """,
+                    maint_ids,
+                )
+                for m_id, person_name, role in c.fetchall():
+                    entry = people_by_maint.setdefault(
+                        m_id, {"responsible": None, "crew": []}
+                    )
+                    if role == "responsible":
+                        entry["responsible"] = person_name
+                    elif role == "crew":
+                        entry["crew"].append(person_name)
+
+                # Bulk fetch elements for all maintenance rows in this view
+                c.execute(
+                    f"""
+                    SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
+                           me.element_comments, e.breaker_category
+                    FROM maintenance_elements me
+                    JOIN elements e ON me.element_id = e.id
+                    WHERE me.maintenance_id IN ({placeholders})
+                    ORDER BY me.maintenance_id, e.name
+                    """,
+                    maint_ids,
+                )
+                for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
+                    elements_by_maint.setdefault(m_id, []).append(
+                        (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
+                    )
 
             for (
                 maint_id,
@@ -7925,7 +7991,11 @@ class SubstationApp(App):
                 card.add_widget(header)
 
                 # Responsible and crew
-                responsible, crew = self._get_maintenance_people(maint_id)
+                people_info = people_by_maint.get(
+                    maint_id, {"responsible": None, "crew": []}
+                )
+                responsible = people_info.get("responsible")
+                crew = people_info.get("crew") or []
                 if responsible or crew:
                     crew_text = ", ".join(crew) if crew else "-"
                     resp_text = responsible if responsible else "-"
@@ -7959,17 +8029,8 @@ class SubstationApp(App):
                     )
                     card.add_widget(comment_label)
 
-                # Get elements for this maintenance
-                c.execute(
-                    """
-                    SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
-                    FROM maintenance_elements me
-                    JOIN elements e ON me.element_id = e.id
-                    WHERE me.maintenance_id = ?
-                """,
-                    (maint_id,),
-                )
-                elements = c.fetchall()
+                # Elements for this maintenance (from bulk prefetch)
+                elements = elements_by_maint.get(maint_id, [])
 
                 # Elements list
                 elements_label = Label(
@@ -8063,8 +8124,26 @@ class SubstationApp(App):
 
                 grid.add_widget(card)
 
-        render_records(substation_spinner.text)
-        substation_spinner.bind(text=lambda _spinner, text: render_records(text))
+        def _on_select_substation_filter(sub_name):
+            substation_input.text = sub_name
+            render_records(sub_name)
+
+        def _open_substation_filter_picker(_instance=None):
+            self._show_substation_selection_window_with_callback(
+                popup,
+                all_substations,
+                on_select=_on_select_substation_filter,
+                title=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού"),
+            )
+
+        def _show_all_substations_filter(_instance=None):
+            substation_input.text = "(Όλα)"
+            render_records("(Όλα)")
+
+        select_sub_btn.bind(on_press=_open_substation_filter_picker)
+        show_all_btn.bind(on_press=_show_all_substations_filter)
+
+        render_records(substation_input.text)
 
         scroll.add_widget(grid)
         main_layout.add_widget(scroll)
@@ -8082,15 +8161,19 @@ class SubstationApp(App):
     ):
         """Show maintenance history for a specific substation"""
         font_kwargs = self._get_ui_font_kwargs()
+        history_limit = 80
         c = self.conn.cursor()
+        c.execute("SELECT COUNT(*) FROM maintenance WHERE substation_id = ?", (substation_id,))
+        total_records = c.fetchone()[0]
         c.execute(
             """
             SELECT m.id, m.name, m.date_time, m.overall_comments
             FROM maintenance m
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
+            LIMIT ?
         """,
-            (substation_id,),
+            (substation_id, history_limit),
         )
         maintenance_records = c.fetchall()
 
@@ -8119,9 +8202,61 @@ class SubstationApp(App):
             )
             main_layout.add_widget(no_records_label)
         else:
+            if total_records > len(maintenance_records):
+                main_layout.add_widget(
+                    Label(
+                        text=f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_records} συντηρήσεις.",
+                        size_hint_y=None,
+                        height=24,
+                    )
+                )
             scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
             grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
             grid.bind(minimum_height=grid.setter("height"))
+
+            maint_ids = [row[0] for row in maintenance_records]
+            people_by_maint = {}
+            elements_by_maint = {}
+
+            if maint_ids:
+                placeholders = ",".join(["?"] * len(maint_ids))
+
+                # Bulk fetch responsible/crew people for all maintenance rows in this substation
+                c.execute(
+                    f"""
+                    SELECT mp.maintenance_id, p.name, mp.role
+                    FROM maintenance_people mp
+                    JOIN people p ON mp.person_id = p.id
+                    WHERE mp.maintenance_id IN ({placeholders})
+                    ORDER BY p.name
+                    """,
+                    maint_ids,
+                )
+                for m_id, person_name, role in c.fetchall():
+                    entry = people_by_maint.setdefault(
+                        m_id, {"responsible": None, "crew": []}
+                    )
+                    if role == "responsible":
+                        entry["responsible"] = person_name
+                    elif role == "crew":
+                        entry["crew"].append(person_name)
+
+                # Bulk fetch elements for all maintenance rows in this substation
+                c.execute(
+                    f"""
+                    SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
+                           me.element_comments, e.breaker_category
+                    FROM maintenance_elements me
+                    JOIN elements e ON me.element_id = e.id
+                    WHERE me.maintenance_id IN ({placeholders})
+                    ORDER BY me.maintenance_id, e.name
+                    """,
+                    maint_ids,
+                )
+                for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
+                    elements_by_maint.setdefault(m_id, []).append(
+                        (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
+                    )
 
             for maint_id, maint_name, date_time, overall_comments in maintenance_records:
                 # Maintenance card
@@ -8173,7 +8308,11 @@ class SubstationApp(App):
                 card.add_widget(header)
 
                 # Responsible and crew
-                responsible, crew = self._get_maintenance_people(maint_id)
+                people_info = people_by_maint.get(
+                    maint_id, {"responsible": None, "crew": []}
+                )
+                responsible = people_info.get("responsible")
+                crew = people_info.get("crew") or []
                 if responsible or crew:
                     crew_text = ", ".join(crew) if crew else "-"
                     resp_text = responsible if responsible else "-"
@@ -8207,17 +8346,8 @@ class SubstationApp(App):
                     )
                     card.add_widget(comment_label)
 
-                # Get elements for this maintenance
-                c.execute(
-                    """
-                    SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
-                    FROM maintenance_elements me
-                    JOIN elements e ON me.element_id = e.id
-                    WHERE me.maintenance_id = ?
-                """,
-                    (maint_id,),
-                )
-                elements = c.fetchall()
+                # Elements for this maintenance (from bulk prefetch)
+                elements = elements_by_maint.get(maint_id, [])
 
                 # Elements list
                 elements_label = Label(
