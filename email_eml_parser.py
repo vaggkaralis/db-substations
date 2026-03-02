@@ -7,20 +7,29 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 
-_QUOTE_BREAK_PATTERNS = [
-    re.compile(r"^\s*_{10,}\s*$"),  # Outlook-style separator line (many underscores)
+_SEPARATOR_PATTERNS = [
+    re.compile(r"^\s*_{10,}\s*$"),  # Outlook-style separator line
     re.compile(r"^\s*-{2,}\s*Original Message\s*-{2,}\s*$", re.IGNORECASE),
     re.compile(r"^\s*-{2,}\s*Forwarded message\s*-{2,}\s*$", re.IGNORECASE),
+]
+
+_HEADER_PATTERNS = [
     re.compile(r"^\s*From:\s", re.IGNORECASE),
     re.compile(r"^\s*Sent:\s", re.IGNORECASE),
+    re.compile(r"^\s*Date:\s", re.IGNORECASE),  # Added Date pattern
     re.compile(r"^\s*To:\s", re.IGNORECASE),
     re.compile(r"^\s*Subject:\s", re.IGNORECASE),
+    re.compile(r"^\s*Cc:\s", re.IGNORECASE),
+    re.compile(r"^\s*Bcc:\s", re.IGNORECASE),
     re.compile(r"^\s*On .+ wrote:\s*$", re.IGNORECASE),
     re.compile(r"^\s*Από:\s", re.IGNORECASE),
     re.compile(r"^\s*Στάλθηκε:\s", re.IGNORECASE),
     re.compile(r"^\s*Προς:\s", re.IGNORECASE),
     re.compile(r"^\s*Θέμα:\s", re.IGNORECASE),
+    re.compile(r"^\s*Cc:\s", re.IGNORECASE),  # Greek Cc
 ]
+
+_QUOTE_BREAK_PATTERNS = _SEPARATOR_PATTERNS + _HEADER_PATTERNS
 
 
 def _trim_first_message(text: str) -> str:
@@ -29,11 +38,31 @@ def _trim_first_message(text: str) -> str:
 
     lines = text.splitlines()
     trimmed = []
+    skip_headers = False  # Flag to skip forwarded/original message headers
+    
     for line in lines:
-        if line.strip().startswith(">"):
+        stripped = line.strip()
+        
+        # Check if this is a separator for forwarded/original message
+        is_separator = any(pat.search(line) for pat in _SEPARATOR_PATTERNS)
+        
+        if is_separator:
+            skip_headers = True
+            continue
+        
+        # If we're in header skip mode, skip until we find the header/body boundary (blank line)
+        if skip_headers:
+            # Blank line = end of email headers, start of body
+            if not stripped:
+                skip_headers = False
+                continue
+            # Keep skipping this line (it's part of the headers)
+            continue
+        
+        # Stop at quote markers
+        if stripped.startswith(">"):
             break
-        if any(pat.search(line) for pat in _QUOTE_BREAK_PATTERNS):
-            break
+        
         trimmed.append(line)
 
     result = "\n".join(trimmed).strip()
