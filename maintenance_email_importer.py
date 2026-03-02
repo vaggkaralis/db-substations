@@ -175,18 +175,27 @@ def _match_substation_in_text(conn, text: str):
     if not tokens:
         return None
 
-    # Check if any alias appears in the text
+    # Check if any alias appears in the text - prioritize longer/more specific aliases
     normalized_text = _normalize_text(text)
+    best_alias_match = None
+    best_alias_length = 0
+    
     for alias, target_name in _SUBSTATION_ALIASES.items():
-        if alias in normalized_text:
-            result = _lookup_substation_by_name(conn, target_name)
-            if result:
-                return result
+        if alias in normalized_text and len(alias) > best_alias_length:
+            best_alias_match = target_name
+            best_alias_length = len(alias)
+    
+    if best_alias_match:
+        result = _lookup_substation_by_name(conn, best_alias_match)
+        if result:
+            return result
 
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations")
     rows = c.fetchall()
 
+    # Collect all matching substations with their match quality (token count)
+    matches = []
     for row in rows:
         for candidate_name in _iter_substation_name_candidates(row["name"]):
             name_tokens = _tokenize_substation_text(candidate_name)
@@ -195,7 +204,14 @@ def _match_substation_in_text(conn, text: str):
             for i in range(len(tokens) - len(name_tokens) + 1):
                 candidate = tokens[i : i + len(name_tokens)]
                 if _tokens_match(candidate, name_tokens):
-                    return dict(row)
+                    # Score based on number of tokens matched (more is better)
+                    matches.append((len(name_tokens), dict(row)))
+                    break  # Found a match for this row, no need to check other positions
+
+    # Return the match with the most tokens (most specific/longer match)
+    if matches:
+        matches.sort(reverse=True)
+        return matches[0][1]
 
     return None
 
@@ -474,6 +490,7 @@ def create_maintenance_from_email(
             substation = _match_substation_by_name(conn, substation_name)
         if not substation:
             substation = _match_substation_in_text(conn, subject)
+        # Only try body match if no subject match found, to prioritize explicit subject mentions
         if not substation:
             substation = _match_substation_in_text(conn, body)
         if not substation:
