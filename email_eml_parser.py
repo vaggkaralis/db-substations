@@ -8,6 +8,7 @@ from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 
 _QUOTE_BREAK_PATTERNS = [
+    re.compile(r"^\s*_{10,}\s*$"),  # Outlook-style separator line (many underscores)
     re.compile(r"^\s*-{2,}\s*Original Message\s*-{2,}\s*$", re.IGNORECASE),
     re.compile(r"^\s*-{2,}\s*Forwarded message\s*-{2,}\s*$", re.IGNORECASE),
     re.compile(r"^\s*From:\s", re.IGNORECASE),
@@ -99,8 +100,9 @@ def _extract_body(message):
         content = re.sub(r"<[^>]+>", " ", content)
         content = re.sub(r"\s+", " ", content).strip()
 
-    cleaned = _clean_body(content or "")
-    return _trim_first_message(cleaned)
+    # Trim BEFORE cleaning to preserve line breaks needed for pattern matching
+    trimmed = _trim_first_message(content or "")
+    return _clean_body(trimmed)
 
 
 def parse_eml_file(path: str):

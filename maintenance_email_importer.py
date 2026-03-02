@@ -4,47 +4,46 @@ Shared utilities to import maintenance records from email metadata.
 
 import re
 import sqlite3
-import unicodedata
 from datetime import datetime
 
 from database import init_db
+from email_text_utils import normalize_text as _normalize_text
+from email_text_utils import tokenize_text as _tokenize_text
+from email_text_utils import tokens_match as _tokens_match
+from email_text_utils import normalize_substation_tokens as _normalize_substation_tokens
+from email_text_utils import tokenize_substation_text as _tokenize_substation_text
+from email_text_utils import iter_substation_name_candidates as _iter_substation_name_candidates
 from settings import DB_PATH as DEFAULT_DB_PATH
 
+# Map common substation name variations to database names
+_SUBSTATION_ALIASES = {
+    "παυλου μελα": "Π.ΜΕΛΛΑΣ (ΘΕΣΣΑΛ. ΧΙ)",
+    "παυλου μελλα": "Π.ΜΕΛΛΑΣ (ΘΕΣΣΑΛ. ΧΙ)",
+    "π μελα": "Π.ΜΕΛΛΑΣ (ΘΕΣΣΑΛ. ΧΙ)",
+    "π μελλα": "Π.ΜΕΛΛΑΣ (ΘΕΣΣΑΛ. ΧΙ)",
+    "π μελλασ": "Π.ΜΕΛΛΑΣ (ΘΕΣΣΑΛ. ΧΙ)",
+    "νεας ελβετιας": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
+    "νεασ ελβετιασ": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",  # with final sigma
+    "νεα ελβετια": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
+    "ν ελβετια": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
+    "ν ελβετιας": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",
+    "ν ελβετιασ": "Ν. ΕΛΒΕΤΙΑ (ΘΕΣΣΑΛΟΝΙΚΗ IV)",  # with final sigma
+    "μποτσαρη": "Μ.ΜΠΟΤΣΑΡΗ (ΘΕΣΣΑΛΟΝΙΚΗ VIII)",
+    "μ μποτσαρη": "Μ.ΜΠΟΤΣΑΡΗ (ΘΕΣΣΑΛΟΝΙΚΗ VIII)",
+}
+
+
+def _lookup_substation_by_name(conn, substation_name: str):
+    """Helper to query database for a substation by exact name."""
+    c = conn.cursor()
+    c.execute("SELECT id, name FROM substations WHERE name = ?", (substation_name,))
+    row = c.fetchone()
+    return dict(row) if row else None
 
 def _get_table_columns(conn, table_name):
     cur = conn.cursor()
     cur.execute(f"PRAGMA table_info({table_name})")
     return {row[1] for row in cur.fetchall()}
-
-
-def _normalize_text(value: str) -> str:
-    if not value:
-        return ""
-    value = unicodedata.normalize("NFKD", value)
-    value = "".join(ch for ch in value if not unicodedata.combining(ch))
-    value = value.replace("ς", "σ").lower()
-    return value
-
-
-def _tokenize_text(value: str):
-    normalized = _normalize_text(value)
-    normalized = re.sub(r"[^0-9a-zα-ω]+", " ", normalized)
-    return [tok for tok in normalized.split() if tok]
-
-
-def _tokens_match(left_tokens, right_tokens):
-    if len(left_tokens) != len(right_tokens):
-        return False
-    for left, right in zip(left_tokens, right_tokens):
-        if left == right:
-            continue
-        common_len = min(len(left), len(right))
-        if common_len >= 4 and (left.startswith(right) or right.startswith(left)):
-            continue
-        if common_len >= 4 and left[:-1] == right[:-1]:
-            continue
-        return False
-    return True
 
 
 def _parse_subject_for_substation_and_date(subject: str):
@@ -92,6 +91,13 @@ def _match_substation_by_name(conn, subject_substation: str):
     if not normalized_subject:
         return None
 
+    # Check aliases first
+    if normalized_subject in _SUBSTATION_ALIASES:
+        alias_target = _SUBSTATION_ALIASES[normalized_subject]
+        result = _lookup_substation_by_name(conn, alias_target)
+        if result:
+            return result
+
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations")
     rows = c.fetchall()
@@ -117,22 +123,31 @@ def _match_substation_by_name(conn, subject_substation: str):
 
 
 def _match_substation_in_text(conn, text: str):
-    tokens = _tokenize_text(text)
+    tokens = _tokenize_substation_text(text)
     if not tokens:
         return None
+
+    # Check if any alias appears in the text
+    normalized_text = _normalize_text(text)
+    for alias, target_name in _SUBSTATION_ALIASES.items():
+        if alias in normalized_text:
+            result = _lookup_substation_by_name(conn, target_name)
+            if result:
+                return result
 
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations")
     rows = c.fetchall()
 
     for row in rows:
-        name_tokens = _tokenize_text(row["name"])
-        if not name_tokens:
-            continue
-        for i in range(len(tokens) - len(name_tokens) + 1):
-            candidate = tokens[i : i + len(name_tokens)]
-            if _tokens_match(candidate, name_tokens):
-                return dict(row)
+        for candidate_name in _iter_substation_name_candidates(row["name"]):
+            name_tokens = _tokenize_substation_text(candidate_name)
+            if not name_tokens:
+                continue
+            for i in range(len(tokens) - len(name_tokens) + 1):
+                candidate = tokens[i : i + len(name_tokens)]
+                if _tokens_match(candidate, name_tokens):
+                    return dict(row)
 
     return None
 
@@ -179,14 +194,36 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
         person_tokens = _tokenize_text(name)
         if not person_tokens:
             continue
-        surname = person_tokens[-1]
-        first = person_tokens[0]
-        initial = first[0] if first else ""
-        if surname and surname in token_set:
+        
+        # Database stores "SURNAME FIRSTNAME", so check both tokens
+        first_token = person_tokens[0]  # Surname
+        last_token = person_tokens[-1]   # First name
+        
+        # Check if surname (first token) appears in body - with Greek declension matching
+        if first_token:
+            # Exact match
+            if first_token in token_set:
+                found.add(pid)
+                continue
+            # Check for Greek declension variants (e.g., ιορδανιδη vs ιορδανιδησ)
+            for body_token in token_set:
+                if _tokens_match([body_token], [first_token]):
+                    found.add(pid)
+                    break
+            if pid in found:
+                continue
+        
+        # Check if first name (last token) appears in body
+        if last_token and last_token in token_set:
             found.add(pid)
             continue
-        if initial and surname and f"{initial}{surname}" in compact:
+        
+        # Check initial + surname pattern
+        initial = first_token[0] if first_token else ""
+        if initial and first_token and f"{initial}{first_token}" in compact:
             found.add(pid)
+
+    return found
 
     return found
 
@@ -383,6 +420,7 @@ def create_maintenance_from_email(
             return False, "Missing subject"
 
         substation_name, date_str = _parse_subject_for_substation_and_date(subject)
+        
         substation = None
         if substation_name:
             substation = _match_substation_by_name(conn, substation_name)
@@ -457,12 +495,8 @@ def create_maintenance_from_email(
         crew_ids = _find_people_in_body(
             conn, body, exclude_ids={responsible_id} if responsible_id else set()
         )
-        if not crew_ids:
-            if not prev_defaults:
-                prev_defaults = _get_previous_maintenance_defaults(
-                    conn, substation["id"], date_time_value
-                )
-            crew_ids = prev_defaults.get("crew_ids") or set()
+        # Don't use fallback to previous maintenance crew - only include explicitly mentioned crew
+        # This prevents false preselection of crew members from previous work
 
         for pid in crew_ids:
             try:

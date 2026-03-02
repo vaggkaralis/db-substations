@@ -1,4 +1,5 @@
 import os
+import threading
 from datetime import datetime
 
 from strings_proxy import STRINGS as S
@@ -17,6 +18,7 @@ def _make_ui_dict(ui):
         "ask_open_file",
         "show_message_popup",
         "parse_eml_file",
+        "import_maintenance_from_pst_file",
         "export_maintenances_per_substation",
     )
     return {k: ui.get(k) for k in keys}
@@ -70,6 +72,54 @@ def show_maintenance_menu_popup(app, ui):
 
 
 def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
+    ui = _make_ui_dict(ui)
+    Popup = ui["Popup"]
+    BoxLayout = ui["BoxLayout"]
+    Label = ui["Label"]
+    Button = ui["Button"]
+
+    popup = Popup(
+        title=S["MESSAGES"].get("IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"),
+        size_hint=(0.8, 0.35),
+    )
+    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+    layout.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"),
+            size_hint_y=0.35,
+        )
+    )
+
+    buttons_row = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=0.35)
+
+    import_eml_btn = Button(text=S["MESSAGES"].get("IMPORT_EML_FILE", "Εισαγωγή αρχείου .eml"))
+
+    def _on_import_eml(_instance=None):
+        popup.dismiss()
+        _show_import_maintenance_eml_dialog(app, ui, parent_popup=parent_popup)
+
+    import_eml_btn.bind(on_press=_on_import_eml)
+    buttons_row.add_widget(import_eml_btn)
+
+    import_pst_btn = Button(text=S["MESSAGES"].get("IMPORT_PST_FILE", "Εισαγωγή αρχείου .pst"))
+
+    def _on_import_pst(_instance=None):
+        popup.dismiss()
+        _show_import_maintenance_pst_dialog(app, ui, parent_popup=parent_popup)
+
+    import_pst_btn.bind(on_press=_on_import_pst)
+    buttons_row.add_widget(import_pst_btn)
+    layout.add_widget(buttons_row)
+
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.25)
+    cancel_btn.bind(on_press=popup.dismiss)
+    layout.add_widget(cancel_btn)
+
+    popup.content = layout
+    popup.open()
+
+
+def _show_import_maintenance_eml_dialog(app, ui, parent_popup=None):
     ui = _make_ui_dict(ui)
     ask_open_file = ui["ask_open_file"]
     Popup = ui["Popup"]
@@ -173,6 +223,165 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
     layout.add_widget(buttons_layout)
     popup.content = layout
     popup.open()
+
+
+def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
+    ui = _make_ui_dict(ui)
+    ask_open_file = ui["ask_open_file"]
+    Popup = ui["Popup"]
+    BoxLayout = ui["BoxLayout"]
+    Label = ui["Label"]
+    Button = ui["Button"]
+    show_message_popup = ui["show_message_popup"]
+
+    fp = ask_open_file(
+        title="Select .pst file",
+        filetypes=(("Outlook PST files", "*.pst"),),
+    )
+    if not fp:
+        return
+
+    try:
+        if parent_popup:
+            parent_popup.dismiss()
+    except Exception:
+        pass
+
+    # Show progress dialog
+    progress_popup = Popup(
+        title=S["MESSAGES"].get("IMPORT_PST_FILE", "Εισαγωγή αρχείου .pst"),
+        size_hint=(0.8, 0.5),
+    )
+    progress_layout = BoxLayout(orientation="vertical", padding=15, spacing=15)
+
+    status_label = Label(text="Ανάγνωση αρχείου .pst...\nΠαρακαλώ περιμένετε...", size_hint_y=0.5, markup=True)
+    progress_layout.add_widget(status_label)
+
+    # Will be added dynamically when email processing starts
+    progress_bar = None
+    progress_label = None
+    progress_bar_container = None
+
+    progress_popup.content = progress_layout
+    progress_popup.open()
+
+    # Import in background thread
+    def _do_import():
+        import time
+        
+        # Give the dialog time to render before starting the heavy operation
+        time.sleep(0.5)
+        
+        try:
+            from import_pst_file import import_maintenance_from_pst
+            from kivy.clock import Clock
+
+            def progress_callback(current=None, imported=None, failed=None, status=None):
+                """Update progress dialog - called from background thread."""
+                try:
+                    # If status message provided, display it (for loading phase)
+                    if status:
+                        # During loading, only update status label
+                        Clock.schedule_once(
+                            lambda dt, s=status: setattr(status_label, 'text', s),
+                            0,
+                        )
+                    else:
+                        # Email processing phase - show real progress
+                        msg = f"E-mail {current} | Επιτυχείς: {imported} | Αποτυχίες: {failed}"
+                        Clock.schedule_once(
+                            lambda dt, m=msg: setattr(status_label, 'text', m),
+                            0,
+                        )
+                        
+                        # Add progress bar on first email (lazy initialization)
+                        nonlocal progress_bar, progress_label, progress_bar_container
+                        if progress_bar_container is None:
+                            def add_progress_bar():
+                                nonlocal progress_bar, progress_label, progress_bar_container
+                                if progress_bar_container is None:
+                                    try:
+                                        from kivy.garden.progressbar import ProgressBar
+                                        progress_bar = ProgressBar(max=100, value=0, size_hint_y=0.3)
+                                        progress_layout.add_widget(progress_bar)
+                                        progress_bar_container = True  # Mark as added
+                                    except Exception:
+                                        progress_label = Label(text="0%", size_hint_y=0.3)
+                                        progress_layout.add_widget(progress_label)
+                                        progress_bar_container = True
+                            
+                            Clock.schedule_once(lambda dt: add_progress_bar(), 0)
+                        
+                        # Update progress bar
+                        pct = min(100, (current / max(1, current + 5)) * 100)
+                        if progress_bar:
+                            Clock.schedule_once(
+                                lambda dt, p=pct: setattr(progress_bar, 'value', p),
+                                0,
+                            )
+                        elif progress_label:
+                            pct_text = f"{int(pct)}%"
+                            Clock.schedule_once(
+                                lambda dt, t=pct_text: setattr(progress_label, 'text', t),
+                                0,
+                            )
+                except Exception:
+                    pass
+
+            summary = import_maintenance_from_pst(
+                fp, db_path=app.db_path, progress_callback=progress_callback
+            )
+
+            # Schedule UI update on main thread
+            from kivy.clock import Clock
+
+            def show_results(_dt):
+                try:
+                    progress_popup.dismiss()
+                except Exception:
+                    pass
+
+                imported = summary.get("imported", 0)
+                failed = summary.get("failed", 0)
+                skipped = summary.get("skipped", 0)
+                scanned = summary.get("scanned", 0)
+                failures = summary.get("failures", [])
+
+                message_lines = [
+                    "✓ Ολοκληρώθηκε η εισαγωγή από αρχείο .pst.",
+                    f"Συνολικά e-mail: {scanned}",
+                    f"Επιτυχείς εισαγωγές: {imported}",
+                    f"Αποτυχίες: {failed}",
+                    f"Παραλείψεις: {skipped}",
+                ]
+
+                if failures:
+                    message_lines.append("")
+                    message_lines.append("Πρώτες αποτυχίες:")
+                    for item in failures[:5]:
+                        message_lines.append(f"- {item}")
+
+                show_message_popup("Εισαγωγή .pst", "\n".join(message_lines))
+
+            Clock.schedule_once(show_results, 0)
+
+        except Exception as exc:
+            from kivy.clock import Clock
+            
+            # Capture error message now, before the callback is scheduled
+            error_msg = str(exc)
+
+            def show_error(_dt):
+                try:
+                    progress_popup.dismiss()
+                except Exception:
+                    pass
+                show_message_popup("Σφάλμα", f"Αποτυχία εισαγωγής .pst:\n{error_msg}")
+
+            Clock.schedule_once(show_error, 0)
+
+    thread = threading.Thread(target=_do_import, daemon=True)
+    thread.start()
 
 
 def _import_maintenance_from_email_file(app, ui, file_path):
@@ -303,8 +512,9 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     if prev:
         if not prefill["responsible_id"] and prev.get("responsible_id"):
             prefill["responsible_id"] = prev.get("responsible_id")
-        if not prefill["crew_ids"] and prev.get("crew_ids"):
-            prefill["crew_ids"] = prev.get("crew_ids")
+        # Don't use previous crew - only include explicitly mentioned crew from email body
+        # if not prefill["crew_ids"] and prev.get("crew_ids"):
+        #     prefill["crew_ids"] = prev.get("crew_ids")
         if not prefill["element_ids"] and prev.get("element_ids"):
             prefill["element_ids"] = prev.get("element_ids")
             prefill["incomplete_elements"] = set(prefill["element_ids"])

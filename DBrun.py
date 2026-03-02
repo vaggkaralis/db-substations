@@ -7,6 +7,7 @@ import webbrowser
 from datetime import datetime
 
 from database import init_db
+from email_text_utils import normalize_text, tokenize_text, tokens_match, normalize_substation_tokens, tokenize_substation_text, iter_substation_name_candidates
 from importers import (import_elements_from_csv, import_elements_from_excel,
                        import_substations_from_csv,
                        import_substations_from_excel)
@@ -563,6 +564,10 @@ class SubstationApp(App):
         layout.add_widget(buttons_layout)
 
         self.conn = init_db()
+        # Store the absolute path of the database being used
+        import os
+        from settings import DB_PATH
+        self.db_path = os.path.abspath(DB_PATH)
         # Ensure people name columns exist and are populated (migration)
         try:
             self._migrate_people_name_columns()
@@ -810,12 +815,8 @@ class SubstationApp(App):
         return _m(self, ui, file_path)
 
     def _normalize_text(self, value: str) -> str:
-        if not value:
-            return ""
-        value = unicodedata.normalize("NFKD", value)
-        value = "".join(ch for ch in value if not unicodedata.combining(ch))
-        value = value.replace("ς", "σ").lower()
-        return value
+        """Wrapper for shared normalize_text function."""
+        return normalize_text(value)
 
     def _is_transformer(self, elem_type: str) -> bool:
         """Return True when an element type represents the 150/20KV transformer.
@@ -833,37 +834,39 @@ class SubstationApp(App):
         return ("150/20" in (elem_type or "")) or ("150/20" in norm) or ("μετασχη" in norm)
 
     def _tokenize_text(self, value: str):
-        normalized = self._normalize_text(value)
-        normalized = re.sub(r"[^0-9a-zα-ω]+", " ", normalized)
-        return [tok for tok in normalized.split() if tok]
+        """Wrapper for shared tokenize_text function."""
+        return tokenize_text(value)
 
     def _tokens_match(self, left_tokens, right_tokens):
-        if len(left_tokens) != len(right_tokens):
-            return False
-        for left, right in zip(left_tokens, right_tokens):
-            if left == right:
-                continue
-            common_len = min(len(left), len(right))
-            if common_len >= 4 and (left.startswith(right) or right.startswith(left)):
-                continue
-            if common_len >= 4 and left[:-1] == right[:-1]:
-                continue
-            return False
-        return True
+        """Wrapper for shared tokens_match function."""
+        return tokens_match(left_tokens, right_tokens)
+
+    def _normalize_substation_tokens(self, tokens):
+        """Wrapper for shared normalize_substation_tokens function."""
+        return normalize_substation_tokens(tokens)
+
+    def _tokenize_substation_text(self, value: str):
+        """Wrapper for shared tokenize_substation_text function."""
+        return tokenize_substation_text(value)
+
+    def _iter_substation_name_candidates(self, substation_name: str):
+        """Wrapper for shared iter_substation_name_candidates function."""
+        return iter_substation_name_candidates(substation_name)
 
     def _find_substation_in_text(self, text: str, substations):
-        tokens = self._tokenize_text(text)
+        tokens = self._tokenize_substation_text(text)
         if not tokens:
             return None
 
         for sub_id, sub_name in substations:
-            name_tokens = self._tokenize_text(sub_name)
-            if not name_tokens:
-                continue
-            for i in range(len(tokens) - len(name_tokens) + 1):
-                candidate = tokens[i : i + len(name_tokens)]
-                if self._tokens_match(candidate, name_tokens):
-                    return sub_id, sub_name
+            for candidate_name in self._iter_substation_name_candidates(sub_name):
+                name_tokens = self._tokenize_substation_text(candidate_name)
+                if not name_tokens:
+                    continue
+                for i in range(len(tokens) - len(name_tokens) + 1):
+                    candidate = tokens[i : i + len(name_tokens)]
+                    if self._tokens_match(candidate, name_tokens):
+                        return sub_id, sub_name
 
         return None
 
@@ -900,17 +903,34 @@ class SubstationApp(App):
             person_tokens = self._tokenize_text(name)
             if not person_tokens:
                 continue
-            surname = person_tokens[-1]
-            first = person_tokens[0]
-            initial = first[0] if first else ""
-
-            if surname and surname in token_set:
+            
+            # Database stores "SURNAME FIRSTNAME", so check both tokens
+            first_token = person_tokens[0]   # Surname
+            last_token = person_tokens[-1]   # First name
+            
+            # Check if surname (first token) appears in body - with Greek declension matching
+            if first_token:
+                # Exact match
+                if first_token in token_set:
+                    found.add(pid)
+                    continue
+                # Check for Greek declension variants (e.g., ιορδανιδη vs ιορδανιδησ)
+                for body_token in token_set:
+                    if self._tokens_match([body_token], [first_token]):
+                        found.add(pid)
+                        break
+                if pid in found:
+                    continue
+            
+            # Check if first name (last token) appears in body
+            if last_token and last_token in token_set:
                 found.add(pid)
                 continue
-
-            if initial and surname:
-                if f"{initial}{surname}" in compact:
-                    found.add(pid)
+            
+            # Check initial + surname pattern
+            initial = first_token[0] if first_token else ""
+            if initial and first_token and f"{initial}{first_token}" in compact:
+                found.add(pid)
 
         return found
 
@@ -3251,6 +3271,7 @@ class SubstationApp(App):
         gate_count_map = {}
         capacitor_count_map = {}
         maint_count_map = {}
+        inspection_count_map = {}
         last_maint_map = {}
         inactive_count_map = {}
 
@@ -3282,6 +3303,12 @@ class SubstationApp(App):
                 sub_ids,
             )
             maint_count_map = {sid: cnt for sid, cnt in c.fetchall()}
+
+            c.execute(
+                f"SELECT substation_id, COUNT(*) FROM inspections WHERE substation_id IN ({placeholders}) GROUP BY substation_id",
+                sub_ids,
+            )
+            inspection_count_map = {sid: cnt for sid, cnt in c.fetchall()}
 
             c.execute(
                 f"SELECT substation_id, MAX(date_time) FROM maintenance WHERE substation_id IN ({placeholders}) GROUP BY substation_id",
@@ -3416,6 +3443,7 @@ class SubstationApp(App):
                 gate_count = gate_count_map.get(sub_id, 0)
                 capacitor_count = capacitor_count_map.get(sub_id, 0)
                 maint_count = maint_count_map.get(sub_id, 0)
+                inspection_count = inspection_count_map.get(sub_id, 0)
                 last_maint = last_maint_map.get(sub_id)
                 last_maint_display = last_maint if last_maint else "-"
 
@@ -3535,8 +3563,12 @@ class SubstationApp(App):
                 # Keep maintenance/history buttons grouped separately (larger, with pictograms)
                 buttons_layout = BoxLayout(size_hint_y=None, height=48, spacing=8)
 
+                # Add count to button text if there are entries
+                maint_btn_text = S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντήρησης")
+                if maint_count > 0:
+                    maint_btn_text += f" ({maint_count})"
                 maint_hist_btn = IconButton(
-                    text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντήρησης"),
+                    text=maint_btn_text,
                     icon_type="maintenance",
                     size_hint_x=0.5,
                     theme=self.theme,
@@ -3544,8 +3576,12 @@ class SubstationApp(App):
                 maint_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_substation_maintenance_history(sid, sname, p)))
                 buttons_layout.add_widget(maint_hist_btn)
 
+                # Add count to button text if there are entries
+                insp_btn_text = S["MESSAGES"].get("INSPECTION_HISTORY_LABEL", "Ιστορικό Επιθεώρησης")
+                if inspection_count > 0:
+                    insp_btn_text += f" ({inspection_count})"
                 insp_hist_btn = IconButton(
-                    text=S["MESSAGES"].get("INSPECTION_HISTORY_LABEL", "Ιστορικό Επιθεώρησης"),
+                    text=insp_btn_text,
                     icon_type="inspection",
                     size_hint_x=0.5,
                     theme=self.theme,
@@ -3665,6 +3701,16 @@ class SubstationApp(App):
                 # Split into active and inactive
                 active_elements = [e for e in all_elements if not e[18] or e[18] == 'Ενεργή']  # Index 18 is operating_status
                 inactive_elements = [e for e in all_elements if e[18] and e[18] == 'Ανενεργή']
+
+                # Get maintenance counts for all elements in this substation
+                c.execute("""
+                    SELECT me.element_id, COUNT(*) 
+                    FROM maintenance_elements me
+                    JOIN elements e ON me.element_id = e.id
+                    WHERE e.substation_id = ?
+                    GROUP BY me.element_id
+                """, (sub_id,))
+                element_maintenance_counts = {elem_id: count for elem_id, count in c.fetchall()}
 
                 if active_elements or inactive_elements:
                     # Define sort priority for element types
@@ -3922,7 +3968,15 @@ class SubstationApp(App):
                             # Add maintenance history button
                             history_btn = IconOnlyButton(icon_type="maintenance", icon_color=(0.4, 0.6, 0.8, 1))
                             history_btn.size_hint_x = history_size
-                            history_btn.bind(on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (self.show_element_maintenance_history(eid, ename, p)))
+                            
+                            # Check if element has maintenance history
+                            elem_maint_count = element_maintenance_counts.get(elem_id, 0)
+                            if elem_maint_count > 0:
+                                history_btn.bind(on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (self.show_element_maintenance_history(eid, ename, p)))
+                            else:
+                                # Grey out and disable button if no maintenance history
+                                history_btn.disabled = True
+                                history_btn.icon_color = (0.5, 0.5, 0.5, 0.5)
                             btn_box.add_widget(history_btn)
 
                             view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("text", (0.12,0.12,0.12,1)))
