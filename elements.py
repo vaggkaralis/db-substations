@@ -29,6 +29,10 @@ def show_inactive_elements_delegate(app, substation_id, substation_name, parent_
     return app.show_inactive_elements(substation_id, substation_name, parent_popup)
 
 
+def show_element_maintenance_history_delegate(app, element_id, element_name, parent_popup):
+    return app.show_element_maintenance_history(element_id, element_name, parent_popup)
+
+
 def show_maintenance_element_details_delegate(app, maintenance_id, element_id):
     return app.show_maintenance_element_details(maintenance_id, element_id)
 
@@ -632,6 +636,16 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
                 manual_btn.bind(on_press=lambda x, mp=manual_pdf: app._open_model_manual(mp))
                 btn_layout.add_widget(manual_btn)
 
+            # Add maintenance history button
+            history_btn = IconOnlyButton(icon_type="maintenance", icon_color=(0.4, 0.6, 0.8, 1), size=(30, 30))
+            history_btn.size_hint_x = 0.2
+            history_btn.bind(
+                on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (
+                    app.show_element_maintenance_history(eid, ename, p)
+                )
+            )
+            btn_layout.add_widget(history_btn)
+
             edit_btn = IconOnlyButton(icon_type="edit", icon_color=app.theme.get("primary", (0.2, 0.6, 1, 1)), size=(30, 30))
             edit_btn.size_hint_x = 0.2
             edit_btn.bind(
@@ -653,6 +667,411 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
 
     popup.content = main_layout
     popup.open()
+
+
+def show_element_maintenance_history(app, element_id, element_name, parent_popup):
+    """
+    Show maintenance history for a specific element with:
+    - Short overview of element-specific data
+    - Button to view complete maintenance report
+    - Button to export maintenance to PDF
+    - Button at top to export complete list to PDF
+    """
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
+    from popups import show_message_popup
+
+    c = app.conn.cursor()
+    
+    # Query all maintenances where this element was maintained
+    c.execute(
+        """
+        SELECT m.id, m.date_time, m.maintenance_type, m.overall_comments,
+               me.element_comments, s.name as substation_name,
+               me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
+               me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
+               me.operations_count
+        FROM maintenance m
+        JOIN maintenance_elements me ON m.id = me.maintenance_id
+        JOIN substations s ON m.substation_id = s.id
+        WHERE me.element_id = ?
+        ORDER BY m.date_time DESC
+        """,
+        (element_id,),
+    )
+    maintenance_records = c.fetchall()
+
+    popup = Popup(
+        title=S["MESSAGES"].get("ELEMENT_MAINT_HISTORY_TITLE", "Ιστορικό Συντηρήσεων Στοιχείου - {element_name}").format(element_name=element_name),
+        size_hint=(0.9, 0.9)
+    )
+    main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    # Top button bar with export list to PDF
+    if maintenance_records:
+        top_bar = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        
+        # Spacer to push button to the right
+        top_bar.add_widget(Label(text="", size_hint_x=0.7))
+        
+        export_list_btn = Button(
+            text=S["MESSAGES"].get("EXPORT_HISTORY_LIST_PDF", "Εξαγωγή λίστας σε PDF"),
+            size_hint_x=0.3
+        )
+        export_list_btn.bind(
+            on_press=lambda x: _export_maintenance_history_list(
+                app, element_id, element_name, maintenance_records
+            )
+        )
+        top_bar.add_widget(export_list_btn)
+        main_layout.add_widget(top_bar)
+
+    if not maintenance_records:
+        main_layout.add_widget(
+            Label(
+                text=S["MESSAGES"].get("NO_MAINTENANCE_HISTORY", "Δεν υπάρχει ιστορικό συντηρήσεων για αυτό το στοιχείο"),
+                size_hint_y=0.8,
+            )
+        )
+    else:
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
+        grid.bind(minimum_height=grid.setter("height"))
+
+        for (
+            maint_id,
+            date_time,
+            maint_type,
+            overall_comments,
+            element_comments,
+            substation_name,
+            insul_fa_gnd,
+            insul_fb_gnd,
+            insul_fc_gnd,
+            contact_res_fa,
+            contact_res_fb,
+            contact_res_fc,
+            operations_count,
+        ) in maintenance_records:
+            # Container for this maintenance record
+            maint_layout = BoxLayout(
+                size_hint_y=None, 
+                orientation="vertical",
+                spacing=5,
+                padding=10
+            )
+            
+            # Calculate height based on content
+            base_height = 120
+            if element_comments:
+                base_height += 30
+            if insul_fa_gnd or insul_fb_gnd or insul_fc_gnd:
+                base_height += 30
+            if contact_res_fa or contact_res_fb or contact_res_fc:
+                base_height += 30
+            maint_layout.height = base_height
+
+            # Header with date and type
+            header_text = f"[b]{date_time}[/b] - {substation_name}"
+            if maint_type:
+                header_text += f" ({maint_type})"
+            header_label = Label(
+                text=header_text,
+                size_hint_y=None,
+                height=30,
+                markup=True,
+                halign="left",
+                valign="middle"
+            )
+            header_label.bind(
+                width=lambda instance, value: setattr(instance, "text_size", (value, None))
+            )
+            maint_layout.add_widget(header_label)
+
+            # Element-specific data
+            data_parts = []
+            if element_comments:
+                data_parts.append(f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}")
+            
+            # Add measurements if present
+            measurements = []
+            if insul_fa_gnd:
+                measurements.append(f"Μόν. FA-GND: {insul_fa_gnd}")
+            if insul_fb_gnd:
+                measurements.append(f"FB-GND: {insul_fb_gnd}")
+            if insul_fc_gnd:
+                measurements.append(f"FC-GND: {insul_fc_gnd}")
+            if contact_res_fa:
+                measurements.append(f"Αντ. Επαφ. FA: {contact_res_fa}")
+            if contact_res_fb:
+                measurements.append(f"FB: {contact_res_fb}")
+            if contact_res_fc:
+                measurements.append(f"FC: {contact_res_fc}")
+            if operations_count:
+                measurements.append(f"Λειτουργίες: {operations_count}")
+            
+            if measurements:
+                data_parts.append(" | ".join(measurements))
+
+            if data_parts:
+                data_text = "\n".join(data_parts)
+            else:
+                data_text = S["MESSAGES"].get("NO_ELEMENT_DATA", "Δεν υπάρχουν συγκεκριμένα δεδομένα για το στοιχείο")
+
+            data_label = Label(
+                text=data_text,
+                size_hint_y=None,
+                height=50 if measurements else 30,
+                markup=True,
+                halign="left",
+                valign="top",
+                color=(0.5, 0.5, 0.5, 1)
+            )
+            data_label.bind(
+                width=lambda instance, value: setattr(instance, "text_size", (value, None))
+            )
+            maint_layout.add_widget(data_label)
+
+            # Button row
+            btn_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            
+            view_full_btn = Button(
+                text=S["MESSAGES"].get("VIEW_FULL_MAINTENANCE", "Πλήρης αναφορά"),
+                size_hint_x=0.5
+            )
+            view_full_btn.bind(
+                on_press=lambda x, mid=maint_id, p=popup: app.show_maintenance_full_report(
+                    mid, p
+                )
+            )
+            btn_row.add_widget(view_full_btn)
+
+            export_pdf_btn = Button(
+                text=S["MESSAGES"].get("EXPORT_MAINTENANCE_PDF", "Εξαγωγή PDF"),
+                size_hint_x=0.5
+            )
+            export_pdf_btn.bind(
+                on_press=lambda x, mid=maint_id, eid=element_id: _export_single_maintenance_pdf(
+                    app, mid, eid
+                )
+            )
+            btn_row.add_widget(export_pdf_btn)
+
+            maint_layout.add_widget(btn_row)
+
+            # Add separator line (visual divider)
+            from kivy.graphics import Color, Line
+            with maint_layout.canvas.before:
+                Color(0.8, 0.8, 0.8, 0.5)
+                # Draw a bottom border
+            
+            grid.add_widget(maint_layout)
+
+        scroll.add_widget(grid)
+        main_layout.add_widget(scroll)
+
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
+    close_btn.bind(on_press=popup.dismiss)
+    main_layout.add_widget(close_btn)
+
+    popup.content = main_layout
+    popup.open()
+
+
+def _export_single_maintenance_pdf(app, maintenance_id, element_id):
+    """Export a single maintenance report to PDF"""
+    from popups import show_message_popup
+    import os
+    
+    try:
+        from pdf_reports import generate_maintenance_report
+        
+        output_path = generate_maintenance_report(app.conn, maintenance_id, element_id)
+        
+        # Open the PDF if on desktop
+        if hasattr(app, '_open_file'):
+            app._open_file(output_path)
+        
+        show_message_popup(
+            S["TITLES"].get("SUCCESS", "Επιτυχία"),
+            f"PDF δημιουργήθηκε στο:\n{output_path}"
+        )
+    except Exception as e:
+        show_message_popup(
+            S["TITLES"]["ERROR"],
+            f"Σφάλμα κατά τη δημιουργία PDF:\n{str(e)}"
+        )
+
+
+def _export_maintenance_history_list(app, element_id, element_name, maintenance_records):
+    """Export the complete maintenance history list to PDF"""
+    from popups import show_message_popup
+    from datetime import datetime
+    import os
+    
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from pdf_reports import MaintenanceReportGenerator
+
+        pdf_gen = MaintenanceReportGenerator(app.conn)
+        greek_font = getattr(pdf_gen, "greek_font", "Helvetica")
+
+        def _nfc(text):
+            if text is None or text == "":
+                return "-"
+            return pdf_gen.normalize_text(str(text))
+        
+        # Create output path
+        reports_dir = os.path.join(os.path.dirname(__file__), "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = element_name.replace("/", "-").replace("\\", "-")
+        output_path = os.path.join(
+            reports_dir, f"MaintenanceHistory_{safe_name}_{timestamp}.pdf"
+        )
+        
+        doc = SimpleDocTemplate(
+            output_path,
+            pagesize=A4,
+            leftMargin=12 * mm,
+            rightMargin=12 * mm,
+            topMargin=12 * mm,
+            bottomMargin=12 * mm,
+        )
+        story = []
+        styles = getSampleStyleSheet()
+        
+        # Title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            alignment=TA_CENTER,
+            spaceAfter=20,
+            fontName=greek_font
+        )
+        title = Paragraph(
+            _nfc(f"Ιστορικό Συντηρήσεων\n{element_name}").replace("\n", "<br/>"),
+            title_style
+        )
+        story.append(title)
+        story.append(Spacer(1, 10 * mm))
+        
+        # Table data (use Paragraphs so long values wrap inside cells)
+        header_cell_style = ParagraphStyle(
+            "HeaderCell",
+            parent=styles["Normal"],
+            fontName=greek_font,
+            fontSize=9,
+            leading=11,
+            alignment=TA_LEFT,
+        )
+        body_cell_style = ParagraphStyle(
+            "BodyCell",
+            parent=styles["Normal"],
+            fontName=greek_font,
+            fontSize=8,
+            leading=10,
+            alignment=TA_LEFT,
+        )
+
+        table_data = [[
+            Paragraph(_nfc("Ημ/νία"), header_cell_style),
+            Paragraph(_nfc("Υποσταθμός"), header_cell_style),
+            Paragraph(_nfc("Τύπος"), header_cell_style),
+            Paragraph(_nfc("Σχόλια Στοιχείου"), header_cell_style),
+            Paragraph(_nfc("Μετρήσεις"), header_cell_style),
+        ]]
+        
+        for record in maintenance_records:
+            (
+                maint_id, date_time, maint_type, overall_comments, element_comments,
+                substation_name, insul_fa_gnd, insul_fb_gnd, insul_fc_gnd,
+                contact_res_fa, contact_res_fb, contact_res_fc, operations_count
+            ) = record
+            
+            # Build measurements summary
+            measurements = []
+            if insul_fa_gnd:
+                measurements.append(f"FA-GND:{insul_fa_gnd}")
+            if insul_fb_gnd:
+                measurements.append(f"FB-GND:{insul_fb_gnd}")
+            if insul_fc_gnd:
+                measurements.append(f"FC-GND:{insul_fc_gnd}")
+            if contact_res_fa:
+                measurements.append(f"Αντ.FA:{contact_res_fa}")
+            if contact_res_fb:
+                measurements.append(f"FB:{contact_res_fb}")
+            if contact_res_fc:
+                measurements.append(f"FC:{contact_res_fc}")
+            if operations_count:
+                measurements.append(f"Λειτ.:{operations_count}")
+            
+            measurements_str = ", ".join(measurements) if measurements else "-"
+            
+            table_data.append([
+                Paragraph(_nfc(date_time), body_cell_style),
+                Paragraph(_nfc(substation_name), body_cell_style),
+                Paragraph(_nfc(maint_type), body_cell_style),
+                Paragraph(_nfc(element_comments), body_cell_style),
+                Paragraph(_nfc(measurements_str), body_cell_style),
+            ])
+        
+        # Create table with widths that always fit printable page width
+        col_widths = [
+            doc.width * 0.16,  # Date
+            doc.width * 0.20,  # Substation
+            doc.width * 0.20,  # Type
+            doc.width * 0.22,  # Element comments
+            doc.width * 0.22,  # Measurements
+        ]
+        table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), greek_font),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), greek_font),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+        ]))
+        
+        story.append(table)
+        
+        # Build PDF
+        doc.build(story)
+        
+        # Open the PDF if on desktop
+        if hasattr(app, '_open_file'):
+            app._open_file(output_path)
+        
+        show_message_popup(
+            S["TITLES"].get("SUCCESS", "Επιτυχία"),
+            f"Λίστα ιστορικού εξήχθη στο:\n{output_path}"
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        show_message_popup(
+            S["TITLES"]["ERROR"],
+            f"Σφάλμα κατά τη δημιουργία λίστας PDF:\n{str(e)}"
+        )
 
 
 def show_edit_element_popup(app, element_id, substation_id, parent_popup, substation_name=None, grandparent_popup=None):

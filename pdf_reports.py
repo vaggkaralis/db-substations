@@ -250,7 +250,8 @@ class MaintenanceReportGenerator:
                    insulation_open_fc_fc, insulation_open_fc_unit,
                    contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc,
                    operations_count,
-                   sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc
+                   sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
+                   vidar_fa, vidar_fb, vidar_fc
             FROM maintenance_elements
             WHERE maintenance_id = ? AND element_id = ?
         """,

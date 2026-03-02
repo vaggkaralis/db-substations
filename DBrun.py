@@ -3898,24 +3898,32 @@ class SubstationApp(App):
                             )
                             elem_layout.add_widget(elem_label)
 
-                            # Button container (icon-only buttons: manual, view, edit, delete)
+                            # Button container (icon-only buttons: manual, history, view, edit, delete)
                             btn_box = BoxLayout(size_hint_x=0.25, spacing=6)
 
                             # Add manual button if manual_pdf exists
                             if manual_pdf and os.path.exists(manual_pdf):
                                 manual_btn = IconOnlyButton(icon_type="book", icon_color=(0.8, 0.4, 0, 1))
-                                manual_btn.size_hint_x = 0.25
+                                manual_btn.size_hint_x = 0.2
                                 manual_btn.bind(on_press=lambda x, mp=manual_pdf: self._open_model_manual(mp))
                                 btn_box.add_widget(manual_btn)
-                                # Adjust button sizes when manual exists
+                                # Adjust button sizes when manual exists (5 buttons)
+                                history_size = 0.2
+                                view_size = 0.2
+                                edit_size = 0.2
+                                delete_size = 0.2
+                            else:
+                                # Adjust button sizes when no manual (4 buttons)
+                                history_size = 0.25
                                 view_size = 0.25
                                 edit_size = 0.25
                                 delete_size = 0.25
-                            else:
-                                # Adjust button sizes when no manual
-                                view_size = 0.33
-                                edit_size = 0.33
-                                delete_size = 0.34
+
+                            # Add maintenance history button
+                            history_btn = IconOnlyButton(icon_type="maintenance", icon_color=(0.4, 0.6, 0.8, 1))
+                            history_btn.size_hint_x = history_size
+                            history_btn.bind(on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (self.show_element_maintenance_history(eid, ename, p)))
+                            btn_box.add_widget(history_btn)
 
                             view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("text", (0.12,0.12,0.12,1)))
                             view_btn.size_hint_x = view_size
@@ -5408,6 +5416,10 @@ class SubstationApp(App):
     def show_inactive_elements(self, substation_id, substation_name, parent_popup):
         from elements import show_inactive_elements as _f
         return _f(self, substation_id, substation_name, parent_popup)
+
+    def show_element_maintenance_history(self, element_id, element_name, parent_popup):
+        from elements import show_element_maintenance_history as _f
+        return _f(self, element_id, element_name, parent_popup)
 
     def _get_popup_scroll_y(self, popup):
         """Return the first ScrollView.scroll_y found inside popup.content or None."""
@@ -8241,6 +8253,179 @@ class SubstationApp(App):
             main_layout.add_widget(scroll)
 
         # Close button
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+
+        popup.content = main_layout
+        popup.open()
+
+    def show_maintenance_full_report(self, maintenance_id, parent_popup=None):
+        """Show a read-only full maintenance report for one maintenance instance."""
+        font_kwargs = self._get_ui_font_kwargs()
+        c = self.conn.cursor()
+
+        c.execute(
+            """
+            SELECT m.id, m.name, m.date_time, m.overall_comments, m.maintenance_type, m.user_name,
+                   s.id, s.name, s.location, s.division
+            FROM maintenance m
+            JOIN substations s ON s.id = m.substation_id
+            WHERE m.id = ?
+            LIMIT 1
+        """,
+            (maintenance_id,),
+        )
+        maintenance_row = c.fetchone()
+
+        if not maintenance_row:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("MAINTENANCE_NOT_FOUND", "Η συντήρηση δεν βρέθηκε."),
+            )
+            return
+
+        (
+            maint_id,
+            maint_name,
+            date_time,
+            overall_comments,
+            maintenance_type,
+            user_name,
+            substation_id,
+            substation_name,
+            substation_location,
+            substation_division,
+        ) = maintenance_row
+
+        display_name = maint_name or self._build_maintenance_name(substation_name, date_time)
+
+        popup = Popup(
+            title=f"Αναφορά Συντήρησης: {display_name}",
+            size_hint=(0.95, 0.9),
+        )
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        content = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=10)
+        content.bind(minimum_height=content.setter("height"))
+
+        def add_wrapped_label(text, bold=False):
+            label = Label(
+                text=f"[b]{text}[/b]" if bold else str(text),
+                markup=bold,
+                size_hint_y=None,
+                halign="left",
+                valign="top",
+            )
+            label.bind(
+                width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                texture_size=lambda inst, val: setattr(inst, "height", val[1] + 8),
+            )
+            content.add_widget(label)
+
+        add_wrapped_label(S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True)
+        add_wrapped_label(f"{S['MESSAGES'].get('SUBSTATION_LABEL_PLAIN', 'Υποσταθμός')}: {substation_name}")
+        add_wrapped_label(f"{S['MESSAGES'].get('DATE_LABEL', 'Ημερομηνία:')} {date_time or '-'}")
+        add_wrapped_label(f"{S['MESSAGES'].get('MAINT_TYPE_LABEL', 'Τύπος Συντήρησης:')} {maintenance_type or '-'}")
+        add_wrapped_label(f"{S['MESSAGES'].get('MAINT_USER_LABEL', 'Χειριστής')}: {user_name or '-'}")
+
+        if substation_location:
+            add_wrapped_label(f"{S['MESSAGES'].get('LOC', 'Τοποθεσία')}: {substation_location}")
+        if substation_division:
+            add_wrapped_label(f"{S['MESSAGES'].get('DIVISION_LABEL', 'Τομέας')}: {substation_division}")
+
+        responsible, crew = self._get_maintenance_people(maint_id)
+        crew_text = ", ".join(crew) if crew else "-"
+        resp_text = responsible if responsible else "-"
+        add_wrapped_label(
+            S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(
+                resp=resp_text, crew=crew_text
+            )
+        )
+
+        add_wrapped_label("", bold=False)
+        add_wrapped_label(S["MESSAGES"].get("OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια Συντήρησης:"), bold=True)
+        add_wrapped_label(overall_comments or "-")
+
+        add_wrapped_label("", bold=False)
+        add_wrapped_label(S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"), bold=True)
+
+        c.execute(
+            """
+            SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
+            FROM maintenance_elements me
+            JOIN elements e ON e.id = me.element_id
+            WHERE me.maintenance_id = ?
+            ORDER BY e.name
+        """,
+            (maint_id,),
+        )
+        elements = c.fetchall()
+
+        if not elements:
+            add_wrapped_label(S["MESSAGES"].get("NO_ELEMENTS_FOR_ITEM", "Δεν βρέθηκαν στοιχεία για τη συντήρηση."))
+        else:
+            for elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in elements:
+                elem_row = BoxLayout(size_hint_y=None, height=42, spacing=6)
+                elem_row.bind(minimum_height=elem_row.setter("height"))
+
+                elem_text = f"• {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
+                if elem_comments:
+                    elem_text += "\n  " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
+
+                elem_label = Label(text=elem_text, size_hint_x=0.62, size_hint_y=None, halign="left", valign="top")
+                elem_label.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                    texture_size=lambda inst, val: (
+                        setattr(inst, "height", val[1] + 8),
+                        setattr(elem_row, "height", max(42, val[1] + 10)),
+                    ),
+                )
+                elem_row.add_widget(elem_label)
+
+                btns = BoxLayout(size_hint_x=0.38, spacing=6)
+
+                view_btn = Button(
+                    text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."),
+                    size_hint_x=0.36,
+                    size_hint_y=None,
+                    height=34,
+                    **font_kwargs,
+                )
+                view_btn.bind(
+                    on_press=lambda x, m_id=maint_id, e_id=elem_id, e_name=elem_name: self.show_maintenance_element_details(
+                        m_id, e_id, e_name
+                    )
+                )
+                btns.add_widget(view_btn)
+
+                if (
+                    S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
+                    and breaker_category in self.BREAKER_CATEGORIES_ALL
+                ):
+                    pdf_btn = Button(
+                        text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
+                        size_hint_x=0.64,
+                        size_hint_y=None,
+                        height=34,
+                        **font_kwargs,
+                    )
+                    pdf_btn.bind(
+                        on_press=lambda x, m_id=maint_id, e_id=elem_id, e_name=elem_name: self.generate_pdf_report(
+                            m_id, e_id, e_name
+                        )
+                    )
+                    btns.add_widget(pdf_btn)
+                else:
+                    btns.add_widget(Label(text="", size_hint_x=0.64))
+
+                elem_row.add_widget(btns)
+                content.add_widget(elem_row)
+
+        scroll.add_widget(content)
+        main_layout.add_widget(scroll)
+
         close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
         close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
