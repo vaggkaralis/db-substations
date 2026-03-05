@@ -91,6 +91,7 @@
             font-size: 12px;
         }
         .muted { color: var(--muted); }
+        .comments-text { white-space: pre-line; }
     </style>
 </head>
 <body>
@@ -122,7 +123,7 @@
 
         <section class="section">
             <h2>Σχόλια</h2>
-            <div class="muted">{{ maintenance.overall_comments or '-' }}</div>
+            <div class="muted comments-text">{{ maintenance.overall_comments or '-' }}</div>
         </section>
 
         <section class="section">

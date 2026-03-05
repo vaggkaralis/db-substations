@@ -7926,6 +7926,8 @@ class SubstationApp(App):
                         entry["crew"].append(person_name)
 
                 # Bulk fetch elements for all maintenance rows in this view
+                # Track already-added element IDs per maintenance to avoid displaying duplicates
+                elements_added_per_maint = {mid: set() for mid in maint_ids}
                 c.execute(
                     f"""
                     SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
@@ -7938,9 +7940,12 @@ class SubstationApp(App):
                     maint_ids,
                 )
                 for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
-                    elements_by_maint.setdefault(m_id, []).append(
-                        (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
-                    )
+                    # Only add if this element hasn't been added for this maintenance yet
+                    if elem_id not in elements_added_per_maint[m_id]:
+                        elements_by_maint.setdefault(m_id, []).append(
+                            (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
+                        )
+                        elements_added_per_maint[m_id].add(elem_id)
 
             for (
                 maint_id,
@@ -8016,8 +8021,14 @@ class SubstationApp(App):
 
                 # Overall comments
                 if overall_comments:
+                    try:
+                        from maintenance_email_importer import _format_email_body_for_readability
+                        display_comments = _format_email_body_for_readability(overall_comments)
+                    except Exception:
+                        display_comments = overall_comments
+
                     comment_label = Label(
-                        text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=overall_comments), size_hint_y=None, height=30
+                        text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=display_comments), size_hint_y=None, height=30
                     )
                     comment_label.bind(
                         width=lambda instance, value: setattr(
@@ -8242,6 +8253,8 @@ class SubstationApp(App):
                         entry["crew"].append(person_name)
 
                 # Bulk fetch elements for all maintenance rows in this substation
+                # Track already-added element IDs per maintenance to avoid displaying duplicates
+                elements_added_per_maint = {mid: set() for mid in maint_ids}
                 c.execute(
                     f"""
                     SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
@@ -8254,9 +8267,12 @@ class SubstationApp(App):
                     maint_ids,
                 )
                 for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
-                    elements_by_maint.setdefault(m_id, []).append(
-                        (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
-                    )
+                    # Only add if this element hasn't been added for this maintenance yet
+                    if elem_id not in elements_added_per_maint[m_id]:
+                        elements_by_maint.setdefault(m_id, []).append(
+                            (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
+                        )
+                        elements_added_per_maint[m_id].add(elem_id)
 
             for maint_id, maint_name, date_time, overall_comments in maintenance_records:
                 # Maintenance card

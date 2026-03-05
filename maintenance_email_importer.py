@@ -145,6 +145,47 @@ def _get_table_columns(conn, table_name):
     return {row[1] for row in cur.fetchall()}
 
 
+def _format_email_body_for_readability(body: str) -> str:
+    """Format imported email body for better readability in the UI."""
+    if not body:
+        return ""
+
+    text = body.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    # Ensure common mail headers begin on their own line.
+    header_patterns = [
+        r"From:",
+        r"Sent:",
+        r"Date:",
+        r"To:",
+        r"Cc:",
+        r"Bcc:",
+        r"Subject:",
+        r"Από:",
+        r"Στάλθηκε:",
+        r"Προς:",
+        r"Θέμα:",
+    ]
+    for pattern in header_patterns:
+        text = re.sub(rf"\s+({pattern})", r"\n\1", text, flags=re.IGNORECASE)
+
+    # Add stronger visual separation before forwarded-message starts.
+    text = re.sub(r"\n(?=(From:|Από:))", "\n\n", text, flags=re.IGNORECASE)
+
+    # Outlook / Gmail forwarded separators and quote markers.
+    text = re.sub(
+        r"\s+(?=(?:-{2,}\s*Original Message\s*-{2,}|-{2,}\s*Forwarded message\s*-{2,}|On .+ wrote:))",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Keep paragraph spacing consistent.
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
 def _parse_subject_for_substation_and_date(subject: str):
     if not subject:
         return None, None
@@ -432,8 +473,23 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
                 matched.add(elem_id)
                 continue
 
-        if any(var and var in compact_body for var in variants):
-            matched.add(elem_id)
+        # Use regex with word boundary to avoid substring matches
+        # e.g., "ρ25" should not match "ρ250"
+        for var in variants:
+            if not var:
+                continue
+            # Check if variant ends with a digit; if so, ensure next char is not a digit
+            if re.search(r"\d$", var):
+                # Use negative lookahead to prevent matching if followed by another digit
+                pattern = re.escape(var) + r"(?!\d)"
+                if re.search(pattern, compact_body):
+                    matched.add(elem_id)
+                    break
+            else:
+                # For non-digit endings, simple substring match is fine
+                if var in compact_body:
+                    matched.add(elem_id)
+                    break
 
     if has_satyf and (transformer_numbers or ms_numbers):
         md_matched = any(eid in matched for eid, _, _, _ in motor_drive_candidates)
@@ -573,8 +629,10 @@ def create_maintenance_from_email(
             responsible_id = prev_defaults.get("responsible_id")
 
         maint_cols = _get_table_columns(conn, "maintenance")
+        formatted_body = _format_email_body_for_readability(body)
+
         fields = ["substation_id", "date_time", "overall_comments"]
-        values = [substation["id"], date_time_value, body]
+        values = [substation["id"], date_time_value, formatted_body]
 
         if "maintenance_type" in maint_cols:
             fields.append("maintenance_type")
