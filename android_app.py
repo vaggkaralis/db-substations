@@ -718,22 +718,44 @@ class SubstationAndroidApp(App):
             main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
             Logger.info("APP: Main layout created successfully")
 
-            # Header with app title
-            Logger.info("APP: Creating header Label")
-            header = Label(
+            # Header with app title and logo
+            Logger.info("APP: Creating header with logo")
+            header_box = BoxLayout(size_hint_y=0.06, spacing=10, padding=[10, 5])
+            
+            # Try to add logo if it exists
+            try:
+                from kivy.uix.image import Image
+                logo_path = os.path.join(os.path.dirname(__file__), "logo_deddie.png")
+                if os.path.exists(logo_path):
+                    logo = Image(
+                        source=logo_path,
+                        size_hint_x=None,
+                        width=40,
+                        allow_stretch=True,
+                        keep_ratio=True
+                    )
+                    header_box.add_widget(logo)
+            except Exception as e:
+                Logger.warning(f"APP: Could not load logo: {e}")
+            
+            header_label = Label(
                 text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
-                size_hint_y=0.06,
                 bold=True,
-                font_size='18sp'
+                font_size='18sp',
+                halign='left',
+                valign='middle'
             )
-            main_layout.add_widget(header)
+            header_label.bind(size=header_label.setter('text_size'))
+            header_box.add_widget(header_label)
+            
+            main_layout.add_widget(header_box)
             Logger.info("APP: Header added")
 
             # Database selection bar (cleaner, single row)
             db_bar = BoxLayout(size_hint_y=0.06, spacing=8, padding=[10, 0])
             
             self.mode_label = Label(
-                text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "📁 Τοπική Βάση"),
+                text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Τοπική Βάση"),
                 size_hint_x=0.65,
                 font_size='14sp',
                 halign='left'
@@ -741,7 +763,7 @@ class SubstationAndroidApp(App):
             self.mode_label.bind(size=self.mode_label.setter('text_size'))
 
             local_btn = Button(
-                text="📂 " + S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Επιλογή ΒΔ"),
+                text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Επιλογή ΒΔ"),
                 size_hint_x=0.35,
                 font_size='13sp'
             )
@@ -763,7 +785,7 @@ class SubstationAndroidApp(App):
             primary_row = BoxLayout(size_hint_y=0.55, spacing=8)
             
             self.refresh_btn = Button(
-                text="🔄 " + S.get("BUTTONS", {}).get("REFRESH", "Ανανέωση"),
+                text=S.get("BUTTONS", {}).get("REFRESH", "Ανανέωση"),
                 font_size='16sp',
                 bold=True
             )
@@ -771,7 +793,7 @@ class SubstationAndroidApp(App):
             primary_row.add_widget(self.refresh_btn)
 
             self.add_substation_btn = Button(
-                text="➕ " + S.get("BUTTONS", {}).get("ADD", "Προσθήκη"),
+                text="+ " + S.get("BUTTONS", {}).get("ADD", "Προσθήκη"),
                 font_size='16sp',
                 bold=True,
                 background_color=(0.2, 0.6, 0.2, 1)
@@ -785,21 +807,22 @@ class SubstationAndroidApp(App):
             secondary_row = BoxLayout(size_hint_y=0.45, spacing=8)
             
             self.sync_btn = Button(
-                text="🔄 " + S.get("MESSAGES", {}).get("SYNC_BUTTON", "Sync"),
+                text="Sync",
                 font_size='14sp'
             )
             self.sync_btn.bind(on_press=self._on_sync_button_pressed)
             secondary_row.add_widget(self.sync_btn)
 
             settings_btn = Button(
-                text="⚙️ " + S.get("BUTTONS", {}).get("SETTINGS", "Ρυθμ."),
-                font_size='14sp'
+                text="[]",
+                font_size='20sp',
+                size_hint_x=0.5
             )
             settings_btn.bind(on_press=lambda x: self._show_sync_settings())
             secondary_row.add_widget(settings_btn)
 
             change_log_btn = Button(
-                text="📋 Log",
+                text="Log",
                 font_size='14sp'
             )
             change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
@@ -1324,7 +1347,7 @@ class SubstationAndroidApp(App):
         
         # Disable button to prevent multiple clicks
         self.sync_btn.disabled = True
-        self.sync_btn.text = "⏳ " + S.get("MESSAGES", {}).get("SYNCING", "Συγχρονισμός...")
+        self.sync_btn.text = S.get("MESSAGES", {}).get("SYNCING", "Συγχρονισμός...")
         
         def _sync_worker():
             try:
@@ -1417,7 +1440,7 @@ class SubstationAndroidApp(App):
     def _on_sync_complete(self, result):
         """Handle successful sync completion."""
         self.sync_btn.disabled = False
-        self.sync_btn.text = "🔄 " + S.get("MESSAGES", {}).get("SYNC_BUTTON", "Sync")
+        self.sync_btn.text = "Sync"
         
         if not result:
             self.show_error(S.get("MESSAGES", {}).get("SYNC_ERROR", "Σφάλμα κατά τον συγχρονισμό"))
@@ -1446,7 +1469,7 @@ class SubstationAndroidApp(App):
     def _on_sync_error(self, error_msg):
         """Handle sync error."""
         self.sync_btn.disabled = False
-        self.sync_btn.text = "🔄 " + S.get("MESSAGES", {}).get("SYNC_BUTTON", "Sync")
+        self.sync_btn.text = "Sync"
         self.show_error(f"Σφάλμα συγχρονισμού:\n{error_msg}")
 
     def _show_sync_settings(self):
@@ -1728,9 +1751,8 @@ class SubstationAndroidApp(App):
             info_box.add_widget(name_label)
 
             location = substation.get("location", "")
-            loc_icon = "📍" if location else "⚠️"
             location_label = Label(
-                text=f"{loc_icon} {location if location else 'Χωρίς τοποθεσία'}",
+                text=location if location else 'Χωρίς τοποθεσία',
                 font_size='13sp',
                 halign='left',
                 valign='top',
@@ -1744,7 +1766,7 @@ class SubstationAndroidApp(App):
 
             # Right side: View button (30% width)
             view_btn = Button(
-                text="👁 " + S.get("BUTTONS", {}).get("VIEW", "Προβολή"),
+                text=S.get("BUTTONS", {}).get("VIEW", "Προβολή"),
                 size_hint_x=0.3,
                 font_size='15sp',
                 bold=True
@@ -1819,7 +1841,7 @@ class SubstationAndroidApp(App):
         primary_actions = BoxLayout(size_hint_y=0.55, spacing=8)
         
         maint_btn = Button(
-            text="🔧 " + S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
+            text=S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
             font_size='15sp',
             bold=True,
             background_color=(0.2, 0.5, 0.7, 1)
@@ -1830,7 +1852,7 @@ class SubstationAndroidApp(App):
         primary_actions.add_widget(maint_btn)
 
         inspect_btn = Button(
-            text="🔍 " + S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
+            text=S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
             font_size='15sp',
             bold=True,
             background_color=(0.5, 0.5, 0.2, 1)
@@ -1846,14 +1868,14 @@ class SubstationAndroidApp(App):
         secondary_actions = BoxLayout(size_hint_y=0.45, spacing=8)
 
         add_elem_btn = Button(
-            text="➕ " + S["BUTTONS"]["ADD"],
+            text="+ " + S["BUTTONS"]["ADD"],
             font_size='14sp'
         )
         add_elem_btn.bind(on_press=lambda x: self.show_add_element_popup(substation_id))
         secondary_actions.add_widget(add_elem_btn)
 
         back_btn = Button(
-            text="◀ " + S.get("BUTTONS", {}).get("BACK", "Πίσω"),
+            text="< " + S.get("BUTTONS", {}).get("BACK", "Πίσω"),
             font_size='14sp'
         )
         back_btn.bind(on_press=lambda x: self.load_substations(None))
@@ -1914,7 +1936,7 @@ class SubstationAndroidApp(App):
                     sn = elem.get('serial_number', '-')
                     voltage = elem.get('voltage_level', '-')
                     line2 = Label(
-                        text=f"S/N: {sn} | ⚡ {voltage}",
+                        text=f"S/N: {sn} | {voltage}",
                         font_size='13sp',
                         halign='left',
                         valign='middle',
@@ -1929,11 +1951,11 @@ class SubstationAndroidApp(App):
                     year = elem.get('manufacture_year', '')
                     status = elem.get('operating_status', '-')
                     
-                    status_emoji = "✅" if status == "Ενεργή" else "⚠️"
+                    status_prefix = "[OK]" if status == "Ενεργή" else "[!]"
                     line3_text = f"{model}"
                     if year:
                         line3_text += f" ({year})"
-                    line3_text += f" | {status_emoji} {status}"
+                    line3_text += f" | {status_prefix} {status}"
                     
                     line3 = Label(
                         text=line3_text,
