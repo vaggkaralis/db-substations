@@ -718,56 +718,97 @@ class SubstationAndroidApp(App):
             main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
             Logger.info("APP: Main layout created successfully")
 
-            # Header
+            # Header with app title
             Logger.info("APP: Creating header Label")
-            header = Label(text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"), size_hint_y=0.1, bold=True)
+            header = Label(
+                text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
+                size_hint_y=0.06,
+                bold=True,
+                font_size='18sp'
+            )
             main_layout.add_widget(header)
             Logger.info("APP: Header added")
 
-            # Data source controls
-            mode_layout = BoxLayout(size_hint_y=0.08, spacing=10)
-            self.mode_label = Label(text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"), size_hint_x=0.6)
+            # Database selection bar (cleaner, single row)
+            db_bar = BoxLayout(size_hint_y=0.06, spacing=8, padding=[10, 0])
+            
+            self.mode_label = Label(
+                text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "📁 Τοπική Βάση"),
+                size_hint_x=0.65,
+                font_size='14sp',
+                halign='left'
+            )
+            self.mode_label.bind(size=self.mode_label.setter('text_size'))
 
-            local_btn = Button(text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Τοπική Βάση"), size_hint_x=0.4)
+            local_btn = Button(
+                text="📂 " + S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Επιλογή ΒΔ"),
+                size_hint_x=0.35,
+                font_size='13sp'
+            )
             local_btn.bind(on_press=lambda _x: self.open_local_db_picker())
 
-            mode_layout.add_widget(self.mode_label)
-            mode_layout.add_widget(local_btn)
-            main_layout.add_widget(mode_layout)
+            db_bar.add_widget(self.mode_label)
+            db_bar.add_widget(local_btn)
+            main_layout.add_widget(db_bar)
 
             # Main content area
-            self.content_layout = BoxLayout(orientation="vertical", size_hint_y=0.8)
+            self.content_layout = BoxLayout(orientation="vertical", size_hint_y=0.74)
             main_layout.add_widget(self.content_layout)
             Logger.info("APP: Content layout added")
 
-            # Bottom buttons
-            button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
-
-            # Keep references so we can hide these when viewing a substation
-            self.refresh_btn = Button(text=S.get("BUTTONS", {}).get("REFRESH", "Ανανέωση"))
+            # Bottom button area - reorganized for better UX
+            buttons_container = BoxLayout(orientation="vertical", size_hint_y=0.16, spacing=5, padding=[5, 0, 5, 5])
+            
+            # PRIMARY ACTIONS ROW (larger, most common actions)
+            primary_row = BoxLayout(size_hint_y=0.55, spacing=8)
+            
+            self.refresh_btn = Button(
+                text="🔄 " + S.get("BUTTONS", {}).get("REFRESH", "Ανανέωση"),
+                font_size='16sp',
+                bold=True
+            )
             self.refresh_btn.bind(on_press=self.load_substations)
-            button_layout.add_widget(self.refresh_btn)
+            primary_row.add_widget(self.refresh_btn)
 
-            self.sync_btn = Button(text=S.get("MESSAGES", {}).get("SYNC_BUTTON", "Συγχρ/σμός"))
-            self.sync_btn.bind(on_press=self._on_sync_button_pressed)
-            button_layout.add_widget(self.sync_btn)
-
-            # Settings button to configure sync paths
-            settings_btn = Button(text=S.get("BUTTONS", {}).get("SETTINGS", "Ρυθμίσεις"))
-            settings_btn.bind(on_press=lambda x: self._show_sync_settings())
-            button_layout.add_widget(settings_btn)
-
-            self.add_substation_btn = Button(text=("+ " + S.get("BUTTONS", {}).get("ADD", "Προσθήκη") + " Υποσταθμού"))
+            self.add_substation_btn = Button(
+                text="➕ " + S.get("BUTTONS", {}).get("ADD", "Προσθήκη"),
+                font_size='16sp',
+                bold=True,
+                background_color=(0.2, 0.6, 0.2, 1)
+            )
             self.add_substation_btn.bind(on_press=self.show_add_substation_popup)
-            button_layout.add_widget(self.add_substation_btn)
+            primary_row.add_widget(self.add_substation_btn)
+            
+            buttons_container.add_widget(primary_row)
+            
+            # SECONDARY ACTIONS ROW (smaller, system functions)
+            secondary_row = BoxLayout(size_hint_y=0.45, spacing=8)
+            
+            self.sync_btn = Button(
+                text="🔄 " + S.get("MESSAGES", {}).get("SYNC_BUTTON", "Sync"),
+                font_size='14sp'
+            )
+            self.sync_btn.bind(on_press=self._on_sync_button_pressed)
+            secondary_row.add_widget(self.sync_btn)
 
-            # Add a persistent Change-log button to open share/open actions
-            change_log_btn = Button(text=S.get("MESSAGES", {}).get("CHANGELOG_BUTTON", "Change-log"))
+            settings_btn = Button(
+                text="⚙️ " + S.get("BUTTONS", {}).get("SETTINGS", "Ρυθμ."),
+                font_size='14sp'
+            )
+            settings_btn.bind(on_press=lambda x: self._show_sync_settings())
+            secondary_row.add_widget(settings_btn)
+
+            change_log_btn = Button(
+                text="📋 Log",
+                font_size='14sp'
+            )
             change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
-            button_layout.add_widget(change_log_btn)
+            secondary_row.add_widget(change_log_btn)
+            
+            buttons_container.add_widget(secondary_row)
 
-            main_layout.add_widget(button_layout)
-            Logger.info("APP: Buttons added (including Sync)")
+            main_layout.add_widget(buttons_container)
+            Logger.info("APP: Buttons added (reorganized layout)")
 
             # Load data after UI is rendered (prevent ANR)
             Logger.info("APP: Scheduling load_substations and startup sync to run after UI renders")
@@ -1283,7 +1324,7 @@ class SubstationAndroidApp(App):
         
         # Disable button to prevent multiple clicks
         self.sync_btn.disabled = True
-        self.sync_btn.text = S.get("MESSAGES", {}).get("SYNCING", "Συγχρονισμός...")
+        self.sync_btn.text = "⏳ " + S.get("MESSAGES", {}).get("SYNCING", "Συγχρονισμός...")
         
         def _sync_worker():
             try:
@@ -1376,7 +1417,7 @@ class SubstationAndroidApp(App):
     def _on_sync_complete(self, result):
         """Handle successful sync completion."""
         self.sync_btn.disabled = False
-        self.sync_btn.text = S.get("MESSAGES", {}).get("SYNC_BUTTON", "Συγχρ/σμός")
+        self.sync_btn.text = "🔄 " + S.get("MESSAGES", {}).get("SYNC_BUTTON", "Sync")
         
         if not result:
             self.show_error(S.get("MESSAGES", {}).get("SYNC_ERROR", "Σφάλμα κατά τον συγχρονισμό"))
@@ -1405,7 +1446,7 @@ class SubstationAndroidApp(App):
     def _on_sync_error(self, error_msg):
         """Handle sync error."""
         self.sync_btn.disabled = False
-        self.sync_btn.text = S.get("MESSAGES", {}).get("SYNC_BUTTON", "Συγχρ/σμός")
+        self.sync_btn.text = "🔄 " + S.get("MESSAGES", {}).get("SYNC_BUTTON", "Sync")
         self.show_error(f"Σφάλμα συγχρονισμού:\n{error_msg}")
 
     def _show_sync_settings(self):
@@ -1659,41 +1700,61 @@ class SubstationAndroidApp(App):
             return
 
         scroll = ScrollView()
-        grid = GridLayout(cols=1, spacing=20, size_hint_y=None, padding=10)
+        grid = GridLayout(cols=1, spacing=12, size_hint_y=None, padding=10)
         grid.bind(minimum_height=grid.setter("height"))
 
         for substation in self.substations:
-            btn_layout = BoxLayout(
-                size_hint_y=None, height=100, spacing=10, orientation="vertical"
-            )
-
-            # Top row: Name and View button
-            top_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
-            name_label = Label(text=substation["name"], size_hint_x=0.7, bold=True)
-            top_row.add_widget(name_label)
-
-            view_btn = Button(text=S.get("BUTTONS", {}).get("VIEW", "Προβολή"), size_hint_x=0.3)
-            view_btn.bind(
-                on_press=lambda x, sid=substation["id"]: self.show_substation_details(
-                    sid
-                )
-            )
-            top_row.add_widget(view_btn)
-
-            btn_layout.add_widget(top_row)
-
-            # Bottom row: Location link
-            location = substation.get("location", "")
-            location_text = S.get("MESSAGES", {}).get("GOOGLE_MAPS_LINK", "Google Maps Link") if location else "-"
-            location_label = Label(
-                text=f"{S.get('MESSAGES', {}).get('LOC', 'Τοποθεσία')}: {location_text}",
+            # Compact card-style layout for each substation
+            card = BoxLayout(
                 size_hint_y=None,
-                height=30,
-                font_size="14sp",
+                height=80,
+                spacing=8,
+                padding=[12, 8],
+                orientation="horizontal"
             )
-            btn_layout.add_widget(location_label)
 
-            grid.add_widget(btn_layout)
+            # Left side: Substation info (70% width)
+            info_box = BoxLayout(orientation="vertical", size_hint_x=0.7, spacing=2)
+            
+            name_label = Label(
+                text=substation["name"],
+                bold=True,
+                font_size='16sp',
+                halign='left',
+                valign='middle',
+                size_hint_y=0.6
+            )
+            name_label.bind(size=name_label.setter('text_size'))
+            info_box.add_widget(name_label)
+
+            location = substation.get("location", "")
+            loc_icon = "📍" if location else "⚠️"
+            location_label = Label(
+                text=f"{loc_icon} {location if location else 'Χωρίς τοποθεσία'}",
+                font_size='13sp',
+                halign='left',
+                valign='top',
+                color=(0.7, 0.7, 0.7, 1),
+                size_hint_y=0.4
+            )
+            location_label.bind(size=location_label.setter('text_size'))
+            info_box.add_widget(location_label)
+            
+            card.add_widget(info_box)
+
+            # Right side: View button (30% width)
+            view_btn = Button(
+                text="👁 " + S.get("BUTTONS", {}).get("VIEW", "Προβολή"),
+                size_hint_x=0.3,
+                font_size='15sp',
+                bold=True
+            )
+            view_btn.bind(
+                on_press=lambda x, sid=substation["id"]: self.show_substation_details(sid)
+            )
+            card.add_widget(view_btn)
+
+            grid.add_widget(card)
 
         scroll.add_widget(grid)
         self.content_layout.add_widget(scroll)
@@ -1751,32 +1812,56 @@ class SubstationAndroidApp(App):
         scroll.add_widget(grid)
         main_layout.add_widget(scroll)
 
-        # Action buttons
-        button_layout = BoxLayout(size_hint_y=0.15, spacing=10)
-
-        maint_btn = Button(text=S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"))
+        # Action buttons - reorganized into rows
+        actions_container = BoxLayout(orientation="vertical", size_hint_y=0.16, spacing=5)
+        
+        # Primary actions row (larger)
+        primary_actions = BoxLayout(size_hint_y=0.55, spacing=8)
+        
+        maint_btn = Button(
+            text="🔧 " + S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
+            font_size='15sp',
+            bold=True,
+            background_color=(0.2, 0.5, 0.7, 1)
+        )
         maint_btn.bind(
             on_press=lambda x: self.show_maintenance_menu(substation_id, substation)
         )
-        button_layout.add_widget(maint_btn)
+        primary_actions.add_widget(maint_btn)
 
-        inspect_btn = Button(text=S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"))
-        inspect_btn.bind(
-            on_press=lambda x: self.show_inspection_entry_popup(
-                substation_id, substation
-            )
+        inspect_btn = Button(
+            text="🔍 " + S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
+            font_size='15sp',
+            bold=True,
+            background_color=(0.5, 0.5, 0.2, 1)
         )
-        button_layout.add_widget(inspect_btn)
+        inspect_btn.bind(
+            on_press=lambda x: self.show_inspection_entry_popup(substation_id, substation)
+        )
+        primary_actions.add_widget(inspect_btn)
+        
+        actions_container.add_widget(primary_actions)
+        
+        # Secondary actions row (smaller)
+        secondary_actions = BoxLayout(size_hint_y=0.45, spacing=8)
 
-        add_elem_btn = Button(text="+ " + S["BUTTONS"]["ADD"] + " Στοιχείου")
+        add_elem_btn = Button(
+            text="➕ " + S["BUTTONS"]["ADD"],
+            font_size='14sp'
+        )
         add_elem_btn.bind(on_press=lambda x: self.show_add_element_popup(substation_id))
-        button_layout.add_widget(add_elem_btn)
+        secondary_actions.add_widget(add_elem_btn)
 
-        back_btn = Button(text=S.get("BUTTONS", {}).get("BACK", "Πίσω"))
+        back_btn = Button(
+            text="◀ " + S.get("BUTTONS", {}).get("BACK", "Πίσω"),
+            font_size='14sp'
+        )
         back_btn.bind(on_press=lambda x: self.load_substations(None))
-        button_layout.add_widget(back_btn)
+        secondary_actions.add_widget(back_btn)
+        
+        actions_container.add_widget(secondary_actions)
 
-        main_layout.add_widget(button_layout)
+        main_layout.add_widget(actions_container)
         self.content_layout.clear_widgets()
         self.content_layout.add_widget(main_layout)
 
@@ -1797,38 +1882,72 @@ class SubstationAndroidApp(App):
                     )
                     return
                 for elem in elements:
-                    elem_layout = BoxLayout(
-                        size_hint_y=None, spacing=5, orientation="vertical"
+                    # Compact card-style element display
+                    elem_card = BoxLayout(
+                        size_hint_y=None,
+                        height=85,
+                        spacing=5,
+                        padding=[8, 5],
+                        orientation="horizontal"
                     )
-                    elem_layout.bind(minimum_height=elem_layout.setter("height"))
 
-                    elem_text = f"{elem['element_type']}: {elem['name']}"
-                    elem_text += f"\nS/N: {elem.get('serial_number', '-')} | Τάση: {elem.get('voltage_level', '-')}"
-                    model_info = (
-                        f"Μοντέλο: {elem.get('model', '-')}"
-                        if elem.get("model")
-                        else ""
+                    # Element info (main area)
+                    info_layout = BoxLayout(orientation="vertical", size_hint_x=1, spacing=2)
+                    
+                    # Line 1: Type and name
+                    elem_type_display = elem['element_type']
+                    if elem.get("breaker_category"):
+                        elem_type_display += f" ({elem['breaker_category']})"
+                    
+                    line1 = Label(
+                        text=f"[b]{elem_type_display}[/b]: {elem['name']}",
+                        markup=True,
+                        font_size='15sp',
+                        halign='left',
+                        valign='middle',
+                        size_hint_y=0.35
                     )
-                    year_info = (
-                        f"Έτος: {elem.get('manufacture_year', '-')}"
-                        if elem.get("manufacture_year")
-                        else ""
+                    line1.bind(size=line1.setter('text_size'))
+                    info_layout.add_widget(line1)
+                    
+                    # Line 2: S/N and voltage
+                    sn = elem.get('serial_number', '-')
+                    voltage = elem.get('voltage_level', '-')
+                    line2 = Label(
+                        text=f"S/N: {sn} | ⚡ {voltage}",
+                        font_size='13sp',
+                        halign='left',
+                        valign='middle',
+                        color=(0.7, 0.7, 0.7, 1),
+                        size_hint_y=0.3
                     )
-                    status = elem.get("operating_status", "-")
-                    elem_text += f"\n{model_info} {year_info} | Κατάσταση: {status}"
-
-                    label = Label(text=elem_text, size_hint=(1, None))
-                    label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        ),
-                        texture_size=lambda instance, value: (
-                            setattr(instance, "height", max(75, value[1] + 10)),
-                            setattr(elem_layout, "height", max(75, value[1] + 10)),
-                        ),
+                    line2.bind(size=line2.setter('text_size'))
+                    info_layout.add_widget(line2)
+                    
+                    # Line 3: Model, year, status
+                    model = elem.get('model', '-')
+                    year = elem.get('manufacture_year', '')
+                    status = elem.get('operating_status', '-')
+                    
+                    status_emoji = "✅" if status == "Ενεργή" else "⚠️"
+                    line3_text = f"{model}"
+                    if year:
+                        line3_text += f" ({year})"
+                    line3_text += f" | {status_emoji} {status}"
+                    
+                    line3 = Label(
+                        text=line3_text,
+                        font_size='12sp',
+                        halign='left',
+                        valign='top',
+                        color=(0.6, 0.6, 0.6, 1),
+                        size_hint_y=0.35
                     )
-                    elem_layout.add_widget(label)
-                    grid.add_widget(elem_layout)
+                    line3.bind(size=line3.setter('text_size'))
+                    info_layout.add_widget(line3)
+                    
+                    elem_card.add_widget(info_layout)
+                    grid.add_widget(elem_card)
             except Exception as e:
                 if loading_label.parent:
                     grid.remove_widget(loading_label)
