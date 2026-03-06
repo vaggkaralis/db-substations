@@ -1272,7 +1272,7 @@ class SubstationAndroidApp(App):
 
     def _on_sync_button_pressed(self, instance):
         """Handle manual sync button press."""
-        if not hasattr(self, "db") or self.db is None:
+        if not hasattr(self, "local_db_path") or not self.local_db_path:
             self.show_error(S.get("MESSAGES", {}).get("NO_DB", "Δεν φορτώθηκε βάση δεδομένων"))
             return
         
@@ -1293,7 +1293,7 @@ class SubstationAndroidApp(App):
     def _run_startup_sync(self, dt):
         """Run automatic sync on app startup if enabled."""
         try:
-            if not hasattr(self, "db") or self.db is None:
+            if not hasattr(self, "local_db_path") or not self.local_db_path:
                 Logger.info("SYNC: Skipping startup sync - no DB loaded yet")
                 return
             
@@ -1329,11 +1329,14 @@ class SubstationAndroidApp(App):
             
             Logger.info("SYNC: Initializing sync...")
             
-            # Get configured paths or defaults
-            db_path = getattr(self, "db_path", None)
-            if not db_path:
-                Logger.warning("SYNC: No database path available")
-                return None
+            # Get database path
+            db_path = getattr(self, "local_db_path", None)
+            if not db_path or not os.path.exists(db_path):
+                Logger.warning("SYNC: No valid database path available")
+                raise RuntimeError("Δεν φορτώθηκε βάση δεδομένων")
+            
+            # Create database connection
+            conn = sqlite3.connect(db_path)
             
             sync_root = resolve_android_sync_root(db_path)
             backup_root = resolve_android_backup_root(db_path)
@@ -1347,7 +1350,7 @@ class SubstationAndroidApp(App):
             
             # Run the sync cycle (same as desktop)
             result = run_sync_cycle(
-                self.db,
+                conn,
                 db_path=db_path,
                 sync_root=sync_root,
                 backup_root=backup_root,
@@ -1356,6 +1359,7 @@ class SubstationAndroidApp(App):
                 hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
             )
             
+            conn.close()
             Logger.info(f"SYNC: Sync cycle completed: {result}")
             return result
             
