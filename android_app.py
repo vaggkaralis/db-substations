@@ -2241,10 +2241,16 @@ class SubstationAndroidApp(App):
                         details_container.add_widget(elem_comments)
 
                         measurements = {}
-                        is_breaker = elem["element_type"] in [
-                            "Διακόπτης ΥΤ",
-                            "Διακόπτης ΜΤ",
+                        elem_type = elem["element_type"]
+                        breaker_category = elem.get("breaker_category", "")
+                        
+                        is_breaker = elem_type in [
+                            S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"),
+                            S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"),
                         ]
+                        
+                        is_sf6_breaker = is_breaker and breaker_category == "SF6"
+                        is_vacuum_breaker = is_breaker and breaker_category in ["Κενού", "Vacuum"] and elem_type == S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
                         if is_breaker:
                             details_container.add_widget(
@@ -2338,6 +2344,150 @@ class SubstationAndroidApp(App):
                                 phase_layout.add_widget(value_input)
                                 details_container.add_widget(phase_layout)
                                 measurements[f"cont_{phase}"] = value_input
+
+                            # Operations counter for all breakers
+                            details_container.add_widget(
+                                wrapped_label("Μετρητής Χειρισμών:")
+                            )
+                            ops_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            ops_layout.add_widget(
+                                Label(text="Αριθμός Χειρισμών:", size_hint_x=0.4)
+                            )
+                            ops_input = TextInput(
+                                hint_text="Τιμή",
+                                size_hint_x=0.6,
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            ops_layout.add_widget(ops_input)
+                            details_container.add_widget(ops_layout)
+                            measurements["operations_count"] = ops_input
+
+                        # SF6-specific measurements
+                        if is_sf6_breaker:
+                            details_container.add_widget(
+                                wrapped_label("Ποιότητα Αερίου SF6:")
+                            )
+                            
+                            # SF6 Leakage
+                            leak_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            leak_layout.add_widget(
+                                Label(text="Διαρροή SF6 (kg):", size_hint_x=0.4)
+                            )
+                            sf6_leak_input = TextInput(
+                                hint_text="Τιμή kg",
+                                size_hint_x=0.6,
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            leak_layout.add_widget(sf6_leak_input)
+                            details_container.add_widget(leak_layout)
+                            measurements["sf6_leakage_kg"] = sf6_leak_input
+                            
+                            # SF6 Leak Methodology
+                            method_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            method_layout.add_widget(
+                                Label(text="Μέθοδος:", size_hint_x=0.4)
+                            )
+                            sf6_method_spinner = Spinner(
+                                text="Πλήρωση",
+                                values=["Πλήρωση", "Αντικατάσταση", "Καμία"],
+                                size_hint_x=0.6,
+                                height=50,
+                            )
+                            method_layout.add_widget(sf6_method_spinner)
+                            details_container.add_widget(method_layout)
+                            measurements["sf6_leak_methodology"] = sf6_method_spinner
+                            
+                            # SF6 Quality per phase
+                            for phase in ["fa", "fb", "fc"]:
+                                phase_label = {
+                                    "fa": "Φάση A",
+                                    "fb": "Φάση B",
+                                    "fc": "Φάση C",
+                                }[phase]
+                                
+                                details_container.add_widget(
+                                    wrapped_label(f"{phase_label} - Ποιότητα:")
+                                )
+                                
+                                # SF6/N2 ratio
+                                sf6n2_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                                sf6n2_layout.add_widget(
+                                    Label(text="SF6/N2:", size_hint_x=0.3)
+                                )
+                                sf6n2_input = TextInput(
+                                    hint_text="Τιμή",
+                                    size_hint_x=0.7,
+                                    multiline=False,
+                                    height=50,
+                                    padding=[10, 10, 10, 10],
+                                )
+                                sf6n2_layout.add_widget(sf6n2_input)
+                                details_container.add_widget(sf6n2_layout)
+                                measurements[f"sf6_n2_{phase}"] = sf6n2_input
+                                
+                                # H2O
+                                h2o_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                                h2o_layout.add_widget(
+                                    Label(text="H2O:", size_hint_x=0.3)
+                                )
+                                h2o_input = TextInput(
+                                    hint_text="Τιμή",
+                                    size_hint_x=0.7,
+                                    multiline=False,
+                                    height=50,
+                                    padding=[10, 10, 10, 10],
+                                )
+                                h2o_layout.add_widget(h2o_input)
+                                details_container.add_widget(h2o_layout)
+                                measurements[f"h2o_{phase}"] = h2o_input
+                                
+                                # SO2
+                                so2_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                                so2_layout.add_widget(
+                                    Label(text="SO2:", size_hint_x=0.3)
+                                )
+                                so2_input = TextInput(
+                                    hint_text="Τιμή",
+                                    size_hint_x=0.7,
+                                    multiline=False,
+                                    height=50,
+                                    padding=[10, 10, 10, 10],
+                                )
+                                so2_layout.add_widget(so2_input)
+                                details_container.add_widget(so2_layout)
+                                measurements[f"so2_{phase}"] = so2_input
+
+                        # VIDAR measurements for vacuum breakers
+                        if is_vacuum_breaker:
+                            details_container.add_widget(
+                                wrapped_label("Έλεγχος Κενού (VIDAR):")
+                            )
+                            for phase in ["fa", "fb", "fc"]:
+                                phase_label = {
+                                    "fa": "Φάση A",
+                                    "fb": "Φάση B",
+                                    "fc": "Φάση C",
+                                }[phase]
+                                vidar_layout = BoxLayout(
+                                    size_hint_y=None, height=60, spacing=8
+                                )
+                                vidar_layout.add_widget(
+                                    Label(text=f"{phase_label}:", size_hint_x=0.3)
+                                )
+                                vidar_input = TextInput(
+                                    hint_text="Τιμή",
+                                    size_hint_x=0.7,
+                                    multiline=False,
+                                    height=50,
+                                    padding=[10, 10, 10, 10],
+                                )
+                                vidar_layout.add_widget(vidar_input)
+                                details_container.add_widget(vidar_layout)
+                                measurements[f"vidar_{phase}"] = vidar_input
 
                         def toggle_details(
                             cb, value, eb=elem_box, dc=details_container
