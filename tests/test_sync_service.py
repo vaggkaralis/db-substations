@@ -54,9 +54,17 @@ def test_process_sync_inbox_applies_pending_jsonl(tmp_path):
     assert maintenance is not None
     assert maintenance[0] == "From Android"
 
-    accepted_dir = sync_root / "inbox" / "processed" / "accepted"
-    accepted_files = list(accepted_dir.glob("*.jsonl"))
-    assert len(accepted_files) == 1
+    # Verify file stays in pending (idempotent behavior - files not moved)
+    pending_files = list(pending.glob("*.jsonl"))
+    assert len(pending_files) == 1
+
+    # Verify tracker exists with correct status
+    tracker_path = sync_root / "logs" / ".processed_files.json"
+    assert tracker_path.exists()
+    with open(tracker_path, "r", encoding="utf-8") as f:
+        tracker = json.load(f)
+    assert "entry.jsonl" in tracker
+    assert tracker["entry.jsonl"]["status"] == "accepted"
 
     audit_log = sync_root / "logs" / "sync_events.jsonl"
     assert audit_log.exists()

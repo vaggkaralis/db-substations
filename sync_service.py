@@ -23,6 +23,51 @@ def _safe_move(src: str, dst: str) -> None:
     shutil.move(src, dst)
 
 
+def _load_processed_tracker(tracker_path: str) -> dict:
+    """Load the processed files tracker."""
+    if os.path.exists(tracker_path):
+        try:
+            with open(tracker_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_processed_tracker(tracker_path: str, tracker: dict) -> None:
+    """Save the processed files tracker."""
+    os.makedirs(os.path.dirname(tracker_path), exist_ok=True)
+    with open(tracker_path, "w", encoding="utf-8") as fh:
+        json.dump(tracker, fh, ensure_ascii=False, indent=2)
+
+
+def _record_exists_with_data(cur, table: str, record_id, expected_data: dict) -> str:
+    """Check if record exists. Returns: 'none', 'identical', or 'different'."""
+    if not record_id:
+        return "none"
+    
+    try:
+        cur.execute(f"SELECT * FROM {table} WHERE id=?", (record_id,))
+        row = cur.fetchone()
+        if not row:
+            return "none"
+        
+        # Get column names
+        cols = [col[0] for col in cur.description]
+        existing_data = dict(zip(cols, row))
+        
+        # Compare only the keys present in expected_data
+        for key in expected_data:
+            if key in existing_data:
+                if str(existing_data[key]) != str(expected_data[key]):
+                    return "different"
+        
+        return "identical"
+    except Exception:
+        return "none"
+
+
+
 def resolve_db_path(explicit_db_path: str | None = None) -> str:
     if explicit_db_path:
         return os.path.abspath(explicit_db_path)
@@ -65,10 +110,37 @@ def _append_jsonl(path: str, entry: dict) -> None:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _apply_change_log_to_db(conn: sqlite3.Connection, file_path: str) -> None:
+def _apply_change_log_to_db(
+    conn: sqlite3.Connection,
+    file_path: str,
+    tracker: dict | None = None,
+    filename: str | None = None,
+) -> tuple[int, int, int]:
+    """
+    Apply changes from a JSONL file to the database (idempotent).
+    
+    Args:
+        conn: Database connection
+        file_path: Path to the JSONL change file
+        tracker: Optional processed files tracker dict
+        filename: Filename for tracking (defaults to basename of file_path)
+    
+    Returns:
+        Tuple of (accepted, already_applied, conflicts)
+    """
     if not os.path.exists(file_path):
         raise FileNotFoundError(file_path)
-
+    
+    if filename is None:
+        filename = os.path.basename(file_path)
+    
+    if tracker is None:
+        tracker = {}
+    
+    accepted = 0
+    already_applied = 0
+    conflicts = 0
+    
     cur = conn.cursor()
     with open(file_path, "r", encoding="utf-8") as fh:
         for line in fh:
@@ -84,101 +156,229 @@ def _apply_change_log_to_db(conn: sqlite3.Connection, file_path: str) -> None:
                 continue
 
             if table == "maintenance":
+                # Check if maintenance record exists (by id field)
+                maint_id = data.get("id")
+                if maint_id:
+                    existence = _record_exists_with_data(cur, "maintenance", maint_id, data)
+                    if existence == "identical":
+                        already_applied += 1
+                        continue
+                    elif existence == "different":
+                        conflicts += 1
+                        continue
+                
                 maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
                 maint_keys = [k for k in data.keys() if k in maint_cols]
                 if maint_keys:
-                    placeholders = ",".join(["?"] * len(maint_keys))
-                    sql = f"INSERT INTO maintenance ({','.join(maint_keys)}) VALUES ({placeholders})"
-                    cur.execute(sql, [data[k] for k in maint_keys])
-                    maintenance_id = cur.lastrowid
+                    try:
+                        placeholders = ",".join(["?"] * len(maint_keys))
+                        sql = f"INSERT INTO maintenance ({','.join(maint_keys)}) VALUES ({placeholders})"
+                        cur.execute(sql, [data[k] for k in maint_keys])
+                        maintenance_id = cur.lastrowid
+                    except sqlite3.IntegrityError:
+                        conflicts += 1
+                        conn.rollback()
+                        continue
                 else:
                     continue
 
+                # Insert related elements
                 elements = data.get("elements") or []
+                elements_ok = True
                 for elem in elements:
                     elem_id = elem.get("element_id") or elem.get("id")
                     elem_comments = elem.get("element_comments") or elem.get("comments")
-                    cur.execute(
-                        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
-                        (maintenance_id, elem_id, elem_comments),
-                    )
-                    if data.get("date_time") and elem_id:
+                    try:
                         cur.execute(
-                            "UPDATE elements SET maintenance_date=? WHERE id=?",
-                            (data.get("date_time"), elem_id),
+                            "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+                            (maintenance_id, elem_id, elem_comments),
                         )
-                conn.commit()
+                        if data.get("date_time") and elem_id:
+                            cur.execute(
+                                "UPDATE elements SET maintenance_date=? WHERE id=?",
+                                (data.get("date_time"), elem_id),
+                            )
+                    except sqlite3.IntegrityError:
+                        elements_ok = False
+                        break
+                
+                if elements_ok:
+                    conn.commit()
+                    accepted += 1
+                else:
+                    conflicts += 1
+                    conn.rollback()
                 continue
 
+            # For other tables (elements, substations, etc.)
+            record_id = data.get("id")
+            if record_id:
+                existence = _record_exists_with_data(cur, table, record_id, data)
+                if existence == "identical":
+                    already_applied += 1
+                    continue
+                elif existence == "different":
+                    conflicts += 1
+                    continue
+            
             cols_info = [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
             insert_keys = [k for k in data.keys() if k in cols_info]
             if not insert_keys:
                 continue
-            placeholders = ",".join(["?"] * len(insert_keys))
-            sql = f"INSERT INTO {table} ({','.join(insert_keys)}) VALUES ({placeholders})"
-            cur.execute(sql, [data[k] for k in insert_keys])
-            conn.commit()
+            
+            try:
+                placeholders = ",".join(["?"] * len(insert_keys))
+                sql = f"INSERT INTO {table} ({','.join(insert_keys)}) VALUES ({placeholders})"
+                cur.execute(sql, [data[k] for k in insert_keys])
+                conn.commit()
+                accepted += 1
+            except sqlite3.IntegrityError:
+                conflicts += 1
+                conn.rollback()
+    
+    return (accepted, already_applied, conflicts)
 
 
 def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "desktop") -> dict:
+    """
+    Process all change files in the sync inbox (idempotent).
+    
+    Files are kept in place after processing. Each file is processed every time
+    it's encountered, but record-level deduplication prevents duplicate insertions.
+    This allows multiple users to "import" the same change file without conflicts.
+    """
     tree = ensure_sync_tree(sync_root)
     pending_dir = tree["inbox_pending"]
+    accepted_dir = tree["accepted"]
     audit_path = os.path.join(tree["logs"], "sync_events.jsonl")
+    tracker_path = os.path.join(tree["logs"], ".processed_files.json")
+
+    # Load existing tracker for reference (but we'll process files regardless)
+    tracker = _load_processed_tracker(tracker_path)
 
     files = []
+    # Check both pending and accepted directories
     for item in sorted(os.listdir(pending_dir)):
         src = os.path.join(pending_dir, item)
         if not os.path.isfile(src):
             continue
         if not item.lower().endswith((".json", ".jsonl")):
             continue
-        files.append(src)
+        files.append((item, src))
+    
+    for item in sorted(os.listdir(accepted_dir)):
+        src = os.path.join(accepted_dir, item)
+        if not os.path.isfile(src):
+            continue
+        if not item.lower().endswith((".json", ".jsonl")):
+            continue
+        # Extract original filename (remove timestamp prefix if present)
+        parts = item.split("_", 3)
+        if len(parts) >= 4:  # yyyymmdd_hhmmss_ffffff_originalname
+            original_name = "_".join(parts[3:])
+        else:
+            original_name = item
+        # Only add if not already processed in this sync cycle
+        # (to avoid duplicates from pending and accepted)
+        if original_name not in [f[0] for f in files]:
+            files.append((original_name, src))
 
     accepted = 0
+    already_applied = 0
     rejected = 0
     conflicts = 0
 
-    for src in files:
-        name = os.path.basename(src)
-        stamped_name = f"{_timestamp_slug()}_{name}"
+    for original_name, src in files:
         event = {
             "timestamp_utc": _utc_now_iso(),
             "actor": actor,
-            "source_file": name,
+            "source_file": original_name,
             "status": "pending",
         }
 
         try:
-            _apply_change_log_to_db(conn, src)
-            dst = os.path.join(tree["accepted"], stamped_name)
-            _safe_move(src, dst)
-            accepted += 1
-            event["status"] = "accepted"
-            event["stored_as"] = os.path.basename(dst)
-        except sqlite3.IntegrityError as exc:
-            dst = os.path.join(tree["conflicts"], stamped_name)
-            _safe_move(src, dst)
-            conflicts += 1
-            event["status"] = "conflict"
-            event["error"] = str(exc)
-            event["stored_as"] = os.path.basename(dst)
+            file_accepted, file_already_applied, file_conflicts = _apply_change_log_to_db(
+                conn, src, tracker, original_name
+            )
+            
+            # Determine overall status
+            if file_conflicts > 0:
+                event["status"] = "conflict"
+                event["details"] = {
+                    "accepted": file_accepted,
+                    "already_applied": file_already_applied,
+                    "conflicts": file_conflicts,
+                }
+                conflicts += file_conflicts
+                tracker[original_name] = {
+                    "status": "conflict",
+                    "processed_at": _utc_now_iso(),
+                    "processed_by": actor,
+                }
+            elif file_already_applied == 0 and file_accepted == 0:
+                # File had no applicable changes
+                event["status"] = "rejected"
+                event["reason"] = "No applicable changes found"
+                rejected += 1
+                tracker[original_name] = {
+                    "status": "rejected",
+                    "processed_at": _utc_now_iso(),
+                    "processed_by": actor,
+                    "reason": "No applicable changes",
+                }
+            elif file_already_applied > 0 and file_accepted == 0:
+                event["status"] = "already_applied"
+                event["count"] = file_already_applied
+                already_applied += file_already_applied
+                tracker[original_name] = {
+                    "status": "already_applied",
+                    "processed_at": _utc_now_iso(),
+                    "processed_by": actor,
+                    "count": file_already_applied,
+                }
+            else:
+                event["status"] = "accepted"
+                event["details"] = {
+                    "accepted": file_accepted,
+                    "already_applied": file_already_applied,
+                    "conflicts": file_conflicts,
+                }
+                accepted += file_accepted
+                tracker[original_name] = {
+                    "status": "accepted",
+                    "processed_at": _utc_now_iso(),
+                    "processed_by": actor,
+                    "details": {
+                        "accepted": file_accepted,
+                        "already_applied": file_already_applied,
+                        "conflicts": file_conflicts,
+                    },
+                }
         except Exception as exc:
-            dst = os.path.join(tree["rejected"], stamped_name)
-            _safe_move(src, dst)
-            rejected += 1
             event["status"] = "rejected"
             event["error"] = str(exc)
-            event["stored_as"] = os.path.basename(dst)
+            rejected += 1
+            tracker[original_name] = {
+                "status": "rejected",
+                "processed_at": _utc_now_iso(),
+                "processed_by": actor,
+                "error": str(exc),
+            }
 
         _append_jsonl(audit_path, event)
+
+    # Save updated tracker
+    _save_processed_tracker(tracker_path, tracker)
 
     return {
         "processed": len(files),
         "accepted": accepted,
+        "already_applied": already_applied,
         "conflicts": conflicts,
         "rejected": rejected,
         "sync_root": sync_root,
         "audit_log": audit_path,
+        "tracker": tracker_path,
     }
 
 

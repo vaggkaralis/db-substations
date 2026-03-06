@@ -4830,6 +4830,7 @@ class SubstationApp(App):
             sync_summary = sync_result.get("sync", {})
             processed = sync_summary.get("processed", 0)
             accepted = sync_summary.get("accepted", 0)
+            already_applied = sync_summary.get("already_applied", 0)
             conflicts = sync_summary.get("conflicts", 0)
             rejected = sync_summary.get("rejected", 0)
 
@@ -4841,6 +4842,8 @@ class SubstationApp(App):
                 "Αυτόματος συγχρονισμός ολοκληρώθηκε:\n"
             )
             msg += f"\n✓ Αποδεκτά: {accepted}"
+            if already_applied > 0:
+                msg += f"\n↻ Ήδη εφαρμοσμένα: {already_applied}"
             if conflicts > 0:
                 msg += f"\n⚠ Συγκρούσεις: {conflicts}"
             if rejected > 0:
