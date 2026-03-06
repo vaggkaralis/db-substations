@@ -752,6 +752,11 @@ class SubstationAndroidApp(App):
             self.sync_btn.bind(on_press=self._on_sync_button_pressed)
             button_layout.add_widget(self.sync_btn)
 
+            # Settings button to configure sync paths
+            settings_btn = Button(text=S.get("BUTTONS", {}).get("SETTINGS", "Ρυθμίσεις"))
+            settings_btn.bind(on_press=lambda x: self._show_sync_settings())
+            button_layout.add_widget(settings_btn)
+
             self.add_substation_btn = Button(text=("+ " + S.get("BUTTONS", {}).get("ADD", "Προσθήκη") + " Υποσταθμού"))
             self.add_substation_btn.bind(on_press=self.show_add_substation_popup)
             button_layout.add_widget(self.add_substation_btn)
