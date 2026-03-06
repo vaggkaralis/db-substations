@@ -2116,13 +2116,22 @@ class SubstationAndroidApp(App):
                     elem_card.add_widget(info_layout)
                     
                     # Add maintenance history button on the right
-                    history_btn = Button(
-                        text="📋",
-                        font_size='20sp',
-                        size_hint_x=None,
-                        width=60,
-                        background_color=(0.3, 0.6, 0.8, 1)
-                    )
+                    try:
+                        from ui.shared import IconOnlyButton
+                        history_btn = IconOnlyButton(
+                            icon_type="maintenance",
+                            icon_color=(0.4, 0.6, 0.8, 1),
+                            size=(50, 50)
+                        )
+                    except Exception:
+                        # Fallback to text button if IconOnlyButton not available
+                        history_btn = Button(
+                            text="History",
+                            font_size='12sp',
+                            size_hint_x=None,
+                            width=60,
+                            background_color=(0.3, 0.6, 0.8, 1)
+                        )
                     history_btn.bind(
                         on_press=lambda x, eid=elem.get('id'), ename=elem.get('name'): self.show_element_maintenance_history(eid, ename)
                     )
