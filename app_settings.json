@@ -5,5 +5,9 @@
     "name": "Καράλης Ευάγγελος",
     "role": "Μηχανικός"
   },
-  "db_path": "C:\\Users\\e.karalis\\OneDrive - Hellenic Electricity Distribution Network Operator S.A\\60_Projects\\DB Substations\\substations.db"
+  "db_path": "C:\\Users\\e.karalis\\OneDrive - Hellenic Electricity Distribution Network Operator S.A\\60_Projects\\DB Substations\\substations.db",
+  "sync_auto_cycle_enabled": true,
+  "sync_auto_cycle_minutes": 60,
+  "sync_backup_on_change": true,
+  "backup_hot_keep": 3
 }

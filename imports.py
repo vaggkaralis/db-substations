@@ -15,9 +15,9 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
             root = _tk.Tk()
             root.withdraw()
             ft = list(filetypes) if filetypes else [
-                ("Excel files", "*.xlsx *.xls"),
-                ("CSV files", "*.csv"),
-                ("All files", "*.*"),
+                (S["MESSAGES"].get("FILE_DIALOG_EXCEL_FILES", "Αρχεία Excel"), "*.xlsx *.xls"),
+                (S["MESSAGES"].get("FILE_DIALOG_CSV_FILES", "Αρχεία CSV"), "*.csv"),
+                (S["MESSAGES"].get("FILE_DIALOG_ALL_FILES", "Όλα τα αρχεία"), "*.*"),
             ]
             file_path = _filedialog.askopenfilename(title=title, filetypes=ft)
             try:
@@ -71,7 +71,7 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
     layout.add_widget(path_input)
 
     # File chooser with default path
-    layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
+    layout.add_widget(Label(text=S["MESSAGES"].get("IMPORT_OR_SELECT_FROM_LIST", "Ή επιλέξτε από τη λίστα:"), size_hint_y=0.1))
     chooser = FileChooserListView(filters=(chooser_filters or ["*.xlsx", "*.csv"]), path=os.path.dirname(__file__))
     layout.add_widget(chooser)
 
@@ -128,10 +128,12 @@ def show_import_menu(app, instance=None):
         from kivy.uix.button import Button
         from kivy.uix.label import Label
         from kivy.uix.popup import Popup
+        from popups import show_message_popup
     except Exception:
         Popup = BoxLayout = Label = Button = object
+        show_message_popup = None
 
-    menu_popup = Popup(title="Εισαγωγή από αρχείο", size_hint=(0.6, 0.55))
+    menu_popup = Popup(title=S["TITLES"].get("IMPORT_MENU", "Εισαγωγή από αρχείο"), size_hint=(0.6, 0.7))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     try:
@@ -139,32 +141,63 @@ def show_import_menu(app, instance=None):
     except Exception:
         pass
 
-    layout.add_widget(Label(text="Επιλέξτε τι θέλετε να εισάγετε:", size_hint_y=0.2))
+    layout.add_widget(Label(text=S["MESSAGES"].get("IMPORT_MENU_PROMPT", "Επιλέξτε τι θέλετε να εισάγετε:"), size_hint_y=0.15))
 
-    import_elements_btn = Button(text="Εισαγωγή Στοιχείων από Αρχείο", size_hint_y=0.2)
+    import_elements_btn = Button(text=S["MESSAGES"].get("IMPORT_ELEMENTS_BUTTON", "Εισαγωγή Στοιχείων από Αρχείο"), size_hint_y=0.15)
     import_elements_btn.bind(on_press=lambda x: _show_import_elements_from_menu(app, menu_popup))
     layout.add_widget(import_elements_btn)
 
-    import_android_btn = Button(text="Εισαγωγή αλλαγών από Android", size_hint_y=0.2)
+    import_android_btn = Button(text=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"), size_hint_y=0.15)
     import_android_btn.bind(on_press=lambda x: _show_import_android_changes_from_menu(app, menu_popup))
     layout.add_widget(import_android_btn)
+
+    sync_inbox_btn = Button(
+        text=S["MESSAGES"].get("IMPORT_SYNC_INBOX_BUTTON", "Επεξεργασία εισερχομένων OneDrive"),
+        size_hint_y=0.18,
+    )
+    sync_inbox_btn.bind(on_press=lambda x: _process_sync_inbox_from_menu(app, menu_popup))
+    layout.add_widget(sync_inbox_btn)
+
+    export_changes_btn = Button(
+        text=S["MESSAGES"].get("EXPORT_CHANGES_BUTTON", "Εξαγωγή Αλλαγών Τώρα"),
+        size_hint_y=0.18,
+    )
+    
+    def _export_changes_now(*_args):
+        try:
+            change_count = len(getattr(app, "_pending_changes", []))
+            if change_count == 0:
+                show_message_popup(
+                    S["TITLES"].get("INFO", "Πληροφορία"),
+                    S["MESSAGES"].get("NO_PENDING_CHANGES", "Δεν υπάρχουν αλλαγές προς εξαγωγή.")
+                )
+                return
+            app._export_pending_changes(show_popup=True)
+        except Exception as e:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("EXPORT_CHANGES_ERROR_FMT", "Σφάλμα εξαγωγής: {error}").format(error=str(e))
+            )
+    
+    export_changes_btn.bind(on_press=_export_changes_now)
+    layout.add_widget(export_changes_btn)
 
     try:
         from reports import export_full_db_ui
 
-        export_db_btn = Button(text="Εξαγωγή Βάσης (Excel)", size_hint_y=0.2)
+        export_db_btn = Button(text=S["MESSAGES"].get("IMPORT_EXPORT_DB_BUTTON", "Εξαγωγή Βάσης (Excel)"), size_hint_y=0.18)
         export_db_btn.bind(on_press=lambda x: export_full_db_ui(app, menu_popup))
         layout.add_widget(export_db_btn)
     except Exception:
         pass
 
-    layout.add_widget(Label(text="Ή δημιουργήστε πρότυπο εισαγωγής:", size_hint_y=0.15))
+    layout.add_widget(Label(text=S["MESSAGES"].get("IMPORT_TEMPLATE_PROMPT", "Ή δημιουργήστε πρότυπο εισαγωγής:"), size_hint_y=0.12))
 
-    template_elements_btn = Button(text="Δημιουργία Template Εισαγωγής", size_hint_y=0.2)
+    template_elements_btn = Button(text=S["MESSAGES"].get("IMPORT_TEMPLATE_ELEMENTS_BUTTON", "Δημιουργία Template Εισαγωγής"), size_hint_y=0.15)
     template_elements_btn.bind(on_press=app.create_elements_template)
     layout.add_widget(template_elements_btn)
 
-    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.15)
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.12)
     cancel_btn.bind(on_press=menu_popup.dismiss)
     layout.add_widget(cancel_btn)
 
@@ -184,13 +217,26 @@ def _show_import_android_changes_from_menu(app, menu_popup):
     show_import_android_changes_dialog(app, menu_popup)
 
 
+def _process_sync_inbox_from_menu(app, menu_popup):
+    try:
+        menu_popup.dismiss()
+    except Exception:
+        pass
+    app.process_sync_inbox_now()
+
+
 def show_import_substations_dialog(app, instance_or_parent_popup=None):
     parent_popup = instance_or_parent_popup
 
     def import_callback(file_path):
         app.import_substations_from_file(file_path)
 
-    _open_file_chooser_and_import(app, parent_popup, import_callback, title="Εισαγωγή Υποσταθμών")
+    _open_file_chooser_and_import(
+        app,
+        parent_popup,
+        import_callback,
+        title=S["TITLES"].get("IMPORT_SUBSTATIONS_TITLE", "Εισαγωγή Υποσταθμών"),
+    )
 
 
 def show_import_elements_dialog(app, instance_or_parent_popup=None):
@@ -199,7 +245,12 @@ def show_import_elements_dialog(app, instance_or_parent_popup=None):
     def import_callback(file_path):
         app.import_elements_from_file(file_path)
 
-    _open_file_chooser_and_import(app, parent_popup, import_callback, title="Εισαγωγή Στοιχείων")
+    _open_file_chooser_and_import(
+        app,
+        parent_popup,
+        import_callback,
+        title=S["TITLES"].get("IMPORT_ELEMENTS", "Εισαγωγή Στοιχείων"),
+    )
 
 
 def show_import_android_changes_dialog(app, instance_or_parent_popup=None):
@@ -211,8 +262,8 @@ def show_import_android_changes_dialog(app, instance_or_parent_popup=None):
         app,
         parent_popup,
         import_callback,
-        title="Εισαγωγή αλλαγών από Android",
-        filetypes=(("JSON files", "*.json"),),
+        title=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"),
+        filetypes=((S["MESSAGES"].get("FILE_DIALOG_JSON_FILES", "Αρχεία JSON"), "*.json"),),
         chooser_filters=["*.json"],
     )
 """

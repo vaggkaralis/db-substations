@@ -475,6 +475,32 @@ def show_add_element_popup(app, instance):
                 (None if rated_power_val == "" else float(rated_power_val.replace(",", "."))) if rated_power_val else None,
             ),
         )
+        element_id = c.lastrowid
+        
+        # Track change for desktop sync
+        element_data = {
+            "id": element_id,
+            "substation_id": substation_id,
+            "element_type": element_type,
+            "name": values.get("name", ""),
+            "serial_number": (values.get("serial_number", "") or "").strip(),
+            "maintenance_date": values.get("maintenance_date", ""),
+            "voltage_level": voltage_level_value,
+            "manufacturer": values.get("manufacturer", ""),
+            "model": values.get("model", ""),
+            "model_version": values.get("model_version", ""),
+            "installation_space": values.get("installation_space", "Εσωτερικός"),
+            "operating_status": values.get("operating_status", "Ενεργή"),
+            "maintenance_cycle": maintenance_cycle_int,
+            "element_model_id": model_id,
+            "manufacture_year": values.get("manufacture_year", ""),
+            "gate": gate_value,
+            "is_main_switch": is_main_switch,
+            "breaker_category": breaker_category_value,
+            "power_mva": (None if rated_power_val == "" else float(rated_power_val.replace(",", "."))) if rated_power_val else None,
+        }
+        app._append_change_log("insert", "elements", element_data)
+        
         app.conn.commit()
 
         try:
@@ -1910,6 +1936,32 @@ def show_add_element_popup_for_substation(app, substation_id, substation_name, p
                 (None if rated_power_input.text.strip() == "" else float(rated_power_input.text.strip().replace(",", "."))),
             ),
         )
+        element_id = c.lastrowid
+        
+        # Track change for desktop sync
+        element_data = {
+            "id": element_id,
+            "substation_id": selected_substation_id,
+            "element_type": element_type,
+            "name": values.get("name", ""),
+            "serial_number": (values.get("serial_number", "") or "").strip(),
+            "maintenance_date": values.get("maintenance_date", ""),
+            "voltage_level": voltage_level_value,
+            "manufacturer": values.get("manufacturer", ""),
+            "model": values.get("model", ""),
+            "model_version": values.get("model_version", ""),
+            "installation_space": values.get("installation_space", "Εσωτερικός"),
+            "operating_status": values.get("operating_status", "Ενεργή"),
+            "maintenance_cycle": maintenance_cycle_int,
+            "element_model_id": model_id,
+            "manufacture_year": values.get("manufacture_year", ""),
+            "gate": gate_value,
+            "is_main_switch": is_main_switch,
+            "breaker_category": breaker_category_value,
+            "power_mva": (None if rated_power_input.text.strip() == "" else float(rated_power_input.text.strip().replace(",", "."))),
+        }
+        app._append_change_log("insert", "elements", element_data)
+        
         app.conn.commit()
 
         try:

@@ -183,3 +183,57 @@ def clear_db_path() -> bool:
         return True
     except Exception:
         return False
+
+
+# Generic app settings helpers
+
+def get_app_setting(key: str, default=None):
+    """Get a raw setting value by key.
+
+    Args:
+        key: Setting key
+        default: Returned when key doesn't exist
+
+    Returns:
+        Stored value or default
+    """
+    settings = _load_app_settings()
+    return settings.get(key, default)
+
+
+def set_app_setting(key: str, value) -> bool:
+    """Set a raw setting value by key.
+
+    Args:
+        key: Setting key
+        value: JSON-serializable setting value
+
+    Returns:
+        True if saved, False otherwise
+    """
+    try:
+        settings = _load_app_settings()
+        settings[key] = value
+        _save_app_settings(settings)
+        return True
+    except Exception:
+        return False
+
+
+def clear_app_setting(key: str) -> bool:
+    """Remove a setting key if present.
+
+    Args:
+        key: Setting key to remove
+
+    Returns:
+        True if saved, False otherwise
+    """
+    try:
+        settings = _load_app_settings()
+        if key in settings:
+            del settings[key]
+        _save_app_settings(settings)
+        return True
+    except Exception:
+        return False

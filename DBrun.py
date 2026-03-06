@@ -2,6 +2,8 @@
 import os
 import re
 import sqlite3
+import sys
+import subprocess
 import unicodedata
 import webbrowser
 from datetime import datetime
@@ -16,7 +18,8 @@ from settings import DB_PATH
 from strings_proxy import STRINGS as S
 from config_manager import (get_current_language, set_current_language,
                             get_current_user, set_current_user, clear_current_user,
-                            get_db_path, set_db_path)
+                            get_db_path, set_db_path, get_app_setting,
+                            set_app_setting, clear_app_setting)
 from db_version import is_db_compatible, get_app_version_string, get_db_version_string
 from db_integrity import check_database_integrity
 from validation import is_user_responsible_capable
@@ -563,11 +566,15 @@ class SubstationApp(App):
         buttons_layout.add_widget(right_col)
         layout.add_widget(buttons_layout)
 
-        self.conn = init_db()
-        # Store the absolute path of the database being used
-        import os
-        from settings import DB_PATH
-        self.db_path = os.path.abspath(DB_PATH)
+        selected_db_path = get_db_path() or DB_PATH
+        self.conn = init_db(selected_db_path)
+        self.db_path = os.path.abspath(selected_db_path)
+        self._last_sync_cycle_ts = 0
+        self._pending_changes = []  # Track changes for export on close
+        self._check_previous_sync_issues()  # Check for rejected/conflict files
+        self._run_startup_sync_cycle()
+        Clock.schedule_interval(self._run_periodic_sync_cycle, 60)
+
         # Ensure people name columns exist and are populated (migration)
         try:
             self._migrate_people_name_columns()
@@ -582,6 +589,11 @@ class SubstationApp(App):
         self._cleanup_before_exit()
 
     def _cleanup_before_exit(self):
+        try:
+            # Export pending changes before closing
+            self._export_pending_changes(show_popup=True)
+        except Exception:
+            pass
         try:
             if getattr(self, "conn", None):
                 self.conn.close()
@@ -1255,6 +1267,8 @@ class SubstationApp(App):
 
     def show_settings_popup(self, instance=None):
         """Show settings popup for language selection, database path, and user logout."""
+        from sync_service import resolve_sync_root, resolve_backup_root
+
         popup = Popup(title=S["TITLES"].get("SETTINGS", "Ρυθμίσεις"), size_hint=(0.6, 0.6))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -1345,8 +1359,9 @@ class SubstationApp(App):
                             S["TITLES"].get("INFO", "Πληροφορία"),
                             S["MESSAGES"].get(
                                 "DB_PATH_SAVED_RESTART",
-                                "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+                                "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Η εφαρμογή θα επανεκκινήσει τώρα.",
                             ),
+                            callback=lambda: self._restart_app()
                         )
             except Exception as e:
                 show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), str(e))
@@ -1359,8 +1374,9 @@ class SubstationApp(App):
                     S["TITLES"].get("INFO", "Πληροφορία"),
                     S["MESSAGES"].get(
                         "DB_PATH_SAVED_RESTART",
-                        "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+                        "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Η εφαρμογή θα επανεκκινήσει τώρα.",
                     ),
+                    callback=lambda: self._restart_app()
                 )
         
         change_db_btn.bind(on_press=_change_db_path)
@@ -1371,6 +1387,152 @@ class SubstationApp(App):
         
         content.add_widget(db_path_row)
 
+        content.add_widget(Widget(size_hint_y=None, height=15))
+
+        # Sync/Backup settings
+        sync_header_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=34, spacing=10)
+        sync_header = Label(
+            text=S["MESSAGES"].get("SYNC_SETTINGS_LABEL", "Ρυθμίσεις Συγχρονισμού / Αντιγράφων:"),
+            size_hint_x=0.72,
+            halign="left",
+            valign="middle",
+        )
+        sync_header.bind(size=lambda obj, _val: setattr(obj, "text_size", (obj.width, obj.height)))
+
+        sync_help_btn = Button(text=S["MESSAGES"].get("SYNC_SETTINGS_HELP_BUTTON", "Βοήθεια Sync Settings"), size_hint_x=0.28)
+
+        def _show_sync_settings_help(*_args):
+            help_text = S["MESSAGES"].get(
+                "SYNC_SETTINGS_HELP_TEXT",
+                "Πρώτη ρύθμιση (νέος υπολογιστής):\n"
+                "1) Από τις Ρυθμίσεις, ορίστε πρώτα τη Διαδρομή Βάσης Δεδομένων (db_path).\n"
+                "2) Για το sync_root_path: αφήστε κενό για προεπιλογή (δίπλα στη βάση: sync_exchange) ή επιλέξτε φάκελο στο OneDrive.\n"
+                "3) Δεν χρειάζεται χειροκίνητη δημιουργία υποφακέλων· η εφαρμογή τους δημιουργεί αυτόματα.\n"
+                "4) Κρατήστε ενεργό τον Αυτόματο συγχρονισμό και ορίστε διάστημα (λεπτά).\n"
+                "5) Στην εκκίνηση γίνεται άμεσος συγχρονισμός, ενώ υπάρχει και χειροκίνητη επιλογή από το μενού εισαγωγής.",
+            )
+            show_message_popup(
+                S["TITLES"].get("SYNC_SETTINGS", "Ρυθμίσεις Sync"),
+                help_text,
+            )
+
+        sync_help_btn.bind(on_press=_show_sync_settings_help)
+        sync_header_row.add_widget(sync_header)
+        sync_header_row.add_widget(sync_help_btn)
+        content.add_widget(sync_header_row)
+
+        sync_enabled_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        sync_enabled_row.add_widget(
+            Label(text=S["MESSAGES"].get("SYNC_AUTO_ENABLED_LABEL", "Αυτόματος συγχρονισμός:"), size_hint_x=0.75)
+        )
+        sync_enabled_chk = CheckBox(
+            active=bool(get_app_setting("sync_auto_cycle_enabled", True)),
+            size_hint_x=0.25,
+        )
+        sync_enabled_row.add_widget(sync_enabled_chk)
+        content.add_widget(sync_enabled_row)
+
+        interval_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        interval_row.add_widget(
+            Label(text=S["MESSAGES"].get("SYNC_INTERVAL_MINUTES_LABEL", "Διάστημα αυτόματου συγχρονισμού (λεπτά):"), size_hint_x=0.7)
+        )
+        interval_input = TextInput(
+            text=str(int(get_app_setting("sync_auto_cycle_minutes", 60))),
+            multiline=False,
+            size_hint_x=0.3,
+        )
+        interval_row.add_widget(interval_input)
+        content.add_widget(interval_row)
+
+        backup_on_change_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        backup_on_change_row.add_widget(
+            Label(text=S["MESSAGES"].get("SYNC_BACKUP_ON_CHANGE_LABEL", "Δημιουργία snapshot όταν υπάρχουν νέες αποδεκτές αλλαγές:"), size_hint_x=0.75)
+        )
+        backup_on_change_chk = CheckBox(
+            active=bool(get_app_setting("sync_backup_on_change", True)),
+            size_hint_x=0.25,
+        )
+        backup_on_change_row.add_widget(backup_on_change_chk)
+        content.add_widget(backup_on_change_row)
+
+        hot_keep_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        hot_keep_row.add_widget(
+            Label(text=S["MESSAGES"].get("SYNC_HOT_KEEP_LABEL", "Πλήθος snapshots που διατηρούνται (hot backup):"), size_hint_x=0.7)
+        )
+        hot_keep_input = TextInput(
+            text=str(int(get_app_setting("backup_hot_keep", 3) or 3)),
+            multiline=False,
+            size_hint_x=0.3,
+        )
+        hot_keep_row.add_widget(hot_keep_input)
+        content.add_widget(hot_keep_row)
+
+        sync_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=110, spacing=5)
+        sync_root_row.add_widget(
+            Label(text=S["MESSAGES"].get("SYNC_ROOT_PATH_LABEL", "Φάκελος sync_root_path:"), size_hint_y=None, height=20)
+        )
+        sync_root_default = resolve_sync_root(self.db_path)
+        sync_root_input = TextInput(
+            text=str(get_app_setting("sync_root_path", sync_root_default) or sync_root_default),
+            multiline=False,
+            size_hint_y=None,
+            height=35,
+        )
+        sync_root_row.add_widget(sync_root_input)
+        sync_root_hint = Label(
+            text=S["MESSAGES"].get(
+                "SYNC_ROOT_PATH_HINT",
+                "Κενό = προεπιλογή (δίπλα στη βάση: sync_exchange)",
+            ),
+            size_hint_y=None,
+            height=20,
+            color=(0.5, 0.5, 0.5, 1),
+        )
+        sync_root_row.add_widget(sync_root_hint)
+        sync_root_btn_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=10)
+        sync_root_reset_btn = Button(text=S["BUTTONS"].get("RESET", "Επαναφορά"))
+
+        def _reset_sync_root(*_args):
+            sync_root_input.text = ""
+
+        sync_root_reset_btn.bind(on_press=_reset_sync_root)
+        sync_root_btn_row.add_widget(sync_root_reset_btn)
+        sync_root_row.add_widget(sync_root_btn_row)
+        content.add_widget(sync_root_row)
+
+        backup_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=110, spacing=5)
+        backup_root_row.add_widget(
+            Label(text=S["MESSAGES"].get("BACKUP_ROOT_PATH_LABEL", "Φάκελος backup_root_path:"), size_hint_y=None, height=20)
+        )
+        backup_root_default = resolve_backup_root(self.db_path)
+        backup_root_input = TextInput(
+            text=str(get_app_setting("backup_root_path", backup_root_default) or backup_root_default),
+            multiline=False,
+            size_hint_y=None,
+            height=35,
+        )
+        backup_root_row.add_widget(backup_root_input)
+        backup_root_hint = Label(
+            text=S["MESSAGES"].get(
+                "BACKUP_ROOT_PATH_HINT",
+                "Κενό = προεπιλογή (δίπλα στη βάση: backups_auto)",
+            ),
+            size_hint_y=None,
+            height=20,
+            color=(0.5, 0.5, 0.5, 1),
+        )
+        backup_root_row.add_widget(backup_root_hint)
+        backup_root_btn_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=10)
+        backup_root_reset_btn = Button(text=S["BUTTONS"].get("RESET", "Επαναφορά"))
+
+        def _reset_backup_root(*_args):
+            backup_root_input.text = ""
+
+        backup_root_reset_btn.bind(on_press=_reset_backup_root)
+        backup_root_btn_row.add_widget(backup_root_reset_btn)
+        backup_root_row.add_widget(backup_root_btn_row)
+        content.add_widget(backup_root_row)
+
         scroll.add_widget(content)
         layout.add_widget(scroll)
 
@@ -1378,7 +1540,7 @@ class SubstationApp(App):
         apply_btn = Button(text=S["BUTTONS"].get("APPLY", "Εφαρμογή"))
         close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"))
 
-        def _apply_language(*_args):
+        def _apply_settings(*_args):
             selected_label = lang_spinner.text
             selected_code = None
             for code, label in language_options:
@@ -1388,17 +1550,110 @@ class SubstationApp(App):
             if not selected_code:
                 popup.dismiss()
                 return
-            if set_current_language(selected_code):
+
+            try:
+                interval_minutes = max(1, int((interval_input.text or "").strip() or "10"))
+            except Exception:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("SYNC_INTERVAL_INVALID", "Μη έγκυρη τιμή για τα λεπτά αυτόματου συγχρονισμού."),
+                )
+                return
+
+            try:
+                hot_keep = max(1, int((hot_keep_input.text or "").strip() or "3"))
+            except Exception:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("SYNC_HOT_KEEP_INVALID", "Μη έγκυρη τιμή για το πλήθος hot snapshots."),
+                )
+                return
+
+            sync_root_text = (sync_root_input.text or "").strip()
+            backup_root_text = (backup_root_input.text or "").strip()
+
+            default_sync_root = resolve_sync_root(self.db_path)
+            default_backup_root = resolve_backup_root(self.db_path)
+
+            if sync_root_text:
+                # Check if it's an existing file (not directory)
+                if os.path.exists(sync_root_text) and not os.path.isdir(sync_root_text):
+                    show_message_popup(
+                        S["TITLES"]["ERROR"],
+                        f"Το sync_root_path δείχνει σε αρχείο, όχι φάκελο:\n{sync_root_text}\n\nΠαρακαλώ επιλέξτε φάκελο."
+                    )
+                    return
+                # Create directory only if it doesn't exist
+                if not os.path.exists(sync_root_text):
+                    try:
+                        os.makedirs(sync_root_text)
+                    except OSError as e:
+                        show_message_popup(
+                            S["TITLES"]["ERROR"],
+                            f"Αδυναμία δημιουργίας φακέλου sync_root_path:\n\n{sync_root_text}\n\nΣφάλμα: {str(e)}"
+                        )
+                        return
+                set_app_setting("sync_root_path", os.path.abspath(sync_root_text))
+            else:
+                clear_app_setting("sync_root_path")
+
+            if backup_root_text:
+                # Check if it's an existing file (not directory)
+                if os.path.exists(backup_root_text) and not os.path.isdir(backup_root_text):
+                    show_message_popup(
+                        S["TITLES"]["ERROR"],
+                        f"Το backup_root_path δείχνει σε αρχείο, όχι φάκελο:\n{backup_root_text}\n\nΠαρακαλώ επιλέξτε φάκελο."
+                    )
+                    return
+                # Create directory only if it doesn't exist
+                if not os.path.exists(backup_root_text):
+                    try:
+                        os.makedirs(backup_root_text)
+                    except OSError as e:
+                        show_message_popup(
+                            S["TITLES"]["ERROR"],
+                            f"Αδυναμία δημιουργίας φακέλου backup_root_path:\n\n{backup_root_text}\n\nΣφάλμα: {str(e)}"
+                        )
+                        return
+                set_app_setting("backup_root_path", os.path.abspath(backup_root_text))
+            else:
+                clear_app_setting("backup_root_path")
+
+            set_app_setting("sync_auto_cycle_enabled", bool(sync_enabled_chk.active))
+            set_app_setting("sync_auto_cycle_minutes", interval_minutes)
+            set_app_setting("sync_backup_on_change", bool(backup_on_change_chk.active))
+            set_app_setting("backup_hot_keep", hot_keep)
+
+            if sync_root_text and os.path.abspath(sync_root_text) == os.path.abspath(default_sync_root):
+                clear_app_setting("sync_root_path")
+            if backup_root_text and os.path.abspath(backup_root_text) == os.path.abspath(default_backup_root):
+                clear_app_setting("backup_root_path")
+
+            # Only show language restart message if language actually changed
+            current_lang = get_current_language()
+            language_changed = False
+            if selected_code != current_lang:
+                if set_current_language(selected_code):
+                    language_changed = True
+
+            popup.dismiss()
+            
+            if language_changed:
                 show_message_popup(
                     S["TITLES"].get("INFO", "Πληροφορία"),
                     S["MESSAGES"].get(
                         "LANGUAGE_SAVED_RESTART",
-                        "Η γλώσσα αποθηκεύτηκε. Επανεκκινήστε την εφαρμογή για να εφαρμοστεί.",
+                        "Η γλώσσα αποθηκεύτηκε. Η εφαρμογή θα επανεκκινήσει τώρα.",
                     ),
+                    callback=lambda: self._restart_app()
                 )
-            popup.dismiss()
+            else:
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    S["MESSAGES"].get("SETTINGS_SAVED", "Οι ρυθμίσεις αποθηκεύτηκαν!"),
+                )
 
-        apply_btn.bind(on_press=_apply_language)
+        apply_btn.bind(on_press=_apply_settings)
         close_btn.bind(on_press=popup.dismiss)
         buttons.add_widget(apply_btn)
         buttons.add_widget(close_btn)
@@ -1406,6 +1661,19 @@ class SubstationApp(App):
 
         popup.content = layout
         popup.open()
+
+    def _restart_app(self):
+        """Restart the application automatically."""
+        try:
+            # Close the current app
+            self.stop()
+            # Restart using the same Python executable and script
+            python = sys.executable
+            script = os.path.abspath(sys.argv[0])
+            subprocess.Popen([python, script] + sys.argv[1:])
+        except Exception as e:
+            import logging
+            logging.exception(f"Failed to restart app: {e}")
 
     def show_logout_confirm(self):
         """Show logout confirmation dialog."""
@@ -4360,6 +4628,237 @@ class SubstationApp(App):
     def import_android_changes_from_file(self, file_path):
         from changelog import import_android_changes_from_file as _f
         return _f(self, file_path)
+
+    def process_sync_inbox_now(self):
+        from sync_service import run_sync_cycle
+
+        current_user = get_current_user() or {}
+        actor = current_user.get("name") or "desktop"
+        hot_keep = int(get_app_setting("backup_hot_keep", 3) or 3)
+        backup_on_change = bool(get_app_setting("sync_backup_on_change", True))
+
+        summary = run_sync_cycle(
+            self.conn,
+            db_path=self.db_path,
+            actor=actor,
+            create_backup_on_change=backup_on_change,
+            hot_keep=hot_keep,
+        )
+        sync = summary["sync"]
+        msg = S["MESSAGES"].get(
+            "SYNC_MANUAL_SUMMARY_FMT",
+            "Η επεξεργασία εισερχομένων ολοκληρώθηκε.\nΕπεξεργασμένα: {processed}\nΑποδεκτά: {accepted}\nΣε σύγκρουση: {conflicts}\nΑπορριφθέντα: {rejected}",
+        ).format(
+            processed=sync["processed"],
+            accepted=sync["accepted"],
+            conflicts=sync["conflicts"],
+            rejected=sync["rejected"],
+        )
+        if summary.get("snapshot"):
+            msg += "\n" + S["MESSAGES"].get("SYNC_SNAPSHOT_LINE_FMT", "Στιγμιότυπο: {snapshot}").format(
+                snapshot=summary["snapshot"]
+            )
+        show_message_popup(S["TITLES"].get("INFO", "Πληροφορία"), msg)
+
+    def _run_startup_sync_cycle(self):
+        try:
+            if not bool(get_app_setting("sync_auto_cycle_enabled", True)):
+                return
+            from sync_service import run_sync_cycle, resolve_sync_root, resolve_backup_root, ensure_sync_tree, ensure_backup_tree
+
+            # Ensure directory trees exist at startup
+            sync_root = resolve_sync_root(self.db_path)
+            backup_root = resolve_backup_root(self.db_path)
+            ensure_sync_tree(sync_root)
+            ensure_backup_tree(backup_root)
+
+            run_sync_cycle(
+                self.conn,
+                db_path=self.db_path,
+                actor="startup",
+                create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
+                hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+            )
+            self._last_sync_cycle_ts = datetime.now().timestamp()
+        except Exception:
+            logging.exception("Startup sync cycle failed")
+
+    def _run_periodic_sync_cycle(self, *_args):
+        try:
+            if not bool(get_app_setting("sync_auto_cycle_enabled", True)):
+                return
+            interval_minutes = int(get_app_setting("sync_auto_cycle_minutes", 60))
+            now_ts = datetime.now().timestamp()
+            if (now_ts - float(getattr(self, "_last_sync_cycle_ts", 0))) < max(60, interval_minutes * 60):
+                return
+
+            self._last_sync_cycle_ts = now_ts
+            from sync_service import run_sync_cycle
+
+            result = run_sync_cycle(
+                self.conn,
+                db_path=self.db_path,
+                actor="scheduler",
+                create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
+                hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+            )
+            # Show notification if changes were imported
+            if result and result.get("sync", {}).get("processed", 0) > 0:
+                self._show_sync_notification(result)
+        except Exception:
+            logging.exception("Periodic sync cycle failed")
+
+    def _append_change_log(self, operation, table, data):
+        """Add a change to the pending changes list for export on close."""
+        try:
+            if not hasattr(self, "_pending_changes"):
+                self._pending_changes = []
+            self._pending_changes.append({
+                "operation": operation,
+                "table": table,
+                "data": data
+            })
+        except Exception:
+            logging.exception("Failed to append change log")
+
+    def _export_pending_changes(self, show_popup=False):
+        """Export all pending changes to JSONL file in sync inbox."""
+        try:
+            if not hasattr(self, "_pending_changes") or not self._pending_changes:
+                return None
+
+            from sync_service import resolve_sync_root
+            from datetime import datetime
+            import json
+
+            sync_root = resolve_sync_root(self.db_path)
+            inbox_pending = os.path.join(sync_root, "inbox", "pending")
+            os.makedirs(inbox_pending, exist_ok=True)
+
+            # Get current user for filename
+            current_user = get_current_user()
+            username = current_user.get("name", "desktop") if current_user else "desktop"
+            # Sanitize username for filename
+            username = "".join(c for c in username if c.isalnum() or c in (' ', '_')).replace(' ', '_')
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"desktop_{timestamp}_{username}.jsonl"
+            filepath = os.path.join(inbox_pending, filename)
+
+            with open(filepath, "w", encoding="utf-8") as f:
+                for change in self._pending_changes:
+                    f.write(json.dumps(change, ensure_ascii=False) + "\n")
+
+            change_count = len(self._pending_changes)
+            self._pending_changes = []  # Clear after export
+
+            if show_popup:
+                show_message_popup(
+                    S["TITLES"].get("INFO", "Πληροφορία"),
+                    S["MESSAGES"].get(
+                        "CHANGES_EXPORTED_FMT",
+                        "Εξήχθησαν {count} αλλαγές στο αρχείο:\n{file}"
+                    ).format(count=change_count, file=filename)
+                )
+            return filepath
+        except Exception as e:
+            logging.exception("Failed to export pending changes")
+            if show_popup:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("CHANGES_EXPORT_ERROR", "Σφάλμα κατά την εξαγωγή αλλαγών: ") + str(e)
+                )
+            return None
+
+    def _check_previous_sync_issues(self):
+        """Check for rejected or conflict files from previous sessions and warn user."""
+        try:
+            from sync_service import resolve_sync_root
+            import glob
+
+            sync_root = resolve_sync_root(self.db_path)
+            current_user = get_current_user()
+            if not current_user:
+                return
+
+            username = current_user.get("name", "")
+            if not username:
+                return
+
+            # Sanitize username for pattern matching
+            username_clean = "".join(c for c in username if c.isalnum() or c in (' ', '_')).replace(' ', '_')
+
+            # Check rejected and conflicts folders
+            rejected_dir = os.path.join(sync_root, "inbox", "processed", "rejected")
+            conflicts_dir = os.path.join(sync_root, "inbox", "processed", "conflicts")
+
+            rejected_files = []
+            conflicts_files = []
+
+            if os.path.exists(rejected_dir):
+                pattern = os.path.join(rejected_dir, f"*{username_clean}*.jsonl")
+                rejected_files = glob.glob(pattern)
+
+            if os.path.exists(conflicts_dir):
+                pattern = os.path.join(conflicts_dir, f"*{username_clean}*.jsonl")
+                conflicts_files = glob.glob(pattern)
+
+            if rejected_files or conflicts_files:
+                msg = S["MESSAGES"].get(
+                    "SYNC_ISSUES_FOUND",
+                    "Βρέθηκαν προηγούμενες αλλαγές με προβλήματα:\n"
+                )
+                if rejected_files:
+                    msg += f"\n❌ Απορριφθέντα: {len(rejected_files)}"
+                if conflicts_files:
+                    msg += f"\n⚠ Συγκρούσεις: {len(conflicts_files)}"
+                msg += "\n\n" + S["MESSAGES"].get(
+                    "SYNC_ISSUES_ACTION",
+                    "Ελέγξτε τους φακέλους rejected και conflicts."
+                )
+                
+                show_message_popup(
+                    S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                    msg
+                )
+        except Exception:
+            logging.exception("Failed to check previous sync issues")
+
+    def _show_sync_notification(self, sync_result):
+        """Show notification popup after automatic sync imports changes."""
+        try:
+            sync_summary = sync_result.get("sync", {})
+            processed = sync_summary.get("processed", 0)
+            accepted = sync_summary.get("accepted", 0)
+            conflicts = sync_summary.get("conflicts", 0)
+            rejected = sync_summary.get("rejected", 0)
+
+            if processed == 0:
+                return
+
+            msg = S["MESSAGES"].get(
+                "SYNC_AUTO_SUMMARY",
+                "Αυτόματος συγχρονισμός ολοκληρώθηκε:\n"
+            )
+            msg += f"\n✓ Αποδεκτά: {accepted}"
+            if conflicts > 0:
+                msg += f"\n⚠ Συγκρούσεις: {conflicts}"
+            if rejected > 0:
+                msg += f"\n❌ Απορριφθέντα: {rejected}"
+
+            snapshot = sync_result.get("snapshot")
+            if snapshot:
+                msg += "\n\n" + S["MESSAGES"].get(
+                    "SYNC_BACKUP_CREATED",
+                    "Δημιουργήθηκε αντίγραφο ασφαλείας."
+                )
+
+            show_message_popup(
+                S["TITLES"].get("SYNC_NOTIFICATION", "Συγχρονισμός"),
+                msg
+            )
+        except Exception:
+            logging.exception("Failed to show sync notification")
 
     def import_substations_from_file(self, file_path):
         def on_success(message):
@@ -7859,6 +8358,28 @@ class SubstationApp(App):
                 "UPDATE substations SET last_maintenance=? WHERE id=?",
                 (maintenance_date, substation_id),
             )
+
+            # Track change for desktop sync (only for new maintenance records)
+            if not maintenance_record:
+                elements_data = []
+                for elem_id, widgets in selected_elements:
+                    elements_data.append({
+                        "element_id": elem_id,
+                        "element_comments": widgets["comments"].text.strip()
+                    })
+                
+                maintenance_data = {
+                    "id": maintenance_id,
+                    "substation_id": substation_id,
+                    "name": maintenance_name,
+                    "date_time": maintenance_date,
+                    "overall_comments": overall_comments.text.strip(),
+                    "maintenance_type": maintenance_type,
+                    "user_name": user_name,
+                    "responsible_id": responsible_id,
+                    "elements": elements_data
+                }
+                self._append_change_log("insert", "maintenance", maintenance_data)
 
             self.conn.commit()
             popup.dismiss()
