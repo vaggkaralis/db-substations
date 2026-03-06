@@ -826,14 +826,6 @@ class SubstationAndroidApp(App):
             )
             self.refresh_btn.bind(on_press=self.load_substations)
             primary_row.add_widget(self.refresh_btn)
-
-            self.add_substation_btn = Button(
-                text=S.get("BUTTONS", {}).get("ADD_SUBSTATION", "+ Υποσταθμός"),
-                font_size='16sp',
-                bold=True
-            )
-            self.add_substation_btn.bind(on_press=self.show_add_substation_popup)
-            primary_row.add_widget(self.add_substation_btn)
             
             self.buttons_container.add_widget(primary_row)
             
@@ -842,14 +834,16 @@ class SubstationAndroidApp(App):
             
             self.sync_btn = Button(
                 text="Sync",
-                font_size='14sp'
+                font_size='16sp',
+                bold=True
             )
             self.sync_btn.bind(on_press=self._on_sync_button_pressed)
             secondary_row.add_widget(self.sync_btn)
 
             self.change_log_btn = Button(
                 text="Change Log",
-                font_size='14sp'
+                font_size='16sp',
+                bold=True
             )
             self.change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
             secondary_row.add_widget(self.change_log_btn)
@@ -1274,12 +1268,7 @@ class SubstationAndroidApp(App):
                 self.refresh_btn.disabled = not visible
                 # keep widget in layout but hide visually when not visible
                 self.refresh_btn.opacity = 1 if visible else 0
-            if (
-                hasattr(self, "add_substation_btn")
-                and self.add_substation_btn is not None
-            ):
-                self.add_substation_btn.disabled = not visible
-                self.add_substation_btn.opacity = 1 if visible else 0
+
             if hasattr(self, "sync_btn") and self.sync_btn is not None:
                 self.sync_btn.disabled = not visible
                 self.sync_btn.opacity = 1 if visible else 0
@@ -2125,6 +2114,20 @@ class SubstationAndroidApp(App):
                     info_layout.add_widget(line3)
                     
                     elem_card.add_widget(info_layout)
+                    
+                    # Add maintenance history button on the right
+                    history_btn = Button(
+                        text="📋",
+                        font_size='20sp',
+                        size_hint_x=None,
+                        width=60,
+                        background_color=(0.3, 0.6, 0.8, 1)
+                    )
+                    history_btn.bind(
+                        on_press=lambda x, eid=elem.get('id'), ename=elem.get('name'): self.show_element_maintenance_history(eid, ename)
+                    )
+                    elem_card.add_widget(history_btn)
+                    
                     grid.add_widget(elem_card)
             except Exception as e:
                 if loading_label.parent:
@@ -3612,6 +3615,181 @@ class SubstationAndroidApp(App):
         main_layout.add_widget(button_layout)
         popup.content = main_layout
         popup.open()
+
+    def show_element_maintenance_history(self, element_id, element_name):
+        """Show maintenance history for a specific element"""
+        try:
+            if not self.local_db_path or not os.path.exists(self.local_db_path):
+                self.show_error("Δεν υπάρχει φορτωμένη βάση δεδομένων")
+                return
+            
+            conn = sqlite3.connect(self.local_db_path)
+            c = conn.cursor()
+            
+            # Query all maintenances where this element was maintained
+            c.execute(
+                """
+                SELECT m.id, m.date_time, m.maintenance_type, m.overall_comments,
+                       me.element_comments, s.name as substation_name,
+                       me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
+                       me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
+                       me.operations_count
+                FROM maintenance m
+                JOIN maintenance_elements me ON m.id = me.maintenance_id
+                JOIN substations s ON m.substation_id = s.id
+                WHERE me.element_id = ?
+                ORDER BY m.date_time DESC
+                """,
+                (element_id,),
+            )
+            maintenance_records = c.fetchall()
+            conn.close()
+            
+            # Create popup
+            popup = Popup(
+                title=f"Ιστορικό Συντηρήσεων - {element_name}",
+                size_hint=(0.95, 0.9)
+            )
+            main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+            
+            if not maintenance_records:
+                main_layout.add_widget(
+                    Label(
+                        text="Δεν υπάρχει ιστορικό συντηρήσεων για αυτό το στοιχείο",
+                        size_hint_y=0.8,
+                    )
+                )
+            else:
+                # Scrollable history list
+                scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+                grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
+                grid.bind(minimum_height=grid.setter("height"))
+                
+                for (
+                    maint_id,
+                    date_time,
+                    maint_type,
+                    overall_comments,
+                    element_comments,
+                    substation_name,
+                    insul_fa_gnd,
+                    insul_fb_gnd,
+                    insul_fc_gnd,
+                    contact_res_fa,
+                    contact_res_fb,
+                    contact_res_fc,
+                    operations_count,
+                ) in maintenance_records:
+                    # Container for this maintenance record
+                    maint_layout = BoxLayout(
+                        size_hint_y=None,
+                        orientation="vertical",
+                        spacing=5,
+                        padding=10
+                    )
+                    
+                    # Calculate height based on content
+                    base_height = 120
+                    if element_comments:
+                        base_height += 30
+                    if insul_fa_gnd or insul_fb_gnd or insul_fc_gnd:
+                        base_height += 30
+                    if contact_res_fa or contact_res_fb or contact_res_fc:
+                        base_height += 30
+                    maint_layout.height = base_height
+                    
+                    # Header with date and type
+                    header_text = f"[b]{date_time}[/b] - {substation_name}"
+                    if maint_type:
+                        header_text += f" ({maint_type})"
+                    header_label = Label(
+                        text=header_text,
+                        size_hint_y=None,
+                        height=30,
+                        markup=True,
+                        halign="left",
+                        valign="middle"
+                    )
+                    header_label.bind(
+                        width=lambda instance, value: setattr(instance, "text_size", (value, None))
+                    )
+                    maint_layout.add_widget(header_label)
+                    
+                    # Element-specific data
+                    data_parts = []
+                    if element_comments:
+                        data_parts.append(f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}")
+                    
+                    # Add measurements if present
+                    measurements = []
+                    if insul_fa_gnd:
+                        measurements.append(f"Μόν. FA-GND: {insul_fa_gnd}")
+                    if insul_fb_gnd:
+                        measurements.append(f"FB-GND: {insul_fb_gnd}")
+                    if insul_fc_gnd:
+                        measurements.append(f"FC-GND: {insul_fc_gnd}")
+                    if contact_res_fa:
+                        measurements.append(f"Αντ. Επαφ. FA: {contact_res_fa}")
+                    if contact_res_fb:
+                        measurements.append(f"FB: {contact_res_fb}")
+                    if contact_res_fc:
+                        measurements.append(f"FC: {contact_res_fc}")
+                    if operations_count:
+                        measurements.append(f"Λειτουργίες: {operations_count}")
+                    
+                    if measurements:
+                        data_parts.append(" | ".join(measurements))
+                    
+                    if data_parts:
+                        data_text = "\n".join(data_parts)
+                    else:
+                        data_text = "Δεν υπάρχουν συγκεκριμένα δεδομένα για το στοιχείο"
+                    
+                    data_label = Label(
+                        text=data_text,
+                        size_hint_y=None,
+                        height=50 if measurements else 30,
+                        markup=True,
+                        halign="left",
+                        valign="top",
+                        color=(0.5, 0.5, 0.5, 1)
+                    )
+                    data_label.bind(
+                        width=lambda instance, value: setattr(instance, "text_size", (value, None))
+                    )
+                    maint_layout.add_widget(data_label)
+                    
+                    # Add overall comments if present
+                    if overall_comments:
+                        comments_label = Label(
+                            text=f"Σχόλια: {overall_comments}",
+                            size_hint_y=None,
+                            height=40,
+                            halign="left",
+                            valign="top",
+                            color=(0.6, 0.5, 0.4, 1)
+                        )
+                        comments_label.bind(
+                            width=lambda instance, value: setattr(instance, "text_size", (value, None))
+                        )
+                        maint_layout.add_widget(comments_label)
+                    
+                    grid.add_widget(maint_layout)
+                
+                scroll.add_widget(grid)
+                main_layout.add_widget(scroll)
+            
+            # Close button
+            close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=0.1)
+            close_btn.bind(on_press=popup.dismiss)
+            main_layout.add_widget(close_btn)
+            
+            popup.content = main_layout
+            popup.open()
+            
+        except Exception as e:
+            Logger.error(f"APP: Error showing element maintenance history: {e}")
+            self.show_error(f"Σφάλμα: {str(e)}")
 
     def show_error(self, message, is_info=False):
         """Show error or info popup"""
