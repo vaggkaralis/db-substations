@@ -1,5 +1,12 @@
 """
-Android Kivy App for DB Substations - local DB only
+Android Kivy App for DB Substations with OneDrive sync support.
+
+Features:
+- Local SQLite database management
+- Auto-sync with OneDrive on app startup
+- Manual sync button for on-demand synchronization
+- Conflict resolution UI
+- Backup management
 """
 
 import json
@@ -741,6 +748,10 @@ class SubstationAndroidApp(App):
             self.refresh_btn.bind(on_press=self.load_substations)
             button_layout.add_widget(self.refresh_btn)
 
+            self.sync_btn = Button(text=S.get("MESSAGES", {}).get("SYNC_BUTTON", "Συγχρ/σμός"))
+            self.sync_btn.bind(on_press=self._on_sync_button_pressed)
+            button_layout.add_widget(self.sync_btn)
+
             self.add_substation_btn = Button(text=("+ " + S.get("BUTTONS", {}).get("ADD", "Προσθήκη") + " Υποσταθμού"))
             self.add_substation_btn.bind(on_press=self.show_add_substation_popup)
             button_layout.add_widget(self.add_substation_btn)
@@ -751,14 +762,16 @@ class SubstationAndroidApp(App):
             button_layout.add_widget(change_log_btn)
 
             main_layout.add_widget(button_layout)
-            Logger.info("APP: Buttons added")
+            Logger.info("APP: Buttons added (including Sync)")
 
             # Load data after UI is rendered (prevent ANR)
-            Logger.info("APP: Scheduling load_substations to run after UI renders")
+            Logger.info("APP: Scheduling load_substations and startup sync to run after UI renders")
             if not self._auto_load_saved_db():
                 Clock.schedule_once(self.load_substations, 0.5)
+                Clock.schedule_once(self._run_startup_sync, 1.0)
             else:
                 Clock.schedule_once(self.load_substations, 0.5)
+                Clock.schedule_once(self._run_startup_sync, 1.0)
 
             Logger.info("APP: UI build completed successfully")
             return main_layout
@@ -1257,7 +1270,209 @@ class SubstationAndroidApp(App):
             except Exception:
                 pass
 
+    def _on_sync_button_pressed(self, instance):
+        """Handle manual sync button press."""
+        if not hasattr(self, "db") or self.db is None:
+            self.show_error(S.get("MESSAGES", {}).get("NO_DB", "Δεν φορτώθηκε βάση δεδομένων"))
+            return
+        
+        # Disable button to prevent multiple clicks
+        self.sync_btn.disabled = True
+        self.sync_btn.text = S.get("MESSAGES", {}).get("SYNCING", "Συγχρονισμός...")
+        
+        def _sync_worker():
+            try:
+                result = self._perform_sync()
+                Clock.schedule_once(lambda dt: self._on_sync_complete(result), 0)
+            except Exception as e:
+                Clock.schedule_once(lambda dt: self._on_sync_error(str(e)), 0)
+        
+        t = threading.Thread(target=_sync_worker, daemon=True)
+        t.start()
+
+    def _run_startup_sync(self, dt):
+        """Run automatic sync on app startup if enabled."""
+        try:
+            if not hasattr(self, "db") or self.db is None:
+                Logger.info("SYNC: Skipping startup sync - no DB loaded yet")
+                return
+            
+            # Check if sync is enabled
+            from config_manager import get_app_setting
+            sync_enabled = get_app_setting("sync_auto_cycle_enabled", True)
+            if not sync_enabled:
+                Logger.info("SYNC: Auto-sync disabled in settings")
+                return
+            
+            Logger.info("SYNC: Starting startup sync cycle")
+            result = self._perform_sync()
+            
+            # Show result if there were changes
+            if result:
+                imported = result.get("sync", {}).get("processed", 0)
+                conflicts = result.get("sync", {}).get("conflicts", 0)
+                if imported > 0 or conflicts > 0:
+                    msg = f"Εισήχθησαν {imported} αλλαγές"
+                    if conflicts > 0:
+                        msg += f", {conflicts} συγκρούσεις"
+                    Logger.info(f"SYNC: {msg}")
+                    # Optionally show notification to user
+        except Exception as e:
+            Logger.warning(f"SYNC: Startup sync error: {e}")
+
+    def _perform_sync(self):
+        """Execute the sync cycle with the desktop sync_service."""
+        try:
+            from sync_service import run_sync_cycle
+            from android_sync_utils import ensure_android_sync_tree, ensure_android_backup_tree, resolve_android_sync_root, resolve_android_backup_root
+            from config_manager import get_app_setting
+            
+            Logger.info("SYNC: Initializing sync...")
+            
+            # Get configured paths or defaults
+            db_path = getattr(self, "db_path", None)
+            if not db_path:
+                Logger.warning("SYNC: No database path available")
+                return None
+            
+            sync_root = resolve_android_sync_root(db_path)
+            backup_root = resolve_android_backup_root(db_path)
+            
+            # Ensure directory trees exist
+            ensure_android_sync_tree(sync_root)
+            ensure_android_backup_tree(backup_root)
+            
+            Logger.info(f"SYNC: Using sync_root: {sync_root}")
+            Logger.info(f"SYNC: Using backup_root: {backup_root}")
+            
+            # Run the sync cycle (same as desktop)
+            result = run_sync_cycle(
+                self.db,
+                db_path=db_path,
+                sync_root=sync_root,
+                backup_root=backup_root,
+                actor="android_app",
+                create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
+                hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+            )
+            
+            Logger.info(f"SYNC: Sync cycle completed: {result}")
+            return result
+            
+        except Exception as e:
+            Logger.error(f"SYNC: Error during sync: {e}")
+            raise
+
+    def _on_sync_complete(self, result):
+        """Handle successful sync completion."""
+        self.sync_btn.disabled = False
+        self.sync_btn.text = S.get("MESSAGES", {}).get("SYNC_BUTTON", "Συγχρ/σμός")
+        
+        if not result:
+            self.show_error(S.get("MESSAGES", {}).get("SYNC_ERROR", "Σφάλμα κατά τον συγχρονισμό"))
+            return
+        
+        # Show result summary
+        sync_result = result.get("sync", {})
+        imported = sync_result.get("processed", 0)
+        conflicts = sync_result.get("conflicts", 0)
+        
+        msg = f"Συγχρονισμός ολοκληρώθηκε\nΕισήχθησαν: {imported}"
+        if conflicts > 0:
+            msg += f"\nΣυγκρούσεις: {conflicts}"
+        
+        self.show_error(msg, is_info=True)
+        
+        # Refresh display
+        self.load_substations(None)
+
+    def _on_sync_error(self, error_msg):
+        """Handle sync error."""
+        self.sync_btn.disabled = False
+        self.sync_btn.text = S.get("MESSAGES", {}).get("SYNC_BUTTON", "Συγχρ/σμός")
+        self.show_error(f"Σφάλμα συγχρονισμού:\n{error_msg}")
+
+    def _show_sync_settings(self):
+        """Show sync settings popup for configuring sync folder."""
+        try:
+            from config_manager import get_app_setting, set_app_setting
+            
+            p = Popup(
+                title=S.get("MESSAGES", {}).get("SYNC_SETTINGS", "Ρυθμίσεις Συγχρονισμού"),
+                size_hint=(0.95, 0.6)
+            )
+            layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+            
+            # Sync enabled checkbox
+            sync_enabled_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            sync_enabled_row.add_widget(Label(
+                text=S.get("MESSAGES", {}).get("SYNC_AUTO_ENABLED_LABEL", "Αυτόματος συγχρονισμός:"),
+                size_hint_x=0.7
+            ))
+            from kivy.uix.checkbox import CheckBox
+            sync_chk = CheckBox(
+                active=bool(get_app_setting("sync_auto_cycle_enabled", True)),
+                size_hint_x=0.3
+            )
+            sync_enabled_row.add_widget(sync_chk)
+            layout.add_widget(sync_enabled_row)
+            
+            # Sync root path display
+            sync_root_path = get_app_setting("sync_root_path", "")
+            path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=80, spacing=5)
+            path_row.add_widget(Label(
+                text=S.get("MESSAGES", {}).get("SYNC_ROOT_PATH_LABEL", "Φάκελος Συγχρονισμού:"),
+                size_hint_y=None,
+                height=25
+            ))
+            
+            from kivy.uix.textinput import TextInput
+            path_input = TextInput(
+                text=sync_root_path,
+                multiline=False,
+                size_hint_y=None,
+                height=35
+            )
+            path_row.add_widget(path_input)
+            
+            path_row.add_widget(Label(
+                text=S.get("MESSAGES", {}).get("SYNC_ROOT_PATH_HINT", "Ή αφήστε κενό για προεπιλογή (δίπλα στη ΒΔ)"),
+                size_hint_y=None,
+                height=20,
+                color=(0.5, 0.5, 0.5, 1)
+            ))
+            layout.add_widget(path_row)
+            
+            # Buttons
+            btn_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            
+            save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
+            def _save(*_):
+                set_app_setting("sync_auto_cycle_enabled", bool(sync_chk.active))
+                if path_input.text.strip():
+                    set_app_setting("sync_root_path", path_input.text.strip())
+                else:
+                    set_app_setting("sync_root_path", None)
+                p.dismiss()
+                self.show_error(S.get("MESSAGES", {}).get("SETTINGS_SAVED", "Ρυθμίσεις αποθηκεύτηκαν"), is_info=True)
+            
+            save_btn.bind(on_press=_save)
+            btn_layout.add_widget(save_btn)
+            
+            close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
+            close_btn.bind(on_press=p.dismiss)
+            btn_layout.add_widget(close_btn)
+            
+            layout.add_widget(btn_layout)
+            p.content = layout
+            p.open()
+            
+        except Exception as e:
+            Logger.error(f"SYNC: Error showing sync settings: {e}")
+            self.show_error(f"Σφάλμα: {str(e)}")
+
     def _copy_content_uri_to_file(self, uri):
+
         # Copy a content:// URI to a local file and return the path.
         # This attempts to use Android ContentResolver via pyjnius when running
         # on device. On other platforms it raises a RuntimeError.
@@ -2365,14 +2580,15 @@ class SubstationAndroidApp(App):
         popup.content = main_layout
         popup.open()
 
-    def show_error(self, message):
-        """Show error popup"""
+    def show_error(self, message, is_info=False):
+        """Show error or info popup"""
 
         # Ensure popup creation runs on the Kivy main thread (some callers may be on worker threads)
         def _show(dt=None):
             try:
                 from strings_proxy import STRINGS as S
-                show_message_popup(S["TITLES"]["ERROR"], message)
+                title = S["TITLES"].get("INFO", "Πληροφορία") if is_info else S["TITLES"]["ERROR"]
+                show_message_popup(title, message)
             except Exception as e:
                 Logger.error(f"APP: show_error failed to open popup: {e}")
 
