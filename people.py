@@ -246,9 +246,15 @@ class PeopleManager:
             if refresh_cb:
                 refresh_cb()
 
+        confirm_delete_person_template = S["MESSAGES"].get(
+            "CONFIRM_DELETE_PERSON",
+            'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο "{person_name}";',
+        )
+        confirm_delete_person_message = confirm_delete_person_template.format(person_name=person_name)
+
         show_confirm(
             S["MESSAGES"].get("CONFIRM_DELETE_TITLE", "Επιβεβαίωση Διαγραφής"),
-            f'{S["MESSAGES"].get("CONFIRM_DELETE_PERSON", ("Είστε σίγουροι ότι θέλετε να διαγράψετε\nτο άτομο \"{person_name}\";"))}',
+            confirm_delete_person_message,
             yes_callback=confirm_delete,
             yes_color=(1, 0, 0, 1),
         )
