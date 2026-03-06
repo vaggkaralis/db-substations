@@ -1,4 +1,4 @@
-﻿import math
+import math
 
 from kivy.core.window import Window
 from kivy.graphics import Color, Ellipse, Line, Rectangle
