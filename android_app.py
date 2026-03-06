@@ -2115,27 +2115,29 @@ class SubstationAndroidApp(App):
                     
                     elem_card.add_widget(info_layout)
                     
-                    # Add maintenance history button on the right
-                    try:
-                        from ui.shared import IconOnlyButton
-                        history_btn = IconOnlyButton(
-                            icon_type="maintenance",
-                            icon_color=(0.4, 0.6, 0.8, 1),
-                            size=(50, 50)
+                    # Add maintenance history button only if element has maintenance records
+                    element_id = elem.get('id')
+                    if self._has_element_maintenance_history(element_id):
+                        try:
+                            from ui.shared import IconOnlyButton
+                            history_btn = IconOnlyButton(
+                                icon_type="maintenance",
+                                icon_color=(0.4, 0.6, 0.8, 1),
+                                size=(50, 50)
+                            )
+                        except Exception:
+                            # Fallback to text button if IconOnlyButton not available
+                            history_btn = Button(
+                                text="History",
+                                font_size='12sp',
+                                size_hint_x=None,
+                                width=60,
+                                background_color=(0.3, 0.6, 0.8, 1)
+                            )
+                        history_btn.bind(
+                            on_press=lambda x, eid=element_id, ename=elem.get('name'): self.show_element_maintenance_history(eid, ename)
                         )
-                    except Exception:
-                        # Fallback to text button if IconOnlyButton not available
-                        history_btn = Button(
-                            text="History",
-                            font_size='12sp',
-                            size_hint_x=None,
-                            width=60,
-                            background_color=(0.3, 0.6, 0.8, 1)
-                        )
-                    history_btn.bind(
-                        on_press=lambda x, eid=elem.get('id'), ename=elem.get('name'): self.show_element_maintenance_history(eid, ename)
-                    )
-                    elem_card.add_widget(history_btn)
+                        elem_card.add_widget(history_btn)
                     
                     grid.add_widget(elem_card)
             except Exception as e:
@@ -3624,6 +3626,29 @@ class SubstationAndroidApp(App):
         main_layout.add_widget(button_layout)
         popup.content = main_layout
         popup.open()
+
+    def _has_element_maintenance_history(self, element_id):
+        """Check if an element has any maintenance records"""
+        try:
+            if not self.local_db_path or not os.path.exists(self.local_db_path):
+                return False
+            
+            conn = sqlite3.connect(self.local_db_path)
+            c = conn.cursor()
+            
+            c.execute(
+                """
+                SELECT COUNT(*) FROM maintenance_elements
+                WHERE element_id = ?
+                """,
+                (element_id,),
+            )
+            count = c.fetchone()[0]
+            conn.close()
+            
+            return count > 0
+        except Exception:
+            return False
 
     def show_element_maintenance_history(self, element_id, element_name):
         """Show maintenance history for a specific element"""
