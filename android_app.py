@@ -1314,10 +1314,11 @@ class SubstationAndroidApp(App):
             
             # Show result if there were changes
             if result:
-                imported = result.get("sync", {}).get("processed", 0)
-                conflicts = result.get("sync", {}).get("conflicts", 0)
-                if imported > 0 or conflicts > 0:
-                    msg = f"Εισήχθησαν {imported} αλλαγές"
+                sync_result = result.get("sync", {})
+                accepted = sync_result.get("accepted", 0)
+                conflicts = sync_result.get("conflicts", 0)
+                if accepted > 0 or conflicts > 0:
+                    msg = f"Εισήχθησαν {accepted} αλλαγές"
                     if conflicts > 0:
                         msg += f", {conflicts} συγκρούσεις"
                     Logger.info(f"SYNC: {msg}")
@@ -1383,12 +1384,18 @@ class SubstationAndroidApp(App):
         
         # Show result summary
         sync_result = result.get("sync", {})
-        imported = sync_result.get("processed", 0)
+        accepted = sync_result.get("accepted", 0)
+        already_applied = sync_result.get("already_applied", 0)
         conflicts = sync_result.get("conflicts", 0)
         
-        msg = f"Συγχρονισμός ολοκληρώθηκε\nΕισήχθησαν: {imported}"
-        if conflicts > 0:
-            msg += f"\nΣυγκρούσεις: {conflicts}"
+        if accepted > 0 or conflicts > 0:
+            msg = f"Συγχρονισμός ολοκληρώθηκε\nΕισήχθησαν: {accepted}"
+            if conflicts > 0:
+                msg += f"\nΣυγκρούσεις: {conflicts}"
+        elif already_applied > 0:
+            msg = f"Συγχρονισμός ολοκληρώθηκε\nΌλες οι αλλαγές ήδη εφαρμοσμένες ({already_applied})"
+        else:
+            msg = f"Συγχρονισμός ολοκληρώθηκε\nΔεν βρέθηκαν νέες αλλαγές"
         
         self.show_error(msg, is_info=True)
         
