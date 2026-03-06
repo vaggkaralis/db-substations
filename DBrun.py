@@ -6276,6 +6276,7 @@ class SubstationApp(App):
                     element_widgets[elem_id].setdefault("details_container", None)
                     element_widgets[elem_id].setdefault("comments", None)
                     element_widgets[elem_id].setdefault("measurements", None)
+                    element_widgets[elem_id].setdefault("measurements_toggle", None)
 
                     # Store metadata for this element so builders can use it reliably
                     element_widgets[elem_id]["meta"] = {
@@ -6302,6 +6303,9 @@ class SubstationApp(App):
                         model_name = meta.get("model_name")
                         is_breaker = meta.get("is_breaker")
                         operations_count = meta.get("operations_count")
+                        has_measurement_form = bool(
+                            is_breaker or self._is_transformer(elem_type)
+                        )
 
                         # Ensure optional widgets exist in local scope to avoid NameError
                         ops_count_input = None
@@ -6330,6 +6334,36 @@ class SubstationApp(App):
                             multiline=False,
                         )
                         details_container.add_widget(elem_comments)
+
+                        measurements_toggle_row = None
+                        measurements_toggle = None
+                        measurements_fields_container = None
+                        if has_measurement_form:
+                            measurements_toggle_row = BoxLayout(
+                                size_hint_y=None, height=30, spacing=6
+                            )
+                            measurements_toggle_row.add_widget(
+                                Label(text="Στοιχεία Μετρήσεων:", size_hint_x=0.6)
+                            )
+                            measurements_toggle = CheckBox(
+                                size_hint=(None, None), size=(28, 28)
+                            )
+                            measurements_toggle.color = self.theme.get(
+                                "primary", (0.05, 0.18, 0.36, 1)
+                            )
+                            measurements_toggle_row.add_widget(measurements_toggle)
+                            measurements_toggle_row.add_widget(Widget())
+                            details_container.add_widget(measurements_toggle_row)
+
+                            measurements_fields_container = BoxLayout(
+                                size_hint_y=None, spacing=5, orientation="vertical"
+                            )
+                            measurements_fields_container.bind(
+                                minimum_height=measurements_fields_container.setter(
+                                    "height"
+                                )
+                            )
+                            details_container.add_widget(measurements_fields_container)
 
                         # created details_container
 
@@ -7217,11 +7251,48 @@ class SubstationApp(App):
                                     "vidar": vidar_widgets,
                                 }
 
+                        if has_measurement_form and measurements_fields_container is not None:
+                            fixed_widgets = {
+                                elem_comments,
+                                measurements_toggle_row,
+                                measurements_fields_container,
+                            }
+                            measurement_widgets = [
+                                widget
+                                for widget in list(reversed(details_container.children))
+                                if widget not in fixed_widgets
+                            ]
+
+                            for widget in measurement_widgets:
+                                if widget.parent is details_container:
+                                    details_container.remove_widget(widget)
+                            for widget in measurement_widgets:
+                                measurements_fields_container.add_widget(widget)
+
+                            if measurements_fields_container.parent is details_container:
+                                details_container.remove_widget(measurements_fields_container)
+
+                            def _toggle_measurements(
+                                _cb,
+                                active,
+                                dc=details_container,
+                                mfc=measurements_fields_container,
+                            ):
+                                if active:
+                                    if mfc.parent is None:
+                                        dc.add_widget(mfc)
+                                else:
+                                    if mfc.parent is dc:
+                                        dc.remove_widget(mfc)
+
+                            measurements_toggle.bind(active=_toggle_measurements)
+
                         # Save into per-element storage (use eid)
                         element_widgets.setdefault(eid, {})
                         element_widgets[eid]["details_container"] = details_container
                         element_widgets[eid]["comments"] = elem_comments
                         element_widgets[eid]["measurements"] = measurements
+                        element_widgets[eid]["measurements_toggle"] = measurements_toggle
 
                         # saved details_container
 
@@ -7265,6 +7336,7 @@ class SubstationApp(App):
                             "display": elem_display,
                             "comments": element_widgets[elem_id].get("comments"),
                             "measurements": element_widgets[elem_id].get("measurements"),
+                            "measurements_toggle": element_widgets[elem_id].get("measurements_toggle"),
                             "elem_type": elem_type,
                             "details_container": element_widgets[elem_id].get(
                                 "details_container"
@@ -7381,6 +7453,38 @@ class SubstationApp(App):
                             for key, widget in vidar_widgets.items():
                                 if data.get("vidar") and data["vidar"].get(key) is not None:
                                     widget.text = str(data["vidar"].get(key))
+
+                        measurement_toggle = widgets.get("measurements_toggle")
+                        if measurement_toggle:
+                            has_existing_measurements = any(
+                                data.get(key) is not None
+                                for key in (
+                                    "ins_closed_fa",
+                                    "ins_closed_fb",
+                                    "ins_closed_fc",
+                                    "ins_open_fa",
+                                    "ins_open_fb",
+                                    "ins_open_fc",
+                                    "cont_fa",
+                                    "cont_fb",
+                                    "cont_fc",
+                                    "ops_count",
+                                    "sf6_leakage_kg",
+                                )
+                            )
+                            has_existing_measurements = has_existing_measurements or bool(
+                                data.get("sf6_leak_methodology")
+                            )
+                            has_existing_measurements = has_existing_measurements or any(
+                                value is not None
+                                for value in (data.get("sf6") or {}).values()
+                            )
+                            has_existing_measurements = has_existing_measurements or any(
+                                value is not None
+                                for value in (data.get("vidar") or {}).values()
+                            )
+                            if has_existing_measurements:
+                                measurement_toggle.active = True
 
         # Load initial elements
         load_elements(substation_input.text)
