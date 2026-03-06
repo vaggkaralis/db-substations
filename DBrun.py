@@ -6594,7 +6594,7 @@ class SubstationApp(App):
         if maintenance_id:
             c.execute(
                 """
-                SELECT substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id
+                SELECT substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id, onedrive_media_folder_link
                 FROM maintenance
                 WHERE id = ?
             """,
@@ -6990,6 +6990,26 @@ class SubstationApp(App):
         overall_comments.bind(text=_resize_comments)
         _resize_comments()
         content_layout.add_widget(overall_comments)
+
+        # OneDrive Media Folder Link
+        content_layout.add_widget(
+            Label(text=S["MESSAGES"].get("ONEDRIVE_MEDIA_LABEL", "Σύνδεσμος Φάκελου Εικόνων/Βίδεο (OneDrive):"), size_hint_y=None, height=35)
+        )
+        onedrive_media_default = (
+            maintenance_record[7]
+            if maintenance_record and len(maintenance_record) > 7
+            else ""
+        )
+        if not maintenance_id and prefill_data.get("onedrive_media_folder_link"):
+            onedrive_media_default = prefill_data.get("onedrive_media_folder_link")
+        onedrive_media_link = TextInput(
+            hint_text="https://...",
+            text=onedrive_media_default or "",
+            size_hint_y=None,
+            height=40,
+            multiline=False,
+        )
+        content_layout.add_widget(onedrive_media_link)
 
         # Elements selection area
         content_layout.add_widget(
@@ -8503,7 +8523,7 @@ class SubstationApp(App):
             if maintenance_id:
                 c.execute(
                     """UPDATE maintenance
-                       SET substation_id=?, name=?, date_time=?, overall_comments=?, maintenance_type=?, user_name=?, responsible_id=?
+                       SET substation_id=?, name=?, date_time=?, overall_comments=?, maintenance_type=?, user_name=?, responsible_id=?, onedrive_media_folder_link=?
                        WHERE id=?""",
                     (
                         substation_id,
@@ -8513,6 +8533,7 @@ class SubstationApp(App):
                         maintenance_type,
                         user_name,
                         responsible_id,
+                        onedrive_media_link.text.strip() or None,
                         maintenance_id,
                     ),
                 )
@@ -8526,7 +8547,7 @@ class SubstationApp(App):
                 )
             else:
                 c.execute(
-                    "INSERT INTO maintenance (substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO maintenance (substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id, onedrive_media_folder_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         substation_id,
                         maintenance_name,
@@ -8535,6 +8556,7 @@ class SubstationApp(App):
                         maintenance_type,
                         user_name,
                         responsible_id,
+                        onedrive_media_link.text.strip() or None,
                     ),
                 )
                 maintenance_id = c.lastrowid

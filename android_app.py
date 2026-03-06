@@ -969,7 +969,7 @@ class SubstationAndroidApp(App):
                    e.manufacture_year, e.model, e.model_version, e.operating_status,
                    e.installation_space, e.maintenance_cycle, e.gate, e.is_main_switch,
                    e.element_model_id, em.breaker_category, em.model_name,
-                   em.manufacturer as model_manufacturer
+                   em.manufacturer as model_manufacturer, em.onedrive_manual_link
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
             WHERE e.substation_id = ?
@@ -1000,6 +1000,7 @@ class SubstationAndroidApp(App):
             "breaker_category",
             "model_name",
             "model_manufacturer",
+            "onedrive_manual_link",
         ]
         return [dict(zip(columns, r)) for r in rows]
 
@@ -3667,7 +3668,7 @@ class SubstationAndroidApp(App):
                        me.element_comments, s.name as substation_name,
                        me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
                        me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
-                       me.operations_count
+                       me.operations_count, m.onedrive_media_folder_link
                 FROM maintenance m
                 JOIN maintenance_elements me ON m.id = me.maintenance_id
                 JOIN substations s ON m.substation_id = s.id
@@ -3713,6 +3714,7 @@ class SubstationAndroidApp(App):
                     contact_res_fb,
                     contact_res_fc,
                     operations_count,
+                    onedrive_media_link,
                 ) in maintenance_records:
                     # Container for this maintenance record - auto-size based on content
                     maint_layout = BoxLayout(
@@ -3740,6 +3742,21 @@ class SubstationAndroidApp(App):
                         inst.bind(texture_size=lambda i, s: setattr(i, "height", s[1] + 10))
                     _bind_header_size(header_label)
                     maint_layout.add_widget(header_label)
+                    
+                    # OneDrive Media Link Button (if available)
+                    if onedrive_media_link:
+                        onedrive_btn_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                        onedrive_btn = Button(
+                            text="📁 Εικόνες/Βίντεο (OneDrive)",
+                            size_hint_x=1,
+                            background_color=(0.3, 0.6, 0.8, 1),
+                            font_size='11sp'
+                        )
+                        onedrive_btn.bind(
+                            on_press=lambda x, link=onedrive_media_link: self._open_url(link)
+                        )
+                        onedrive_btn_layout.add_widget(onedrive_btn)
+                        maint_layout.add_widget(onedrive_btn_layout)
                     
                     # Element-specific data
                     data_parts = []
@@ -3832,6 +3849,15 @@ class SubstationAndroidApp(App):
                 Logger.error(f"APP: show_error failed to open popup: {e}")
 
         Clock.schedule_once(_show, 0)
+
+    def _open_url(self, url):
+        """Open a URL in the default browser or app"""
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception as e:
+            Logger.error(f"APP: Failed to open URL {url}: {e}")
+            self.show_error(f"Δεν ήταν δυνατό να ανοίξει ο σύνδεσμος: {str(e)}", is_info=True)
 
     def _launch_share_intent(self, file_path):
         """Launch Android share chooser for a file. Uses FileProvider when available.

@@ -723,5 +723,24 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     except Exception:
         pass
 
+    # Add OneDrive links for model manuals and maintenance media
+    cursor.execute("PRAGMA table_info(element_models)")
+    em_columns = [column[1] for column in cursor.fetchall()]
+    if "onedrive_manual_link" not in em_columns:
+        try:
+            cursor.execute(
+                'ALTER TABLE element_models ADD COLUMN onedrive_manual_link TEXT'
+            )
+        except Exception:
+            pass
+
+    if "onedrive_media_folder_link" not in maint_columns:
+        try:
+            cursor.execute(
+                'ALTER TABLE maintenance ADD COLUMN onedrive_media_folder_link TEXT'
+            )
+        except Exception:
+            pass
+
     conn.commit()
     return conn

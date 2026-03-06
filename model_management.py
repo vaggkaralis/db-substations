@@ -25,7 +25,7 @@ def show_models_management(app_instance):
 
     c = app_instance.conn.cursor()
     c.execute(
-        "SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, manual_pdf, power_mva FROM element_models ORDER BY element_category, model_name"
+        "SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, manual_pdf, power_mva, onedrive_manual_link FROM element_models ORDER BY element_category, model_name"
     )
     models = c.fetchall()
 
@@ -547,6 +547,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     )
     layout.add_widget(space_spinner)
 
+    # OneDrive Manual Link
+    layout.add_widget(Label(text="Σύνδεσμος Σχεδίου/Εγχειριδίου (OneDrive):", size_hint_y=None, height=30))
+    onedrive_manual_input = TextInput(
+        hint_text="https://...", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(onedrive_manual_input)
+
     def on_category_change(spinner, text):
         # Remove breaker fields if they exist
         if breaker_label in layout.children:
@@ -641,7 +648,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         c = app_instance.conn.cursor()
         try:
             c.execute(
-                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     category_spinner.text,
                     model_name_input.text.strip(),
@@ -650,7 +657,8 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     space_spinner.text,
                     breaker_cat,
                     sf6_capacity_val,
-                        power_val,
+                    power_val,
+                    onedrive_manual_input.text.strip() or None,
                 ),
             )
             app_instance.conn.commit()
@@ -698,7 +706,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     c = app_instance.conn.cursor()
     c.execute(
-        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva FROM element_models WHERE id=?",
+        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link FROM element_models WHERE id=?",
         (model_id,),
     )
     model = c.fetchone()
@@ -707,7 +715,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_NOT_FOUND"])
         return
 
-    category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity, power_mva = model
+    category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity, power_mva, onedrive_manual_link = model
 
     popup = Popup(title=f"Επεξεργασία: {model_name}", size_hint=(0.8, 0.8))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -800,6 +808,17 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         )
         layout.add_widget(sf6_capacity_input)
 
+    # OneDrive Manual Link
+    layout.add_widget(Label(text="Σύνδεσμος Σχεδίου/Εγχειριδίου (OneDrive):", size_hint_y=None, height=30))
+    onedrive_manual_input = TextInput(
+        text=onedrive_manual_link or "",
+        hint_text="https://...",
+        size_hint_y=None,
+        height=40,
+        multiline=False
+    )
+    layout.add_widget(onedrive_manual_input)
+
     scroll.add_widget(layout)
     main_layout.add_widget(scroll)
 
@@ -848,7 +867,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
         # Update the model
         c.execute(
-            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=? WHERE id=?",
+            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=?, onedrive_manual_link=? WHERE id=?",
             (
                 model_name_input.text.strip(),
                 manufacturer_input.text.strip(),
@@ -857,6 +876,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 breaker_cat_val,
                 sf6_capacity_val,
                 power_val,
+                onedrive_manual_input.text.strip() or None,
                 model_id,
             ),
         )
