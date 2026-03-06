@@ -3,6 +3,7 @@ Model Management UI Functions for Element Models
 """
 
 import os
+import webbrowser
 
 from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
@@ -95,6 +96,7 @@ def show_models_management(app_instance):
                     breaker_cat,
                     manual_pdf,
                     power_mva,
+                    onedrive_manual_link,
                 ) = model
                 if category not in categories:
                     categories[category] = []
@@ -140,6 +142,7 @@ def show_models_management(app_instance):
                                 breaker_cat,
                                 manual_pdf,
                                 power_mva,
+                                onedrive_manual_link,
                             ) = model
                             assigned = False
                             if breaker_cat:
@@ -194,6 +197,7 @@ def show_models_management(app_instance):
                                     breaker_cat,
                                     manual_pdf,
                                     power_mva,
+                                    onedrive_manual_link,
                                 ) in breaker_models:
                                     model_box = BoxLayout(
                                         size_hint_y=None,
@@ -236,16 +240,16 @@ def show_models_management(app_instance):
 
                                     manual_label = (
                                         S["MESSAGES"].get("MANUAL_LABEL", "Manual")
-                                        if manual_pdf and os.path.exists(manual_pdf)
+                                        if (manual_pdf and os.path.exists(manual_pdf)) or onedrive_manual_link
                                         else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                                     )
                                     manual_btn = Button(
                                         text=manual_label, size_hint_x=0.25
                                     )
                                     manual_btn.bind(
-                                        on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: (
+                                        on_press=lambda x, mid=model_id, path=manual_pdf, link=onedrive_manual_link, p=popup: (
                                             _handle_manual_pdf(
-                                                app_instance, mid, path, p
+                                                app_instance, mid, path, link, p
                                             )
                                         )
                                     )
@@ -320,6 +324,7 @@ def show_models_management(app_instance):
                             breaker_cat,
                             manual_pdf,
                             power_mva,
+                            onedrive_manual_link,
                         ) in category_models:
                             model_box = BoxLayout(
                                 size_hint_y=None,
@@ -371,13 +376,13 @@ def show_models_management(app_instance):
 
                             manual_label = (
                                 S["MESSAGES"].get("MANUAL_LABEL", "Manual")
-                                if manual_pdf and os.path.exists(manual_pdf)
+                                if (manual_pdf and os.path.exists(manual_pdf)) or onedrive_manual_link
                                 else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                             )
                             manual_btn = Button(text=manual_label, size_hint_x=0.25)
                             manual_btn.bind(
-                                on_press=lambda x, mid=model_id, path=manual_pdf, p=popup: (
-                                    _handle_manual_pdf(app_instance, mid, path, p)
+                                on_press=lambda x, mid=model_id, path=manual_pdf, link=onedrive_manual_link, p=popup: (
+                                    _handle_manual_pdf(app_instance, mid, path, link, p)
                                 )
                             )
                             btn_box.add_widget(manual_btn)
@@ -547,13 +552,6 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     )
     layout.add_widget(space_spinner)
 
-    # OneDrive Manual Link
-    layout.add_widget(Label(text="Σύνδεσμος Σχεδίου/Εγχειριδίου (OneDrive):", size_hint_y=None, height=30))
-    onedrive_manual_input = TextInput(
-        hint_text="https://...", size_hint_y=None, height=40, multiline=False
-    )
-    layout.add_widget(onedrive_manual_input)
-
     def on_category_change(spinner, text):
         # Remove breaker fields if they exist
         if breaker_label in layout.children:
@@ -658,7 +656,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     breaker_cat,
                     sf6_capacity_val,
                     power_val,
-                    onedrive_manual_input.text.strip() or None,
+                    None,
                 ),
             )
             app_instance.conn.commit()
@@ -808,17 +806,6 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         )
         layout.add_widget(sf6_capacity_input)
 
-    # OneDrive Manual Link
-    layout.add_widget(Label(text="Σύνδεσμος Σχεδίου/Εγχειριδίου (OneDrive):", size_hint_y=None, height=30))
-    onedrive_manual_input = TextInput(
-        text=onedrive_manual_link or "",
-        hint_text="https://...",
-        size_hint_y=None,
-        height=40,
-        multiline=False
-    )
-    layout.add_widget(onedrive_manual_input)
-
     scroll.add_widget(layout)
     main_layout.add_widget(scroll)
 
@@ -876,7 +863,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 breaker_cat_val,
                 sf6_capacity_val,
                 power_val,
-                onedrive_manual_input.text.strip() or None,
+                onedrive_manual_link,
                 model_id,
             ),
         )
@@ -918,11 +905,90 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     popup.open()
 
 
-def _handle_manual_pdf(app_instance, model_id, manual_pdf, parent_popup=None):
-    if manual_pdf and os.path.exists(manual_pdf):
-        _open_manual_pdf(manual_pdf)
-    else:
-        _select_manual_pdf(app_instance, model_id, parent_popup)
+def _handle_manual_pdf(app_instance, model_id, manual_pdf, onedrive_manual_link=None, parent_popup=None):
+    has_local = bool(manual_pdf and os.path.exists(manual_pdf))
+    has_link = bool(onedrive_manual_link and _is_web_url(onedrive_manual_link))
+
+    if has_local or has_link:
+        _show_manual_actions_popup(
+            app_instance,
+            model_id,
+            manual_pdf,
+            onedrive_manual_link,
+            parent_popup,
+        )
+        return
+
+    _select_manual_pdf(app_instance, model_id, parent_popup)
+
+
+def _show_manual_actions_popup(app_instance, model_id, manual_pdf, onedrive_manual_link, parent_popup=None):
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+
+    has_local = bool(manual_pdf and os.path.exists(manual_pdf))
+    has_link = bool(onedrive_manual_link and _is_web_url(onedrive_manual_link))
+
+    popup = Popup(title="Manual Επιλογές", size_hint=(0.75, 0.45))
+    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    status_parts = []
+    status_parts.append("Τοπικό: διαθέσιμο" if has_local else "Τοπικό: μη διαθέσιμο")
+    status_parts.append("OneDrive: διαθέσιμο" if has_link else "OneDrive: μη διαθέσιμο")
+    layout.add_widget(Label(text=" | ".join(status_parts), size_hint_y=0.25))
+
+    buttons_row_1 = BoxLayout(size_hint_y=0.25, spacing=10)
+    open_local_btn = Button(text="Άνοιγμα Τοπικού")
+    open_local_btn.disabled = not has_local
+    open_local_btn.bind(
+        on_press=lambda _x: (popup.dismiss(), _open_manual_pdf(manual_pdf))
+    )
+    buttons_row_1.add_widget(open_local_btn)
+
+    open_link_btn = Button(text="Άνοιγμα OneDrive")
+    open_link_btn.disabled = not has_link
+    open_link_btn.bind(
+        on_press=lambda _x: (popup.dismiss(), _open_manual_link(onedrive_manual_link))
+    )
+    buttons_row_1.add_widget(open_link_btn)
+    layout.add_widget(buttons_row_1)
+
+    buttons_row_2 = BoxLayout(size_hint_y=0.25, spacing=10)
+    replace_btn = Button(text="Αλλαγή / Αντικατάσταση")
+    replace_btn.bind(
+        on_press=lambda _x: (
+            popup.dismiss(),
+            _select_manual_pdf(app_instance, model_id, parent_popup),
+        )
+    )
+    buttons_row_2.add_widget(replace_btn)
+
+    close_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+    close_btn.bind(on_press=popup.dismiss)
+    buttons_row_2.add_widget(close_btn)
+    layout.add_widget(buttons_row_2)
+
+    popup.content = layout
+    popup.open()
+
+
+def _is_web_url(value):
+    v = (value or "").strip().lower()
+    return v.startswith("http://") or v.startswith("https://")
+
+
+def _open_manual_link(url):
+    link = (url or "").strip()
+    if not _is_web_url(link):
+        show_message_popup("Σφάλμα", "Μη έγκυρος σύνδεσμος OneDrive!")
+        return False
+    try:
+        return webbrowser.open(link)
+    except Exception as e:
+        show_message_popup("Σφάλμα", f"Αποτυχία ανοίγματος συνδέσμου:\n{e}")
+        return False
 
 
 def _open_manual_pdf(pdf_path):
@@ -948,88 +1014,79 @@ def _open_manual_pdf(pdf_path):
 def _select_manual_pdf(app_instance, model_id, parent_popup=None):
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
-    from kivy.uix.filechooser import FileChooserListView
     from kivy.uix.label import Label
     from kivy.uix.popup import Popup
     from kivy.uix.textinput import TextInput
 
-    # Try native desktop dialog first
-    allow_fallback = False
-    try:
-        fp = ask_open_file(title="Select Manual PDF", filetypes=(("PDF files", "*.pdf"),))
-    except ImportError:
-        allow_fallback = True
-        fp = None
-    except Exception:
-        fp = None
+    c = app_instance.conn.cursor()
+    c.execute("SELECT manual_pdf, onedrive_manual_link FROM element_models WHERE id=?", (model_id,))
+    row = c.fetchone() or (None, None)
+    current_manual_pdf, current_onedrive_link = row
 
-    if fp:
-        if not os.path.exists(fp):
-            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο/φάκελος δεν βρέθηκε!")
-            return
-        # Accept either a PDF file or a directory
-        if not os.path.isdir(fp) and not fp.lower().endswith(".pdf"):
-            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF ή φάκελο!")
-            return
-        c = app_instance.conn.cursor()
-        c.execute(
-            "UPDATE element_models SET manual_pdf=? WHERE id=?",
-            (fp, model_id),
-        )
-        app_instance.conn.commit()
-        if parent_popup:
-            try:
-                parent_popup.dismiss()
-            except Exception:
-                pass
-        return
-
-    if not allow_fallback:
-        # user cancelled native dialog -> do nothing
-        return
-
-    popup = Popup(title="Επιλογή Manual (PDF ή Φάκελος)", size_hint=(0.9, 0.9))
+    popup = Popup(title="Επιλογή Manual (PDF/Φάκελος ή OneDrive)", size_hint=(0.9, 0.7))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-    path_label = Label(text="Διαδρομή αρχείου ή φακέλου:", size_hint_y=0.1)
+    path_label = Label(text="Τοπική διαδρομή PDF ή φακέλου:", size_hint_y=0.12)
     layout.add_widget(path_label)
 
     path_input = TextInput(
-        hint_text="Διαδρομή αρχείου PDF ή φακέλου", size_hint_y=0.12, multiline=False
+        text=current_manual_pdf or "",
+        hint_text="C:\\...\\manual.pdf ή C:\\...\\folder",
+        size_hint_y=0.12,
+        multiline=False,
     )
     layout.add_widget(path_input)
 
-    layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
-    chooser = FileChooserListView(filters=["*.pdf"], path=os.path.dirname(__file__))
-    layout.add_widget(chooser)
+    browse_btn = Button(text="Αναζήτηση Τοπικού Manual", size_hint_y=0.12)
+    layout.add_widget(browse_btn)
 
-    buttons_layout = BoxLayout(size_hint_y=0.12, spacing=10)
+    layout.add_widget(Label(text="Σύνδεσμος OneDrive (προαιρετικό):", size_hint_y=0.12))
+    link_input = TextInput(
+        text=current_onedrive_link or "",
+        hint_text="https://...",
+        size_hint_y=0.12,
+        multiline=False,
+    )
+    layout.add_widget(link_input)
+
+    buttons_layout = BoxLayout(size_hint_y=0.14, spacing=10)
+
+    def browse_local_manual():
+        try:
+            fp = ask_open_file(title="Select Manual PDF", filetypes=(("PDF files", "*.pdf"),))
+        except Exception:
+            fp = None
+        if fp:
+            path_input.text = fp
+
+    browse_btn.bind(on_press=lambda _x: browse_local_manual())
 
     def save_file():
-        file_path = (
-            path_input.text.strip()
-            if path_input.text.strip()
-            else (chooser.selection[0] if chooser.selection else None)
-        )
+        file_path = path_input.text.strip() or None
+        link_val = link_input.text.strip() or None
 
-        if not file_path:
-            show_message_popup(
-                "Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
-            )
+        if not file_path and not link_val:
+            show_message_popup("Σφάλμα", "Συμπληρώστε τοπικό manual ή σύνδεσμο OneDrive!")
             return
 
-        if not os.path.exists(file_path):
-            show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο/φάκελος δεν βρέθηκε!")
-            return
+        if file_path:
+            if not os.path.exists(file_path):
+                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο/φάκελος δεν βρέθηκε!")
+                return
 
-        # Accept either a PDF file or a directory
-        if not os.path.isdir(file_path) and not file_path.lower().endswith(".pdf"):
-            show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF ή φάκελο!")
+            # Accept either a PDF file or a directory
+            if not os.path.isdir(file_path) and not file_path.lower().endswith(".pdf"):
+                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF ή φάκελο!")
+                return
+
+        if link_val and not _is_web_url(link_val):
+            show_message_popup("Σφάλμα", "Ο σύνδεσμος πρέπει να ξεκινά με http:// ή https://")
             return
 
         c = app_instance.conn.cursor()
         c.execute(
-            "UPDATE element_models SET manual_pdf=? WHERE id=?", (file_path, model_id)
+            "UPDATE element_models SET manual_pdf=?, onedrive_manual_link=? WHERE id=?",
+            (file_path, link_val, model_id),
         )
         app_instance.conn.commit()
         popup.dismiss()

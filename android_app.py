@@ -969,7 +969,7 @@ class SubstationAndroidApp(App):
                    e.manufacture_year, e.model, e.model_version, e.operating_status,
                    e.installation_space, e.maintenance_cycle, e.gate, e.is_main_switch,
                    e.element_model_id, em.breaker_category, em.model_name,
-                   em.manufacturer as model_manufacturer, em.onedrive_manual_link
+                   em.manufacturer as model_manufacturer, em.manual_pdf, em.onedrive_manual_link
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
             WHERE e.substation_id = ?
@@ -1000,6 +1000,7 @@ class SubstationAndroidApp(App):
             "breaker_category",
             "model_name",
             "model_manufacturer",
+            "manual_pdf",
             "onedrive_manual_link",
         ]
         return [dict(zip(columns, r)) for r in rows]
@@ -2115,6 +2116,36 @@ class SubstationAndroidApp(App):
                     info_layout.add_widget(line3)
                     
                     elem_card.add_widget(info_layout)
+
+                    # Check for manual - prefer onedrive_manual_link, fallback to manual_pdf if it's a URL
+                    manual_link = (elem.get("onedrive_manual_link") or "").strip()
+                    if not manual_link:
+                        manual_pdf = (elem.get("manual_pdf") or "").strip()
+                        if manual_pdf and (manual_pdf.startswith("http://") or manual_pdf.startswith("https://")):
+                            manual_link = manual_pdf
+                    
+                    if manual_link:
+                        try:
+                            from ui.shared import IconOnlyButton
+
+                            manual_btn = IconOnlyButton(
+                                icon_type="book",
+                                icon_color=(0.2, 0.7, 0.95, 1),
+                                size=(50, 50),
+                                tooltip=S.get("MESSAGES", {}).get("TOOLTIP_MANUAL", "Manual"),
+                            )
+                        except Exception:
+                            manual_btn = Button(
+                                text="Manual",
+                                font_size='12sp',
+                                size_hint_x=None,
+                                width=60,
+                                background_color=(0.2, 0.7, 0.95, 1),
+                            )
+                        manual_btn.bind(
+                            on_press=lambda x, link=manual_link: self._open_url(link)
+                        )
+                        elem_card.add_widget(manual_btn)
                     
                     # Add maintenance history button only if element has maintenance records
                     element_id = elem.get('id')
