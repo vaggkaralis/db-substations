@@ -3689,23 +3689,14 @@ class SubstationAndroidApp(App):
                     contact_res_fc,
                     operations_count,
                 ) in maintenance_records:
-                    # Container for this maintenance record
+                    # Container for this maintenance record - auto-size based on content
                     maint_layout = BoxLayout(
                         size_hint_y=None,
                         orientation="vertical",
                         spacing=5,
                         padding=10
                     )
-                    
-                    # Calculate height based on content
-                    base_height = 120
-                    if element_comments:
-                        base_height += 30
-                    if insul_fa_gnd or insul_fb_gnd or insul_fc_gnd:
-                        base_height += 30
-                    if contact_res_fa or contact_res_fb or contact_res_fc:
-                        base_height += 30
-                    maint_layout.height = base_height
+                    maint_layout.bind(minimum_height=maint_layout.setter("height"))
                     
                     # Header with date and type
                     header_text = f"[b]{date_time}[/b] - {substation_name}"
@@ -3714,14 +3705,15 @@ class SubstationAndroidApp(App):
                     header_label = Label(
                         text=header_text,
                         size_hint_y=None,
-                        height=30,
                         markup=True,
                         halign="left",
                         valign="middle"
                     )
-                    header_label.bind(
-                        width=lambda instance, value: setattr(instance, "text_size", (value, None))
-                    )
+                    def _bind_header_size(inst):
+                        inst.text_size = (inst.width, None)
+                        inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+                        inst.bind(texture_size=lambda i, s: setattr(i, "height", s[1] + 10))
+                    _bind_header_size(header_label)
                     maint_layout.add_widget(header_label)
                     
                     # Element-specific data
@@ -3757,15 +3749,16 @@ class SubstationAndroidApp(App):
                     data_label = Label(
                         text=data_text,
                         size_hint_y=None,
-                        height=50 if measurements else 30,
                         markup=True,
                         halign="left",
                         valign="top",
                         color=(0.5, 0.5, 0.5, 1)
                     )
-                    data_label.bind(
-                        width=lambda instance, value: setattr(instance, "text_size", (value, None))
-                    )
+                    def _bind_data_size(inst):
+                        inst.text_size = (inst.width, None)
+                        inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+                        inst.bind(texture_size=lambda i, s: setattr(i, "height", s[1] + 10))
+                    _bind_data_size(data_label)
                     maint_layout.add_widget(data_label)
                     
                     # Add overall comments if present
@@ -3773,14 +3766,15 @@ class SubstationAndroidApp(App):
                         comments_label = Label(
                             text=f"Σχόλια: {overall_comments}",
                             size_hint_y=None,
-                            height=40,
                             halign="left",
                             valign="top",
                             color=(0.6, 0.5, 0.4, 1)
                         )
-                        comments_label.bind(
-                            width=lambda instance, value: setattr(instance, "text_size", (value, None))
-                        )
+                        def _bind_comments_size(inst):
+                            inst.text_size = (inst.width, None)
+                            inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+                            inst.bind(texture_size=lambda i, s: setattr(i, "height", s[1] + 10))
+                        _bind_comments_size(comments_label)
                         maint_layout.add_widget(comments_label)
                     
                     grid.add_widget(maint_layout)
