@@ -722,19 +722,31 @@ class SubstationAndroidApp(App):
             Logger.info("APP: Creating header with logo")
             header_box = BoxLayout(size_hint_y=0.06, spacing=10, padding=[10, 5])
             
-            # Try to add logo if it exists
+            # Try to add logo if it exists with white background
             try:
                 from kivy.uix.image import Image
+                from kivy.graphics import Color, Rectangle
                 logo_path = os.path.join(os.path.dirname(__file__), "logo_deddie.png")
                 if os.path.exists(logo_path):
+                    # Create container for logo with white background
+                    logo_container = BoxLayout(size_hint_x=None, width=50, padding=3)
+                    logo_container.canvas.before.clear()
+                    with logo_container.canvas.before:
+                        Color(1, 1, 1, 1)  # White background
+                        Rectangle(size=logo_container.size, pos=logo_container.pos)
+                    
+                    # Bind size updates to keep rectangle in sync
+                    logo_container.bind(size=lambda inst, val: inst.canvas.before.ask_update())
+                    logo_container.bind(pos=lambda inst, val: inst.canvas.before.ask_update())
+                    
                     logo = Image(
                         source=logo_path,
-                        size_hint_x=None,
-                        width=40,
+                        size_hint_x=1,
                         allow_stretch=True,
                         keep_ratio=True
                     )
-                    header_box.add_widget(logo)
+                    logo_container.add_widget(logo)
+                    header_box.add_widget(logo_container)
             except Exception as e:
                 Logger.warning(f"APP: Could not load logo: {e}")
             
@@ -814,8 +826,8 @@ class SubstationAndroidApp(App):
             secondary_row.add_widget(self.sync_btn)
 
             settings_btn = Button(
-                text="[]",
-                font_size='20sp',
+                text="≡",
+                font_size='22sp',
                 size_hint_x=0.5
             )
             settings_btn.bind(on_press=lambda x: self._show_sync_settings())
