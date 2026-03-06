@@ -1655,6 +1655,11 @@ class SubstationApp(App):
 
         apply_btn.bind(on_press=_apply_settings)
         close_btn.bind(on_press=popup.dismiss)
+        
+        backup_btn = Button(text=S["MESSAGES"].get("MANAGE_BACKUPS_BUTTON", "Διαχείριση Αντιγράφων"))
+        backup_btn.bind(on_press=lambda x: self._show_backup_management())
+        
+        buttons.add_widget(backup_btn)
         buttons.add_widget(apply_btn)
         buttons.add_widget(close_btn)
         layout.add_widget(buttons)
@@ -1674,6 +1679,176 @@ class SubstationApp(App):
         except Exception as e:
             import logging
             logging.exception(f"Failed to restart app: {e}")
+
+    def _show_backup_management(self):
+        """Show backup management popup - list recent backups and restore options."""
+        try:
+            from sync_service import resolve_backup_root
+            from kivy.uix.popup import Popup
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.gridlayout import GridLayout
+            from kivy.uix.label import Label
+            from kivy.uix.button import Button
+            from kivy.uix.scrollview import ScrollView
+            
+            backup_root = resolve_backup_root(self.db_path)
+            hot_backup_dir = os.path.join(backup_root, "hot")
+            
+            # Get list of backup files
+            backups = []
+            if os.path.exists(hot_backup_dir):
+                for filename in sorted(os.listdir(hot_backup_dir), reverse=True):
+                    filepath = os.path.join(hot_backup_dir, filename)
+                    if os.path.isfile(filepath) and filename.endswith('.sqlite'):
+                        try:
+                            size = os.path.getsize(filepath)
+                            mtime = os.path.getmtime(filepath)
+                            backups.append({
+                                'name': filename,
+                                'path': filepath,
+                                'size': size,
+                                'mtime': mtime
+                            })
+                        except Exception:
+                            pass
+            
+            # Keep only last 5
+            backups = backups[:5]
+            
+            # Create popup
+            popup = Popup(
+                title=S["MESSAGES"].get("MANAGE_BACKUPS_TITLE", "Διαχείριση Αντιγράφων"),
+                size_hint=(0.9, 0.8)
+            )
+            layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            
+            # Manual backup button
+            manual_backup_btn = Button(
+                text=S["MESSAGES"].get("CREATE_MANUAL_BACKUP", "Δημιουργία χειροκίνητου αντιγράφου"),
+                size_hint_y=0.1
+            )
+            
+            def _create_manual_backup(*_args):
+                try:
+                    import shutil
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"substations_{timestamp}_manual.sqlite"
+                    dest_path = os.path.join(hot_backup_dir, filename)
+                    os.makedirs(hot_backup_dir, exist_ok=True)
+                    shutil.copy(self.db_path, dest_path)
+                    show_message_popup(
+                        S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                        S["MESSAGES"].get("MANUAL_BACKUP_CREATED", "Χειροκίνητο αντίγραφο δημιουργήθηκε!")
+                    )
+                    popup.dismiss()
+                    self._show_backup_management()  # Refresh
+                except Exception as e:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        f"Αδυναμία δημιουργίας αντιγράφου:\n{str(e)}"
+                    )
+            
+            manual_backup_btn.bind(on_press=_create_manual_backup)
+            layout.add_widget(manual_backup_btn)
+            
+            # Backups list
+            scroll = ScrollView(size_hint=(1, 0.75))
+            backups_list = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
+            backups_list.bind(minimum_height=backups_list.setter('height'))
+            
+            if backups:
+                for backup in backups:
+                    from datetime import datetime
+                    dt = datetime.fromtimestamp(backup['mtime'])
+                    size_mb = backup['size'] / (1024*1024)
+                    backup_row = BoxLayout(orientation='horizontal', size_hint_y=None, height=60, spacing=5)
+                    
+                    # Backup info
+                    info_text = f"{backup['name']}\n{dt.strftime('%d/%m/%Y %H:%M')} ({size_mb:.1f} MB)"
+                    backup_row.add_widget(Label(
+                        text=info_text,
+                        size_hint_x=0.6,
+                        halign='left',
+                        valign='middle'
+                    ))
+                    
+                    # Restore button
+                    restore_btn = Button(text="Επαναφορά", size_hint_x=0.4)
+                    
+                    def _restore_backup(backup_info=backup, btn=restore_btn):
+                        def _confirm_restore(*_args):
+                            try:
+                                import shutil
+                                # Close connection before restore
+                                self.conn.close()
+                                # Create safety backup before restore
+                                from datetime import datetime
+                                safety_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                safety_backup = os.path.join(hot_backup_dir, f"substations_{safety_ts}_before_restore.sqlite")
+                                shutil.copy(self.db_path, safety_backup)
+                                # Restore
+                                shutil.copy(backup_info['path'], self.db_path)
+                                # Reopen connection
+                                self.conn = init_db(self.db_path)
+                                show_message_popup(
+                                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                                    S["MESSAGES"].get("BACKUP_RESTORED", "Το αντίγραφο επαναφέρθηκε με επιτυχία!")
+                                )
+                                confirmation_popup.dismiss()
+                                popup.dismiss()
+                            except Exception as e:
+                                show_message_popup(
+                                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                                    f"Αδυναμία επαναφοράς:\n{str(e)}"
+                                )
+                        
+                        confirmation_popup = Popup(
+                            title="Επιβεβαίωση Επαναφοράς",
+                            size_hint=(0.8, 0.4)
+                        )
+                        conf_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                        conf_layout.add_widget(Label(
+                            text=S["MESSAGES"].get("RESTORE_BACKUP_CONFIRM", "Θέλετε να επαναφέρετε αυτό το αντίγραφο;\nΤο τρέχον θα αποθηκευτεί ως safety backup.")
+                        ))
+                        conf_buttons = BoxLayout(size_hint_y=None, height=40, spacing=10)
+                        yes_btn = Button(text=S["BUTTONS"].get("YES", "Ναι"))
+                        no_btn = Button(text=S["BUTTONS"].get("NO", "Όχι"))
+                        yes_btn.bind(on_press=_confirm_restore)
+                        no_btn.bind(on_press=confirmation_popup.dismiss)
+                        conf_buttons.add_widget(yes_btn)
+                        conf_buttons.add_widget(no_btn)
+                        conf_layout.add_widget(conf_buttons)
+                        confirmation_popup.content = conf_layout
+                        confirmation_popup.open()
+                    
+                    restore_btn.bind(on_press=_restore_backup)
+                    backup_row.add_widget(restore_btn)
+                    backups_list.add_widget(backup_row)
+            else:
+                backups_list.add_widget(Label(
+                    text=S["MESSAGES"].get("NO_BACKUPS_AVAILABLE", "Δεν υπάρχουν διαθέσιμα αντίγραφα"),
+                    size_hint_y=None,
+                    height=40
+                ))
+            
+            scroll.add_widget(backups_list)
+            layout.add_widget(scroll)
+            
+            # Close button
+            close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=0.1)
+            close_btn.bind(on_press=popup.dismiss)
+            layout.add_widget(close_btn)
+            
+            popup.content = layout
+            popup.open()
+            
+        except Exception as e:
+            logging.exception(f"Failed to show backup management: {e}")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                f"Αδυναμία διαχείρισης αντιγράφων:\n{str(e)}"
+            )
 
     def show_logout_confirm(self):
         """Show logout confirmation dialog."""
@@ -4645,6 +4820,14 @@ class SubstationApp(App):
             hot_keep=hot_keep,
         )
         sync = summary["sync"]
+        conflicts = sync.get("conflicts", 0)
+        
+        # If there are conflicts, show conflict resolution UI instead of summary
+        if conflicts > 0:
+            self._show_sync_notification(summary)
+            return
+        
+        # Otherwise show regular summary
         msg = S["MESSAGES"].get(
             "SYNC_MANUAL_SUMMARY_FMT",
             "Η επεξεργασία εισερχομένων ολοκληρώθηκε.\nΕπεξεργασμένα: {processed}\nΑποδεκτά: {accepted}\nΣε σύγκρουση: {conflicts}\nΑπορριφθέντα: {rejected}",
@@ -4672,7 +4855,7 @@ class SubstationApp(App):
             ensure_sync_tree(sync_root)
             ensure_backup_tree(backup_root)
 
-            run_sync_cycle(
+            result = run_sync_cycle(
                 self.conn,
                 db_path=self.db_path,
                 actor="startup",
@@ -4680,6 +4863,11 @@ class SubstationApp(App):
                 hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
             )
             self._last_sync_cycle_ts = datetime.now().timestamp()
+            
+            # Show conflict UI if conflicts detected at startup
+            if result and result.get("sync", {}).get("conflicts", 0) > 0:
+                # Schedule after a brief delay to ensure UI is ready
+                Clock.schedule_once(lambda dt: self._show_sync_notification(result), 0.5)
         except Exception:
             logging.exception("Startup sync cycle failed")
 
@@ -4837,15 +5025,19 @@ class SubstationApp(App):
             if processed == 0:
                 return
 
+            # Show conflict resolution FIRST if there are conflicts
+            if conflicts > 0:
+                self._show_conflict_resolution(sync_result)
+                # Return early - conflict popup will show summary after resolution
+                return
+
             msg = S["MESSAGES"].get(
                 "SYNC_AUTO_SUMMARY",
                 "Αυτόματος συγχρονισμός ολοκληρώθηκε:\n"
             )
-            msg += f"\n✓ Αποδεκτά: {accepted}"
+            msg += f"\n[OK] Αποδεκτά: {accepted}"
             if already_applied > 0:
                 msg += f"\n↻ Ήδη εφαρμοσμένα: {already_applied}"
-            if conflicts > 0:
-                msg += f"\n⚠ Συγκρούσεις: {conflicts}"
             if rejected > 0:
                 msg += f"\n❌ Απορριφθέντα: {rejected}"
 
@@ -4862,6 +5054,240 @@ class SubstationApp(App):
             )
         except Exception:
             logging.exception("Failed to show sync notification")
+
+    def _show_conflict_resolution(self, sync_result):
+        """Show conflict resolution UI after sync detects conflicts."""
+        try:
+            from sync_service import resolve_sync_root
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.gridlayout import GridLayout
+            from kivy.uix.label import Label
+            from kivy.uix.button import Button
+            from kivy.uix.scrollview import ScrollView
+            from kivy.uix.popup import Popup
+            import json
+            
+            sync_root = resolve_sync_root(self.db_path)
+            tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
+            
+            if not os.path.exists(tracker_path):
+                return
+            
+            with open(tracker_path, "r", encoding="utf-8") as f:
+                tracker = json.load(f)
+            
+            # Find unresolved conflicts
+            conflicts = {}
+            for filename, status_info in tracker.items():
+                if status_info.get("status") == "conflict":
+                    conflicts[filename] = status_info
+            
+            if not conflicts:
+                return
+            
+            # Create popup UI
+            content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            
+            # Title
+            title_label = Label(
+                text=f"{len(conflicts)} σύγκρουση(εις) ανιχνεύθηκαν",
+                size_hint_y=0.15,
+                bold=True
+            )
+            content.add_widget(title_label)
+            
+            # List conflicts
+            scroll = ScrollView(size_hint=(1, 0.65))
+            conflicts_list = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
+            conflicts_list.bind(minimum_height=conflicts_list.setter('height'))
+            
+            for filename in conflicts.keys():
+                row = Label(
+                    text=f"{filename}",
+                    size_hint_y=None,
+                    height=40
+                )
+                conflicts_list.add_widget(row)
+            
+            scroll.add_widget(conflicts_list)
+            content.add_widget(scroll)
+            
+            # Buttons
+            buttons = BoxLayout(size_hint_y=0.2, spacing=10, padding=5)
+            
+            resolve_btn = Button(text="Επίλυση")
+            close_btn = Button(text="Κλείσιμο")
+            
+            def on_resolve(_):
+                popup.dismiss()
+                self._show_conflict_resolver(conflicts)
+            
+            def on_close(_):
+                popup.dismiss()
+            
+            resolve_btn.bind(on_press=on_resolve)
+            close_btn.bind(on_press=on_close)
+            buttons.add_widget(resolve_btn)
+            buttons.add_widget(close_btn)
+            content.add_widget(buttons)
+            
+            popup = Popup(
+                title="Σύγκρουση Συγχρονισμού",
+                content=content,
+                size_hint=(0.9, 0.8)
+            )
+            popup.open()
+        
+        except Exception as e:
+            logging.exception(f"Failed to show conflict resolution: {e}")
+
+    def _show_conflict_resolver(self, conflicts):
+        """Show resolver for first conflict."""
+        try:
+            from sync_service import resolve_sync_root
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.label import Label
+            from kivy.uix.button import Button
+            from kivy.uix.popup import Popup
+            import json
+            
+            # Get first conflict
+            filename = list(conflicts.keys())[0]
+            sync_root = resolve_sync_root(self.db_path)
+            
+            # Read the change file
+            for folder in ["pending", os.path.join("processed", "accepted")]:
+                change_path = os.path.join(sync_root, "inbox", folder, filename)
+                if os.path.exists(change_path):
+                    break
+            
+            if not os.path.exists(change_path):
+                return
+            
+            # Parse the change
+            changes = []
+            with open(change_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        changes.append(json.loads(line))
+            
+            if not changes:
+                return
+            
+            # Get conflicting record
+            change = changes[0]
+            table = change.get("table", "")
+            record_id = change.get("data", {}).get("id", "")
+            
+            cur = self.conn.cursor()
+            cur.execute(f"SELECT * FROM {table} WHERE id=?", (record_id,))
+            row = cur.fetchone()
+            
+            if not row:
+                return
+            
+            cols = [col[0] for col in cur.description]
+            my_data = dict(zip(cols, row))
+            their_data = change.get("data", {})
+            
+            # Show comparison
+            content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            
+            msg = f"Σύγκρουση in {table} (ID: {record_id})\n\n"
+            msg += "Δικά μου δεδομένα:\n"
+            for k, v in my_data.items():
+                if k != "id":
+                    msg += f"  {k}: {v}\n"
+            msg += "\nΤα δεδομένα τους:\n"
+            for k, v in their_data.items():
+                if k != "id":
+                    msg += f"  {k}: {v}\n"
+            
+            content.add_widget(Label(text=msg, size_hint_y=0.7))
+            
+            # Resolution buttons
+            buttons = BoxLayout(size_hint_y=0.3, spacing=10)
+            
+            def keep_mine():
+                # Just dismiss, don't apply their change
+                self._mark_conflict_resolved(filename, "keep_mine")
+                popup.dismiss()
+                show_message_popup("Επίλυση", "Κρατήθηκαν τα δικά σας δεδομένα")
+            
+            def use_theirs():
+                # Update with their data
+                update_fields = {k: v for k, v in their_data.items() if k != "id" and k in cols}
+                if update_fields:
+                    set_clause = ", ".join([f"{k}=?" for k in update_fields.keys()])
+                    sql = f"UPDATE {table} SET {set_clause} WHERE id=?"
+                    self.conn.execute(sql, list(update_fields.values()) + [record_id])
+                    self.conn.commit()
+                self._mark_conflict_resolved(filename, "use_theirs")
+                popup.dismiss()
+                show_message_popup("Επίλυση", "Εφαρμόστηκαν τα δεδομένα τους")
+            
+            buttons.add_widget(Button(text="Δικά μου", on_press=lambda x: keep_mine()))
+            buttons.add_widget(Button(text="Δικά τους", on_press=lambda x: use_theirs()))
+            
+            content.add_widget(buttons)
+            
+            popup = Popup(
+                title=f"Επίλυση: {filename}",
+                content=content,
+                size_hint=(0.95, 0.85)
+            )
+            popup.open()
+        
+        except Exception as e:
+            logging.exception(f"Failed to resolve conflict: {e}")
+
+    def _mark_conflict_resolved(self, filename, resolution):
+        """Mark a conflict as resolved and move file to appropriate folder.
+        
+        Args:
+            filename: The conflict change file name
+            resolution: Either "keep_mine" (→ conflicts folder) or "use_theirs" (→ accepted folder)
+        """
+        try:
+            from sync_service import resolve_sync_root
+            import json
+            import shutil
+            
+            sync_root = resolve_sync_root(self.db_path)
+            tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
+            
+            with open(tracker_path, "r", encoding="utf-8") as f:
+                tracker = json.load(f)
+            
+            # Update tracker: mark as resolved
+            if filename in tracker:
+                tracker[filename]["resolution"] = resolution
+                tracker[filename]["resolved_at"] = datetime.now().isoformat()
+                tracker[filename]["status"] = "resolved"
+            
+            with open(tracker_path, "w", encoding="utf-8") as f:
+                json.dump(tracker, f, ensure_ascii=False, indent=2)
+            
+            # Move file out of pending folder
+            pending_path = os.path.join(sync_root, "inbox", "pending", filename)
+            os.makedirs(os.path.join(sync_root, "inbox", "processed"), exist_ok=True)
+            
+            if os.path.exists(pending_path):
+                if resolution == "keep_mine":
+                    # Move to conflicts folder - keep for audit trail, don't reprocess
+                    dest_dir = os.path.join(sync_root, "inbox", "processed", "conflicts")
+                    os.makedirs(dest_dir, exist_ok=True)
+                    dest_path = os.path.join(dest_dir, filename)
+                    shutil.move(pending_path, dest_path)
+                elif resolution == "use_theirs":
+                    # Move to accepted folder - marks as processed for other users
+                    dest_dir = os.path.join(sync_root, "inbox", "processed", "accepted")
+                    os.makedirs(dest_dir, exist_ok=True)
+                    dest_path = os.path.join(dest_dir, filename)
+                    shutil.move(pending_path, dest_path)
+        
+        except Exception:
+            logging.exception("Failed to mark conflict as resolved")
 
     def import_substations_from_file(self, file_path):
         def on_success(message):

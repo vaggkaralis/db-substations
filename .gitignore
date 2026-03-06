@@ -8,6 +8,10 @@ env/
 *.sqlite
 *.sqlite3
 
+# Runtime folders (auto-generated)
+backups_auto/
+sync_exchange/
+
 # Bug reports (Android debugging)
 bugreport-*/
 

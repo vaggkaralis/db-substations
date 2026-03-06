@@ -9,5 +9,6 @@
   "sync_auto_cycle_enabled": true,
   "sync_auto_cycle_minutes": 60,
   "sync_backup_on_change": true,
-  "backup_hot_keep": 3
+  "backup_hot_keep": 3,
+  "sync_root_path": "C:\\Users\\e.karalis\\OneDrive - Hellenic Electricity Distribution Network Operator S.A\\06_Υποσταθμοί\\Βάση Δεδομένων Κεντρική"
 }
