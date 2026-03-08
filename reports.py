@@ -3,6 +3,11 @@ import os
 import subprocess
 import sys
 
+from onedrive_hybrid_storage import (
+    get_maintenance_report_path,
+    get_transformer_report_targets,
+    upsert_maintenance_report_path,
+)
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from popups import show_message_popup
 from strings_proxy import STRINGS as S
@@ -164,7 +169,64 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
     importlib.import_module("kivy.uix.label").Label
 
     try:
-        pdf_path = generate_maintenance_report(app.conn, maintenance_id, element_id)
+        tracked_path = get_maintenance_report_path(
+            app.conn,
+            maintenance_id=maintenance_id,
+            element_id=element_id,
+            report_type="pdf",
+            verify_exists=True,
+        )
+
+        if tracked_path:
+            def _open_existing():
+                try:
+                    if sys.platform == "win32":
+                        os.startfile(tracked_path)
+                    elif sys.platform == "darwin":
+                        subprocess.call(["open", tracked_path])
+                    else:
+                        subprocess.call(["xdg-open", tracked_path])
+                except Exception:
+                    pass
+
+            show_message_popup(
+                S["TITLES"].get("INFO", "Info"),
+                S["MESSAGES"].get("PDF_CREATED", "Το PDF δημιουργήθηκε:\n{path}").format(path=tracked_path),
+                callback=_open_existing,
+            )
+            return
+
+        c = app.conn.cursor()
+        c.execute("SELECT gate, element_type, name FROM elements WHERE id=?", (element_id,))
+        elem_row = c.fetchone()
+        gate_value = elem_row[0] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["gate"] if elem_row else None)
+        elem_type = elem_row[1] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["element_type"] if elem_row else None)
+        elem_name = elem_row[2] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["name"] if elem_row else element_name)
+
+        output_path = None
+        targets = get_transformer_report_targets(
+            app.conn,
+            maintenance_id=maintenance_id,
+            gate_value=gate_value,
+            db_path=getattr(app, "db_path", None),
+        )
+        if targets:
+            reports_root = targets[0]
+            is_transformer = "μ/σ" in (elem_type or "").lower() or "transformer" in (elem_type or "").lower()
+            subfolder = os.path.join(reports_root, "Transformers" if is_transformer else "Other")
+            os.makedirs(subfolder, exist_ok=True)
+            safe_name = (elem_name or element_name).replace("/", "-").replace("\\", "-").replace(":", "-")
+            output_path = os.path.join(subfolder, f"Maintenance_M{maintenance_id}_E{element_id}_{safe_name}.pdf")
+
+        pdf_path = generate_maintenance_report(app.conn, maintenance_id, element_id, output_path=output_path)
+        upsert_maintenance_report_path(
+            app.conn,
+            maintenance_id=maintenance_id,
+            element_id=element_id,
+            report_type="pdf",
+            report_path=pdf_path,
+        )
+        app.conn.commit()
 
         def _open_pdf():
             try:

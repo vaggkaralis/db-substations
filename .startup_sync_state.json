@@ -1,0 +1,28 @@
+{
+  "state_version": 1,
+  "updated_at": "2026-03-06T23:27:07",
+  "last_probe": {
+    "version": 1,
+    "db_path": "C:\\Users\\e.karalis\\OneDrive - Hellenic Electricity Distribution Network Operator S.A\\60_Projects\\DB Substations\\substations.db",
+    "sync_root": "C:\\Users\\e.karalis\\OneDrive - Hellenic Electricity Distribution Network Operator S.A\\06_Υποσταθμοί\\Βάση Δεδομένων Κεντρική",
+    "shared_root": "C:\\Users\\e.karalis\\OneDrive - Hellenic Electricity Distribution Network Operator S.A\\06_Υποσταθμοί\\Βάση Δεδομένων Κεντρική\\shared_substations",
+    "shared_root_exists": true,
+    "shared_root_mtime": 1772832250.525,
+    "shared_substation_dirs": 60,
+    "db_mtime": 1772832427.242,
+    "pending": {
+      "count": 0,
+      "latest_mtime": 0.0
+    },
+    "accepted": {
+      "count": 2,
+      "latest_mtime": 1772786217.837
+    },
+    "tracker_mtime": 1772832427.284
+  },
+  "last_run": {
+    "sync_processed": 2,
+    "sync_accepted": 0,
+    "sync_conflicts": 0
+  }
+}

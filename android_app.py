@@ -2439,7 +2439,7 @@ class SubstationAndroidApp(App):
         content_layout.add_widget(wrapped_label("Τύπος Συντήρησης:"))
         maint_type_spinner = Spinner(
             text=S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"),
-            values=S.get("MESSAGES", {}).get("MAINTENANCE_TYPES", ["Επαναληπτική συντήρηση", "Βλάβη", "Οπτικός έλεγχος"]),
+            values=S.get("MESSAGES", {}).get("MAINTENANCE_TYPES", ["Επαναληπτική συντήρηση", "Βλάβη", "Φυσικοχημικές/Αεριοχρωματογραφία"]),
             size_hint_y=None,
             height=56,
         )

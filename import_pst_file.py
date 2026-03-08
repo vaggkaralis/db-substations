@@ -6,6 +6,7 @@ import os
 import sqlite3
 import sys
 import time
+import tempfile
 import subprocess
 from datetime import datetime
 
@@ -15,6 +16,23 @@ from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_
 
 
 OL_MAIL_ITEM_CLASS = 43
+
+_MEDIA_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".gif",
+    ".webp",
+    ".heic",
+    ".heif",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".wmv",
+    ".m4v",
+}
 
 
 def _normalize_path(path: str) -> str:
@@ -47,6 +65,39 @@ def _to_iso(value):
         return value.isoformat()
     except Exception:
         return str(value)
+
+
+def _extract_media_attachments_from_item(item):
+    paths = []
+    try:
+        attachments = getattr(item, "Attachments", None)
+        if attachments is None:
+            return paths
+        count = int(attachments.Count)
+    except Exception:
+        return paths
+
+    root = os.path.join(tempfile.gettempdir(), "pst_media")
+    os.makedirs(root, exist_ok=True)
+
+    for idx in range(1, count + 1):
+        try:
+            att = attachments.Item(idx)
+            name = (getattr(att, "FileName", "") or "").strip() or f"attachment_{idx}"
+            safe_name = "".join(ch if ch not in '\\/:*?\"<>|' else "_" for ch in name)
+            ext = os.path.splitext(safe_name)[1].lower()
+            if ext not in _MEDIA_EXTENSIONS:
+                continue
+
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            dest = os.path.join(root, f"{ts}_{idx}_{safe_name}")
+            att.SaveAsFile(dest)
+            if os.path.exists(dest):
+                paths.append(dest)
+        except Exception:
+            continue
+
+    return paths
 
 
 def _iter_folders(folder):
@@ -294,6 +345,7 @@ def _iter_pst_payloads(namespace, target_store):
                 sender_name = (getattr(item, "SenderName", "") or "").strip()
                 received_at = _to_iso(getattr(item, "ReceivedTime", None))
                 sender_email = _get_sender_email(item)
+                attachment_paths = _extract_media_attachments_from_item(item)
 
                 yield {
                     "subject": subject,
@@ -301,6 +353,7 @@ def _iter_pst_payloads(namespace, target_store):
                     "sender_name": sender_name,
                     "sender_email": sender_email,
                     "received_at": received_at,
+                    "attachment_paths": attachment_paths,
                 }
     finally:
         try:
@@ -371,6 +424,7 @@ def import_maintenance_from_pst(
                     sender_email=payload.get("sender_email", ""),
                     sender_name=payload.get("sender_name", ""),
                     received_at=payload.get("received_at", ""),
+                    attachment_paths=payload.get("attachment_paths", []),
                     conn=conn,
                 )
             except Exception as exc:

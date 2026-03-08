@@ -13,6 +13,7 @@ from email_text_utils import tokens_match as _tokens_match
 from email_text_utils import normalize_substation_tokens as _normalize_substation_tokens
 from email_text_utils import tokenize_substation_text as _tokenize_substation_text
 from email_text_utils import iter_substation_name_candidates as _iter_substation_name_candidates
+from onedrive_hybrid_storage import ensure_maintenance_folders
 from settings import DB_PATH as DEFAULT_DB_PATH
 
 # Map common substation name variations to database names
@@ -574,6 +575,7 @@ def create_maintenance_from_email(
     sender_email,
     sender_name,
     received_at,
+    attachment_paths=None,
     db_path=DEFAULT_DB_PATH,
     conn=None,
 ):
@@ -698,6 +700,34 @@ def create_maintenance_from_email(
                 )
             except Exception:
                 pass
+
+        # Pre-create gate/interconnection folders and copy imported media attachments.
+        # Import must fail when folder structure cannot be created.
+        c.execute("SELECT name FROM maintenance WHERE id=?", (maintenance_id,))
+        maint_row = c.fetchone()
+        maintenance_name = maint_row[0] if maint_row and isinstance(maint_row, (tuple, list)) else (maint_row["name"] if maint_row else f"maintenance_{maintenance_id}")
+
+        c.execute("SELECT maintenance_type FROM maintenance WHERE id=?", (maintenance_id,))
+        type_row = c.fetchone()
+        maintenance_type = type_row[0] if type_row and isinstance(type_row, (tuple, list)) else (type_row["maintenance_type"] if type_row else "Email")
+
+        folder_result = ensure_maintenance_folders(
+            conn,
+            maintenance_id=maintenance_id,
+            substation_id=substation["id"],
+            maintenance_name=maintenance_name,
+            maintenance_type=maintenance_type or "Email",
+            date_time=date_time_value,
+            element_ids=element_ids,
+            attachment_paths=attachment_paths or [],
+            db_path=db_path,
+        )
+        primary_media_folder = folder_result.get("primary_media_folder")
+        if primary_media_folder and "onedrive_media_folder_link" in maint_cols:
+            c.execute(
+                "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
+                (primary_media_folder, maintenance_id),
+            )
 
         conn.commit()
 

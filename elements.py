@@ -5,6 +5,7 @@ while allowing incremental extraction.
 """
 
 from strings_proxy import STRINGS as S
+from onedrive_hybrid_storage import sync_substation_gate_folders
 from validation import (validate_breaker_category_required,
                         validate_gate_assignment)
 from ui.shared import IconOnlyButton
@@ -500,6 +501,19 @@ def show_add_element_popup(app, instance):
             "power_mva": (None if rated_power_val == "" else float(rated_power_val.replace(",", "."))) if rated_power_val else None,
         }
         app._append_change_log("insert", "elements", element_data)
+
+        try:
+            sync_substation_gate_folders(app.conn, substation_id, db_path=getattr(app, "db_path", None))
+        except Exception as exc:
+            app.conn.rollback()
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get(
+                    "GATE_FOLDERS_SYNC_CREATE_FAILED_FMT",
+                    "Failed to sync gate folders.\nElement creation was cancelled.\n\n{error}",
+                ).format(error=str(exc)),
+            )
+            return
         
         app.conn.commit()
 
@@ -585,6 +599,10 @@ def delete_element(app, element_id, substation_id, parent_popup, substation_name
         prev_scroll = None
 
     c.execute("DELETE FROM elements WHERE id=?", (element_id,))
+    try:
+        sync_substation_gate_folders(app.conn, substation_id, db_path=getattr(app, "db_path", None))
+    except Exception:
+        pass
     app.conn.commit()
     if substation_name:
         app._display_substations(substation_name, reuse_popup=parent_popup, prev_scroll_y=prev_scroll)
@@ -702,6 +720,7 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
     - Button to view complete maintenance report
     - Button to export maintenance to PDF
     - Button at top to export complete list to PDF
+    - DGA button and history for transformers
     """
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
@@ -713,11 +732,25 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
 
     c = app.conn.cursor()
     
+    # Get element type to check if transformer
+    c.execute("SELECT element_type, serial_number, manufacturer, gate FROM elements WHERE id=?", (element_id,))
+    elem_row = c.fetchone()
+    is_transformer = False
+    element_serial = None
+    element_manufacturer = None
+    element_gate = None
+    if elem_row:
+        elem_type = elem_row[0] if isinstance(elem_row, (tuple, list)) else elem_row["element_type"]
+        element_serial = elem_row[1] if isinstance(elem_row, (tuple, list)) else elem_row["serial_number"]
+        element_manufacturer = elem_row[2] if isinstance(elem_row, (tuple, list)) else elem_row["manufacturer"]
+        element_gate = elem_row[3] if isinstance(elem_row, (tuple, list)) else elem_row["gate"]
+        is_transformer = app._is_transformer(elem_type) if elem_type else False
+    
     # Query all maintenances where this element was maintained
     c.execute(
         """
         SELECT m.id, m.date_time, m.maintenance_type, m.overall_comments,
-               me.element_comments, s.name as substation_name,
+               me.element_comments, s.name as substation_name, s.id as substation_id,
                me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
                me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
                me.operations_count
@@ -738,12 +771,12 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     # Top button bar with export list to PDF
+    top_bar = BoxLayout(size_hint_y=None, height=50, spacing=10)
+    
+    # Spacer to center button
+    top_bar.add_widget(Label(text=""))
+    
     if maintenance_records:
-        top_bar = BoxLayout(size_hint_y=None, height=50, spacing=10)
-        
-        # Spacer to push button to the right
-        top_bar.add_widget(Label(text="", size_hint_x=0.7))
-        
         export_list_btn = Button(
             text=S["MESSAGES"].get("EXPORT_HISTORY_LIST_PDF", "Εξαγωγή λίστας σε PDF"),
             size_hint_x=0.3
@@ -754,7 +787,8 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
             )
         )
         top_bar.add_widget(export_list_btn)
-        main_layout.add_widget(top_bar)
+    
+    main_layout.add_widget(top_bar)
 
     if not maintenance_records:
         main_layout.add_widget(
@@ -775,6 +809,7 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
             overall_comments,
             element_comments,
             substation_name,
+            substation_id,
             insul_fa_gnd,
             insul_fb_gnd,
             insul_fc_gnd,
@@ -1498,6 +1533,20 @@ def show_edit_element_popup(app, element_id, substation_id, parent_popup, substa
                 element_id,
             ),
         )
+
+        try:
+            sync_substation_gate_folders(app.conn, substation_id, db_path=getattr(app, "db_path", None))
+        except Exception as exc:
+            app.conn.rollback()
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get(
+                    "GATE_FOLDERS_SYNC_EDIT_FAILED_FMT",
+                    "Failed to sync gate folders.\nChanges were cancelled.\n\n{error}",
+                ).format(error=str(exc)),
+            )
+            return
+
         app.conn.commit()
         try:
             if new_model_id and power_val_to_set is not None:

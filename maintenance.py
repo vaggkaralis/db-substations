@@ -31,7 +31,7 @@ def show_maintenance_menu_popup(app, ui):
     Label = ui["Label"]
     Button = ui["Button"]
 
-    menu_popup = Popup(title=S["MESSAGES"].get("MAINTENANCE_BUTTON", "Συντηρήσεις"), size_hint=(0.6, 0.4))
+    menu_popup = Popup(title=S["MESSAGES"].get("MAINTENANCE_BUTTON", "Συντηρήσεις"), size_hint=(0.6, 0.55))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     try:
@@ -39,13 +39,13 @@ def show_maintenance_menu_popup(app, ui):
     except Exception:
         pass
 
-    layout.add_widget(Label(text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"), size_hint_y=0.2))
+    layout.add_widget(Label(text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"), size_hint_y=None, height=45))
 
-    add_btn = Button(text=S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"), size_hint_y=0.3)
+    add_btn = Button(text=S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"), size_hint_y=None, height=60)
     add_btn.bind(on_press=lambda x: app.show_maintenance_menu(parent_popup=menu_popup))
     layout.add_widget(add_btn)
 
-    import_email_btn = Button(text=S["MESSAGES"].get("IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"), size_hint_y=0.3)
+    import_email_btn = Button(text=S["MESSAGES"].get("IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"), size_hint_y=None, height=60)
     import_email_btn.bind(on_press=lambda x: app._show_import_maintenance_email_dialog(menu_popup))
     layout.add_widget(import_email_btn)
 
@@ -53,17 +53,17 @@ def show_maintenance_menu_popup(app, ui):
     try:
         export_fn = ui.get("export_maintenances_per_substation")
         if export_fn:
-            export_maint_btn = Button(text=S["MESSAGES"].get("EXPORT_MAINTENANCES_EXCEL", "Εξαγωγή Συντηρήσεων (Excel)"), size_hint_y=0.3)
+            export_maint_btn = Button(text=S["MESSAGES"].get("EXPORT_MAINTENANCES_EXCEL", "Εξαγωγή Συντηρήσεων (Excel)"), size_hint_y=None, height=60)
             export_maint_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_fn(app.conn)))
             layout.add_widget(export_maint_btn)
     except Exception:
         pass
 
-    history_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=0.3)
+    history_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=None, height=60)
     history_btn.bind(on_press=lambda x: (menu_popup.dismiss(), app.show_maintenance_history(None)))
     layout.add_widget(history_btn)
 
-    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.2)
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=60)
     cancel_btn.bind(on_press=menu_popup.dismiss)
     layout.add_widget(cancel_btn)
 
@@ -441,6 +441,7 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     body = payload.get("body", "")
     sender_name = payload.get("sender_name", "")
     received_at = payload.get("received_at", "")
+    attachment_paths = payload.get("attachment_paths", []) or []
 
     c = app.conn.cursor()
     c.execute("SELECT id, name FROM substations ORDER BY name")
@@ -506,6 +507,7 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         "crew_ids": crew_ids,
         "element_ids": element_ids,
         "incomplete_elements": incomplete_elements,
+        "attachment_paths": attachment_paths,
     }
 
     prev = _get_previous_maintenance_defaults(app, substation_id, date_time_value)

@@ -68,6 +68,7 @@ def main():
                 sender_email=payload["sender_email"],
                 sender_name=payload["sender_name"],
                 received_at=payload["received_at"],
+                attachment_paths=payload.get("attachment_paths", []),
                 db_path=args.database,
             )
 

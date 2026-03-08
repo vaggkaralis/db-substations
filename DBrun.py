@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import subprocess
@@ -39,8 +40,20 @@ import importlib
 from email_eml_parser import parse_eml_file
 from import_wizard import ColumnMappingPopup, DataValidationPopup
 from model_management import show_models_management
+from onedrive_hybrid_storage import (
+    ensure_maintenance_folders,
+    delete_maintenance_folders,
+    process_hybrid_queue,
+    resolve_shared_root,
+    ensure_dga_folder,
+    get_transformer_report_targets,
+    sync_all_substation_structures,
+    regenerate_maintenance_reports,
+    relink_existing_maintenance_assets,
+)
 from popups import ask_open_file
 from reports import create_elements_template, create_substations_template
+from dga_reports import generate_dga_excel_report
 
 try:
     import kivy
@@ -1432,6 +1445,48 @@ class SubstationApp(App):
         sync_enabled_row.add_widget(sync_enabled_chk)
         content.add_widget(sync_enabled_row)
 
+        startup_probe_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        startup_probe_row.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "STARTUP_SYNC_PROBE_ENABLED_LABEL",
+                    "Έλεγχος διαφορών στην εκκίνηση (startup probe):",
+                ),
+                size_hint_x=0.75,
+            )
+        )
+        startup_probe_chk = CheckBox(
+            active=bool(get_app_setting("startup_sync_probe_enabled", True)),
+            size_hint_x=0.25,
+        )
+        startup_probe_row.add_widget(startup_probe_chk)
+        content.add_widget(startup_probe_row)
+
+        startup_prompt_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        startup_prompt_row.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "STARTUP_SYNC_PROMPT_ON_CHANGE_LABEL",
+                    "Ερώτηση πριν τον συγχρονισμό όταν υπάρχουν διαφορές:",
+                ),
+                size_hint_x=0.75,
+            )
+        )
+        startup_prompt_chk = CheckBox(
+            active=bool(get_app_setting("startup_sync_prompt_on_change", True)),
+            size_hint_x=0.25,
+        )
+        startup_prompt_row.add_widget(startup_prompt_chk)
+        content.add_widget(startup_prompt_row)
+
+        # Prompt setting applies only if startup probe is enabled.
+        startup_prompt_chk.disabled = not startup_probe_chk.active
+
+        def _on_startup_probe_toggle(_instance, value):
+            startup_prompt_chk.disabled = not bool(value)
+
+        startup_probe_chk.bind(active=_on_startup_probe_toggle)
+
         interval_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
         interval_row.add_widget(
             Label(text=S["MESSAGES"].get("SYNC_INTERVAL_MINUTES_LABEL", "Διάστημα αυτόματου συγχρονισμού (λεπτά):"), size_hint_x=0.7)
@@ -1620,6 +1675,8 @@ class SubstationApp(App):
                 clear_app_setting("backup_root_path")
 
             set_app_setting("sync_auto_cycle_enabled", bool(sync_enabled_chk.active))
+            set_app_setting("startup_sync_probe_enabled", bool(startup_probe_chk.active))
+            set_app_setting("startup_sync_prompt_on_change", bool(startup_prompt_chk.active))
             set_app_setting("sync_auto_cycle_minutes", interval_minutes)
             set_app_setting("sync_backup_on_change", bool(backup_on_change_chk.active))
             set_app_setting("backup_hot_keep", hot_keep)
@@ -3679,11 +3736,313 @@ class SubstationApp(App):
 
     def _show_all_substations(self, selection_popup):
         selection_popup.dismiss()
-        self._display_substations(None)
+        self._run_with_loading(
+            lambda: self._display_substations(None),
+            S["MESSAGES"].get("LOADING_SUBSTATIONS", "Φόρτωση υποσταθμών..."),
+        )
 
     def _show_specific_substation_from_window(self, substation_name, selection_popup):
         selection_popup.dismiss()
         self._display_substations(substation_name)
+
+    def _show_loading_popup(self, message=None):
+        """Show a simple non-blocking loading popup and return it."""
+        loading_popup = Popup(
+            title=S["MESSAGES"].get("LOADING", "Φόρτωση..."),
+            size_hint=(0.42, 0.22),
+            auto_dismiss=False,
+        )
+        layout = BoxLayout(orientation="vertical", padding=12, spacing=10)
+        layout.add_widget(
+            Label(
+                text=message
+                or S["MESSAGES"].get("LOADING", "Φόρτωση..."),
+                halign="center",
+                valign="middle",
+            )
+        )
+        loading_popup.content = layout
+        loading_popup.open()
+        return loading_popup
+
+    def _run_with_loading(self, work_fn, message=None):
+        """Render a loading popup first, then run work_fn on the next UI frame."""
+        loading_popup = self._show_loading_popup(message)
+
+        def _run(_dt):
+            try:
+                work_fn()
+            finally:
+                try:
+                    loading_popup.dismiss()
+                except Exception:
+                    pass
+
+        Clock.schedule_once(_run, 0)
+
+    def _show_brief_info_toast(self, message, duration=2.4, action_text=None, action_callback=None):
+        """Show a lightweight auto-dismiss info toast with optional action button."""
+        try:
+            toast = Popup(
+                title=S["TITLES"].get("INFO", "Info"),
+                size_hint=(0.62, 0.2),
+                auto_dismiss=True,
+            )
+            layout = BoxLayout(orientation="vertical", padding=8, spacing=6)
+            layout.add_widget(
+                Label(
+                    text=message,
+                    halign="center",
+                    valign="middle",
+                )
+            )
+
+            if action_text and action_callback:
+                action_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=36, spacing=6)
+                action_row.add_widget(Widget())
+                action_btn = Button(text=action_text, size_hint_x=0.5)
+
+                def _on_action(_btn):
+                    try:
+                        toast.dismiss()
+                    except Exception:
+                        pass
+                    Clock.schedule_once(lambda _dt: action_callback(), 0)
+
+                action_btn.bind(on_press=_on_action)
+                action_row.add_widget(action_btn)
+                action_row.add_widget(Widget())
+                layout.add_widget(action_row)
+
+            toast.content = layout
+            toast.open()
+            Clock.schedule_once(lambda _dt: toast.dismiss(), max(0.8, float(duration)))
+        except Exception:
+            pass
+
+    def _show_startup_progress_popup(self):
+        """Create and return a progress popup for startup operations."""
+        from kivy.uix.progressbar import ProgressBar
+        
+        progress_popup = Popup(
+            title=S["MESSAGES"].get("STARTUP_PROGRESS_TITLE", "Initialization in Progress"),
+            size_hint=(0.65, 0.35),
+            auto_dismiss=False,
+        )
+        layout = BoxLayout(orientation="vertical", padding=15, spacing=12)
+        
+        # Operation label
+        operation_label = Label(
+            text=S["MESSAGES"].get("STARTUP_INITIALIZING", "Initializing..."),
+            size_hint_y=None,
+            height=30,
+        )
+        layout.add_widget(operation_label)
+        
+        # Substation label
+        substation_label = Label(
+            text="",
+            size_hint_y=None,
+            height=25,
+            font_size="12sp",
+        )
+        layout.add_widget(substation_label)
+        
+        # Progress bar
+        progress_bar = ProgressBar(
+            value=0,
+            max=100,
+            size_hint_y=None,
+            height=30,
+        )
+        layout.add_widget(progress_bar)
+        
+        # Progress text
+        progress_text = Label(
+            text="0%",
+            size_hint_y=None,
+            height=25,
+            font_size="12sp",
+        )
+        layout.add_widget(progress_text)
+        
+        progress_popup.content = layout
+        return {
+            "popup": progress_popup,
+            "operation_label": operation_label,
+            "substation_label": substation_label,
+            "progress_bar": progress_bar,
+            "progress_text": progress_text,
+        }
+
+    def _update_startup_progress(self, progress_ui, operation, substation, current, total):
+        """Update startup progress popup with current status."""
+        try:
+            def _apply_update(_dt):
+                try:
+                    percent = int((current / total * 100) if total > 0 else 0)
+                    progress_ui["operation_label"].text = operation
+                    progress_ui["substation_label"].text = f"{substation}" if substation else ""
+                    progress_ui["progress_bar"].value = percent
+                    progress_ui["progress_text"].text = f"{percent}%"
+                except Exception:
+                    pass
+
+            Clock.schedule_once(_apply_update, 0)
+        except Exception:
+            pass
+
+    def _get_startup_sync_state_path(self):
+        """Return path for persisted startup sync probe state."""
+        try:
+            db_dir = os.path.dirname(os.path.abspath(self.db_path))
+        except Exception:
+            db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+        return os.path.join(db_dir, ".startup_sync_state.json")
+
+    def _load_startup_sync_state(self):
+        """Load startup sync probe state from disk."""
+        path = self._get_startup_sync_state_path()
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_startup_sync_state(self, state):
+        """Persist startup sync probe state atomically."""
+        path = self._get_startup_sync_state_path()
+        tmp = f"{path}.tmp"
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(state, fh, ensure_ascii=False, indent=2)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+
+    def _scan_sync_payload_dir(self, dir_path):
+        """Return file count and latest mtime for .json/.jsonl files in a sync folder."""
+        count = 0
+        latest_mtime = 0.0
+        try:
+            for name in os.listdir(dir_path):
+                fp = os.path.join(dir_path, name)
+                if not os.path.isfile(fp):
+                    continue
+                if not name.lower().endswith((".json", ".jsonl")):
+                    continue
+                count += 1
+                try:
+                    mt = os.path.getmtime(fp)
+                    if mt > latest_mtime:
+                        latest_mtime = mt
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return {
+            "count": int(count),
+            "latest_mtime": round(float(latest_mtime), 3),
+        }
+
+    def _compute_startup_sync_probe(self, sync_root):
+        """Compute a lightweight signature of shared sync state and local DB state."""
+        pending_dir = os.path.join(sync_root, "inbox", "pending")
+        accepted_dir = os.path.join(sync_root, "inbox", "processed", "accepted")
+        tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
+        shared_root = resolve_shared_root(self.db_path)
+
+        try:
+            db_mtime = round(float(os.path.getmtime(self.db_path)), 3)
+        except Exception:
+            db_mtime = 0.0
+
+        try:
+            tracker_mtime = round(float(os.path.getmtime(tracker_path)), 3)
+        except Exception:
+            tracker_mtime = 0.0
+
+        shared_exists = os.path.isdir(shared_root)
+        try:
+            shared_mtime = round(float(os.path.getmtime(shared_root)), 3) if shared_exists else 0.0
+        except Exception:
+            shared_mtime = 0.0
+
+        shared_substation_dirs = 0
+        if shared_exists:
+            try:
+                shared_substation_dirs = sum(
+                    1 for name in os.listdir(shared_root)
+                    if os.path.isdir(os.path.join(shared_root, name)) and not name.startswith("_")
+                )
+            except Exception:
+                shared_substation_dirs = 0
+
+        return {
+            "version": 1,
+            "db_path": os.path.abspath(self.db_path),
+            "sync_root": os.path.abspath(sync_root),
+            "shared_root": os.path.abspath(shared_root),
+            "shared_root_exists": bool(shared_exists),
+            "shared_root_mtime": shared_mtime,
+            "shared_substation_dirs": int(shared_substation_dirs),
+            "db_mtime": db_mtime,
+            "pending": self._scan_sync_payload_dir(pending_dir),
+            "accepted": self._scan_sync_payload_dir(accepted_dir),
+            "tracker_mtime": tracker_mtime,
+        }
+
+    def _show_startup_sync_prompt_popup(self, on_sync=None, on_skip=None):
+        """Prompt the user to start full startup sync only when probe detects differences."""
+        popup = Popup(
+            title=S["MESSAGES"].get("STARTUP_SYNC_PROMPT_TITLE", "Synchronization Detected"),
+            size_hint=(0.78, 0.42),
+            auto_dismiss=False,
+        )
+
+        layout = BoxLayout(orientation="vertical", padding=12, spacing=10)
+        msg = S["MESSAGES"].get(
+            "STARTUP_SYNC_PROMPT_MESSAGE",
+            "Detected differences in the shared sync folder since your last startup.\n"
+            "Do you want to run synchronization now?",
+        )
+        layout.add_widget(Label(text=msg, halign="center", valign="middle"))
+
+        buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=46, spacing=8)
+        sync_btn = Button(text=S["BUTTONS"].get("SYNC_NOW", "Sync now"))
+        skip_btn = Button(text=S["BUTTONS"].get("SKIP_FOR_NOW", "Skip for now"))
+        buttons.add_widget(sync_btn)
+        buttons.add_widget(skip_btn)
+        layout.add_widget(buttons)
+        popup.content = layout
+
+        def _do_sync(_btn):
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+            if on_sync:
+                Clock.schedule_once(lambda dt: on_sync(), 0)
+
+        def _do_skip(_btn):
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+            if on_skip:
+                Clock.schedule_once(lambda dt: on_skip(), 0)
+
+        sync_btn.bind(on_press=_do_sync)
+        skip_btn.bind(on_press=_do_skip)
+        popup.open()
 
     def _display_substations(
         self,
@@ -3715,6 +4074,7 @@ class SubstationApp(App):
         capacitor_count_map = {}
         maint_count_map = {}
         inspection_count_map = {}
+        dga_count_map = {}
         last_maint_map = {}
         inactive_count_map = {}
 
@@ -3752,6 +4112,13 @@ class SubstationApp(App):
                 sub_ids,
             )
             inspection_count_map = {sid: cnt for sid, cnt in c.fetchall()}
+
+            # Count DGA measurements for each substation (grouped by maintenance type)
+            c.execute(
+                f"SELECT substation_id, COUNT(DISTINCT m.id) FROM maintenance m WHERE substation_id IN ({placeholders}) AND m.maintenance_type=? GROUP BY substation_id",
+                sub_ids + [S["MESSAGES"].get("DGA_LABEL", "Φυσικοχημικές/Αεριοχρωματογραφία")],
+            )
+            dga_count_map = {sid: cnt for sid, cnt in c.fetchall()}
 
             c.execute(
                 f"SELECT substation_id, MAX(date_time) FROM maintenance WHERE substation_id IN ({placeholders}) GROUP BY substation_id",
@@ -3887,6 +4254,7 @@ class SubstationApp(App):
                 capacitor_count = capacitor_count_map.get(sub_id, 0)
                 maint_count = maint_count_map.get(sub_id, 0)
                 inspection_count = inspection_count_map.get(sub_id, 0)
+                dga_count = dga_count_map.get(sub_id, 0)
                 last_maint = last_maint_map.get(sub_id)
                 last_maint_display = last_maint if last_maint else "-"
 
@@ -4003,7 +4371,7 @@ class SubstationApp(App):
                 sub_row_layout.add_widget(actions_container)
                 grid.add_widget(sub_row_layout)
 
-                # Keep maintenance/history buttons grouped separately (larger, with pictograms)
+                # Keep maintenance/history/DGA buttons grouped separately (larger, with pictograms)
                 buttons_layout = BoxLayout(size_hint_y=None, height=48, spacing=8)
 
                 # Add count to button text if there are entries
@@ -4013,7 +4381,7 @@ class SubstationApp(App):
                 maint_hist_btn = IconButton(
                     text=maint_btn_text,
                     icon_type="maintenance",
-                    size_hint_x=0.5,
+                    size_hint_x=0.33,
                     theme=self.theme,
                 )
                 maint_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_substation_maintenance_history(sid, sname, p)))
@@ -4026,11 +4394,24 @@ class SubstationApp(App):
                 insp_hist_btn = IconButton(
                     text=insp_btn_text,
                     icon_type="inspection",
-                    size_hint_x=0.5,
+                    size_hint_x=0.33,
                     theme=self.theme,
                 )
                 insp_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_substation_inspection_history(sid, sname, p)))
                 buttons_layout.add_widget(insp_hist_btn)
+
+                # DGA measurements button
+                dga_btn_text = S["MESSAGES"].get("DGA_LABEL", "Φυσικοχημικές/Αεριοχρωματογραφία")
+                if dga_count > 0:
+                    dga_btn_text += f" ({dga_count})"
+                dga_hist_btn = IconButton(
+                    text=dga_btn_text,
+                    icon_type="maintenance",
+                    size_hint_x=0.34,
+                    theme=self.theme,
+                )
+                dga_hist_btn.bind(on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (self.show_substation_dga_measurements(sid, sname, p)))
+                buttons_layout.add_widget(dga_hist_btn)
 
                 grid.add_widget(buttons_layout)
 
@@ -4843,31 +5224,267 @@ class SubstationApp(App):
             )
         show_message_popup(S["TITLES"].get("INFO", "Πληροφορία"), msg)
 
-    def _run_startup_sync_cycle(self):
+    def _run_startup_sync_cycle(self, force=False):
         try:
             if not bool(get_app_setting("sync_auto_cycle_enabled", True)):
                 return
+            import threading
             from sync_service import run_sync_cycle, resolve_sync_root, resolve_backup_root, ensure_sync_tree, ensure_backup_tree
 
-            # Ensure directory trees exist at startup
             sync_root = resolve_sync_root(self.db_path)
-            backup_root = resolve_backup_root(self.db_path)
             ensure_sync_tree(sync_root)
-            ensure_backup_tree(backup_root)
 
-            result = run_sync_cycle(
-                self.conn,
-                db_path=self.db_path,
-                actor="startup",
-                create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
-                hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
-            )
-            self._last_sync_cycle_ts = datetime.now().timestamp()
+            probe_enabled = bool(get_app_setting("startup_sync_probe_enabled", True))
+            prompt_on_change = bool(get_app_setting("startup_sync_prompt_on_change", True))
+
+            current_probe = None
+            if probe_enabled:
+                current_probe = self._compute_startup_sync_probe(sync_root)
+                state = self._load_startup_sync_state()
+                previous_probe = state.get("last_probe")
+                shared_root_exists = bool((current_probe or {}).get("shared_root_exists", True))
+
+                # Never silently skip startup sync when shared root folder is missing.
+                if (not force) and previous_probe and previous_probe == current_probe and shared_root_exists:
+                    logging.info("Startup sync skipped: no probe changes detected")
+                    self._last_sync_cycle_ts = datetime.now().timestamp()
+                    return
+
+                probe_changed = bool(previous_probe and previous_probe != current_probe)
+                shared_root_missing = not shared_root_exists
+
+                # Prompt when probe changed OR when shared root is missing.
+                if (not force) and prompt_on_change and (probe_changed or shared_root_missing):
+                    def _defer_startup_sync():
+                        logging.info("Startup sync deferred by user")
+                        self._show_brief_info_toast(
+                            S["MESSAGES"].get(
+                                "STARTUP_SYNC_DEFERRED_TOAST",
+                                "Startup sync was deferred. You can run sync manually from Import/Sync.",
+                            ),
+                            duration=4.0,
+                            action_text=S["MESSAGES"].get("STARTUP_SYNC_DEFERRED_ACTION", "Open Import/Sync"),
+                            action_callback=lambda: self.show_import_menu(None),
+                        )
+
+                    self._show_startup_sync_prompt_popup(
+                        on_sync=lambda: self._run_startup_sync_cycle(force=True),
+                        on_skip=_defer_startup_sync,
+                    )
+                    return
             
-            # Show conflict UI if conflicts detected at startup
-            if result and result.get("sync", {}).get("conflicts", 0) > 0:
-                # Schedule after a brief delay to ensure UI is ready
-                Clock.schedule_once(lambda dt: self._show_sync_notification(result), 0.5)
+            # Show progress popup FIRST on UI thread so it can render
+            progress_ui = self._show_startup_progress_popup()
+            progress_popup = progress_ui["popup"]
+            progress_popup.open()
+            
+            # Variables to hold results - shared with worker thread
+            results = {
+                "sync_result": None,
+                "report_result": None,
+                "relink_result": None,
+                "run_result": None,
+            }
+            
+            # Define the heavy work to run in background thread
+            def _startup_worker():
+                sync_result = {"total": 0, "synced": 0, "failed": 0}
+                report_result = {"total": 0, "generated": 0, "skipped": 0, "failed": 0}
+                relink_result = {"media_linked": 0, "reports_linked": 0, "reports_already": 0, "reports_missing": 0}
+                startup_conn = None
+
+                try:
+                    # Use a thread-local DB connection. SQLite connections are thread-affine.
+                    startup_conn = init_db(self.db_path)
+
+                    # Ensure directory trees exist at startup
+                    sync_root = resolve_sync_root(self.db_path)
+                    backup_root = resolve_backup_root(self.db_path)
+                    ensure_sync_tree(sync_root)
+                    ensure_backup_tree(backup_root)
+
+                    # Ensure folder structure for all substations with elements
+                    try:
+                        def _sync_progress(operation, substation, current, total):
+                            self._update_startup_progress(progress_ui, operation, substation, current, total)
+                        
+                        sync_result = sync_all_substation_structures(
+                            startup_conn,
+                            db_path=self.db_path,
+                            quiet=True,
+                            progress_callback=_sync_progress,
+                        )
+                        logging.info(
+                            "Substation folder sync: total=%s synced=%s failed=%s",
+                            sync_result.get("total", 0),
+                            sync_result.get("synced", 0),
+                            sync_result.get("failed", 0),
+                        )
+                    except Exception:
+                        logging.exception("Failed to sync substation folder structures at startup")
+
+                    # Generate missing PDF reports for existing maintenance records
+                    try:
+                        def _report_progress(operation, substation, current, total):
+                            self._update_startup_progress(progress_ui, operation, substation, current, total)
+                        
+                        report_result = regenerate_maintenance_reports(
+                            startup_conn,
+                            db_path=self.db_path,
+                            quiet=True,
+                            progress_callback=_report_progress,
+                        )
+                        logging.info(
+                            "Maintenance reports: total=%s generated=%s skipped=%s failed=%s",
+                            report_result.get("total", 0),
+                            report_result.get("generated", 0),
+                            report_result.get("skipped", 0),
+                            report_result.get("failed", 0),
+                        )
+                    except Exception:
+                        logging.exception("Failed to regenerate maintenance reports at startup")
+
+                    # Relink existing file/folder assets into DB when missing.
+                    try:
+                        def _relink_progress(operation, substation, current, total):
+                            self._update_startup_progress(progress_ui, operation, substation, current, total)
+                        
+                        relink_result = relink_existing_maintenance_assets(
+                            startup_conn,
+                            db_path=self.db_path,
+                            progress_callback=_relink_progress,
+                        )
+                        logging.info(
+                            "Asset relink: media_linked=%s reports_linked=%s reports_already=%s reports_missing=%s",
+                            relink_result.get("media_linked", 0),
+                            relink_result.get("reports_linked", 0),
+                            relink_result.get("reports_already", 0),
+                            relink_result.get("reports_missing", 0),
+                        )
+                    except Exception:
+                        logging.exception("Failed to relink existing maintenance assets at startup")
+
+                    try:
+                        startup_conn.commit()
+                    except Exception:
+                        logging.exception("Failed to commit startup link/report updates")
+
+                    # Store results for main thread access via closure
+                    results["sync_result"] = sync_result
+                    results["report_result"] = report_result
+                    results["relink_result"] = relink_result
+
+                    try:
+                        run_result = run_sync_cycle(
+                            startup_conn,
+                            db_path=self.db_path,
+                            actor="startup",
+                            create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
+                            hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+                        )
+                        results["run_result"] = run_result
+                    except Exception:
+                        logging.exception("Failed to run sync cycle at startup")
+
+                finally:
+                    try:
+                        if startup_conn is not None:
+                            startup_conn.close()
+                    except Exception:
+                        pass
+
+                # Retry deferred hybrid folder jobs (local-first queue worker).
+                try:
+                    q = process_hybrid_queue(self.db_path, max_jobs=120)
+                    if q.get("processed", 0) > 0:
+                        logging.info(
+                            "Hybrid queue processed=%s succeeded=%s failed=%s remaining=%s",
+                            q.get("processed", 0),
+                            q.get("succeeded", 0),
+                            q.get("failed", 0),
+                            q.get("remaining", 0),
+                        )
+                except Exception:
+                    logging.exception("Hybrid queue processing failed at startup")
+
+                # Schedule completion on UI thread
+                Clock.schedule_once(lambda dt: _finish_startup(), 0)
+
+            # Define finish callback to run on UI thread
+            def _finish_startup():
+                try:
+                    progress_popup.dismiss()
+                except Exception:
+                    pass
+                
+                self._last_sync_cycle_ts = datetime.now().timestamp()
+                
+                sync_result = results["sync_result"] or {}
+                report_result = results["report_result"] or {}
+                relink_result = results["relink_result"] or {}
+                run_result = results["run_result"]
+                
+                summary_msg = S["MESSAGES"].get(
+                    "STARTUP_ONEDRIVE_SUMMARY_FMT",
+                    "OneDrive startup structure check:\n"
+                    "- Substations checked: {substations_total}\n"
+                    "- Folder structures synced: {substations_synced}\n"
+                    "- Folder failures: {substations_failed}\n\n"
+                    "Maintenance report check:\n"
+                    "- Maintenance/element pairs checked: {reports_total}\n"
+                    "- New reports generated: {reports_generated}\n"
+                    "- Reports already present (skipped): {reports_skipped}\n"
+                    "- Report failures: {reports_failed}\n\n"
+                    "Relink check:\n"
+                    "- Media links added: {media_linked}\n"
+                    "- Report links added: {report_links_added}\n"
+                    "- Report links already valid: {report_links_existing}\n"
+                    "- Report files still missing: {report_files_missing}",
+                ).format(
+                    substations_total=sync_result.get("total", 0),
+                    substations_synced=sync_result.get("synced", 0),
+                    substations_failed=sync_result.get("failed", 0),
+                    reports_total=report_result.get("total", 0),
+                    reports_generated=report_result.get("generated", 0),
+                    reports_skipped=report_result.get("skipped", 0),
+                    reports_failed=report_result.get("failed", 0),
+                    media_linked=relink_result.get("media_linked", 0),
+                    report_links_added=relink_result.get("reports_linked", 0),
+                    report_links_existing=relink_result.get("reports_already", 0),
+                    report_files_missing=relink_result.get("reports_missing", 0),
+                )
+                summary_delay = 1.2 if (run_result and run_result.get("sync", {}).get("conflicts", 0) > 0) else 0.6
+                Clock.schedule_once(
+                    lambda dt: show_message_popup(S["TITLES"].get("INFO", "Πληροφορία"), summary_msg),
+                    summary_delay,
+                )
+                
+                # Show conflict UI if conflicts detected at startup
+                if run_result and run_result.get("sync", {}).get("conflicts", 0) > 0:
+                    Clock.schedule_once(lambda dt: self._show_sync_notification(run_result), 0.5)
+
+                # Refresh and persist startup probe state after startup sync work.
+                if probe_enabled:
+                    try:
+                        post_probe = self._compute_startup_sync_probe(resolve_sync_root(self.db_path))
+                        self._save_startup_sync_state(
+                            {
+                                "state_version": 1,
+                                "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                                "last_probe": post_probe,
+                                "last_run": {
+                                    "sync_processed": (run_result or {}).get("sync", {}).get("processed", 0),
+                                    "sync_accepted": (run_result or {}).get("sync", {}).get("accepted", 0),
+                                    "sync_conflicts": (run_result or {}).get("sync", {}).get("conflicts", 0),
+                                },
+                            }
+                        )
+                    except Exception:
+                        logging.exception("Failed to persist startup sync probe state")
+
+            # Start worker thread (daemon so it doesn't block app exit)
+            worker_thread = threading.Thread(target=_startup_worker, daemon=True)
+            worker_thread.start()
         except Exception:
             logging.exception("Startup sync cycle failed")
 
@@ -4890,6 +5507,21 @@ class SubstationApp(App):
                 create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
                 hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
             )
+
+            # Retry deferred hybrid folder jobs periodically.
+            try:
+                q = process_hybrid_queue(self.db_path, max_jobs=120)
+                if q.get("processed", 0) > 0:
+                    logging.info(
+                        "Hybrid queue processed=%s succeeded=%s failed=%s remaining=%s",
+                        q.get("processed", 0),
+                        q.get("succeeded", 0),
+                        q.get("failed", 0),
+                        q.get("remaining", 0),
+                    )
+            except Exception:
+                logging.exception("Hybrid queue processing failed in scheduler")
+
             # Show notification if changes were imported
             if result and result.get("sync", {}).get("processed", 0) > 0:
                 self._show_sync_notification(result)
@@ -5317,7 +5949,7 @@ class SubstationApp(App):
 
         c = self.conn.cursor()
         c.execute(
-            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, em.power_mva AS model_power_mva, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
+            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, em.power_mva AS model_power_mva, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
             (element_id,),
         )
         row = c.fetchone()
@@ -5334,9 +5966,13 @@ class SubstationApp(App):
             manufacture_year,
             installation_space,
             maintenance_date,
+            substation_id,
             model_power_mva,
             manual_pdf,
         ) = row
+
+        # Check if transformer (150/20 kV)
+        is_transformer = self._is_transformer(elem_type) if elem_type else False
 
         effective_power = model_power_mva if (model_power_mva is not None) else power_mva
         power_display = f"{effective_power} MVA" if effective_power else "-"
@@ -5354,27 +5990,46 @@ class SubstationApp(App):
         for l in lines:
             layout.add_widget(Label(text=l, size_hint_y=None, height=28))
 
-        btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        btn_row = BoxLayout(size_hint_y=None, height=60, spacing=6)
+        
+        # Left side buttons
+        left_buttons = BoxLayout(size_hint_x=0.55, spacing=6)
         
         # Add manual button if available
         if manual_pdf and os.path.exists(manual_pdf):
             manual_btn = Button(text=S["MESSAGES"].get("MANUAL_LABEL", "Manual"))
             manual_btn.bind(on_press=lambda x: self._open_model_manual(manual_pdf))
-            btn_row.add_widget(manual_btn)
+            left_buttons.add_widget(manual_btn)
         
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"])
+        # Add DGA button for transformers
+        if is_transformer:
+            dga_btn = Button(text=S["MESSAGES"].get("DGA_LABEL", "Φυσικοχημικές/Αεριοχρωματογραφία"))
+            dga_btn.bind(
+                on_press=lambda x: self.show_element_dga_measurements(
+                    element_id=element_id,
+                    element_name=name,
+                    substation_id=substation_id
+                )
+            )
+            left_buttons.add_widget(dga_btn)
+        
+        btn_row.add_widget(left_buttons)
+        
+        # Spacer in the middle
+        btn_row.add_widget(Widget())
+        
+        # Close button (right side)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=0.15)
 
         def _close(_x):
             popup.dismiss()
 
         close_btn.bind(on_press=_close)
-        btn_row.add_widget(Widget())
         btn_row.add_widget(close_btn)
-        btn_row.add_widget(Widget())
 
         layout.add_widget(btn_row)
 
-        popup = Popup(title=S["MESSAGES"].get("VIEW_ELEMENT_TITLE", "Προβολή Στοιχείου"), size_hint=(0.6, 0.5))
+        popup = Popup(title=S["MESSAGES"].get("VIEW_ELEMENT_TITLE", "Προβολή Στοιχείου"), size_hint=(0.85, 0.6))
         popup.content = layout
         popup.open()
 
@@ -6442,6 +7097,11 @@ class SubstationApp(App):
         c.execute("SELECT id FROM maintenance WHERE substation_id=?", (substation_id,))
         maintenance_ids = [r[0] for r in c.fetchall()]
         if maintenance_ids:
+            for mid in maintenance_ids:
+                try:
+                    delete_maintenance_folders(self.conn, mid)
+                except Exception:
+                    pass
             placeholders = ",".join(["?"] * len(maintenance_ids))
             # Delete maintenance_elements and maintenance_people for those maintenance ids
             c.execute(f"DELETE FROM maintenance_elements WHERE maintenance_id IN ({placeholders})", maintenance_ids)
@@ -6556,6 +7216,174 @@ class SubstationApp(App):
         from elements import show_add_element_popup_for_substation as _f
         return _f(self, substation_id, substation_name, parent_popup)
 
+    def _show_dga_maintenance_form(self, parent_popup=None, preselected_substation_id=None):
+        """Show simplified DGA maintenance form: select substation -> transformer -> show DGA popup"""
+        # Dismiss parent popup if provided
+        if parent_popup:
+            parent_popup.dismiss()
+        
+        c = self.conn.cursor()
+        c.execute("SELECT id, name FROM substations ORDER BY name")
+        substations = c.fetchall()
+        
+        if not substations:
+            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("NO_SUBSTATIONS", "Δεν υπάρχουν υποσταθμοί!"))
+            return
+        
+        # If preselected_substation_id is provided, find and select it
+        default_substation_name = substations[0][1]
+        if preselected_substation_id:
+            for sub_id, sub_name in substations:
+                if sub_id == preselected_substation_id:
+                    default_substation_name = sub_name
+                    break
+        
+        popup = Popup(
+            title=S["MESSAGES"].get("DGA_MAINT_FORM_TITLE", "Record DGA Measurement"),
+            size_hint=(0.8, 0.7),
+        )
+        main_layout = BoxLayout(orientation="vertical", padding=15, spacing=15)
+
+        substation_map = {s[1]: s[0] for s in substations}
+        selected_substation = {"name": default_substation_name}
+
+        # Matrix-style substation selection (same pattern as other menus)
+        main_layout.add_widget(
+            Label(text=S["MESSAGES"].get("SUBSTATION_LABEL", "Substation:"), size_hint_y=None, height=30)
+        )
+        substation_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        selected_substation_label = Label(text=selected_substation["name"], halign="left", valign="middle")
+        selected_substation_label.bind(
+            size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1]))
+        )
+
+        select_substation_btn = Button(
+            text=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"),
+            size_hint_x=0.4,
+        )
+
+        substation_row.add_widget(selected_substation_label)
+        substation_row.add_widget(select_substation_btn)
+        main_layout.add_widget(substation_row)
+        
+        # Transformer selection
+        main_layout.add_widget(
+            Label(text=S["MESSAGES"].get("TRANSFORMER_LABEL", "Transformer:"), size_hint_y=None, height=30)
+        )
+        transformer_spinner = Spinner(
+            text="",
+            values=[],
+            size_hint_y=None,
+            height=40
+        )
+        main_layout.add_widget(transformer_spinner)
+        
+        def load_transformers(sub_name):
+            """Load transformers for selected substation"""
+            sub_id = substation_map.get(sub_name)
+            if not sub_id:
+                transformer_spinner.values = []
+                transformer_spinner.text = ""
+                return
+            
+            c.execute(
+                """SELECT id, name, serial_number, gate 
+                   FROM elements 
+                   WHERE substation_id=? AND element_type LIKE '%150/20%'
+                   ORDER BY name""",
+                (sub_id,)
+            )
+            transformers = c.fetchall()
+            if transformers:
+                transformer_spinner.values = [f"{t[1]} (S/N: {t[2] or '-'}, Gate: {t[3] or '-'})" for t in transformers]
+                transformer_spinner.text = transformer_spinner.values[0]
+                # Store transformer data
+                transformer_spinner.transformer_data = [(t[0], t[1], t[2], t[3], sub_id, sub_name) for t in transformers]
+            else:
+                transformer_spinner.values = []
+                transformer_spinner.text = ""
+                transformer_spinner.transformer_data = []
+
+        def on_substation_selected(sub_name):
+            selected_substation["name"] = sub_name
+            selected_substation_label.text = sub_name
+            load_transformers(sub_name)
+
+        select_substation_btn.bind(
+            on_press=lambda _x: self._show_substation_selection_window_with_callback(
+                popup,
+                substations,
+                on_substation_selected,
+                title=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"),
+            )
+        )
+
+        # Initialize transformer list from preselected substation
+        load_transformers(selected_substation["name"])
+        
+        # Buttons
+        btn_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        
+        proceed_btn = Button(text=S["MESSAGES"].get("DGA_START_BUTTON", "Start DGA"), size_hint_x=0.5)
+        def on_proceed(_x):
+            if not transformer_spinner.text:
+                show_message_popup(
+                    S["TITLES"]["ERROR"],
+                    S["MESSAGES"].get("DGA_SELECT_TRANSFORMER_REQUIRED", "Please select a transformer"),
+                )
+                return
+            
+            # Get selected transformer data
+            idx = transformer_spinner.values.index(transformer_spinner.text)
+            elem_id, elem_name, serial_num, gate_val, sub_id, sub_name = transformer_spinner.transformer_data[idx]
+            
+            # Create a DGA maintenance record
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            maintenance_name = S["MESSAGES"].get(
+                "DGA_MAINT_NAME_FMT", "DGA - {element_name} ({date})"
+            ).format(element_name=elem_name, date=now_str.split()[0])
+            
+            c.execute(
+                """INSERT INTO maintenance 
+                   (substation_id, name, date_time, overall_comments, maintenance_type, user_name)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (sub_id, maintenance_name, now_str, "", S["MESSAGES"].get("DGA_LABEL", "Physicochemical/Gas Chromatography"), "")
+            )
+            maint_id = c.lastrowid
+            self.conn.commit()
+            
+            # Create empty maintenance_elements record for linking
+            c.execute(
+                "INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (?, ?)",
+                (maint_id, elem_id)
+            )
+            self.conn.commit()
+            
+            # Close this dialog and show DGA form
+            popup.dismiss()
+            self.show_dga_measurement_popup(
+                maintenance_id=maint_id,
+                element_id=elem_id,
+                element_name=elem_name,
+                substation_id=sub_id,
+                substation_name=sub_name,
+                gate_value=gate_val,
+                serial_number=serial_num,
+                manufacturer="",
+                dga_id=None
+            )
+        
+        proceed_btn.bind(on_press=on_proceed)
+        btn_layout.add_widget(proceed_btn)
+        
+        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_x=0.5)
+        cancel_btn.bind(on_press=popup.dismiss)
+        btn_layout.add_widget(cancel_btn)
+        
+        main_layout.add_widget(btn_layout)
+        popup.content = main_layout
+        popup.open()
+
     def show_maintenance_menu(
         self,
         instance=None,
@@ -6590,6 +7418,7 @@ class SubstationApp(App):
         existing_elements_data = {}
         responsible_person_id = None
         prefill_data = prefill_data or {}
+        prefill_attachment_paths = prefill_data.get("attachment_paths") or []
 
         if maintenance_id:
             c.execute(
@@ -6744,6 +7573,16 @@ class SubstationApp(App):
             size_hint_y=None,
             height=35,
         )
+        
+        # Handle DGA maintenance type specially
+        def on_maintenance_type_change(spinner, text):
+            dga_type = S["MESSAGES"].get("DGA_LABEL", "Physicochemical/Gas Chromatography")
+            if text == dga_type and not maintenance_id:
+                # DGA type selected: show simplified transformer selector
+                popup.dismiss()
+                self._show_dga_maintenance_form(parent_popup=parent_popup)
+        
+        maintenance_type_spinner.bind(text=on_maintenance_type_change)
         content_layout.add_widget(maintenance_type_spinner)
 
         # Date/Time (auto-filled with current)
@@ -8810,6 +9649,37 @@ class SubstationApp(App):
                 (maintenance_date, substation_id),
             )
 
+            # Ensure hybrid OneDrive/local folder structure before commit.
+            # If folder creation fails, maintenance creation must be blocked.
+            try:
+                folder_result = ensure_maintenance_folders(
+                    self.conn,
+                    maintenance_id=maintenance_id,
+                    substation_id=substation_id,
+                    maintenance_name=maintenance_name,
+                    maintenance_type=maintenance_type,
+                    date_time=maintenance_date,
+                    element_ids=[elem_id for elem_id, _widgets in selected_elements],
+                    attachment_paths=prefill_attachment_paths,
+                    db_path=self.db_path,
+                )
+                primary_media_folder = folder_result.get("primary_media_folder")
+                if primary_media_folder:
+                    c.execute(
+                        "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
+                        (primary_media_folder, maintenance_id),
+                    )
+            except Exception as exc:
+                self.conn.rollback()
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get(
+                        "MAINT_FOLDERS_CREATE_FAILED_FMT",
+                        "Failed to create maintenance folder structure.\nThe entry was cancelled.\n\n{error}",
+                    ).format(error=str(exc)),
+                )
+                return
+
             # Track change for desktop sync (only for new maintenance records)
             if not maintenance_record:
                 elements_data = []
@@ -8880,8 +9750,15 @@ class SubstationApp(App):
             parent_popup=parent_popup,
         )
 
-    def show_maintenance_history(self, instance):
+    def show_maintenance_history(self, instance, _deferred=False):
         """Show maintenance history"""
+        if not _deferred:
+            self._run_with_loading(
+                lambda: self.show_maintenance_history(instance, _deferred=True),
+                S["MESSAGES"].get("LOADING_MAINT_HISTORY", "Φόρτωση ιστορικού συντηρήσεων..."),
+            )
+            return
+
         font_kwargs = self._get_ui_font_kwargs()
         history_limit = 80
         c = self.conn.cursor()
@@ -8918,6 +9795,9 @@ class SubstationApp(App):
         info_label = Label(text="", size_hint_y=None, height=24)
         main_layout.add_widget(info_label)
 
+        # Cache heavy "all substations" dataset to speed repeated filter resets
+        all_records_cache = {"records": None, "total_count": None, "people": None, "elements": None}
+
         def fetch_records(selected_substation):
             if selected_substation and selected_substation != "(Όλα)":
                 c.execute(
@@ -8931,15 +9811,21 @@ class SubstationApp(App):
                 """,
                     (selected_substation, history_limit),
                 )
-            else:
-                c.execute("""
-                    SELECT m.id, s.name, m.name, m.date_time, m.overall_comments
-                    FROM maintenance m
-                    JOIN substations s ON m.substation_id = s.id
-                    ORDER BY m.date_time DESC
-                    LIMIT ?
-                """, (history_limit,))
-            return c.fetchall()
+                return c.fetchall()
+
+            if all_records_cache["records"] is not None:
+                return all_records_cache["records"]
+
+            c.execute("""
+                SELECT m.id, s.name, m.name, m.date_time, m.overall_comments
+                FROM maintenance m
+                JOIN substations s ON m.substation_id = s.id
+                ORDER BY m.date_time DESC
+                LIMIT ?
+            """, (history_limit,))
+            rows = c.fetchall()
+            all_records_cache["records"] = rows
+            return rows
 
         def fetch_total_count(selected_substation):
             if selected_substation and selected_substation != "(Όλα)":
@@ -8952,9 +9838,15 @@ class SubstationApp(App):
                 """,
                     (selected_substation,),
                 )
-            else:
-                c.execute("SELECT COUNT(*) FROM maintenance")
-            return c.fetchone()[0]
+                return c.fetchone()[0]
+
+            if all_records_cache["total_count"] is not None:
+                return all_records_cache["total_count"]
+
+            c.execute("SELECT COUNT(*) FROM maintenance")
+            total = c.fetchone()[0]
+            all_records_cache["total_count"] = total
+            return total
 
         def render_records(selected_substation):
             grid.clear_widgets()
@@ -8978,7 +9870,10 @@ class SubstationApp(App):
             people_by_maint = {}
             elements_by_maint = {}
 
-            if maint_ids:
+            if selected_substation == "(Όλα)" and all_records_cache["people"] is not None and all_records_cache["elements"] is not None:
+                people_by_maint = all_records_cache["people"]
+                elements_by_maint = all_records_cache["elements"]
+            elif maint_ids:
                 placeholders = ",".join(["?"] * len(maint_ids))
 
                 # Bulk fetch responsible/crew people for all maintenance rows in this view
@@ -9022,6 +9917,10 @@ class SubstationApp(App):
                             (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
                         )
                         elements_added_per_maint[m_id].add(elem_id)
+
+                if selected_substation == "(Όλα)":
+                    all_records_cache["people"] = people_by_maint
+                    all_records_cache["elements"] = elements_by_maint
 
             for (
                 maint_id,
@@ -9213,7 +10112,10 @@ class SubstationApp(App):
 
         def _on_select_substation_filter(sub_name):
             substation_input.text = sub_name
-            render_records(sub_name)
+            self._run_with_loading(
+                lambda: render_records(sub_name),
+                S["MESSAGES"].get("LOADING_MAINT_HISTORY", "Φόρτωση ιστορικού συντηρήσεων..."),
+            )
 
         def _open_substation_filter_picker(_instance=None):
             self._show_substation_selection_window_with_callback(
@@ -9225,7 +10127,10 @@ class SubstationApp(App):
 
         def _show_all_substations_filter(_instance=None):
             substation_input.text = "(Όλα)"
-            render_records("(Όλα)")
+            self._run_with_loading(
+                lambda: render_records("(Όλα)"),
+                S["MESSAGES"].get("LOADING_MAINT_HISTORY", "Φόρτωση ιστορικού συντηρήσεων..."),
+            )
 
         select_sub_btn.bind(on_press=_open_substation_filter_picker)
         show_all_btn.bind(on_press=_show_all_substations_filter)
@@ -9709,6 +10614,76 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
+    def _show_substation_inspection_history(self, substation_id, substation_name, parent_display_popup=None):
+        """Display all inspections for a substation with full details."""
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
+        import json
+
+        c = self.conn.cursor()
+        c.execute(
+            "SELECT id, inspection_date, data_json FROM inspections WHERE substation_id=? ORDER BY inspection_date DESC",
+            (substation_id,),
+        )
+        inspections = c.fetchall()
+
+        popup = Popup(
+            title=S["MESSAGES"].get(
+                "SUBSTATION_INSPECTION_HISTORY_TITLE_FMT",
+                "Inspection History - {substation_name}",
+            ).format(substation_name=substation_name),
+            size_hint=(0.95, 0.9)
+        )
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        if not inspections:
+            main_layout.add_widget(
+                Label(
+                    text=S["MESSAGES"].get(
+                        "SUBSTATION_INSPECTION_COUNT_FMT",
+                        "{count} inspection records for substation {substation_name}",
+                    ).format(count=0, substation_name=substation_name),
+                    size_hint_y=0.8,
+                )
+            )
+        else:
+            scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+            grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+            grid.bind(minimum_height=grid.setter("height"))
+
+            for insp_id, insp_date, data_json in inspections:
+                # Create row for each inspection
+                row_layout = BoxLayout(size_hint_y=None, height=50, spacing=8)
+                
+                info_text = f"[b]{insp_date}[/b]"
+                info_label = Label(text=info_text, markup=True, size_hint_x=0.7)
+                row_layout.add_widget(info_label)
+
+                view_btn = Button(text=S["BUTTONS"].get("VIEW", "View"), size_hint_x=0.3)
+                view_btn.bind(on_press=lambda x, iid=insp_id: self.show_inspection_details(iid))
+                row_layout.add_widget(view_btn)
+                
+                grid.add_widget(row_layout)
+
+            scroll.add_widget(grid)
+            main_layout.add_widget(scroll)
+
+        # Close button
+        btn_layout = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"])
+        close_btn.bind(on_press=popup.dismiss)
+        btn_layout.add_widget(close_btn)
+        main_layout.add_widget(btn_layout)
+
+        popup.content = main_layout
+        if parent_display_popup:
+            parent_display_popup.dismiss()
+        popup.open()
+
     def show_substation_inspection_history(
         self, substation_id, substation_name, parent_display_popup=None
     ):
@@ -9900,14 +10875,31 @@ class SubstationApp(App):
             ]
         )
 
-        if not has_measurements and not element_comments:
-            show_message_popup(
-                "Πληροφορία", "Δεν υπάρχουν καταχωρημένα στοιχεία για αυτό το στοιχείο."
-            )
-            return
-
         popup = Popup(title=f"Μετρήσεις: {element_name}", size_hint=(0.9, 0.9))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        element_type_for_dga = None
+        element_gate_for_dga = None
+        substation_id_for_dga = None
+        serial_for_dga = None
+        manufacturer_for_dga = None
+        substation_name_for_dga = None
+
+        # Extract element type early to check if transformer (for DGA access)
+        if header_row:
+            elem_type = header_row[8] if len(header_row) > 8 else None
+            element_type_for_dga = elem_type
+            is_transformer = self._is_transformer(elem_type) if elem_type else False
+        else:
+            is_transformer = False
+
+        # Early return only for non-transformers with no data
+        # Transformers always get popup to access DGA buttons
+        if not has_measurements and not element_comments and not is_transformer:
+            show_message_popup(
+                S["TITLES"].get("INFO", "Info"),
+                S["MESSAGES"].get("ELEMENT_NO_DATA_INFO", "No registered data for this element."),
+            )
+            return
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         content = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=10)
@@ -9936,6 +10928,15 @@ class SubstationApp(App):
                 model_manufacturer,
                 manual_pdf,
             ) = header_row
+            element_type_for_dga = elem_type
+            element_gate_for_dga = gate
+            serial_for_dga = serial_number
+            manufacturer_for_dga = manufacturer
+            substation_name_for_dga = sub_name
+
+            c.execute("SELECT substation_id FROM maintenance WHERE id=?", (maintenance_id,))
+            sid_row = c.fetchone()
+            substation_id_for_dga = sid_row[0] if sid_row else None
 
             add_section("Στοιχεία Συντήρησης")
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
@@ -9973,6 +10974,18 @@ class SubstationApp(App):
 
         add_section(S["MESSAGES"].get("ELEMENT_COMMENTS_SECTION", "Σχόλια Στοιχείου"))
         content.add_widget(make_wrapped_label(element_comments or "-", bold=False))
+
+        # Show message for transformers with no measurements (but DGA is still available)
+        if not has_measurements and is_transformer:
+            add_section("Πληροφορία")
+            info_msg = make_wrapped_label(
+                S["MESSAGES"].get(
+                    "DGA_TRANSFORMER_NO_MEASUREMENTS_INFO",
+                    "There are no recorded maintenance measurements for this element.\nUse the DGA buttons below to record dissolved gas measurements.",
+                ),
+                bold=False
+            )
+            content.add_widget(info_msg)
 
         if has_measurements:
             add_section(S["MESSAGES"].get("INSULATION_RESISTANCE_CLOSED_TITLE", "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)"))
@@ -10083,6 +11096,670 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
+    def show_substation_dga_measurements(self, substation_id, substation_name, parent_popup=None):
+        """Display all DGA measurements for a substation, grouped by transformer."""
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
+
+        c = self.conn.cursor()
+        
+        # Get all transformers in this substation with DGA measurements
+        c.execute(
+            """
+            SELECT DISTINCT e.id, e.name, e.serial_number, COUNT(dm.id) as dga_count
+            FROM elements e
+            JOIN maintenance m ON e.substation_id = ?
+            LEFT JOIN dga_measurements dm ON m.id = dm.maintenance_id AND dm.element_id = e.id
+            WHERE e.substation_id = ? AND m.maintenance_type = ? AND dm.id IS NOT NULL
+            GROUP BY e.id, e.name, e.serial_number
+            ORDER BY e.name
+            """,
+            (substation_id, substation_id, S["MESSAGES"].get("DGA_LABEL", "Φυσικοχημικές/Αεριοχρωματογραφία")),
+        )
+        dga_transformers = c.fetchall()
+
+        popup = Popup(
+            title=S["MESSAGES"].get(
+                "DGA_SUBSTATION_TITLE_FMT", "{dga_label} - {substation_name}"
+            ).format(
+                dga_label=S["MESSAGES"].get("DGA_LABEL", "Physicochemical/Gas Chromatography"),
+                substation_name=substation_name,
+            ),
+            size_hint=(0.9, 0.8)
+        )
+        
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        # Top button bar with "Add New" button
+        top_bar = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        add_btn = Button(text=f"+ {S['MESSAGES'].get('DGA_ADD_MEASUREMENT_SHORT', 'Νέα Μέτρηση')}")
+        add_btn.bind(on_press=lambda x, p=popup, sid=substation_id: self._show_dga_maintenance_form(parent_popup=p, preselected_substation_id=sid))
+        top_bar.add_widget(add_btn)
+        main_layout.add_widget(top_bar)
+
+        if not dga_transformers:
+            main_layout.add_widget(
+                Label(
+                    text=S["MESSAGES"].get(
+                        "DGA_NO_MEASUREMENTS_FOR_SUBSTATION",
+                        "No DGA measurements for this substation",
+                    ),
+                    size_hint_y=0.8,
+                )
+            )
+        else:
+            scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+            grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+            grid.bind(minimum_height=grid.setter("height"))
+
+            for elem_id, elem_name, serial_num, dga_cnt in dga_transformers:
+                row_layout = BoxLayout(size_hint_y=None, height=40, spacing=8)
+                
+                info_text = S["MESSAGES"].get(
+                    "DGA_MEASUREMENTS_COUNT_FMT",
+                    "{element_name} (S/N: {serial_number}) - {count} measurements",
+                ).format(
+                    element_name=elem_name,
+                    serial_number=serial_num or "-",
+                    count=dga_cnt,
+                )
+                info_label = Label(text=info_text, size_hint_x=0.7)
+                row_layout.add_widget(info_label)
+
+                view_btn = Button(text=S["BUTTONS"].get("VIEW", "View"), size_hint_x=0.3)
+                view_btn.bind(
+                    on_press=lambda x, eid=elem_id, ename=elem_name, sid=substation_id, 
+                             sname=substation_name: self.show_element_dga_measurements(
+                        element_id=eid, 
+                        element_name=ename, 
+                        substation_id=sid
+                    )
+                )
+                row_layout.add_widget(view_btn)
+                grid.add_widget(row_layout)
+
+            scroll.add_widget(grid)
+            main_layout.add_widget(scroll)
+
+        # Close button
+        btn_layout = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"])
+        close_btn.bind(on_press=popup.dismiss)
+        btn_layout.add_widget(close_btn)
+        main_layout.add_widget(btn_layout)
+
+        popup.content = main_layout
+        if parent_popup:
+            parent_popup.dismiss()
+        popup.open()
+
+    def show_element_dga_measurements(self, element_id, element_name, substation_id):
+        """Display DGA measurements for a specific transformer."""
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+
+        c = self.conn.cursor()
+        
+        # Get element details
+        c.execute(
+            "SELECT name, serial_number, gate, manufacturer FROM elements WHERE id=?",
+            (element_id,),
+        )
+        elem_row = c.fetchone()
+        if not elem_row:
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get("DGA_ELEMENT_NOT_FOUND", "Element not found."),
+            )
+            return
+        
+        element_serial = elem_row[1] if isinstance(elem_row, (tuple, list)) else elem_row["serial_number"]
+        element_gate = elem_row[2] if isinstance(elem_row, (tuple, list)) else elem_row["gate"]
+        element_manufacturer = elem_row[3] if isinstance(elem_row, (tuple, list)) else elem_row["manufacturer"]
+        
+        popup = Popup(
+            title=S["MESSAGES"].get("DGA_POPUP_TITLE_FMT", "DGA - {element_name}").format(element_name=element_name),
+            size_hint=(0.9, 0.5)
+        )
+        
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        layout.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "DGA_MEASUREMENTS_FOR_FMT", "DGA measurements for: {element_name}"
+                ).format(element_name=element_name),
+                size_hint_y=None,
+                height=30,
+            )
+        )
+        
+        # Show DGA history in a button that will open the actual DGA history popup
+        view_history_btn = Button(
+            text=S["MESSAGES"].get("DGA_VIEW_HISTORY_BUTTON", "View Measurement History"),
+            size_hint_y=None,
+            height=44,
+        )
+        view_history_btn.bind(
+            on_press=lambda x: self.show_dga_history_popup(
+                maintenance_id=None,
+                element_id=element_id,
+                element_name=element_name,
+                substation_id=substation_id,
+                substation_name="",
+                gate_value=element_gate,
+                serial_number=element_serial,
+                manufacturer=element_manufacturer,
+            )
+        )
+        layout.add_widget(view_history_btn)
+        
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=44)
+        close_btn.bind(on_press=popup.dismiss)
+        layout.add_widget(close_btn)
+        
+        popup.content = layout
+        popup.open()
+
+    def show_dga_measurement_popup(
+        self,
+        *,
+        maintenance_id,
+        element_id,
+        element_name,
+        substation_id,
+        substation_name,
+        gate_value,
+        serial_number,
+        manufacturer,
+        dga_id=None,
+    ):
+        """Show DGA measurement form for add or edit."""
+        if not substation_id:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("DGA_SUBSTATION_NOT_FOUND", "Substation not found for DGA entry."),
+            )
+            return
+
+        # If editing existing record, load it
+        edit_mode = dga_id is not None
+        existing_row = None
+        if edit_mode:
+            c = self.conn.cursor()
+            c.execute(
+                """
+                SELECT measurement_date, sampling_date, sampling_responsible, measurement_responsible,
+                       sample_point, sampling_method, sample_temperature,
+                       h2, c2h2, c2h4, c2h6, co, co2, ch4, o2, c3h8, n2, h2o,
+                       density, humidity, dielectric_strength, loss_factor, surface_tension,
+                       notes, report_path
+                FROM dga_measurements WHERE id=?
+                """,
+                (dga_id,),
+            )
+            existing_row = c.fetchone()
+            if not existing_row:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("DGA_RECORD_NOT_FOUND", "DGA record not found."),
+                )
+                return
+
+        popup_title = (
+            S["MESSAGES"].get("DGA_POPUP_TITLE_FMT", "DGA - {element_name}").format(element_name=element_name)
+            if not edit_mode
+            else S["MESSAGES"].get("DGA_POPUP_EDIT_TITLE_FMT", "Edit DGA - {element_name}").format(element_name=element_name)
+        )
+        popup = Popup(title=popup_title, size_hint=(0.92, 0.92))
+        main_layout = BoxLayout(orientation="vertical", spacing=8, padding=8)
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        content = GridLayout(cols=2, spacing=6, size_hint_y=None, padding=6)
+        content.bind(minimum_height=content.setter("height"))
+
+        def add_field(label, default=""):
+            content.add_widget(Label(text=label, size_hint_y=None, height=34))
+            ti = TextInput(text=default or "", multiline=False, size_hint_y=None, height=34)
+            content.add_widget(ti)
+            return ti
+
+        def _safe_str(val):
+            if val is None:
+                return ""
+            return str(val)
+
+        now_txt = datetime.now().strftime("%Y-%m-%d")
+
+        if edit_mode and existing_row:
+            (meas_date, samp_date, samp_resp, meas_resp, samp_pt, samp_meth, samp_temp,
+             h2_v, c2h2_v, c2h4_v, c2h6_v, co_v, co2_v, ch4_v, o2_v, c3h8_v, n2_v, h2o_v,
+             dens, hum, diel, loss, surf, nts, rpt_path) = existing_row
+            sampling_date = add_field(S["MESSAGES"].get("DGA_SAMPLING_DATE_LABEL", "Sampling Date"), _safe_str(samp_date or now_txt))
+            measurement_date = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_DATE_LABEL", "Measurement Date"), _safe_str(meas_date or now_txt))
+            sample_point = add_field(S["MESSAGES"].get("DGA_SAMPLE_POINT_LABEL", "Sample Point"), _safe_str(samp_pt))
+            sampling_method = add_field(S["MESSAGES"].get("DGA_METHOD_LABEL", "Method"), _safe_str(samp_meth))
+            sampling_responsible = add_field(S["MESSAGES"].get("DGA_SAMPLING_RESPONSIBLE_LABEL", "Sampling Responsible"), _safe_str(samp_resp))
+            measurement_responsible = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_RESPONSIBLE_LABEL", "Measurement Responsible"), _safe_str(meas_resp))
+            sample_temperature = add_field(S["MESSAGES"].get("DGA_SAMPLE_TEMPERATURE_LABEL", "Sample Temperature"), _safe_str(samp_temp))
+            h2 = add_field("H2", _safe_str(h2_v))
+            c2h2 = add_field("C2H2", _safe_str(c2h2_v))
+            c2h4 = add_field("C2H4", _safe_str(c2h4_v))
+            c2h6 = add_field("C2H6", _safe_str(c2h6_v))
+            co = add_field("CO", _safe_str(co_v))
+            co2 = add_field("CO2", _safe_str(co2_v))
+            ch4 = add_field("CH4", _safe_str(ch4_v))
+            o2 = add_field("O2", _safe_str(o2_v))
+            c3h8 = add_field("C3H8", _safe_str(c3h8_v))
+            n2 = add_field("N2", _safe_str(n2_v))
+            h2o = add_field("H2O", _safe_str(h2o_v))
+            density = add_field(S["MESSAGES"].get("DGA_DENSITY_LABEL", "Density"), _safe_str(dens))
+            humidity = add_field(S["MESSAGES"].get("DGA_HUMIDITY_LABEL", "Humidity"), _safe_str(hum))
+            dielectric_strength = add_field(S["MESSAGES"].get("DGA_DIELECTRIC_STRENGTH_LABEL", "Dielectric Strength"), _safe_str(diel))
+            loss_factor = add_field(S["MESSAGES"].get("DGA_LOSS_FACTOR_LABEL", "Loss Factor"), _safe_str(loss))
+            surface_tension = add_field(S["MESSAGES"].get("DGA_SURFACE_TENSION_LABEL", "Surface Tension"), _safe_str(surf))
+            content.add_widget(Label(text=S["MESSAGES"].get("DGA_NOTES_LABEL", "Notes"), size_hint_y=None, height=34))
+            notes = TextInput(text=_safe_str(nts), multiline=True, size_hint_y=None, height=90)
+            content.add_widget(notes)
+        else:
+            sampling_date = add_field(S["MESSAGES"].get("DGA_SAMPLING_DATE_LABEL", "Sampling Date"), now_txt)
+            measurement_date = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_DATE_LABEL", "Measurement Date"), now_txt)
+            sample_point = add_field(S["MESSAGES"].get("DGA_SAMPLE_POINT_LABEL", "Sample Point"), "")
+            sampling_method = add_field(S["MESSAGES"].get("DGA_METHOD_LABEL", "Method"), "")
+            sampling_responsible = add_field(S["MESSAGES"].get("DGA_SAMPLING_RESPONSIBLE_LABEL", "Sampling Responsible"), "")
+            measurement_responsible = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_RESPONSIBLE_LABEL", "Measurement Responsible"), "")
+            sample_temperature = add_field(S["MESSAGES"].get("DGA_SAMPLE_TEMPERATURE_LABEL", "Sample Temperature"), "")
+            h2 = add_field("H2", "")
+            c2h2 = add_field("C2H2", "")
+            c2h4 = add_field("C2H4", "")
+            c2h6 = add_field("C2H6", "")
+            co = add_field("CO", "")
+            co2 = add_field("CO2", "")
+            ch4 = add_field("CH4", "")
+            o2 = add_field("O2", "")
+            c3h8 = add_field("C3H8", "")
+            n2 = add_field("N2", "")
+            h2o = add_field("H2O", "")
+            density = add_field(S["MESSAGES"].get("DGA_DENSITY_LABEL", "Density"), "")
+            humidity = add_field(S["MESSAGES"].get("DGA_HUMIDITY_LABEL", "Humidity"), "")
+            dielectric_strength = add_field(S["MESSAGES"].get("DGA_DIELECTRIC_STRENGTH_LABEL", "Dielectric Strength"), "")
+            loss_factor = add_field(S["MESSAGES"].get("DGA_LOSS_FACTOR_LABEL", "Loss Factor"), "")
+            surface_tension = add_field(S["MESSAGES"].get("DGA_SURFACE_TENSION_LABEL", "Surface Tension"), "")
+            content.add_widget(Label(text=S["MESSAGES"].get("DGA_NOTES_LABEL", "Notes"), size_hint_y=None, height=34))
+            notes = TextInput(text="", multiline=True, size_hint_y=None, height=90)
+            content.add_widget(notes)
+
+        scroll.add_widget(content)
+        main_layout.add_widget(scroll)
+
+        btns = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+        def save_dga(_x=None):
+            try:
+                payload = {
+                    "substation_name": substation_name or "",
+                    "element_name": element_name or "",
+                    "serial_number": serial_number or "",
+                    "manufacturer": manufacturer or "",
+                    "sample_point": sample_point.text.strip(),
+                    "sampling_method": sampling_method.text.strip(),
+                    "sampling_responsible": sampling_responsible.text.strip(),
+                    "measurement_responsible": measurement_responsible.text.strip(),
+                    "sampling_date": sampling_date.text.strip(),
+                    "measurement_date": measurement_date.text.strip(),
+                    "sample_temperature": sample_temperature.text.strip(),
+                    "h2": h2.text.strip(),
+                    "c2h2": c2h2.text.strip(),
+                    "c2h4": c2h4.text.strip(),
+                    "c2h6": c2h6.text.strip(),
+                    "co": co.text.strip(),
+                    "co2": co2.text.strip(),
+                    "ch4": ch4.text.strip(),
+                    "o2": o2.text.strip(),
+                    "c3h8": c3h8.text.strip(),
+                    "n2": n2.text.strip(),
+                    "h2o": h2o.text.strip(),
+                    "density": density.text.strip(),
+                    "humidity": humidity.text.strip(),
+                    "dielectric_strength": dielectric_strength.text.strip(),
+                    "loss_factor": loss_factor.text.strip(),
+                    "surface_tension": surface_tension.text.strip(),
+                    "notes": notes.text.strip(),
+                }
+
+                # Ensure DGA folder exists
+                folder_info = ensure_dga_folder(
+                    self.conn,
+                    substation_id=substation_id,
+                    gate_value=gate_value,
+                    element_name=element_name,
+                    measurement_date=measurement_date.text.strip(),
+                    db_path=self.db_path,
+                )
+
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                file_base = f"DGA_Report_{element_name.replace('/', '_').replace('\\\\', '_')}_{stamp}.xlsx"
+                primary_report_path = os.path.join(folder_info["folder_path"], file_base)
+                template = os.path.join(os.path.dirname(__file__), "dga report.xlsx")
+                generate_dga_excel_report(template, primary_report_path, payload)
+
+                # Copy into transformer reports folder(s) for this maintenance
+                try:
+                    transformer_targets = get_transformer_report_targets(
+                        self.conn,
+                        maintenance_id=maintenance_id,
+                        gate_value=gate_value,
+                        db_path=self.db_path,
+                    )
+                    for target_folder in transformer_targets:
+                        secondary_path = os.path.join(target_folder, file_base)
+                        shutil.copy2(primary_report_path, secondary_path)
+                except Exception:
+                    pass  # Non-fatal if secondary copy fails
+
+                c = self.conn.cursor()
+                now_db = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                if edit_mode:
+                    c.execute(
+                        """
+                        UPDATE dga_measurements
+                        SET measurement_date=?, sampling_date=?,
+                            sampling_responsible=?, measurement_responsible=?,
+                            sample_point=?, sampling_method=?, sample_temperature=?,
+                            h2=?, c2h2=?, c2h4=?, c2h6=?, co=?, co2=?, ch4=?, o2=?, c3h8=?, n2=?, h2o=?,
+                            density=?, humidity=?, dielectric_strength=?, loss_factor=?, surface_tension=?,
+                            notes=?, report_path=?, updated_at=?
+                        WHERE id=?
+                        """,
+                        (
+                            measurement_date.text.strip() or None,
+                            sampling_date.text.strip() or None,
+                            sampling_responsible.text.strip() or None,
+                            measurement_responsible.text.strip() or None,
+                            sample_point.text.strip() or None,
+                            sampling_method.text.strip() or None,
+                            float(sample_temperature.text.replace(",", ".")) if sample_temperature.text.strip() else None,
+                            float(h2.text.replace(",", ".")) if h2.text.strip() else None,
+                            float(c2h2.text.replace(",", ".")) if c2h2.text.strip() else None,
+                            float(c2h4.text.replace(",", ".")) if c2h4.text.strip() else None,
+                            float(c2h6.text.replace(",", ".")) if c2h6.text.strip() else None,
+                            float(co.text.replace(",", ".")) if co.text.strip() else None,
+                            float(co2.text.replace(",", ".")) if co2.text.strip() else None,
+                            float(ch4.text.replace(",", ".")) if ch4.text.strip() else None,
+                            float(o2.text.replace(",", ".")) if o2.text.strip() else None,
+                            float(c3h8.text.replace(",", ".")) if c3h8.text.strip() else None,
+                            float(n2.text.replace(",", ".")) if n2.text.strip() else None,
+                            float(h2o.text.replace(",", ".")) if h2o.text.strip() else None,
+                            float(density.text.replace(",", ".")) if density.text.strip() else None,
+                            float(humidity.text.replace(",", ".")) if humidity.text.strip() else None,
+                            float(dielectric_strength.text.replace(",", ".")) if dielectric_strength.text.strip() else None,
+                            float(loss_factor.text.replace(",", ".")) if loss_factor.text.strip() else None,
+                            float(surface_tension.text.replace(",", ".")) if surface_tension.text.strip() else None,
+                            notes.text.strip() or None,
+                            primary_report_path,
+                            now_db,
+                            dga_id,
+                        ),
+                    )
+                else:
+                    c.execute(
+                        """
+                        INSERT INTO dga_measurements (
+                            maintenance_id, element_id, substation_id,
+                            measurement_date, sampling_date,
+                            sampling_responsible, measurement_responsible,
+                            sample_point, sampling_method, sample_temperature,
+                            h2, c2h2, c2h4, c2h6, co, co2, ch4, o2, c3h8, n2, h2o,
+                            density, humidity, dielectric_strength, loss_factor, surface_tension,
+                            notes, report_path, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            maintenance_id,
+                            element_id,
+                            substation_id,
+                            measurement_date.text.strip() or None,
+                            sampling_date.text.strip() or None,
+                            sampling_responsible.text.strip() or None,
+                            measurement_responsible.text.strip() or None,
+                            sample_point.text.strip() or None,
+                            sampling_method.text.strip() or None,
+                            float(sample_temperature.text.replace(",", ".")) if sample_temperature.text.strip() else None,
+                            float(h2.text.replace(",", ".")) if h2.text.strip() else None,
+                            float(c2h2.text.replace(",", ".")) if c2h2.text.strip() else None,
+                            float(c2h4.text.replace(",", ".")) if c2h4.text.strip() else None,
+                            float(c2h6.text.replace(",", ".")) if c2h6.text.strip() else None,
+                            float(co.text.replace(",", ".")) if co.text.strip() else None,
+                            float(co2.text.replace(",", ".")) if co2.text.strip() else None,
+                            float(ch4.text.replace(",", ".")) if ch4.text.strip() else None,
+                            float(o2.text.replace(",", ".")) if o2.text.strip() else None,
+                            float(c3h8.text.replace(",", ".")) if c3h8.text.strip() else None,
+                            float(n2.text.replace(",", ".")) if n2.text.strip() else None,
+                            float(h2o.text.replace(",", ".")) if h2o.text.strip() else None,
+                            float(density.text.replace(",", ".")) if density.text.strip() else None,
+                            float(humidity.text.replace(",", ".")) if humidity.text.strip() else None,
+                            float(dielectric_strength.text.replace(",", ".")) if dielectric_strength.text.strip() else None,
+                            float(loss_factor.text.replace(",", ".")) if loss_factor.text.strip() else None,
+                            float(surface_tension.text.replace(",", ".")) if surface_tension.text.strip() else None,
+                            notes.text.strip() or None,
+                            primary_report_path,
+                            now_db,
+                            now_db,
+                        ),
+                    )
+                self.conn.commit()
+                popup.dismiss()
+
+                # Open report after save
+                from reports import open_file
+                def _open():
+                    open_file(primary_report_path)
+
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    S["MESSAGES"].get("DGA_SAVE_SUCCESS_FMT", "DGA report saved:\n{path}").format(path=primary_report_path),
+                    callback=_open,
+                )
+            except Exception as exc:
+                self.conn.rollback()
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("DGA_SAVE_FAILED_FMT", "Failed to save DGA:\n{error}").format(error=str(exc)),
+                )
+
+        save_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"))
+        save_btn.bind(on_press=save_dga)
+        btns.add_widget(save_btn)
+
+        cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+        cancel_btn.bind(on_press=popup.dismiss)
+        btns.add_widget(cancel_btn)
+
+        main_layout.add_widget(btns)
+        popup.content = main_layout
+        popup.open()
+
+    def show_dga_history_popup(
+        self,
+        *,
+        maintenance_id,
+        element_id,
+        element_name,
+        substation_id,
+        substation_name,
+        gate_value,
+        serial_number,
+        manufacturer,
+    ):
+        """Show list of DGA measurements for this element, with actions to open/edit/delete."""
+        c = self.conn.cursor()
+        c.execute(
+            """
+            SELECT id, measurement_date, sampling_date, report_path, created_at
+            FROM dga_measurements
+            WHERE element_id=?
+            ORDER BY measurement_date DESC, created_at DESC
+            """,
+            (element_id,),
+        )
+        rows = c.fetchall()
+
+        popup = Popup(
+            title=S["MESSAGES"].get("DGA_HISTORY_TITLE_FMT", "DGA History - {element_name}").format(element_name=element_name),
+            size_hint=(0.92, 0.88),
+        )
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        if not rows:
+            main_layout.add_widget(
+                Label(
+                    text=S["MESSAGES"].get("DGA_NO_MEASUREMENTS_FOR_ELEMENT", "No DGA measurements found for this element."),
+                    size_hint_y=0.8,
+                )
+            )
+        else:
+            scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+            content = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=6)
+            content.bind(minimum_height=content.setter("height"))
+
+            for row in rows:
+                dga_id, meas_date, samp_date, rpt_path, created = row
+                row_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=80, padding=4, spacing=4)
+
+                info_line = Label(
+                    text=S["MESSAGES"].get(
+                        "DGA_HISTORY_ROW_FMT",
+                        "Measurement: {measurement_date} | Sampling: {sampling_date} | Created: {created_at}",
+                    ).format(
+                        measurement_date=meas_date or "-",
+                        sampling_date=samp_date or "-",
+                        created_at=created or "-",
+                    ),
+                    size_hint_y=None,
+                    height=28,
+                )
+                row_layout.add_widget(info_line)
+
+                btns = BoxLayout(size_hint_y=None, height=38, spacing=6)
+
+                def _make_open(path):
+                    def _open(_x):
+                        from reports import open_file
+                        open_file(path)
+                    return _open
+
+                def _make_edit(did):
+                    def _edit(_x):
+                        popup.dismiss()
+                        self.show_dga_measurement_popup(
+                            maintenance_id=maintenance_id,
+                            element_id=element_id,
+                            element_name=element_name,
+                            substation_id=substation_id,
+                            substation_name=substation_name,
+                            gate_value=gate_value,
+                            serial_number=serial_number,
+                            manufacturer=manufacturer,
+                            dga_id=did,
+                        )
+                    return _edit
+
+                def _make_delete(did, path):
+                    def _del(_x):
+                        self._confirm_delete_dga(did, path, popup, element_id, element_name, substation_id, substation_name, gate_value, serial_number, manufacturer, maintenance_id)
+                    return _del
+
+                open_btn = Button(text=S["MESSAGES"].get("DGA_OPEN_REPORT_BUTTON", "Open Report"))
+                open_btn.bind(on_press=_make_open(rpt_path))
+                btns.add_widget(open_btn)
+
+                edit_btn = Button(text=S["BUTTONS"].get("EDIT", "Edit"))
+                edit_btn.bind(on_press=_make_edit(dga_id))
+                btns.add_widget(edit_btn)
+
+                delete_btn = Button(text=S["BUTTONS"].get("DELETE", "Delete"))
+                delete_btn.bind(on_press=_make_delete(dga_id, rpt_path))
+                btns.add_widget(delete_btn)
+
+                row_layout.add_widget(btns)
+                content.add_widget(row_layout)
+
+            scroll.add_widget(content)
+            main_layout.add_widget(scroll)
+
+        bottom_btns = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+        # Add new measurement
+        add_btn = Button(text=S["MESSAGES"].get("DGA_NEW_MEASUREMENT_LABEL", "New DGA Measurement"))
+        add_btn.bind(
+            on_press=lambda _x: (
+                popup.dismiss(),
+                self.show_dga_measurement_popup(
+                    maintenance_id=maintenance_id,
+                    element_id=element_id,
+                    element_name=element_name,
+                    substation_id=substation_id,
+                    substation_name=substation_name,
+                    gate_value=gate_value,
+                    serial_number=serial_number,
+                    manufacturer=manufacturer,
+                    dga_id=None,
+                ),
+            )
+        )
+        bottom_btns.add_widget(add_btn)
+
+        close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"))
+        close_btn.bind(on_press=popup.dismiss)
+        bottom_btns.add_widget(close_btn)
+
+        main_layout.add_widget(bottom_btns)
+        popup.content = main_layout
+        popup.open()
+
+    def _confirm_delete_dga(self, dga_id, report_path, parent_popup, element_id, element_name, substation_id, substation_name, gate_value, serial_number, manufacturer, maintenance_id):
+        """Confirm before deleting a DGA record and its report file."""
+        from reports import show_confirm
+
+        def confirm():
+            c = self.conn.cursor()
+            c.execute("DELETE FROM dga_measurements WHERE id=?", (dga_id,))
+            self.conn.commit()
+            try:
+                if report_path and os.path.exists(report_path):
+                    os.remove(report_path)
+            except Exception:
+                pass
+            parent_popup.dismiss()
+            # Reopen history
+            self.show_dga_history_popup(
+                maintenance_id=maintenance_id,
+                element_id=element_id,
+                element_name=element_name,
+                substation_id=substation_id,
+                substation_name=substation_name,
+                gate_value=gate_value,
+                serial_number=serial_number,
+                manufacturer=manufacturer,
+            )
+
+        show_confirm(
+            S["MESSAGES"].get("CONFIRM_DELETE_DGA_TITLE", "Delete Confirmation"),
+            S["MESSAGES"].get(
+                "CONFIRM_DELETE_DGA_MSG",
+                "Are you sure you want to delete this DGA report?\n\nDeletion is PERMANENT.",
+            ),
+            yes_callback=confirm,
+            yes_color=(1, 0, 0, 1),
+            yes_text=S["BUTTONS"].get("YES", "Yes"),
+            no_text=S["BUTTONS"].get("NO", "No"),
+        )
+
     def generate_pdf_report(self, maintenance_id, element_id, element_name):
         from reports import generate_pdf_report as _f
         return _f(self, maintenance_id, element_id, element_name)
@@ -10096,7 +11773,11 @@ class SubstationApp(App):
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",
-            S["MESSAGES"].get("CONFIRM_DELETE_MAINT_FMT", "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση?"),
+            S["MESSAGES"].get(
+                "CONFIRM_DELETE_MAINT_FMT",
+                "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτή τη συντήρηση;\n\n"
+                "Η διαγραφή είναι ΜΟΝΙΜΗ και θα διαγραφούν και οι σχετικοί φάκελοι/αρχεία.",
+            ),
             yes_callback=confirm,
             yes_color=(1, 0, 0, 1),
             yes_text="ΝΑΙ",
@@ -10120,6 +11801,12 @@ class SubstationApp(App):
             (maintenance_id,),
         )
         affected_elements = [row[0] for row in c.fetchall()]
+
+        # Try deleting associated storage folders first (permanent deletion).
+        try:
+            delete_maintenance_folders(self.conn, maintenance_id)
+        except Exception:
+            pass
 
         # Explicitly delete maintenance_elements records first
         c.execute(
@@ -10197,7 +11884,8 @@ class SubstationApp(App):
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",
-            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτη συντήρηση του υποσταθμού "{substation_name}";',
+            f'Είστε σίγουροι ότι θέλετε να διαγράψετε\nτη συντήρηση του υποσταθμού "{substation_name}";\n\n'
+            "Η διαγραφή είναι ΜΟΝΙΜΗ και θα διαγραφούν και οι σχετικοί φάκελοι/αρχεία.",
             yes_callback=confirm,
             yes_color=(1, 0, 0, 1),
             yes_text="ΝΑΙ",
@@ -10221,6 +11909,12 @@ class SubstationApp(App):
             (maintenance_id,),
         )
         affected_elements = [row[0] for row in c.fetchall()]
+
+        # Try deleting associated storage folders first (permanent deletion).
+        try:
+            delete_maintenance_folders(self.conn, maintenance_id)
+        except Exception:
+            pass
 
         # Explicitly delete maintenance_elements records first
         c.execute(

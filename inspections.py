@@ -520,10 +520,10 @@ def handle_substation_inspection_history(app, substation_id, substation_name, pa
         except Exception:
             pass
 
-            show_message_popup(
-                S["MESSAGES"].get("SUBSTATION_INSPECTION_HISTORY_TITLE_FMT", "Ιστορικό Επιθεώσεων - {substation_name}").format(substation_name=substation_name),
-                S["MESSAGES"].get("SUBSTATION_INSPECTION_COUNT_FMT", "{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}").format(count=count, substation_name=substation_name),
-            )
+        show_message_popup(
+            S["MESSAGES"].get("SUBSTATION_INSPECTION_HISTORY_TITLE_FMT", "Ιστορικό Επιθεώσεων - {substation_name}").format(substation_name=substation_name),
+            S["MESSAGES"].get("SUBSTATION_INSPECTION_COUNT_FMT", "{count} εγγραφές επιθεώρησης για τον υποσταθμό {substation_name}").format(count=count, substation_name=substation_name),
+        )
     except Exception:
         return None
 

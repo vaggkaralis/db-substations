@@ -3,6 +3,8 @@ Parse .eml files and return normalized email fields.
 """
 
 import re
+import tempfile
+from pathlib import Path
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
@@ -30,6 +32,23 @@ _HEADER_PATTERNS = [
 ]
 
 _QUOTE_BREAK_PATTERNS = _SEPARATOR_PATTERNS + _HEADER_PATTERNS
+
+_MEDIA_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".gif",
+    ".webp",
+    ".heic",
+    ".heif",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".wmv",
+    ".m4v",
+}
 
 
 def _trim_first_message(text: str) -> str:
@@ -147,6 +166,60 @@ def _extract_body(message):
     return _clean_body(trimmed)
 
 
+def _extract_media_attachment_paths(message):
+    paths = []
+    temp_dir = Path(tempfile.mkdtemp(prefix="eml_media_"))
+    counter = 1
+
+    try:
+        parts = list(message.iter_attachments())
+    except Exception:
+        parts = []
+
+    for part in parts:
+        filename = (part.get_filename() or "").strip()
+        if not filename:
+            ext_guess = ""
+            ctype = (part.get_content_type() or "").lower()
+            if ctype.startswith("image/"):
+                ext_guess = ".jpg"
+            elif ctype.startswith("video/"):
+                ext_guess = ".mp4"
+            filename = f"attachment_{counter}{ext_guess}"
+
+        safe_name = re.sub(r"[\\/:*?\"<>|]", "_", filename)
+        ext = Path(safe_name).suffix.lower()
+        ctype = (part.get_content_type() or "").lower()
+        is_media_type = ctype.startswith("image/") or ctype.startswith("video/")
+        if ext not in _MEDIA_EXTENSIONS and not is_media_type:
+            counter += 1
+            continue
+
+        try:
+            payload = part.get_payload(decode=True)
+        except Exception:
+            payload = None
+        if not payload:
+            counter += 1
+            continue
+
+        dest = temp_dir / safe_name
+        idx = 1
+        while dest.exists():
+            dest = temp_dir / f"{dest.stem}_{idx}{dest.suffix}"
+            idx += 1
+
+        try:
+            dest.write_bytes(payload)
+            paths.append(str(dest))
+        except Exception:
+            pass
+
+        counter += 1
+
+    return paths
+
+
 def parse_eml_file(path: str):
     with open(path, "rb") as f:
         msg = BytesParser(policy=policy.default).parse(f)
@@ -164,6 +237,7 @@ def parse_eml_file(path: str):
             received_at = ""
 
     body = _extract_body(msg)
+    attachment_paths = _extract_media_attachment_paths(msg)
 
     return {
         "subject": subject,
@@ -171,4 +245,5 @@ def parse_eml_file(path: str):
         "sender_name": sender_name,
         "sender_email": sender_email,
         "received_at": received_at,
+        "attachment_paths": attachment_paths,
     }

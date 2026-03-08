@@ -59,6 +59,78 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         )
     """)
 
+    # Folder tracking per maintenance + gate/interconnection bucket
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS maintenance_storage_paths (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER NOT NULL,
+            gate_key TEXT NOT NULL,
+            gate_folder TEXT,
+            instance_folder TEXT,
+            media_folder TEXT,
+            reports_folder TEXT,
+            created_at TEXT,
+            FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+            UNIQUE(maintenance_id, gate_key)
+        )
+    """)
+
+    # Report tracking per maintenance + element
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS maintenance_report_paths (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER NOT NULL,
+            element_id INTEGER NOT NULL,
+            report_type TEXT NOT NULL DEFAULT 'pdf',
+            report_path TEXT NOT NULL,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+            FOREIGN KEY(element_id) REFERENCES elements(id) ON DELETE CASCADE,
+            UNIQUE(maintenance_id, element_id, report_type)
+        )
+    """)
+
+    # DGA measurements (transformer-only extra report)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dga_measurements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER NOT NULL,
+            element_id INTEGER NOT NULL,
+            substation_id INTEGER NOT NULL,
+            measurement_date TEXT,
+            sampling_date TEXT,
+            sampling_responsible TEXT,
+            measurement_responsible TEXT,
+            sample_point TEXT,
+            sampling_method TEXT,
+            sample_temperature REAL,
+            h2 REAL,
+            c2h2 REAL,
+            c2h4 REAL,
+            c2h6 REAL,
+            co REAL,
+            co2 REAL,
+            ch4 REAL,
+            o2 REAL,
+            c3h8 REAL,
+            n2 REAL,
+            h2o REAL,
+            density REAL,
+            humidity REAL,
+            dielectric_strength REAL,
+            loss_factor REAL,
+            surface_tension REAL,
+            notes TEXT,
+            report_path TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+            FOREIGN KEY(element_id) REFERENCES elements(id) ON DELETE CASCADE,
+            FOREIGN KEY(substation_id) REFERENCES substations(id) ON DELETE CASCADE
+        )
+    """)
+
     # People management tables
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS people (
@@ -170,10 +242,40 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             "CREATE INDEX IF NOT EXISTS idx_maintenance_date ON maintenance(date_time DESC)"
         )
         cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_substation_type ON maintenance(substation_id, maintenance_type)"
+        )
+        cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_maintenance_elements_maintenance ON maintenance_elements(maintenance_id)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_maintenance_people_maintenance ON maintenance_people(maintenance_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_storage_paths_maintenance ON maintenance_storage_paths(maintenance_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_report_paths_maint_elem ON maintenance_report_paths(maintenance_id, element_id, report_type)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dga_maintenance_element ON dga_measurements(maintenance_id, element_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_elements_substation ON elements(substation_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_elements_substation_gate ON elements(substation_id, gate)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_elements_substation_status ON elements(substation_id, operating_status)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_elements_substation_type_switch ON elements(substation_id, element_type, is_main_switch)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inspections_substation ON inspections(substation_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_substations_name ON substations(name)"
         )
     except Exception:
         pass
