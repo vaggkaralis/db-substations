@@ -11659,7 +11659,8 @@ class SubstationApp(App):
                 )
 
                 stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                file_base = f"DGA_Report_{element_name.replace('/', '_').replace('\\\\', '_')}_{stamp}.xlsx"
+                safe_element_name = element_name.replace("/", "_").replace("\\", "_")
+                file_base = f"DGA_Report_{safe_element_name}_{stamp}.xlsx"
                 primary_report_path = os.path.join(folder_info["folder_path"], file_base)
                 template = os.path.join(os.path.dirname(__file__), "dga report.xlsx")
                 generate_dga_excel_report(template, primary_report_path, payload)
