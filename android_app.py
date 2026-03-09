@@ -728,8 +728,8 @@ class SubstationAndroidApp(App):
                 from kivy.graphics import Color, Rectangle
                 logo_path = os.path.join(os.path.dirname(__file__), "logo_deddie.png")
                 if os.path.exists(logo_path):
-                    # Create container for logo with white background
-                    logo_container = BoxLayout(size_hint_x=None, width=50, padding=3)
+                    # Create container for logo with white background (wider for better visibility)
+                    logo_container = BoxLayout(size_hint_x=None, width=150, padding=3)
                     
                     def redraw_bg(inst, val):
                         logo_container.canvas.before.clear()
@@ -772,11 +772,11 @@ class SubstationAndroidApp(App):
                 settings_btn = IconOnlyButton(
                     icon_type="settings",
                     icon_color=[0.05, 0.18, 0.36, 1],
-                    size=(40, 40)
+                    size=(60, 60)
                 )
             except Exception:
                 # Fallback: use text button if IconOnlyButton not available
-                settings_btn = Button(text="⚙", font_size='20sp', size_hint_x=None, width=40)
+                settings_btn = Button(text="⚙", font_size='28sp', size_hint_x=None, width=60)
             
             settings_btn.bind(on_press=lambda x: self._show_sync_settings())
             header_box.add_widget(settings_btn)
@@ -972,7 +972,7 @@ class SubstationAndroidApp(App):
                    em.manufacturer as model_manufacturer, em.manual_pdf, em.onedrive_manual_link
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
-            WHERE e.substation_id = ?
+            WHERE e.substation_id = ? AND e.operating_status != 'Ανενεργή'
             ORDER BY e.gate
             """, (substation_id,)
         )
@@ -1601,29 +1601,33 @@ class SubstationAndroidApp(App):
                 title=S.get("MESSAGES", {}).get("SYNC_SETTINGS", "Ρυθμίσεις Συγχρονισμού"),
                 size_hint=(0.95, 0.6)
             )
-            layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+            layout = BoxLayout(orientation="vertical", padding=15, spacing=15)
             
-            # Sync enabled checkbox
-            sync_enabled_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            # Sync enabled checkbox (aligned at top with clear spacing)
+            sync_enabled_row = BoxLayout(size_hint_y=None, height=50, spacing=10)
             sync_enabled_row.add_widget(Label(
                 text=S.get("MESSAGES", {}).get("SYNC_AUTO_ENABLED_LABEL", "Αυτόματος συγχρονισμός:"),
-                size_hint_x=0.7
+                size_hint_x=0.7,
+                valign='top'
             ))
             from kivy.uix.checkbox import CheckBox
             sync_chk = CheckBox(
                 active=bool(get_app_setting("sync_auto_cycle_enabled", True)),
-                size_hint_x=0.3
+                size_hint_x=0.3,
+                size_hint_y=None,
+                height=50
             )
             sync_enabled_row.add_widget(sync_chk)
             layout.add_widget(sync_enabled_row)
             
-            # Sync root path display
+            # Sync root path display (aligned at top)
             sync_root_path = get_app_setting("sync_root_path", "")
-            path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=80, spacing=5)
+            path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=110, spacing=8)
             path_row.add_widget(Label(
                 text=S.get("MESSAGES", {}).get("SYNC_ROOT_PATH_LABEL", "Φάκελος Συγχρονισμού:"),
                 size_hint_y=None,
-                height=25
+                height=30,
+                valign='top'
             ))
             
             from kivy.uix.textinput import TextInput
@@ -1631,20 +1635,22 @@ class SubstationAndroidApp(App):
                 text=sync_root_path,
                 multiline=False,
                 size_hint_y=None,
-                height=35
+                height=50,
+                padding=[10, 10, 10, 10]
             )
             path_row.add_widget(path_input)
             
             path_row.add_widget(Label(
                 text=S.get("MESSAGES", {}).get("SYNC_ROOT_PATH_HINT", "Ή αφήστε κενό για προεπιλογή (δίπλα στη ΒΔ)"),
                 size_hint_y=None,
-                height=20,
-                color=(0.5, 0.5, 0.5, 1)
+                height=25,
+                color=(0.5, 0.5, 0.5, 1),
+                valign='top'
             ))
             layout.add_widget(path_row)
             
-            # Buttons
-            btn_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            # Buttons (aligned at top of popup)
+            btn_layout = BoxLayout(size_hint_y=None, height=60, spacing=10)
             
             save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
             def _save(*_):
@@ -1865,7 +1871,7 @@ class SubstationAndroidApp(App):
                 text=btn_text,
                 markup=True,
                 size_hint_y=None,
-                height=120,
+                height=160,
                 font_size='16sp',
                 bold=True,
                 halign='center',
@@ -1874,7 +1880,7 @@ class SubstationAndroidApp(App):
                 background_color=(0.18, 0.34, 0.52, 1),
             )
             substation_btn.bind(
-                size=lambda inst, _size: setattr(inst, "text_size", (inst.width - 20, inst.height - 12))
+                size=lambda inst, _size: setattr(inst, "text_size", (inst.width - 10, inst.height - 8))
             )
             substation_btn.bind(
                 on_press=lambda x, sid=substation["id"]: self.show_substation_details(sid)
@@ -1906,8 +1912,8 @@ class SubstationAndroidApp(App):
 
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=15)
 
-        # Substation header with desktop-like summary details
-        header_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=170, spacing=4)
+        # Substation header with desktop-like summary details (increased spacing for readability)
+        header_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=210, spacing=8)
         name_label = Label(
             text=substation["name"],
             bold=True,
@@ -1979,9 +1985,9 @@ class SubstationAndroidApp(App):
         header_layout.add_widget(counts_line_2)
         main_layout.add_widget(header_layout)
 
-        # Load elements for this substation
+        # Load elements for this substation (generous vertical spacing for clarity)
         scroll = ScrollView()
-        grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
+        grid = GridLayout(cols=1, spacing=25, size_hint_y=None, padding=15)
         grid.bind(minimum_height=grid.setter("height"))
 
         self._load_substation_elements(substation_id, grid)
@@ -1989,18 +1995,18 @@ class SubstationAndroidApp(App):
         scroll.add_widget(grid)
         main_layout.add_widget(scroll)
 
-        # Fixed bottom action row to maximize list space and keep controls at the bottom.
+        # Fixed bottom action row to maximize list space and keep controls at the bottom (increased button height)
         actions_container = BoxLayout(
             orientation="horizontal",
             size_hint_y=None,
-            height=74,
+            height=100,
             spacing=8,
             padding=[0, 4, 0, 4],
         )
 
         maint_btn = Button(
             text=S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
-            font_size='16sp',
+            font_size='18sp',
             bold=True,
             background_color=(0.2, 0.5, 0.7, 1)
         )
@@ -2011,7 +2017,7 @@ class SubstationAndroidApp(App):
 
         inspect_btn = Button(
             text=S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
-            font_size='16sp',
+            font_size='18sp',
             bold=True,
             background_color=(0.5, 0.5, 0.2, 1)
         )
@@ -2022,7 +2028,7 @@ class SubstationAndroidApp(App):
 
         back_btn = Button(
             text="< " + S.get("BUTTONS", {}).get("BACK", "Πίσω"),
-            font_size='16sp',
+            font_size='18sp',
             bold=True
         )
         back_btn.bind(on_press=lambda x: self.load_substations(None))
@@ -2274,7 +2280,7 @@ class SubstationAndroidApp(App):
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
             size_hint_y=None,
-            height=64,
+            height=80,
         )
         layout.add_widget(element_spinner)
 
@@ -2287,7 +2293,7 @@ class SubstationAndroidApp(App):
                     text=field["values"][0],
                     values=field["values"],
                     size_hint_y=None,
-                    height=64,
+                    height=80
                 )
                 field_inputs[field["key"]] = spinner
                 layout.add_widget(spinner)
@@ -2295,9 +2301,7 @@ class SubstationAndroidApp(App):
                 ti = TextInput(
                     hint_text=field.get("hint", ""),
                     size_hint_y=None,
-                    height=68,
-                    multiline=False,
-                    padding=[14, 14, 14, 14],
+                    height=90
                 )
                 field_inputs[field["key"]] = ti
                 layout.add_widget(ti)
@@ -2451,21 +2455,30 @@ class SubstationAndroidApp(App):
             text=datetime.now().strftime("%Y-%m-%d %H:%M"),
             hint_text="YYYY-MM-DD HH:MM",
             size_hint_y=None,
-            height=60,
+            height=95,
             multiline=False,
             padding=[12, 12, 12, 12],
         )
         content_layout.add_widget(datetime_input)
 
         # Overall comments (rendered outside the scrolling elements list
-        # so it remains visible and cannot be overlapped while elements load)
+        # so it remains visible and cannot be overlapped while elements load - auto-grow with content)
         overall_comments = TextInput(
             hint_text=S.get("MESSAGES", {}).get("OVERALL_COMMENTS_HINT", "Γενικά σχόλια για την συντήρηση..."),
             size_hint_y=None,
-            height=120,
+            height=150,
             multiline=True,
             padding=[12, 12, 12, 12],
         )
+        
+        def _adjust_overall_comments_height(instance, value):
+            try:
+                lines = max(1, instance.text.count("\n") + 1)
+                instance.height = max(150, min(400, lines * 35))
+            except Exception:
+                instance.height = 150
+        
+        overall_comments.bind(text=_adjust_overall_comments_height)
 
         # Elements section
         content_layout.add_widget(
@@ -2580,7 +2593,7 @@ class SubstationAndroidApp(App):
                         elem_comments = TextInput(
                             hint_text=S.get("MESSAGES", {}).get("ELEM_COMMENTS_HINT", "Σχόλια για αυτό το στοιχείο..."),
                             size_hint_y=None,
-                            height=56,
+                            height=80,
                             multiline=True,
                             padding=[12, 12, 12, 12],
                         )
@@ -2588,10 +2601,10 @@ class SubstationAndroidApp(App):
                         def _adjust_comments_height(instance, value):
                             try:
                                 lines = max(1, instance.text.count("\n") + 1)
-                                # approximate line height multiplier
-                                instance.height = max(56, min(300, lines * 28))
+                                # approximate line height multiplier - increased for better readability
+                                instance.height = max(80, min(350, lines * 40))
                             except Exception:
-                                instance.height = 56
+                                instance.height = 80
 
                         elem_comments.bind(text=_adjust_comments_height)
                         details_container.add_widget(elem_comments)
