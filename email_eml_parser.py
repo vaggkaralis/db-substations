@@ -27,7 +27,9 @@ _HEADER_PATTERNS = [
     re.compile(r"^\s*Από:\s", re.IGNORECASE),
     re.compile(r"^\s*Στάλθηκε:\s", re.IGNORECASE),
     re.compile(r"^\s*Προς:\s", re.IGNORECASE),
+    re.compile(r"^\s*Το:\s", re.IGNORECASE),
     re.compile(r"^\s*Θέμα:\s", re.IGNORECASE),
+    re.compile(r"^\s*Κοιν(?:\.|οποίηση)?:\s", re.IGNORECASE),
     re.compile(r"^\s*Cc:\s", re.IGNORECASE),  # Greek Cc
 ]
 
@@ -70,6 +72,10 @@ def _trim_first_message(text: str) -> str:
         is_separator = any(pat.search(line) for pat in _SEPARATOR_PATTERNS)
         
         if is_separator:
+            # Once we already captured user content, forwarded separator means
+            # the next block is previous mail history.
+            if content_started:
+                break
             skip_headers = True
             continue
 
@@ -79,6 +85,11 @@ def _trim_first_message(text: str) -> str:
         if not content_started and _is_header_line(line):
             skip_headers = True
             continue
+
+        # A header line appearing after content indicates quoted/forwarded
+        # history; stop here so previous thread content is not imported.
+        if content_started and _is_header_line(line):
+            break
         
         # If we're in header skip mode, skip until we find the header/body boundary (blank line)
         if skip_headers:
@@ -106,8 +117,23 @@ def _clean_body(text: str) -> str:
         return ""
 
     cleaned_lines = []
+    skipping_header_block = False
+
+    def _is_header_line(value: str) -> bool:
+        return any(pat.search(value) for pat in _HEADER_PATTERNS)
+
     for line in text.splitlines():
         stripped = line.strip()
+
+        if _is_header_line(line):
+            skipping_header_block = True
+            continue
+
+        if skipping_header_block:
+            if not stripped:
+                skipping_header_block = False
+            continue
+
         if not stripped:
             cleaned_lines.append("")
             continue
@@ -122,8 +148,26 @@ def _clean_body(text: str) -> str:
     cleaned = "\n".join(cleaned_lines)
     cleaned = re.sub(r"https?://\S+", "", cleaned)
     cleaned = re.sub(r"<\s*https?://[^>]+>", "", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned
+
+    # Preserve readability: normalize spacing per line, keep paragraph breaks,
+    # and split common inline numbering patterns into separate lines.
+    cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"(?<!\n)\s+(\d+\.)\s+", r"\n\1 ", cleaned)
+    cleaned = re.sub(r"(?<!\n)\s+(Σημείωση\s*\d+η?:)", r"\n\1", cleaned, flags=re.IGNORECASE)
+
+    normalized_lines = []
+    for line in cleaned.split("\n"):
+        compact_line = re.sub(r"\s+", " ", line).strip()
+        normalized_lines.append(compact_line)
+
+    cleaned = "\n".join(normalized_lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def sanitize_email_body_for_import(text: str) -> str:
+    """Return only the first message content, stripped from mail header/history noise."""
+    return _clean_body(_trim_first_message(text or ""))
 
 
 def _extract_body(message):
@@ -158,12 +202,14 @@ def _extract_body(message):
             content = ""
 
     if body_part.get_content_type() == "text/html":
+        content = re.sub(r"<\s*br\s*/?\s*>", "\n", content, flags=re.IGNORECASE)
+        content = re.sub(r"<\s*/\s*(p|div|li|tr|h[1-6])\s*>", "\n", content, flags=re.IGNORECASE)
         content = re.sub(r"<[^>]+>", " ", content)
-        content = re.sub(r"\s+", " ", content).strip()
+        content = re.sub(r"[ \t]+", " ", content)
+        content = re.sub(r"\n{3,}", "\n\n", content).strip()
 
-    # Trim BEFORE cleaning to preserve line breaks needed for pattern matching
-    trimmed = _trim_first_message(content or "")
-    return _clean_body(trimmed)
+    # Trim BEFORE cleaning to preserve line breaks needed for pattern matching.
+    return sanitize_email_body_for_import(content or "")
 
 
 def _extract_media_attachment_paths(message):

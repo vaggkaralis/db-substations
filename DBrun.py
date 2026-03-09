@@ -918,44 +918,62 @@ class SubstationApp(App):
     def _find_people_in_body(self, body_text: str, people, exclude_ids=None):
         exclude_ids = exclude_ids or set()
         tokens = self._tokenize_text(body_text)
-        token_set = set(tokens)
-        compact = re.sub(r"[^0-9a-zα-ω]+", "", self._normalize_text(body_text))
+        token_pairs = list(zip(tokens, tokens[1:]))
+        normalized_body = re.sub(r"[^0-9a-zα-ω]+", " ", self._normalize_text(body_text))
+        normalized_body = re.sub(r"\s+", " ", normalized_body).strip()
+
+        def _person_token_match(body_token: str, person_token: str) -> bool:
+            if not body_token or not person_token:
+                return False
+            if body_token == person_token:
+                return True
+            # Allow Greek declension variants that differ only by a suffix character.
+            if len(body_token) >= 4 and len(person_token) >= 4 and body_token[:-1] == person_token[:-1]:
+                return True
+            return False
+
+        def _matches_initial_and_surname(given_token: str, surname_token: str) -> bool:
+            if not given_token or not surname_token or not normalized_body:
+                return False
+            initial = given_token[0]
+            pattern = rf"\b{re.escape(initial)}\s*[.-]?\s*{re.escape(surname_token)}\b"
+            return re.search(pattern, normalized_body) is not None
 
         found = set()
+        matched_name_keys = set()
         for pid, name, _role in people:
             if pid in exclude_ids:
                 continue
             person_tokens = self._tokenize_text(name)
             if not person_tokens:
                 continue
-            
-            # Database stores "SURNAME FIRSTNAME", so check both tokens
-            first_token = person_tokens[0]   # Surname
-            last_token = person_tokens[-1]   # First name
-            
-            # Check if surname (first token) appears in body - with Greek declension matching
-            if first_token:
-                # Exact match
-                if first_token in token_set:
-                    found.add(pid)
-                    continue
-                # Check for Greek declension variants (e.g., ιορδανιδη vs ιορδανιδησ)
-                for body_token in token_set:
-                    if self._tokens_match([body_token], [first_token]):
-                        found.add(pid)
+
+            surname_token = person_tokens[0]
+            given_token = person_tokens[-1]
+            matched = False
+
+            if len(person_tokens) >= 2:
+                for left, right in token_pairs:
+                    if _person_token_match(left, surname_token) and _person_token_match(right, given_token):
+                        matched = True
                         break
-                if pid in found:
-                    continue
-            
-            # Check if first name (last token) appears in body
-            if last_token and last_token in token_set:
-                found.add(pid)
+                    if _person_token_match(left, given_token) and _person_token_match(right, surname_token):
+                        matched = True
+                        break
+
+                if not matched and _matches_initial_and_surname(given_token, surname_token):
+                    matched = True
+            else:
+                matched = any(_person_token_match(tok, person_tokens[0]) for tok in tokens)
+
+            if not matched:
                 continue
-            
-            # Check initial + surname pattern
-            initial = first_token[0] if first_token else ""
-            if initial and first_token and f"{initial}{first_token}" in compact:
-                found.add(pid)
+
+            name_key = " ".join(person_tokens)
+            if name_key in matched_name_keys:
+                continue
+            matched_name_keys.add(name_key)
+            found.add(pid)
 
         return found
 
@@ -5201,28 +5219,44 @@ class SubstationApp(App):
             hot_keep=hot_keep,
         )
         sync = summary["sync"]
+        processed = int(sync.get("processed", 0) or 0)
+        accepted = int(sync.get("accepted", 0) or 0)
+        already_applied = int(sync.get("already_applied", 0) or 0)
         conflicts = sync.get("conflicts", 0)
+        rejected = int(sync.get("rejected", 0) or 0)
         
         # If there are conflicts, show conflict resolution UI instead of summary
         if conflicts > 0:
             self._show_sync_notification(summary)
             return
-        
-        # Otherwise show regular summary
-        msg = S["MESSAGES"].get(
-            "SYNC_MANUAL_SUMMARY_FMT",
-            "Η επεξεργασία εισερχομένων ολοκληρώθηκε.\nΕπεξεργασμένα: {processed}\nΑποδεκτά: {accepted}\nΣε σύγκρουση: {conflicts}\nΑπορριφθέντα: {rejected}",
-        ).format(
-            processed=sync["processed"],
-            accepted=sync["accepted"],
-            conflicts=sync["conflicts"],
-            rejected=sync["rejected"],
-        )
+
+        # Manual sync uses the same visual language as auto sync (bold + color emphasis).
+        lines = [
+            S["MESSAGES"].get(
+                "SYNC_MANUAL_SUMMARY_TITLE",
+                "Η επεξεργασία εισερχομένων ολοκληρώθηκε.",
+            ),
+            "",
+            f"Επεξεργασμένα: [b]{processed}[/b]",
+            self._format_sync_report_line("Αποδεκτά", accepted, kind="positive"),
+        ]
+        if already_applied > 0:
+            lines.append(f"↻ Ήδη εφαρμοσμένα: [b]{already_applied}[/b]")
+        if rejected > 0:
+            lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
+
         if summary.get("snapshot"):
-            msg += "\n" + S["MESSAGES"].get("SYNC_SNAPSHOT_LINE_FMT", "Στιγμιότυπο: {snapshot}").format(
-                snapshot=summary["snapshot"]
+            lines.append(
+                S["MESSAGES"].get(
+                    "SYNC_SNAPSHOT_LINE_FMT",
+                    "Στιγμιότυπο: {snapshot}",
+                ).format(snapshot=summary["snapshot"])
             )
-        show_message_popup(S["TITLES"].get("INFO", "Πληροφορία"), msg)
+
+        self._show_rich_sync_report(
+            S["TITLES"].get("INFO", "Πληροφορία"),
+            "\n".join(lines),
+        )
 
     def _run_startup_sync_cycle(self, force=False):
         try:
@@ -5423,45 +5457,18 @@ class SubstationApp(App):
                 report_result = results["report_result"] or {}
                 relink_result = results["relink_result"] or {}
                 run_result = results["run_result"]
-                
-                summary_msg = S["MESSAGES"].get(
-                    "STARTUP_ONEDRIVE_SUMMARY_FMT",
-                    "OneDrive startup structure check:\n"
-                    "- Substations checked: {substations_total}\n"
-                    "- Folder structures synced: {substations_synced}\n"
-                    "- Folder failures: {substations_failed}\n\n"
-                    "Maintenance report check:\n"
-                    "- Maintenance/element pairs checked: {reports_total}\n"
-                    "- New reports generated: {reports_generated}\n"
-                    "- Reports already present (skipped): {reports_skipped}\n"
-                    "- Report failures: {reports_failed}\n\n"
-                    "Relink check:\n"
-                    "- Media links added: {media_linked}\n"
-                    "- Report links added: {report_links_added}\n"
-                    "- Report links already valid: {report_links_existing}\n"
-                    "- Report files still missing: {report_files_missing}",
-                ).format(
-                    substations_total=sync_result.get("total", 0),
-                    substations_synced=sync_result.get("synced", 0),
-                    substations_failed=sync_result.get("failed", 0),
-                    reports_total=report_result.get("total", 0),
-                    reports_generated=report_result.get("generated", 0),
-                    reports_skipped=report_result.get("skipped", 0),
-                    reports_failed=report_result.get("failed", 0),
-                    media_linked=relink_result.get("media_linked", 0),
-                    report_links_added=relink_result.get("reports_linked", 0),
-                    report_links_existing=relink_result.get("reports_already", 0),
-                    report_files_missing=relink_result.get("reports_missing", 0),
-                )
-                summary_delay = 1.2 if (run_result and run_result.get("sync", {}).get("conflicts", 0) > 0) else 0.6
-                Clock.schedule_once(
-                    lambda dt: show_message_popup(S["TITLES"].get("INFO", "Πληροφορία"), summary_msg),
-                    summary_delay,
-                )
-                
-                # Show conflict UI if conflicts detected at startup
-                if run_result and run_result.get("sync", {}).get("conflicts", 0) > 0:
-                    Clock.schedule_once(lambda dt: self._show_sync_notification(run_result), 0.5)
+
+                startup_sync = (run_result or {}).get("sync", {})
+                startup_accepted = int(startup_sync.get("accepted", 0) or 0)
+                startup_conflicts = int(startup_sync.get("conflicts", 0) or 0)
+
+                # Only notify for startup auto-sync when there is meaningful change to review.
+                if run_result and (startup_accepted > 0 or startup_conflicts > 0):
+                    summary_delay = 1.2 if startup_conflicts > 0 else 0.6
+                    Clock.schedule_once(
+                        lambda dt: self._show_sync_notification(run_result),
+                        summary_delay,
+                    )
 
                 # Refresh and persist startup probe state after startup sync work.
                 if probe_enabled:
@@ -5657,35 +5664,96 @@ class SubstationApp(App):
             if processed == 0:
                 return
 
-            # Show conflict resolution FIRST if there are conflicts
-            if conflicts > 0:
-                self._show_conflict_resolution(sync_result)
-                # Return early - conflict popup will show summary after resolution
+            # Show report only when there is something actionable to show.
+            if accepted <= 0 and conflicts <= 0:
                 return
 
-            msg = S["MESSAGES"].get(
-                "SYNC_AUTO_SUMMARY",
-                "Αυτόματος συγχρονισμός ολοκληρώθηκε:\n"
-            )
-            msg += f"\n[OK] Αποδεκτά: {accepted}"
+            if conflicts > 0:
+                lines = [
+                    S["MESSAGES"].get("SYNC_AUTO_SUMMARY", "Αυτόματος συγχρονισμός ολοκληρώθηκε:"),
+                    "",
+                ]
+                if accepted > 0:
+                    lines.append(self._format_sync_report_line("Αποδεκτά", accepted, kind="positive"))
+                lines.append(self._format_sync_report_line("Συγκρούσεις", conflicts, kind="negative"))
+                if rejected > 0:
+                    lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
+
+                self._show_rich_sync_report(
+                    S["TITLES"].get("SYNC_NOTIFICATION", "Συγχρονισμός"),
+                    "\n".join(lines),
+                )
+                # Open conflict resolution right after summary so user can act.
+                Clock.schedule_once(lambda dt: self._show_conflict_resolution(sync_result), 0.2)
+                return
+
+            lines = [
+                S["MESSAGES"].get("SYNC_AUTO_SUMMARY", "Αυτόματος συγχρονισμός ολοκληρώθηκε:"),
+                "",
+                self._format_sync_report_line("Αποδεκτά", accepted, kind="positive"),
+            ]
             if already_applied > 0:
-                msg += f"\n↻ Ήδη εφαρμοσμένα: {already_applied}"
+                lines.append(f"↻ Ήδη εφαρμοσμένα: {already_applied}")
             if rejected > 0:
-                msg += f"\n❌ Απορριφθέντα: {rejected}"
+                lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
 
             snapshot = sync_result.get("snapshot")
             if snapshot:
-                msg += "\n\n" + S["MESSAGES"].get(
-                    "SYNC_BACKUP_CREATED",
-                    "Δημιουργήθηκε αντίγραφο ασφαλείας."
+                lines.extend(
+                    [
+                        "",
+                        S["MESSAGES"].get(
+                            "SYNC_BACKUP_CREATED",
+                            "Δημιουργήθηκε αντίγραφο ασφαλείας.",
+                        ),
+                    ]
                 )
 
-            show_message_popup(
+            self._show_rich_sync_report(
                 S["TITLES"].get("SYNC_NOTIFICATION", "Συγχρονισμός"),
-                msg
+                "\n".join(lines),
             )
         except Exception:
             logging.exception("Failed to show sync notification")
+
+    def _format_sync_report_line(self, label, value, kind="neutral"):
+        """Return a sync report line with color emphasis for changed values."""
+        if kind == "positive":
+            color = "2e7d32"
+        elif kind == "negative":
+            color = "c62828"
+        else:
+            color = "1f1f1f"
+        return f"{label}: [b][color={color}]{value}[/color][/b]"
+
+    def _show_rich_sync_report(self, title, message):
+        """Show sync report popup with markup support (bold + colored values)."""
+        msg_len = len(message)
+        if msg_len < 100:
+            size_hint = (0.7, 0.3)
+        elif msg_len < 220:
+            size_hint = (0.85, 0.42)
+        else:
+            size_hint = (0.9, 0.58)
+
+        popup = Popup(title=title, size_hint=size_hint)
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        scroll = ScrollView()
+        msg_label = Label(text=message, size_hint_y=None, markup=True, halign="left", valign="top")
+        msg_label.bind(
+            width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", val[1] + 8),
+        )
+        scroll.add_widget(msg_label)
+        layout.add_widget(scroll)
+
+        close_btn = Button(text="OK", size_hint_y=0.15)
+        close_btn.bind(on_press=popup.dismiss)
+        layout.add_widget(close_btn)
+
+        popup.content = layout
+        popup.open()
 
     def _show_conflict_resolution(self, sync_result):
         """Show conflict resolution UI after sync detects conflicts."""
@@ -9866,6 +9934,59 @@ class SubstationApp(App):
                 )
                 return
 
+            def _add_separator(container, color=(0.75, 0.78, 0.82, 1), height=2):
+                sep = Widget(size_hint_y=None, height=height)
+                if hasattr(sep, "canvas"):
+                    try:
+                        with sep.canvas.before:
+                            sep._sep_color = Color(*color)
+                            sep._sep_rect = Rectangle(pos=sep.pos, size=sep.size)
+
+                        def _update_sep(_inst, _val):
+                            if hasattr(sep, "_sep_rect"):
+                                sep._sep_rect.pos = sep.pos
+                                sep._sep_rect.size = sep.size
+
+                        sep.bind(pos=_update_sep, size=_update_sep)
+                    except Exception:
+                        pass
+                container.add_widget(sep)
+
+            def _style_maintenance_card(card_widget):
+                if not hasattr(card_widget, "canvas"):
+                    return
+                try:
+                    with card_widget.canvas.before:
+                        card_widget._bg_color = Color(*self.theme.get("popup_bg", (0.97, 0.98, 0.99, 1)))
+                        card_widget._bg_rect = Rectangle(pos=card_widget.pos, size=card_widget.size)
+                    with card_widget.canvas.after:
+                        card_widget._border_color = Color(0.72, 0.76, 0.81, 1)
+                        card_widget._border_line = Line(
+                            rectangle=(
+                                card_widget.x,
+                                card_widget.y,
+                                card_widget.width,
+                                card_widget.height,
+                            ),
+                            width=1,
+                        )
+
+                    def _update_card_style(_inst, _val):
+                        if hasattr(card_widget, "_bg_rect"):
+                            card_widget._bg_rect.pos = card_widget.pos
+                            card_widget._bg_rect.size = card_widget.size
+                        if hasattr(card_widget, "_border_line"):
+                            card_widget._border_line.rectangle = (
+                                card_widget.x,
+                                card_widget.y,
+                                card_widget.width,
+                                card_widget.height,
+                            )
+
+                    card_widget.bind(pos=_update_card_style, size=_update_card_style)
+                except Exception:
+                    pass
+
             maint_ids = [row[0] for row in maintenance_records]
             people_by_maint = {}
             elements_by_maint = {}
@@ -9922,193 +10043,234 @@ class SubstationApp(App):
                     all_records_cache["people"] = people_by_maint
                     all_records_cache["elements"] = elements_by_maint
 
-            for (
-                maint_id,
-                sub_name,
-                maint_name,
-                date_time,
-                overall_comments,
-            ) in maintenance_records:
-                # Maintenance card
-                card = BoxLayout(
-                    orientation="vertical", size_hint_y=None, padding=5, spacing=5
-                )
-                card.bind(minimum_height=card.setter("height"))
+            grouped_records = {}
+            for row in maintenance_records:
+                grouped_records.setdefault(row[1], []).append(row)
 
-                # Header
-                header = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                display_name = maint_name or self._build_maintenance_name(
-                    sub_name, date_time
-                )
-                header.add_widget(
-                    Label(
-                        text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.45
-                    )
-                )
-                header.add_widget(Label(text=f"Ημ/νία: {date_time}", size_hint_x=0.2))
-                from ui.shared import IconOnlyButton
-                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
-                delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-                email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.1)
+            sorted_substations = sorted(grouped_records.keys(), key=lambda name: (name or "").lower())
 
-                def make_delete_handler(m_id, p):
-                    return lambda x: self.confirm_delete_maintenance(m_id, p)
+            for group_sub_name in sorted_substations:
+                group_rows = grouped_records[group_sub_name]
 
-                def make_email_handler(m_id):
-                    return lambda x: self.send_maintenance_email_report(m_id)
-
-                def make_edit_handler(m_id, p):
-                    return lambda x: self.show_maintenance_menu(
-                        None, None, p, m_id, lambda: self.show_maintenance_history(None)
-                    )
-
-                delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
-                email_btn.bind(on_press=make_email_handler(maint_id))
-                edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
-                header.add_widget(edit_btn)
-                header.add_widget(delete_btn)
-                header.add_widget(email_btn)
-                card.add_widget(header)
-
-                # Responsible and crew
-                people_info = people_by_maint.get(
-                    maint_id, {"responsible": None, "crew": []}
-                )
-                responsible = people_info.get("responsible")
-                crew = people_info.get("crew") or []
-                if responsible or crew:
-                    crew_text = ", ".join(crew) if crew else "-"
-                    resp_text = responsible if responsible else "-"
-                    people_label = Label(
-                        text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
-                        size_hint_y=None,
-                        height=25,
-                    )
-                    people_label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        ),
-                        texture_size=lambda instance, value: setattr(
-                            instance, "height", value[1] + 6
-                        ),
-                    )
-                    card.add_widget(people_label)
-
-                # Overall comments
-                if overall_comments:
-                    try:
-                        from maintenance_email_importer import _format_email_body_for_readability
-                        display_comments = _format_email_body_for_readability(overall_comments)
-                    except Exception:
-                        display_comments = overall_comments
-
-                    comment_label = Label(
-                        text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=display_comments), size_hint_y=None, height=30
-                    )
-                    comment_label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        ),
-                        texture_size=lambda instance, value: setattr(
-                            instance, "height", value[1] + 6
-                        ),
-                    )
-                    card.add_widget(comment_label)
-
-                # Elements for this maintenance (from bulk prefetch)
-                elements = elements_by_maint.get(maint_id, [])
-
-                # Elements list
-                elements_label = Label(
-                    text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
+                section_header = Label(
+                    text=f"[b]{group_sub_name}[/b]",
+                    markup=True,
                     size_hint_y=None,
-                    height=25,
-                    bold=True,
+                    height=34,
+                    halign="left",
+                    valign="middle",
                 )
-                card.add_widget(elements_label)
+                section_header.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                    texture_size=lambda inst, val: setattr(inst, "height", max(34, val[1] + 8)),
+                )
+                grid.add_widget(section_header)
+
+                group_count = Label(
+                    text=f"{len(group_rows)} συντηρήσεις",
+                    size_hint_y=None,
+                    height=22,
+                    halign="left",
+                    valign="middle",
+                )
+                group_count.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                    texture_size=lambda inst, val: setattr(inst, "height", max(22, val[1] + 4)),
+                )
+                grid.add_widget(group_count)
+                _add_separator(grid)
 
                 for (
-                    elem_id,
-                    elem_type,
-                    elem_name,
-                    serial_num,
-                    elem_comments,
-                    breaker_category,
-                ) in elements:
-                    # Element info with optional PDF button
-                    elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                    elem_row.bind(minimum_height=elem_row.setter("height"))
-
-                    elem_text = (
-                        f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
+                    maint_id,
+                    sub_name,
+                    maint_name,
+                    date_time,
+                    overall_comments,
+                ) in group_rows:
+                    # Maintenance card
+                    card = BoxLayout(
+                        orientation="vertical", size_hint_y=None, padding=8, spacing=6
                     )
-                    if elem_comments:
-                        elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
+                    card.bind(minimum_height=card.setter("height"))
+                    _style_maintenance_card(card)
 
-                    elem_label = Label(
-                        text=elem_text, size_hint_x=0.6, size_hint_y=None
+                    # Header
+                    header = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                    display_name = maint_name or self._build_maintenance_name(
+                        sub_name, date_time
                     )
-                    elem_label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        ),
-                        texture_size=lambda instance, value: (
-                            setattr(instance, "height", value[1] + 6),
-                            setattr(elem_row, "height", max(40, value[1] + 10)),
-                        ),
+                    header.add_widget(
+                        Label(
+                            text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.45
+                        )
                     )
-                    elem_row.add_widget(elem_label)
+                    header.add_widget(Label(text=f"Ημ/νία: {date_time}", size_hint_x=0.2))
+                    from ui.shared import IconOnlyButton
+                    edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
+                    delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+                    email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.1)
 
-                    # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES_ALL)
-                    buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
+                    def make_delete_handler(m_id, p):
+                        return lambda x: self.confirm_delete_maintenance(m_id, p)
 
-                    view_btn = Button(
-                        text=S["MESSAGES"].get("VIEW_SHORT", "Εμφ."),
-                        size_hint_x=0.34,
-                        size_hint_y=None,
-                        height=35,
-                        **font_kwargs,
-                    )
+                    def make_email_handler(m_id):
+                        return lambda x: self.send_maintenance_email_report(m_id)
 
-                    def make_view_handler(m_id, e_id, e_name):
-                        return lambda x: self.show_maintenance_element_details(
-                            m_id, e_id, e_name
+                    def make_edit_handler(m_id, p):
+                        return lambda x: self.show_maintenance_menu(
+                            None, None, p, m_id, lambda: self.show_maintenance_history(None)
                         )
 
-                    view_btn.bind(
-                        on_press=make_view_handler(maint_id, elem_id, elem_name)
-                    )
-                    buttons_container.add_widget(view_btn)
+                    delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
+                    email_btn.bind(on_press=make_email_handler(maint_id))
+                    edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
+                    header.add_widget(edit_btn)
+                    header.add_widget(delete_btn)
+                    header.add_widget(email_btn)
+                    card.add_widget(header)
 
-                    if (
-                        S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
-                        and breaker_category in self.BREAKER_CATEGORIES_ALL
-                    ):
-                        pdf_btn = Button(
-                            text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
-                            size_hint_x=0.5,
+                    # Responsible and crew
+                    people_info = people_by_maint.get(
+                        maint_id, {"responsible": None, "crew": []}
+                    )
+                    responsible = people_info.get("responsible")
+                    crew = people_info.get("crew") or []
+                    if responsible or crew:
+                        crew_text = ", ".join(crew) if crew else "-"
+                        resp_text = responsible if responsible else "-"
+                        people_label = Label(
+                            text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
+                            size_hint_y=None,
+                            height=25,
+                        )
+                        people_label.bind(
+                            width=lambda instance, value: setattr(
+                                instance, "text_size", (value, None)
+                            ),
+                            texture_size=lambda instance, value: setattr(
+                                instance, "height", value[1] + 6
+                            ),
+                        )
+                        card.add_widget(people_label)
+
+                    # Overall comments
+                    if overall_comments:
+                        try:
+                            from maintenance_email_importer import _format_email_body_for_readability
+                            display_comments = _format_email_body_for_readability(overall_comments)
+                        except Exception:
+                            display_comments = overall_comments
+
+                        comment_label = Label(
+                            text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=display_comments), size_hint_y=None, height=30
+                        )
+                        comment_label.bind(
+                            width=lambda instance, value: setattr(
+                                instance, "text_size", (value, None)
+                            ),
+                            texture_size=lambda instance, value: setattr(
+                                instance, "height", value[1] + 6
+                            ),
+                        )
+                        card.add_widget(comment_label)
+
+                    # Elements for this maintenance (from bulk prefetch)
+                    elements = elements_by_maint.get(maint_id, [])
+
+                    # Elements list
+                    elements_label = Label(
+                        text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
+                        size_hint_y=None,
+                        height=25,
+                        bold=True,
+                    )
+                    card.add_widget(elements_label)
+
+                    for (
+                        elem_id,
+                        elem_type,
+                        elem_name,
+                        serial_num,
+                        elem_comments,
+                        breaker_category,
+                    ) in elements:
+                        # Element info with optional PDF button
+                        elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                        elem_row.bind(minimum_height=elem_row.setter("height"))
+
+                        elem_text = (
+                            f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
+                        )
+                        if elem_comments:
+                            elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
+
+                        elem_label = Label(
+                            text=elem_text, size_hint_x=0.6, size_hint_y=None
+                        )
+                        elem_label.bind(
+                            width=lambda instance, value: setattr(
+                                instance, "text_size", (value, None)
+                            ),
+                            texture_size=lambda instance, value: (
+                                setattr(instance, "height", value[1] + 6),
+                                setattr(elem_row, "height", max(40, value[1] + 10)),
+                            ),
+                        )
+                        elem_row.add_widget(elem_label)
+
+                        # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES_ALL)
+                        buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
+
+                        view_btn = Button(
+                            text=S["MESSAGES"].get("VIEW_SHORT", "Εμφ."),
+                            size_hint_x=0.34,
                             size_hint_y=None,
                             height=35,
                             **font_kwargs,
                         )
 
-                        def make_pdf_handler(m_id, e_id, e_name):
-                            return lambda x: self.generate_pdf_report(
+                        def make_view_handler(m_id, e_id, e_name):
+                            return lambda x: self.show_maintenance_element_details(
                                 m_id, e_id, e_name
                             )
 
-                        pdf_btn.bind(
-                            on_press=make_pdf_handler(maint_id, elem_id, elem_name)
+                        view_btn.bind(
+                            on_press=make_view_handler(maint_id, elem_id, elem_name)
                         )
-                        buttons_container.add_widget(pdf_btn)
-                    else:
-                        buttons_container.add_widget(Label(text="", size_hint_x=0.5))
+                        buttons_container.add_widget(view_btn)
 
-                    elem_row.add_widget(buttons_container)
+                        if (
+                            S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
+                            and breaker_category in self.BREAKER_CATEGORIES_ALL
+                        ):
+                            pdf_btn = Button(
+                                text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
+                                size_hint_x=0.5,
+                                size_hint_y=None,
+                                height=35,
+                                **font_kwargs,
+                            )
 
-                    card.add_widget(elem_row)
+                            def make_pdf_handler(m_id, e_id, e_name):
+                                return lambda x: self.generate_pdf_report(
+                                    m_id, e_id, e_name
+                                )
 
-                grid.add_widget(card)
+                            pdf_btn.bind(
+                                on_press=make_pdf_handler(maint_id, elem_id, elem_name)
+                            )
+                            buttons_container.add_widget(pdf_btn)
+                        else:
+                            buttons_container.add_widget(Label(text="", size_hint_x=0.5))
+
+                        elem_row.add_widget(buttons_container)
+
+                        card.add_widget(elem_row)
+
+                    grid.add_widget(card)
+                    _add_separator(grid, color=(0.82, 0.84, 0.87, 1), height=1)
+
+                grid.add_widget(Widget(size_hint_y=None, height=8))
 
         def _on_select_substation_filter(sub_name):
             substation_input.text = sub_name
@@ -10206,6 +10368,59 @@ class SubstationApp(App):
             grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
             grid.bind(minimum_height=grid.setter("height"))
 
+            def _add_separator(container, color=(0.75, 0.78, 0.82, 1), height=2):
+                sep = Widget(size_hint_y=None, height=height)
+                if hasattr(sep, "canvas"):
+                    try:
+                        with sep.canvas.before:
+                            sep._sep_color = Color(*color)
+                            sep._sep_rect = Rectangle(pos=sep.pos, size=sep.size)
+
+                        def _update_sep(_inst, _val):
+                            if hasattr(sep, "_sep_rect"):
+                                sep._sep_rect.pos = sep.pos
+                                sep._sep_rect.size = sep.size
+
+                        sep.bind(pos=_update_sep, size=_update_sep)
+                    except Exception:
+                        pass
+                container.add_widget(sep)
+
+            def _style_maintenance_card(card_widget):
+                if not hasattr(card_widget, "canvas"):
+                    return
+                try:
+                    with card_widget.canvas.before:
+                        card_widget._bg_color = Color(*self.theme.get("popup_bg", (0.97, 0.98, 0.99, 1)))
+                        card_widget._bg_rect = Rectangle(pos=card_widget.pos, size=card_widget.size)
+                    with card_widget.canvas.after:
+                        card_widget._border_color = Color(0.72, 0.76, 0.81, 1)
+                        card_widget._border_line = Line(
+                            rectangle=(
+                                card_widget.x,
+                                card_widget.y,
+                                card_widget.width,
+                                card_widget.height,
+                            ),
+                            width=1,
+                        )
+
+                    def _update_card_style(_inst, _val):
+                        if hasattr(card_widget, "_bg_rect"):
+                            card_widget._bg_rect.pos = card_widget.pos
+                            card_widget._bg_rect.size = card_widget.size
+                        if hasattr(card_widget, "_border_line"):
+                            card_widget._border_line.rectangle = (
+                                card_widget.x,
+                                card_widget.y,
+                                card_widget.width,
+                                card_widget.height,
+                            )
+
+                    card_widget.bind(pos=_update_card_style, size=_update_card_style)
+                except Exception:
+                    pass
+
             maint_ids = [row[0] for row in maintenance_records]
             people_by_maint = {}
             elements_by_maint = {}
@@ -10258,9 +10473,10 @@ class SubstationApp(App):
             for maint_id, maint_name, date_time, overall_comments in maintenance_records:
                 # Maintenance card
                 card = BoxLayout(
-                    orientation="vertical", size_hint_y=None, padding=5, spacing=5
+                    orientation="vertical", size_hint_y=None, padding=8, spacing=6
                 )
                 card.bind(minimum_height=card.setter("height"))
+                _style_maintenance_card(card)
 
                 # Header
                 header = BoxLayout(size_hint_y=None, height=40, spacing=5)
@@ -10429,6 +10645,7 @@ class SubstationApp(App):
                     card.add_widget(elem_row)
 
                 grid.add_widget(card)
+                _add_separator(grid, color=(0.82, 0.84, 0.87, 1), height=1)
 
             scroll.add_widget(grid)
             main_layout.add_widget(scroll)

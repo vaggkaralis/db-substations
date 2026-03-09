@@ -11,7 +11,7 @@ import subprocess
 from datetime import datetime
 
 from database import init_db
-from email_eml_parser import _trim_first_message, _clean_body
+from email_eml_parser import sanitize_email_body_for_import
 from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
 
 
@@ -339,9 +339,8 @@ def _iter_pst_payloads(namespace, target_store):
             for item in _iter_mail_items(folder):
                 subject = (getattr(item, "Subject", "") or "").strip()
                 body = (getattr(item, "Body", "") or "").strip()
-                # Apply the same trimming and cleaning logic as EML import
-                body = _trim_first_message(body)
-                body = _clean_body(body)
+                # Apply the same body sanitization as EML import.
+                body = sanitize_email_body_for_import(body)
                 sender_name = (getattr(item, "SenderName", "") or "").strip()
                 received_at = _to_iso(getattr(item, "ReceivedTime", None))
                 sender_email = _get_sender_email(item)

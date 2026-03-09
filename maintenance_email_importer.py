@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime
 
 from database import init_db
+from email_eml_parser import sanitize_email_body_for_import
 from email_text_utils import normalize_text as _normalize_text
 from email_text_utils import tokenize_text as _tokenize_text
 from email_text_utils import tokens_match as _tokens_match
@@ -338,50 +339,71 @@ def _match_person_by_sender(conn, sender_email: str, sender_name: str):
 def _find_people_in_body(conn, body_text: str, exclude_ids=None):
     exclude_ids = exclude_ids or set()
     c = conn.cursor()
-    c.execute("SELECT id, name FROM people WHERE active=1")
+    c.execute("SELECT id, name FROM people WHERE active=1 ORDER BY id")
     people = c.fetchall()
 
     tokens = _tokenize_text(body_text)
-    token_set = set(tokens)
-    compact = re.sub(r"[^0-9a-zα-ω]+", "", _normalize_text(body_text))
+    token_pairs = list(zip(tokens, tokens[1:]))
+    normalized_body = re.sub(r"[^0-9a-zα-ω]+", " ", _normalize_text(body_text))
+    normalized_body = re.sub(r"\s+", " ", normalized_body).strip()
+
+    def _person_token_match(body_token: str, person_token: str) -> bool:
+        if not body_token or not person_token:
+            return False
+        if body_token == person_token:
+            return True
+        # Allow Greek declension variants that differ only by a suffix character.
+        if len(body_token) >= 4 and len(person_token) >= 4 and body_token[:-1] == person_token[:-1]:
+            return True
+        return False
+
+    def _matches_initial_and_surname(given_token: str, surname_token: str) -> bool:
+        if not given_token or not surname_token or not normalized_body:
+            return False
+        initial = given_token[0]
+        # Match patterns like "Ν. Γιαννουλας" and "Ν Γιαννουλας".
+        pattern = rf"\b{re.escape(initial)}\s*[.-]?\s*{re.escape(surname_token)}\b"
+        return re.search(pattern, normalized_body) is not None
 
     found = set()
+    matched_name_keys = set()
     for pid, name in people:
         if pid in exclude_ids:
             continue
         person_tokens = _tokenize_text(name)
         if not person_tokens:
             continue
-        
-        # Database stores "SURNAME FIRSTNAME", so check both tokens
-        first_token = person_tokens[0]  # Surname
-        last_token = person_tokens[-1]   # First name
-        
-        # Check if surname (first token) appears in body - with Greek declension matching
-        if first_token:
-            # Exact match
-            if first_token in token_set:
-                found.add(pid)
-                continue
-            # Check for Greek declension variants (e.g., ιορδανιδη vs ιορδανιδησ)
-            for body_token in token_set:
-                if _tokens_match([body_token], [first_token]):
-                    found.add(pid)
-                    break
-            if pid in found:
-                continue
-        
-        # Check if first name (last token) appears in body
-        if last_token and last_token in token_set:
-            found.add(pid)
-            continue
-        
-        # Check initial + surname pattern
-        initial = first_token[0] if first_token else ""
-        if initial and first_token and f"{initial}{first_token}" in compact:
-            found.add(pid)
 
-    return found
+        surname_token = person_tokens[0]
+        given_token = person_tokens[-1]
+        matched = False
+
+        # Require stronger evidence: contiguous full-name tokens in either order.
+        if len(person_tokens) >= 2:
+            for left, right in token_pairs:
+                if _person_token_match(left, surname_token) and _person_token_match(right, given_token):
+                    matched = True
+                    break
+                if _person_token_match(left, given_token) and _person_token_match(right, surname_token):
+                    matched = True
+                    break
+
+            # Also support abbreviated form: initial + surname.
+            if not matched and _matches_initial_and_surname(given_token, surname_token):
+                matched = True
+        else:
+            # Single-token names are accepted only on exact token match.
+            matched = any(_person_token_match(tok, person_tokens[0]) for tok in tokens)
+
+        if not matched:
+            continue
+
+        # Collapse duplicate person rows with the same normalized display name.
+        name_key = " ".join(person_tokens)
+        if name_key in matched_name_keys:
+            continue
+        matched_name_keys.add(name_key)
+        found.add(pid)
 
     return found
 
@@ -606,6 +628,8 @@ def create_maintenance_from_email(
         if not substation:
             return False, "Substation not found in subject or body"
 
+        sanitized_body = sanitize_email_body_for_import(body or "")
+
         person = _match_person_by_sender(conn, sender_email, sender_name)
         responsible_id = person["id"] if person else None
 
@@ -631,7 +655,7 @@ def create_maintenance_from_email(
             responsible_id = prev_defaults.get("responsible_id")
 
         maint_cols = _get_table_columns(conn, "maintenance")
-        formatted_body = _format_email_body_for_readability(body)
+        formatted_body = _format_email_body_for_readability(sanitized_body)
 
         fields = ["substation_id", "date_time", "overall_comments"]
         values = [substation["id"], date_time_value, formatted_body]
@@ -670,7 +694,7 @@ def create_maintenance_from_email(
                 pass
 
         crew_ids = _find_people_in_body(
-            conn, body, exclude_ids={responsible_id} if responsible_id else set()
+            conn, sanitized_body, exclude_ids={responsible_id} if responsible_id else set()
         )
         # Don't use fallback to previous maintenance crew - only include explicitly mentioned crew
         # This prevents false preselection of crew members from previous work
@@ -684,7 +708,7 @@ def create_maintenance_from_email(
             except Exception:
                 pass
 
-        element_ids = _find_elements_in_body(conn, body, substation["id"])
+        element_ids = _find_elements_in_body(conn, sanitized_body, substation["id"])
         if not element_ids:
             if not prev_defaults:
                 prev_defaults = _get_previous_maintenance_defaults(
