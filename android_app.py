@@ -720,7 +720,7 @@ class SubstationAndroidApp(App):
 
             # Header with app title and logo
             Logger.info("APP: Creating header with logo")
-            header_box = BoxLayout(size_hint_y=0.06, spacing=10, padding=[10, 5])
+            header_box = BoxLayout(size_hint_y=0.12, spacing=10, padding=[10, 12])
             
             # Try to add logo if it exists with white background
             try:
@@ -1855,12 +1855,12 @@ class SubstationAndroidApp(App):
         def _name_font_for_button(name_text):
             name_len = len((name_text or "").strip())
             if name_len >= 36:
-                return 14
+                return 20
             if name_len >= 28:
-                return 15
+                return 22
             if name_len >= 20:
-                return 16
-            return 18
+                return 24
+            return 26
 
         for substation in self.substations:
             name = substation.get("name", "-")
@@ -1876,7 +1876,7 @@ class SubstationAndroidApp(App):
                 bold=True,
                 halign='center',
                 valign='middle',
-                padding=[10, 8],
+                padding=[5, 5],
                 background_color=(0.18, 0.34, 0.52, 1),
             )
             substation_btn.bind(
