@@ -1677,7 +1677,7 @@ class SubstationAndroidApp(App):
             Logger.error(f"SYNC: Error showing sync settings: {e}")
             self.show_error(f"Σφάλμα: {str(e)}")
 
-    def _copy_content_uri_to_file(self, uri):
+    def _copy_content_uri_to_file(self, uri, on_progress=None):
 
         # Copy a content:// URI to a local file and return the path.
         # This attempts to use Android ContentResolver via pyjnius when running
@@ -1702,13 +1702,43 @@ class SubstationAndroidApp(App):
             uri_obj = Uri.parse(uri)
             in_stream = content_resolver.openInputStream(uri_obj)
 
-            # choose a local filename
+            # Try to resolve a stable display name + total size for better UX.
+            filename = "content_db.db"
+            total_bytes = None
+            cursor = None
             try:
-                filename = os.path.basename(uri)
-                if not filename or filename.strip() == "":
-                    filename = "content_db.db"
+                OpenableColumns = autoclass("android.provider.OpenableColumns")
+                cursor = content_resolver.query(uri_obj, None, None, None, None)
+                if cursor and cursor.moveToFirst():
+                    name_idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    size_idx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if name_idx != -1:
+                        try:
+                            raw_name = cursor.getString(name_idx)
+                            if raw_name and str(raw_name).strip():
+                                filename = os.path.basename(str(raw_name))
+                        except Exception:
+                            pass
+                    if size_idx != -1:
+                        try:
+                            if not cursor.isNull(size_idx):
+                                total_bytes = int(cursor.getLong(size_idx))
+                        except Exception:
+                            total_bytes = None
             except Exception:
-                filename = "content_db.db"
+                # Fallback to URI-derived name if metadata query fails.
+                try:
+                    uri_name = os.path.basename(uri)
+                    if uri_name and uri_name.strip():
+                        filename = uri_name
+                except Exception:
+                    pass
+            finally:
+                if cursor is not None:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
 
             target_dir = getattr(self, "user_data_dir", None) or os.path.join(
                 os.getcwd(), "user_data"
@@ -1716,13 +1746,57 @@ class SubstationAndroidApp(App):
             os.makedirs(target_dir, exist_ok=True)
             target_path = os.path.join(target_dir, filename)
 
-            # Write bytes from InputStream to local file (read one byte at a time)
+            # Write bytes from InputStream to local file using buffered chunks.
+            copied_bytes = 0
+            progress_interval = 256 * 1024
+            next_progress_mark = progress_interval
             with open(target_path, "wb") as outp:
-                while True:
-                    b = in_stream.read()
-                    if b == -1:
-                        break
-                    outp.write(bytes((b,)))
+                try:
+                    buffer = bytearray(64 * 1024)
+                    while True:
+                        read_count = in_stream.read(buffer)
+                        if read_count == -1:
+                            break
+                        if read_count is None or read_count <= 0:
+                            continue
+                        outp.write(buffer[:read_count])
+                        copied_bytes += int(read_count)
+                        if on_progress and copied_bytes >= next_progress_mark:
+                            try:
+                                on_progress(copied_bytes, total_bytes)
+                            except Exception:
+                                pass
+                            next_progress_mark += progress_interval
+                except Exception as buffered_err:
+                    # Some Android providers can reject bulk read(buffer).
+                    # Fallback to bytewise read to preserve compatibility.
+                    Logger.warning(f"APP: Buffered content copy fallback: {buffered_err}")
+                    try:
+                        in_stream.close()
+                    except Exception:
+                        pass
+                    in_stream = content_resolver.openInputStream(uri_obj)
+                    outp.seek(0)
+                    outp.truncate(0)
+                    copied_bytes = 0
+                    while True:
+                        b = in_stream.read()
+                        if b == -1:
+                            break
+                        outp.write(bytes((b,)))
+                        copied_bytes += 1
+                        if on_progress and copied_bytes >= next_progress_mark:
+                            try:
+                                on_progress(copied_bytes, total_bytes)
+                            except Exception:
+                                pass
+                            next_progress_mark += progress_interval
+
+            if on_progress:
+                try:
+                    on_progress(copied_bytes, total_bytes)
+                except Exception:
+                    pass
             try:
                 in_stream.close()
             except Exception:
@@ -1774,13 +1848,35 @@ class SubstationAndroidApp(App):
             except Exception as e:
                 Logger.error(f"APP: Error in copy callback: {e}")
 
+        def _update_progress(copied, total):
+            def _ui(_dt):
+                try:
+                    copied_mb = copied / (1024 * 1024)
+                    if total and total > 0:
+                        total_mb = total / (1024 * 1024)
+                        pct = int((copied * 100) / total)
+                        msg.text = f"Αντιγραφή αρχείου... {copied_mb:.1f}/{total_mb:.1f} MB ({pct}%)"
+                        if progress is not None:
+                            progress.value = max(0, min(100, pct))
+                    else:
+                        msg.text = f"Αντιγραφή αρχείου... {copied_mb:.1f} MB"
+                        if progress is not None:
+                            progress.value = min(100, (progress.value + 3))
+                except Exception:
+                    pass
+
+            Clock.schedule_once(_ui, 0)
+
         def _worker():
             try:
-                path = self._copy_content_uri_to_file(uri)
+                path = self._copy_content_uri_to_file(uri, on_progress=_update_progress)
                 # mark progress complete if progress bar is present
                 try:
                     if progress is not None:
-                        progress.value = getattr(progress, "max", 100)
+                        Clock.schedule_once(
+                            lambda _dt: setattr(progress, "value", getattr(progress, "max", 100)),
+                            0,
+                        )
                 except Exception:
                     pass
                 Clock.schedule_once(lambda _dt: finish(True, path), 0)
