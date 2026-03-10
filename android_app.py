@@ -1913,13 +1913,13 @@ class SubstationAndroidApp(App):
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=15)
 
         # Substation header with desktop-like summary details (increased spacing for readability)
-        header_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=210, spacing=8)
+        header_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=260, spacing=12)
         name_label = Label(
             text=substation["name"],
             bold=True,
             font_size="18sp",
             size_hint_y=None,
-            height=30,
+            height=40,
         )
         name_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
 
@@ -1942,7 +1942,7 @@ class SubstationAndroidApp(App):
             text=f"{S.get('MESSAGES', {}).get('LOC', 'Τοποθεσία')}: {location_text}",
             font_size="13sp",
             size_hint_y=None,
-            height=25,
+            height=32,
         )
         location_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
 
@@ -1950,7 +1950,7 @@ class SubstationAndroidApp(App):
             text=f"{S.get('MESSAGES', {}).get('ADOPTION', 'Ανάληψη')}: {adoption_text}",
             font_size="13sp",
             size_hint_y=None,
-            height=22,
+            height=28,
         )
         adoption_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
 
@@ -1962,7 +1962,7 @@ class SubstationAndroidApp(App):
             ),
             font_size="13sp",
             size_hint_y=None,
-            height=22,
+            height=28,
         )
         counts_line_1.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
 
@@ -1974,7 +1974,7 @@ class SubstationAndroidApp(App):
             ),
             font_size="13sp",
             size_hint_y=None,
-            height=22,
+            height=28,
         )
         counts_line_2.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
 
@@ -1987,7 +1987,7 @@ class SubstationAndroidApp(App):
 
         # Load elements for this substation (generous vertical spacing for clarity)
         scroll = ScrollView()
-        grid = GridLayout(cols=1, spacing=25, size_hint_y=None, padding=15)
+        grid = GridLayout(cols=1, spacing=35, size_hint_y=None, padding=20)
         grid.bind(minimum_height=grid.setter("height"))
 
         self._load_substation_elements(substation_id, grid)
@@ -2058,9 +2058,9 @@ class SubstationAndroidApp(App):
                     # Compact card-style element display
                     elem_card = BoxLayout(
                         size_hint_y=None,
-                        height=85,
-                        spacing=5,
-                        padding=[8, 5],
+                        height=130,
+                        spacing=8,
+                        padding=[10, 8],
                         orientation="horizontal"
                     )
 
