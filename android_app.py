@@ -2016,8 +2016,11 @@ class SubstationAndroidApp(App):
             font_size="18sp",
             size_hint_y=None,
             height=52,
+            shorten=True,
+            shorten_from="right",
+            max_lines=1,
         )
-        name_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
+        name_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
 
         location = substation.get("location") or "-"
         location_text = (
@@ -2039,46 +2042,71 @@ class SubstationAndroidApp(App):
             font_size="13sp",
             size_hint_y=None,
             height=38,
+            shorten=True,
+            shorten_from="right",
+            max_lines=1,
         )
-        location_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
+        location_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
 
         adoption_label = Label(
             text=f"{S.get('MESSAGES', {}).get('ADOPTION', 'Ανάληψη')}: {adoption_text}",
             font_size="13sp",
             size_hint_y=None,
             height=34,
+            shorten=True,
+            shorten_from="right",
+            max_lines=1,
         )
-        adoption_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
+        adoption_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
 
         counts_line_1 = Label(
             text=(
                 f"{S.get('MESSAGES', {}).get('INFO', 'Στοιχεία')}: {elements_count}    "
-                f"{S.get('MESSAGES', {}).get('GATES', 'Πύλες')}: {gates_count}    "
-                f"{S.get('MESSAGES', {}).get('CAPACITORS', 'Πυκνωτές')}: {capacitors_count}"
+                f"{S.get('MESSAGES', {}).get('GATES', 'Πύλες')}: {gates_count}"
             ),
             font_size="13sp",
             size_hint_y=None,
             height=36,
+            shorten=True,
+            shorten_from="right",
+            max_lines=1,
         )
-        counts_line_1.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
+        counts_line_1.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
 
         counts_line_2 = Label(
             text=(
-                f"{S.get('MESSAGES', {}).get('MAINTENANCES', 'Συντηρήσεις')}: {maint_count}    "
+                f"{S.get('MESSAGES', {}).get('CAPACITORS', 'Πυκνωτές')}: {capacitors_count}    "
+                f"{S.get('MESSAGES', {}).get('MAINTENANCES', 'Συντηρήσεις')}: {maint_count}"
+            ),
+            font_size="13sp",
+            size_hint_y=None,
+            height=36,
+            shorten=True,
+            shorten_from="right",
+            max_lines=1,
+        )
+        counts_line_2.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
+
+        counts_line_3 = Label(
+            text=(
                 f"{S.get('MESSAGES', {}).get('LAST', 'Τελευταία')}: {last_maintenance}    "
                 f"{S.get('MESSAGES', {}).get('SINGLE_LINE', 'Μονογραμμικό')}: {mono_status}"
             ),
             font_size="13sp",
             size_hint_y=None,
             height=36,
+            shorten=True,
+            shorten_from="right",
+            max_lines=1,
         )
-        counts_line_2.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, inst.height)))
+        counts_line_3.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
 
         header_layout.add_widget(name_label)
         header_layout.add_widget(location_label)
         header_layout.add_widget(adoption_label)
         header_layout.add_widget(counts_line_1)
         header_layout.add_widget(counts_line_2)
+        header_layout.add_widget(counts_line_3)
         main_layout.add_widget(header_layout)
 
         # Load elements for this substation (generous vertical spacing for clarity)
@@ -2177,9 +2205,10 @@ class SubstationAndroidApp(App):
                         size_hint_y=None,
                         height=42,
                         shorten=True,
-                        shorten_from='right'
+                        shorten_from='right',
+                        max_lines=1,
                     )
-                    line1.bind(size=line1.setter('text_size'))
+                    line1.bind(size=lambda inst, _size: setattr(inst, 'text_size', (inst.width, None)))
                     info_layout.add_widget(line1)
                     
                     # Line 2: S/N, manufacturer, model, ID (matching desktop format)
@@ -2196,9 +2225,10 @@ class SubstationAndroidApp(App):
                         size_hint_y=None,
                         height=36,
                         shorten=True,
-                        shorten_from='right'
+                        shorten_from='right',
+                        max_lines=1,
                     )
-                    line2.bind(size=line2.setter('text_size'))
+                    line2.bind(size=lambda inst, _size: setattr(inst, 'text_size', (inst.width, None)))
                     info_layout.add_widget(line2)
                     
                     # Line 3: Voltage, year, status
@@ -2221,9 +2251,10 @@ class SubstationAndroidApp(App):
                         size_hint_y=None,
                         height=34,
                         shorten=True,
-                        shorten_from='right'
+                        shorten_from='right',
+                        max_lines=1,
                     )
-                    line3.bind(size=line3.setter('text_size'))
+                    line3.bind(size=lambda inst, _size: setattr(inst, 'text_size', (inst.width, None)))
                     info_layout.add_widget(line3)
                     
                     elem_card.add_widget(info_layout)
