@@ -4018,7 +4018,25 @@ class SubstationApp(App):
             "tracker_mtime": tracker_mtime,
         }
 
-    def _show_startup_sync_prompt_popup(self, on_sync=None, on_skip=None):
+    def _build_startup_probe_summary(self, probe: dict | None) -> str:
+        """Build a compact summary shown in the startup sync prompt."""
+        if not isinstance(probe, dict):
+            return ""
+
+        pending = int(((probe.get("pending") or {}).get("count", 0) or 0))
+        accepted = int(((probe.get("accepted") or {}).get("count", 0) or 0))
+        shared_dirs = int(probe.get("shared_substation_dirs", 0) or 0)
+        shared_exists = bool(probe.get("shared_root_exists", True))
+
+        lines = [S["MESSAGES"].get("STARTUP_SYNC_SUMMARY_TITLE", "Σύνοψη διαφοράς:")]
+        lines.append(f"• Εκκρεμή αρχεία εισαγωγής: {pending}")
+        lines.append(f"• Αρχεία στο processed/accepted: {accepted}")
+        lines.append(f"• Υποσταθμοί στον κοινόχρηστο φάκελο: {shared_dirs}")
+        if not shared_exists:
+            lines.append("• Προσοχή: ο κοινόχρηστος φάκελος δεν βρέθηκε.")
+        return "\n".join(lines)
+
+    def _show_startup_sync_prompt_popup(self, on_sync=None, on_skip=None, summary_text=""):
         """Prompt the user to start full startup sync only when probe detects differences."""
         popup = Popup(
             title=S["MESSAGES"].get("STARTUP_SYNC_PROMPT_TITLE", "Synchronization Detected"),
@@ -4033,6 +4051,15 @@ class SubstationApp(App):
             "Do you want to run synchronization now?",
         )
         layout.add_widget(Label(text=msg, halign="center", valign="middle"))
+
+        if summary_text:
+            summary_label = Label(text=summary_text, halign="left", valign="top", markup=False)
+            summary_label.bind(
+                width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                texture_size=lambda inst, val: setattr(inst, "height", val[1] + 8),
+            )
+            summary_label.size_hint_y = None
+            layout.add_widget(summary_label)
 
         buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=46, spacing=8)
         sync_btn = Button(text=S["BUTTONS"].get("SYNC_NOW", "Sync now"))
@@ -5245,6 +5272,8 @@ class SubstationApp(App):
         if rejected > 0:
             lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
 
+        lines.extend(self._build_sync_file_summary_lines(sync, max_files=6))
+
         if summary.get("snapshot"):
             lines.append(
                 S["MESSAGES"].get(
@@ -5304,6 +5333,7 @@ class SubstationApp(App):
                     self._show_startup_sync_prompt_popup(
                         on_sync=lambda: self._run_startup_sync_cycle(force=True),
                         on_skip=_defer_startup_sync,
+                        summary_text=self._build_startup_probe_summary(current_probe),
                     )
                     return
             
@@ -5678,6 +5708,7 @@ class SubstationApp(App):
                 lines.append(self._format_sync_report_line("Συγκρούσεις", conflicts, kind="negative"))
                 if rejected > 0:
                     lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
+                lines.extend(self._build_sync_file_summary_lines(sync_summary, max_files=6))
 
                 self._show_rich_sync_report(
                     S["TITLES"].get("SYNC_NOTIFICATION", "Συγχρονισμός"),
@@ -5697,6 +5728,8 @@ class SubstationApp(App):
             if rejected > 0:
                 lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
 
+            lines.extend(self._build_sync_file_summary_lines(sync_summary, max_files=6))
+
             snapshot = sync_result.get("snapshot")
             if snapshot:
                 lines.extend(
@@ -5715,6 +5748,47 @@ class SubstationApp(App):
             )
         except Exception:
             logging.exception("Failed to show sync notification")
+
+    def _build_sync_file_summary_lines(self, sync_summary, max_files=5):
+        """Build compact per-file summary lines for sync popups."""
+        summaries = (sync_summary or {}).get("file_summaries") or []
+        if not summaries:
+            return []
+
+        lines = ["", S["MESSAGES"].get("SYNC_FILE_SUMMARY_TITLE", "Αρχεία αλλαγών:")]
+        shown = 0
+        for item in summaries:
+            if shown >= max_files:
+                break
+            name = os.path.basename(str(item.get("source_file") or "-") or "-")
+            accepted = int(item.get("accepted", 0) or 0)
+            already_applied = int(item.get("already_applied", 0) or 0)
+            conflicts = int(item.get("conflicts", 0) or 0)
+            status = str(item.get("status") or "pending")
+            table_counts = item.get("table_counts") or {}
+
+            bits = [f"• {name}"]
+            if accepted > 0:
+                bits.append(f"+{accepted}")
+            if already_applied > 0:
+                bits.append(f"↻{already_applied}")
+            if conflicts > 0:
+                bits.append(f"⚠{conflicts}")
+            if status == "rejected":
+                bits.append("✖")
+
+            if isinstance(table_counts, dict) and table_counts:
+                top_tables = sorted(table_counts.items(), key=lambda kv: int(kv[1]), reverse=True)[:2]
+                top_text = ", ".join(f"{tbl}:{cnt}" for tbl, cnt in top_tables)
+                bits.append(top_text)
+
+            lines.append(" | ".join(bits))
+            shown += 1
+
+        remaining = len(summaries) - shown
+        if remaining > 0:
+            lines.append(f"… +{remaining} αρχεία")
+        return lines
 
     def _format_sync_report_line(self, label, value, kind="neutral"):
         """Return a sync report line with color emphasis for changed values."""

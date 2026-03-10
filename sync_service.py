@@ -110,6 +110,38 @@ def _append_jsonl(path: str, entry: dict) -> None:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _summarize_change_file(file_path: str) -> dict:
+    """Return lightweight summary metadata for one JSON/JSONL change file."""
+    entries = 0
+    insert_entries = 0
+    table_counts: dict[str, int] = {}
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = (raw_line or "").strip()
+                if not line:
+                    continue
+                entries += 1
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                if obj.get("operation") != "insert":
+                    continue
+                insert_entries += 1
+                table = str(obj.get("table") or "unknown")
+                table_counts[table] = int(table_counts.get(table, 0) or 0) + 1
+    except Exception:
+        pass
+
+    return {
+        "entries": int(entries),
+        "insert_entries": int(insert_entries),
+        "table_counts": table_counts,
+    }
+
+
 def _apply_change_log_to_db(
     conn: sqlite3.Connection,
     file_path: str,
@@ -287,8 +319,22 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
     already_applied = 0
     rejected = 0
     conflicts = 0
+    file_summaries: list[dict] = []
 
     for original_name, src in files:
+        payload_summary = _summarize_change_file(src)
+        file_summary = {
+            "source_file": original_name,
+            "entries": int(payload_summary.get("entries", 0) or 0),
+            "insert_entries": int(payload_summary.get("insert_entries", 0) or 0),
+            "table_counts": payload_summary.get("table_counts", {}),
+            "status": "pending",
+            "accepted": 0,
+            "already_applied": 0,
+            "conflicts": 0,
+            "rejected": 0,
+        }
+
         event = {
             "timestamp_utc": _utc_now_iso(),
             "actor": actor,
@@ -309,6 +355,10 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
                     "already_applied": file_already_applied,
                     "conflicts": file_conflicts,
                 }
+                file_summary["status"] = "conflict"
+                file_summary["accepted"] = int(file_accepted)
+                file_summary["already_applied"] = int(file_already_applied)
+                file_summary["conflicts"] = int(file_conflicts)
                 conflicts += file_conflicts
                 tracker[original_name] = {
                     "status": "conflict",
@@ -319,6 +369,8 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
                 # File had no applicable changes
                 event["status"] = "rejected"
                 event["reason"] = "No applicable changes found"
+                file_summary["status"] = "rejected"
+                file_summary["rejected"] = int(file_summary.get("insert_entries", 0) or 0)
                 rejected += 1
                 tracker[original_name] = {
                     "status": "rejected",
@@ -329,6 +381,8 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
             elif file_already_applied > 0 and file_accepted == 0:
                 event["status"] = "already_applied"
                 event["count"] = file_already_applied
+                file_summary["status"] = "already_applied"
+                file_summary["already_applied"] = int(file_already_applied)
                 already_applied += file_already_applied
                 tracker[original_name] = {
                     "status": "already_applied",
@@ -343,6 +397,9 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
                     "already_applied": file_already_applied,
                     "conflicts": file_conflicts,
                 }
+                file_summary["status"] = "accepted"
+                file_summary["accepted"] = int(file_accepted)
+                file_summary["already_applied"] = int(file_already_applied)
                 accepted += file_accepted
                 tracker[original_name] = {
                     "status": "accepted",
@@ -357,6 +414,8 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
         except Exception as exc:
             event["status"] = "rejected"
             event["error"] = str(exc)
+            file_summary["status"] = "rejected"
+            file_summary["rejected"] = int(file_summary.get("insert_entries", 0) or 0)
             rejected += 1
             tracker[original_name] = {
                 "status": "rejected",
@@ -366,6 +425,7 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
             }
 
         _append_jsonl(audit_path, event)
+        file_summaries.append(file_summary)
 
     # Save updated tracker
     _save_processed_tracker(tracker_path, tracker)
@@ -376,6 +436,7 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
         "already_applied": already_applied,
         "conflicts": conflicts,
         "rejected": rejected,
+        "file_summaries": file_summaries,
         "sync_root": sync_root,
         "audit_log": audit_path,
         "tracker": tracker_path,
