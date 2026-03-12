@@ -11117,7 +11117,7 @@ class SubstationApp(App):
                         icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
                         size_hint_x=0.08
                     )
-                    folder_btn.bind(on_press=lambda x: open_folder_or_url(onedrive_media_folder_link))
+                    folder_btn.bind(on_press=lambda x, link=onedrive_media_folder_link: open_folder_or_url(link))
                     folder_btn_layout.add_widget(folder_btn)
                     
                     # Empty space to push to the left

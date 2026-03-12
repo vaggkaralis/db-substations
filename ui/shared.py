@@ -577,6 +577,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             "maintenance": S["MESSAGES"].get("TOOLTIP_MAINTENANCE", "Συντήρηση"),
             "inspection": S["MESSAGES"].get("TOOLTIP_INSPECTION", "Επιθεώρηση"),
             "book": S["MESSAGES"].get("TOOLTIP_MANUAL", "Manual"),
+            "folder": S["MESSAGES"].get("TOOLTIP_FOLDER", "Άνοιγμα Φακέλου Εικόνων/Video"),
+            "email": S["MESSAGES"].get("TOOLTIP_EMAIL", "Αποστολή Email"),
         }
         if tooltip_text:
             self.tooltip = tooltip_text
