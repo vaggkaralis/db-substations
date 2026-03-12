@@ -3800,7 +3800,7 @@ class SubstationApp(App):
 
     def show_add_substation_popup(self, instance):
         # Create popup
-        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.5))
+        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.58))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
@@ -3815,6 +3815,27 @@ class SubstationApp(App):
         layout.add_widget(Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15))
         layout.add_widget(division_spinner)
 
+        # Thessaloniki toggle
+        th_row = BoxLayout(orientation="horizontal", size_hint_y=0.2, spacing=4)
+        th_checkbox = CheckBox(
+            active=False,
+            size_hint=(None, None),
+            size=(34, 34),
+            color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+        )
+        th_row.add_widget(th_checkbox)
+        th_label = Label(
+            text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Θεσσαλονίκη"),
+            size_hint_x=1,
+            size_hint_y=None,
+            height=34,
+            halign="left",
+            valign="middle",
+        )
+        th_label.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+        th_row.add_widget(th_label)
+        layout.add_widget(th_row)
+
         # Buttons layout
         buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
 
@@ -3824,10 +3845,17 @@ class SubstationApp(App):
                 return
 
             c = self.conn.cursor()
-            c.execute(
-                "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
-                (name_input.text, "", "", division_spinner.text),
-            )
+            sub_cols = {row[1] for row in c.execute("PRAGMA table_info(substations)").fetchall()}
+            if "is_thessaloniki" in sub_cols:
+                c.execute(
+                    "INSERT INTO substations (name, location, adoption_date, division, is_thessaloniki) VALUES (?, ?, ?, ?, ?)",
+                    (name_input.text, "", "", division_spinner.text, 1 if th_checkbox.active else 0),
+                )
+            else:
+                c.execute(
+                    "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
+                    (name_input.text, "", "", division_spinner.text),
+                )
             self.conn.commit()
             popup.dismiss()
             show_message_popup(
@@ -3851,7 +3879,7 @@ class SubstationApp(App):
     def show_add_substation_popup_from_db_view(self, parent_popup):
         """Add substation from within the database view, and refresh the view after"""
         # Create popup
-        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.5))
+        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.58))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
@@ -3866,6 +3894,27 @@ class SubstationApp(App):
         layout.add_widget(Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15))
         layout.add_widget(division_spinner)
 
+        # Thessaloniki toggle
+        th_row = BoxLayout(orientation="horizontal", size_hint_y=0.2, spacing=4)
+        th_checkbox = CheckBox(
+            active=False,
+            size_hint=(None, None),
+            size=(34, 34),
+            color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+        )
+        th_row.add_widget(th_checkbox)
+        th_label = Label(
+            text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Θεσσαλονίκη"),
+            size_hint_x=1,
+            size_hint_y=None,
+            height=34,
+            halign="left",
+            valign="middle",
+        )
+        th_label.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+        th_row.add_widget(th_label)
+        layout.add_widget(th_row)
+
         # Buttons layout
         buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
 
@@ -3875,10 +3924,17 @@ class SubstationApp(App):
                 return
 
             c = self.conn.cursor()
-            c.execute(
-                "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
-                (name_input.text, "", "", division_spinner.text),
-            )
+            sub_cols = {row[1] for row in c.execute("PRAGMA table_info(substations)").fetchall()}
+            if "is_thessaloniki" in sub_cols:
+                c.execute(
+                    "INSERT INTO substations (name, location, adoption_date, division, is_thessaloniki) VALUES (?, ?, ?, ?, ?)",
+                    (name_input.text, "", "", division_spinner.text, 1 if th_checkbox.active else 0),
+                )
+            else:
+                c.execute(
+                    "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
+                    (name_input.text, "", "", division_spinner.text),
+                )
             self.conn.commit()
             popup.dismiss()
             parent_popup.dismiss()
@@ -4827,7 +4883,7 @@ class SubstationApp(App):
                     size=(44, 36),
                     icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
                 )
-                edit_icon.bind(on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, p=popup: self.show_edit_substation_popup(sid, sname, loc, adate, div, p))
+                edit_icon.bind(on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, is_th=is_thessaloniki, p=popup: self.show_edit_substation_popup(sid, sname, loc, adate, div, is_th, p))
                 actions_buttons.add_widget(edit_icon)
 
                 delete_icon = IconOnlyButton(
@@ -5891,6 +5947,14 @@ class SubstationApp(App):
                 pending_count = int(((current_probe.get("pending") or {}).get("count", 0) or 0))
                 first_probe_detected_work = bool(previous_probe is None and pending_count > 0)
                 shared_root_missing = not shared_root_exists
+
+                # If only technical metadata changed (e.g. mtimes) and there is no
+                # actionable sync delta, skip heavy startup sync work.
+                if (not force) and previous_probe and (not probe_changed) and (not shared_root_missing):
+                    logging.info("Startup sync skipped: only technical probe changes detected")
+                    self._last_sync_cycle_ts = datetime.now().timestamp()
+                    self._update_sync_button_status()
+                    return
 
                 # First startup after enabling probe: if there is no baseline and no
                 # actionable work, persist baseline and avoid heavy sync tasks.
@@ -7929,13 +7993,24 @@ class SubstationApp(App):
         location,
         adoption_date,
         division,
+        is_thessaloniki,
         parent_popup,
     ):
         # Create popup
         popup = Popup(
-            title=f"Επεξεργασία Υποσταθμού: {substation_name}", size_hint=(0.8, 0.7)
+            title=f"Επεξεργασία Υποσταθμού: {substation_name}", size_hint=(0.8, 0.78)
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        # Name input
+        name_input = TextInput(
+            text=substation_name or "",
+            hint_text=S["MESSAGES"].get("SUBSTATION_NAME_HINT", "Όνομα Υποσταθμού"),
+            size_hint_y=0.15,
+            multiline=False,
+        )
+        layout.add_widget(Label(text=S["MESSAGES"].get("SUBSTATION_NAME_LABEL", "Όνομα Υποσταθμού:"), size_hint_y=0.08))
+        layout.add_widget(name_input)
 
         # Division spinner
         division_spinner = Spinner(
@@ -7964,20 +8039,73 @@ class SubstationApp(App):
         layout.add_widget(Label(text="Ανάληψη:", size_hint_y=0.1))
         layout.add_widget(date_input)
 
+        # Thessaloniki toggle
+        th_row = BoxLayout(orientation="horizontal", size_hint_y=0.15, spacing=4)
+        th_checkbox = CheckBox(
+            active=bool(is_thessaloniki),
+            size_hint=(None, None),
+            size=(34, 34),
+            color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+        )
+        th_row.add_widget(th_checkbox)
+        th_label = Label(
+            text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Θεσσαλονίκη"),
+            size_hint_x=1,
+            size_hint_y=None,
+            height=34,
+            halign="left",
+            valign="middle",
+        )
+        th_label.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+        th_row.add_widget(th_label)
+        layout.add_widget(th_row)
+
         # Buttons layout
         buttons_layout = BoxLayout(size_hint_y=0.2, spacing=10)
 
         def save_changes():
+            new_name = (name_input.text or "").strip()
+            if not new_name:
+                show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), S["MESSAGES"].get("ENTER_SUBSTATION_NAME", "Παρακαλώ εισάγετε όνομα υποσταθμού!"))
+                return
+
             c = self.conn.cursor()
+
             c.execute(
-                "UPDATE substations SET location=?, adoption_date=?, division=? WHERE id=?",
-                (
-                    location_input.text,
-                    date_input.text,
-                    division_spinner.text,
-                    substation_id,
-                ),
+                "SELECT id FROM substations WHERE name=? AND id<>?",
+                (new_name, substation_id),
             )
+            if c.fetchone():
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("SUBSTATION_EXISTS", "Ο υποσταθμός υπάρχει ήδη!"),
+                )
+                return
+
+            sub_cols = {row[1] for row in c.execute("PRAGMA table_info(substations)").fetchall()}
+            if "is_thessaloniki" in sub_cols:
+                c.execute(
+                    "UPDATE substations SET name=?, location=?, adoption_date=?, division=?, is_thessaloniki=? WHERE id=?",
+                    (
+                        new_name,
+                        location_input.text,
+                        date_input.text,
+                        division_spinner.text,
+                        1 if th_checkbox.active else 0,
+                        substation_id,
+                    ),
+                )
+            else:
+                c.execute(
+                    "UPDATE substations SET name=?, location=?, adoption_date=?, division=? WHERE id=?",
+                    (
+                        new_name,
+                        location_input.text,
+                        date_input.text,
+                        division_spinner.text,
+                        substation_id,
+                    ),
+                )
             self.conn.commit()
             popup.dismiss()
             parent_popup.dismiss()
@@ -10799,7 +10927,6 @@ class SubstationApp(App):
 
         export_list_btn.bind(on_press=_export_filtered_element_history_list)
         export_bar.add_widget(export_list_btn)
-        main_layout.add_widget(export_bar)
 
         # Filter bar: substation filter (left) + element filter (right)
         filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
@@ -10824,6 +10951,9 @@ class SubstationApp(App):
         )
         filter_bar.add_widget(elem_filter_btn)
         main_layout.add_widget(filter_bar)
+
+        # Export list button under filters and before maintenance list
+        main_layout.add_widget(export_bar)
 
         info_label = Label(text="", size_hint_y=None, height=22)
         main_layout.add_widget(info_label)
