@@ -510,8 +510,309 @@ class SubstationApp(App):
         if not self._check_db_integrity():
             return
         
-        # Always show login popup at startup (will pre-select last user)
-        self.show_login_popup(on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0))
+        # Check if first-time setup is needed
+        if self._needs_first_time_setup():
+            self._show_first_use_setup_wizard(
+                on_complete=lambda: self.show_login_popup(on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0))
+            )
+        else:
+            # Always show login popup at startup (will pre-select last user)
+            self.show_login_popup(on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0))
+    
+    def _needs_first_time_setup(self) -> bool:
+        """Check if critical first-time setup is needed.
+        
+        Returns True if any critical settings are missing.
+        """
+        from config_manager import get_db_path, get_app_setting
+        
+        # Check if database path is set
+        if not get_db_path():
+            return True
+        
+        # Check if sync root path is set
+        if not get_app_setting("sync_root_path"):
+            return True
+        
+        # Check if backup root path is set
+        if not get_app_setting("backup_root_path"):
+            return True
+        
+        # All critical settings are present
+        return False
+    
+    def _show_first_use_setup_wizard(self, on_complete=None):
+        """Show first-time setup wizard for new installation.
+        
+        Guides user through setting database, sync, and backup paths.
+        """
+        from sync_service import resolve_sync_root, resolve_backup_root
+        from kivy.uix.spinner import Spinner
+        
+        popup = Popup(
+            title=S["TITLES"].get("SETUP_WIZARD", "Αρχική Ρύθμιση Εφαρμογής"),
+            size_hint=(0.85, 0.9),
+            auto_dismiss=False,
+        )
+        
+        layout = BoxLayout(orientation="vertical", padding=12, spacing=10)
+        
+        # Create scrollable content area
+        scroll = ScrollView(size_hint=(1, 0.9))
+        content = BoxLayout(orientation="vertical", size_hint_y=None, spacing=15)
+        content.bind(minimum_height=content.setter('height'))
+        
+        # Title/intro
+        intro = Label(
+            text=S["MESSAGES"].get("SETUP_WIZARD_INTRO", 
+                "Καλώς ήρθατε! Παρακαλώ ορίστε τις παρακάτω ρυθμίσεις για να ξεκινήσει η εφαρμογή."),
+            size_hint_y=None,
+            height=60,
+            markup=True,
+        )
+        intro.bind(size=lambda obj, _val: setattr(obj, "text_size", (obj.width, obj.height)))
+        content.add_widget(intro)
+        
+        # --- Step 1: Database Path ---
+        db_section = BoxLayout(orientation="vertical", size_hint_y=None, height=100, spacing=5)
+        db_title = Label(
+            text="1. Διαδρομή Βάσης Δεδομένων",
+            size_hint_y=None,
+            height=25,
+            bold=True,
+        )
+        db_section.add_widget(db_title)
+        
+        current_db_path = get_db_path()
+        db_input = TextInput(
+            text=current_db_path or "",
+            multiline=False,
+            size_hint_y=None,
+            height=35,
+        )
+        db_section.add_widget(db_input)
+        
+        db_hint = Label(
+            text="Αφήστε κενό για προεπιλογή (substations.db στον φάκελο της εφαρμογής)",
+            size_hint_y=None,
+            height=20,
+            color=(0.5, 0.5, 0.5, 1),
+            font_size="10sp",
+            markup=True,
+        )
+        content.add_widget(db_section)
+        content.add_widget(db_hint)
+        
+        # --- Step 2: Sync Root Path ---
+        sync_section = BoxLayout(orientation="vertical", size_hint_y=None, height=100, spacing=5)
+        sync_title = Label(
+            text="2. Φάκελος Συγχρονισμού (Sync Root)",
+            size_hint_y=None,
+            height=25,
+            bold=True,
+        )
+        sync_section.add_widget(sync_title)
+        
+        sync_default = resolve_sync_root(self.db_path)
+        sync_input = TextInput(
+            text=sync_default or "",
+            multiline=False,
+            size_hint_y=None,
+            height=35,
+        )
+        sync_section.add_widget(sync_input)
+        
+        sync_hint = Label(
+            text="Όπου θα αποθηκεύονται τα αρχεία συγχρονισμού (προεπιλογή: sync_exchange/)",
+            size_hint_y=None,
+            height=20,
+            color=(0.5, 0.5, 0.5, 1),
+            font_size="10sp",
+            markup=True,
+        )
+        content.add_widget(sync_section)
+        content.add_widget(sync_hint)
+        
+        # --- Step 3: Backup Root Path ---
+        backup_section = BoxLayout(orientation="vertical", size_hint_y=None, height=100, spacing=5)
+        backup_title = Label(
+            text="3. Φάκελος Αντιγράφων (Backup Root)",
+            size_hint_y=None,
+            height=25,
+            bold=True,
+        )
+        backup_section.add_widget(backup_title)
+        
+        backup_default = resolve_backup_root(self.db_path)
+        backup_input = TextInput(
+            text=backup_default or "",
+            multiline=False,
+            size_hint_y=None,
+            height=35,
+        )
+        backup_section.add_widget(backup_input)
+        
+        backup_hint = Label(
+            text="Όπου θα αποθηκεύονται τα αντίγραφα ασφαλείας (προεπιλογή: backups_auto/)",
+            size_hint_y=None,
+            height=20,
+            color=(0.5, 0.5, 0.5, 1),
+            font_size="10sp",
+            markup=True,
+        )
+        content.add_widget(backup_section)
+        content.add_widget(backup_hint)
+        
+        # --- Step 4: Language ---
+        lang_section = BoxLayout(orientation="vertical", size_hint_y=None, height=80, spacing=5)
+        lang_title = Label(
+            text="4. Γλώσσα",
+            size_hint_y=None,
+            height=25,
+            bold=True,
+        )
+        lang_section.add_widget(lang_title)
+        
+        from config_manager import get_current_language
+        current_lang = get_current_language()
+        lang_options = [("el", "Ελληνικά"), ("en", "English")]
+        lang_spinner = Spinner(
+            text="Ελληνικά" if current_lang == "el" else "English",
+            values=["Ελληνικά", "English"],
+            size_hint_y=None,
+            height=35,
+        )
+        lang_section.add_widget(lang_spinner)
+        content.add_widget(lang_section)
+        
+        # --- Step 5: Auto-Sync Settings ---
+        autosync_section = BoxLayout(orientation="vertical", size_hint_y=None, height=120, spacing=5)
+        autosync_title = Label(
+            text="5. Αυτόματος Συγχρονισμός",
+            size_hint_y=None,
+            height=25,
+            bold=True,
+        )
+        autosync_section.add_widget(autosync_title)
+        
+        autosync_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=10)
+        autosync_row.add_widget(Label(text="Ενεργοποίηση:", size_hint_x=0.4))
+        autosync_chk = CheckBox(
+            active=bool(get_app_setting("sync_auto_cycle_enabled", True)),
+            size_hint_x=0.1,
+        )
+        autosync_row.add_widget(autosync_chk)
+        autosync_section.add_widget(autosync_row)
+        
+        interval_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=10)
+        interval_row.add_widget(Label(text="Διάστημα (λεπτά):", size_hint_x=0.4))
+        interval_input = TextInput(
+            text=str(int(get_app_setting("sync_auto_cycle_minutes", 60))),
+            multiline=False,
+            size_hint_x=0.3,
+            input_filter="int",
+        )
+        interval_row.add_widget(interval_input)
+        autosync_section.add_widget(interval_row)
+        
+        content.add_widget(autosync_section)
+        
+        scroll.add_widget(content)
+        layout.add_widget(scroll)
+        
+        # Buttons
+        button_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        
+        apply_btn = Button(text=S["BUTTONS"].get("CONTINUE", "Συνέχεια"))
+        skip_btn = Button(text=S["BUTTONS"].get("CANCEL", "Άκυρο"))
+        
+        def _apply_setup(*_args):
+            # Validate and save all settings
+            db_text = (db_input.text or "").strip()
+            sync_text = (sync_input.text or "").strip()
+            backup_text = (backup_input.text or "").strip()
+            
+            # Validate database path
+            if db_text:
+                if not os.path.isfile(db_text):
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        "Το δαθείσο αρχείο βάσης δεδομένων δεν υπάρχει ή δεν είναι αρχείο."
+                    )
+                    return
+                set_db_path(os.path.abspath(db_text))
+            
+            # Validate and create sync path
+            if sync_text:
+                if os.path.exists(sync_text) and not os.path.isdir(sync_text):
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        "Το sync path δείχνει σε αρχείο, όχι φάκελο."
+                    )
+                    return
+                try:
+                    os.makedirs(sync_text, exist_ok=True)
+                    set_app_setting("sync_root_path", os.path.abspath(sync_text))
+                except OSError as e:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        f"Δεν ήταν δυνατή η δημιουργία του φακέλου sync:\n{str(e)}"
+                    )
+                    return
+            
+            # Validate and create backup path
+            if backup_text:
+                if os.path.exists(backup_text) and not os.path.isdir(backup_text):
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        "Το backup path δείχνει σε αρχείο, όχι φάκελο."
+                    )
+                    return
+                try:
+                    os.makedirs(backup_text, exist_ok=True)
+                    set_app_setting("backup_root_path", os.path.abspath(backup_text))
+                except OSError as e:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        f"Δεν ήταν δυνατή η δημιουργία του φακέλου backup:\n{str(e)}"
+                    )
+                    return
+            
+            # Save language
+            selected_lang = "el" if lang_spinner.text == "Ελληνικά" else "en"
+            set_current_language(selected_lang)
+            
+            # Save auto-sync settings
+            try:
+                interval_minutes = max(1, int((interval_input.text or "").strip() or "60"))
+            except Exception:
+                interval_minutes = 60
+            
+            set_app_setting("sync_auto_cycle_enabled", bool(autosync_chk.active))
+            set_app_setting("sync_auto_cycle_minutes", interval_minutes)
+            
+            popup.dismiss()
+            
+            # Show success message and proceed to login
+            show_message_popup(
+                S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                "Η ρύθμιση ολοκληρώθηκε. Μπορείτε τώρα να συνδεθείτε.",
+                callback=on_complete if on_complete else None
+            )
+        
+        def _skip_setup(*_args):
+            popup.dismiss()
+            if on_complete:
+                on_complete()
+        
+        apply_btn.bind(on_press=_apply_setup)
+        skip_btn.bind(on_press=_skip_setup)
+        button_layout.add_widget(skip_btn)
+        button_layout.add_widget(apply_btn)
+        layout.add_widget(button_layout)
+        
+        popup.content = layout
+        popup.open()
     
     def _build_main_ui(self, *_args):
         """Build the main application UI after user login."""
