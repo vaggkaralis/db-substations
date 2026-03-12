@@ -10754,7 +10754,7 @@ class SubstationApp(App):
 
         c.execute(
             """
-            SELECT m.id, m.name, m.date_time, m.overall_comments
+            SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link
             FROM maintenance m
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
@@ -11039,7 +11039,7 @@ class SubstationApp(App):
             else:
                 info_label.text = ""
 
-            for maint_id, maint_name, date_time, overall_comments in records_to_show:
+            for maint_id, maint_name, date_time, overall_comments, onedrive_media_folder_link in records_to_show:
                 card = BoxLayout(orientation="vertical", size_hint_y=None, padding=8, spacing=6)
                 card.bind(minimum_height=card.setter("height"))
                 _style_maintenance_card(card)
@@ -11053,12 +11053,17 @@ class SubstationApp(App):
                 ))
                 from ui.shared import IconOnlyButton
                 
-                # View full report button
-                view_btn = Button(text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."), size_hint_x=0.08)
+                # View full report button (eye icon)
+                view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
                 
+                # Edit button
                 edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
+                
+                # Delete button
                 delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-                email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.13)
+                
+                # Email button (email icon)
+                email_btn = IconOnlyButton(icon_type="email", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
 
                 def make_delete_handler(m_id, p):
                     return lambda x: self.confirm_delete_maintenance_for_substation(
@@ -11092,6 +11097,32 @@ class SubstationApp(App):
                 header.add_widget(email_btn)
                 header.add_widget(delete_btn)
                 card.add_widget(header)
+                
+                # OneDrive folder button (if link exists)
+                if onedrive_media_folder_link and onedrive_media_folder_link.strip():
+                    folder_btn_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
+                    
+                    # Helper function to open URL or local file path
+                    def open_folder_or_url(path):
+                        if path.startswith(('http://', 'https://')):
+                            webbrowser.open(path)
+                        else:
+                            try:
+                                os.startfile(path)
+                            except Exception:
+                                pass
+                    
+                    folder_btn = IconOnlyButton(
+                        icon_type="folder",
+                        icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+                        size_hint_x=0.08
+                    )
+                    folder_btn.bind(on_press=lambda x: open_folder_or_url(onedrive_media_folder_link))
+                    folder_btn_layout.add_widget(folder_btn)
+                    
+                    # Empty space to push to the left
+                    folder_btn_layout.add_widget(Widget(size_hint_x=0.92))
+                    card.add_widget(folder_btn_layout)
 
                 # Responsible / crew
                 people_info = people_by_maint.get(maint_id, {"responsible": None, "crew": []})
@@ -11463,42 +11494,11 @@ class SubstationApp(App):
         scroll.add_widget(content)
         main_layout.add_widget(scroll)
 
-        # OneDrive Folder Button + Close Button Layout
+        # Close Button Layout
         button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
-        
-        # Helper function to open URL or local file path
-        def open_folder_or_url(path):
-            if path.startswith(('http://', 'https://')):
-                webbrowser.open(path)
-            else:
-                try:
-                    os.startfile(path)
-                except Exception:
-                    pass
-        
-        if onedrive_media_folder_link and onedrive_media_folder_link.strip():
-            onedrive_btn = IconOnlyButton(
-                icon_type="folder",
-                icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
-                size_hint_x=0.1
-            )
-            onedrive_btn.bind(on_press=lambda x: open_folder_or_url(onedrive_media_folder_link))
-            button_layout.add_widget(onedrive_btn)
-            
-            onedrive_label = Button(
-                text=S["MESSAGES"].get("OPEN_ONEDRIVE_FOLDER", "Φάκελος OneDrive"),
-                size_hint_x=0.4
-            )
-            onedrive_label.bind(on_press=lambda x: open_folder_or_url(onedrive_media_folder_link))
-            button_layout.add_widget(onedrive_label)
-            close_size_x = 0.5
-        else:
-            close_size_x = 1.0
-        
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=close_size_x)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=1.0)
         close_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(close_btn)
-        
         main_layout.add_widget(button_layout)
 
         popup.content = main_layout

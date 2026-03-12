@@ -310,6 +310,19 @@ class IconWidget(Widget):
                 Line(rectangle=(folder_x, folder_y + folder_h - tab_h, tab_w, tab_h), width=max(1.0, line_w))
                 # folder body
                 Line(rectangle=(folder_x, folder_y, folder_w, folder_h), width=max(1.2, line_w))
+            elif self.icon_type == "email":
+                # envelope/email icon: outer envelope and flap
+                env_x = x + w * 0.15
+                env_y = y + h * 0.25
+                env_w = w * 0.7
+                env_h = h * 0.5
+                # envelope body
+                Line(rectangle=(env_x, env_y, env_w, env_h), width=max(1.2, line_w))
+                # envelope flap (triangle top)
+                Line(points=[env_x, env_y + env_h, env_x + env_w * 0.5, env_y + env_h + env_h * 0.35, env_x + env_w, env_y + env_h], width=max(1.2, line_w))
+                # center line (dividing envelope)
+                Line(points=[env_x, env_y + env_h, env_x + env_w * 0.5, env_y + env_h + env_h * 0.35], width=max(1.0, line_w))
+                Line(points=[env_x + env_w, env_y + env_h, env_x + env_w * 0.5, env_y + env_h + env_h * 0.35], width=max(1.0, line_w))
 
 
 class ShiftSelectableTextInput(TextInput):
