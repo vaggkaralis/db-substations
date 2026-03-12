@@ -11052,6 +11052,10 @@ class SubstationApp(App):
                     bold=True, size_hint_x=0.6,
                 ))
                 from ui.shared import IconOnlyButton
+                
+                # View full report button
+                view_btn = Button(text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."), size_hint_x=0.08)
+                
                 edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
                 delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
                 email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.13)
@@ -11076,9 +11080,14 @@ class SubstationApp(App):
                         ),
                     )
 
+                def make_view_handler(m_id):
+                    return lambda x: self.show_maintenance_full_report(m_id, popup)
+
                 delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
                 email_btn.bind(on_press=make_email_handler(maint_id))
                 edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
+                view_btn.bind(on_press=make_view_handler(maint_id))
+                header.add_widget(view_btn)
                 header.add_widget(edit_btn)
                 header.add_widget(email_btn)
                 header.add_widget(delete_btn)
@@ -11457,20 +11466,30 @@ class SubstationApp(App):
         # OneDrive Folder Button + Close Button Layout
         button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
         
+        # Helper function to open URL or local file path
+        def open_folder_or_url(path):
+            if path.startswith(('http://', 'https://')):
+                webbrowser.open(path)
+            else:
+                try:
+                    os.startfile(path)
+                except Exception:
+                    pass
+        
         if onedrive_media_folder_link and onedrive_media_folder_link.strip():
             onedrive_btn = IconOnlyButton(
                 icon_type="folder",
                 icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
                 size_hint_x=0.1
             )
-            onedrive_btn.bind(on_press=lambda x: webbrowser.open(onedrive_media_folder_link))
+            onedrive_btn.bind(on_press=lambda x: open_folder_or_url(onedrive_media_folder_link))
             button_layout.add_widget(onedrive_btn)
             
             onedrive_label = Button(
                 text=S["MESSAGES"].get("OPEN_ONEDRIVE_FOLDER", "Φάκελος OneDrive"),
                 size_hint_x=0.4
             )
-            onedrive_label.bind(on_press=lambda x: webbrowser.open(onedrive_media_folder_link))
+            onedrive_label.bind(on_press=lambda x: open_folder_or_url(onedrive_media_folder_link))
             button_layout.add_widget(onedrive_label)
             close_size_x = 0.5
         else:
