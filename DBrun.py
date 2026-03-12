@@ -10609,7 +10609,12 @@ class SubstationApp(App):
         self.show_maintenance_history(instance)
 
     def show_substation_maintenance_history(
-        self, substation_id, substation_name, parent_display_popup=None
+        self,
+        substation_id,
+        substation_name,
+        parent_display_popup=None,
+        preselected_element_id=None,
+        preselected_element_name=None,
     ):
         """Show maintenance history for a specific substation with element filter."""
         font_kwargs = self._get_ui_font_kwargs()
@@ -10707,6 +10712,18 @@ class SubstationApp(App):
             chooser_substations.append((sub_id, display_name))
             chooser_map[display_name] = (sub_id, sub_name)
 
+        element_name_by_id = {eid: ename for eid, ename, _etype in all_elements_in_sub}
+        current_element_filter = {
+            "id": preselected_element_id if preselected_element_id in element_name_by_id else None,
+            "name": None,
+        }
+        if current_element_filter["id"] is not None:
+            current_element_filter["name"] = (
+                preselected_element_name
+                or element_name_by_id.get(current_element_filter["id"])
+                or ""
+            )
+
         popup = Popup(
             title=f"Ιστορικό Συντήρησης: {substation_name}", size_hint=(0.95, 0.9)
         )
@@ -10721,6 +10738,68 @@ class SubstationApp(App):
             on_press=lambda x: self.show_maintenance_menu_for_substation(substation_id, substation_name, popup)
         )
         main_layout.add_widget(add_maint_btn)
+
+        export_bar = BoxLayout(size_hint_y=None, height=38, spacing=8)
+        export_bar.add_widget(Label(text="", size_hint_x=0.55))
+        export_list_btn = Button(
+            text=S["MESSAGES"].get("EXPORT_HISTORY_LIST_PDF", "Εξαγωγή λίστας σε PDF"),
+            size_hint_x=0.45,
+            disabled=(current_element_filter["id"] is None),
+            **font_kwargs,
+        )
+
+        def _export_filtered_element_history_list(_instance=None):
+            selected_element_id = current_element_filter.get("id")
+            selected_element_name = current_element_filter.get("name") or ""
+            if selected_element_id is None:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("SELECT_ELEMENT_FIRST", "Επιλέξτε πρώτα στοιχείο."),
+                )
+                return
+
+            c2 = self.conn.cursor()
+            c2.execute(
+                """
+                SELECT m.id, m.date_time, m.maintenance_type, m.overall_comments,
+                       me.element_comments, s.name as substation_name, s.id as substation_id,
+                       me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
+                       me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
+                       me.operations_count
+                FROM maintenance m
+                JOIN maintenance_elements me ON m.id = me.maintenance_id
+                JOIN substations s ON m.substation_id = s.id
+                WHERE me.element_id = ?
+                ORDER BY m.date_time DESC
+                """,
+                (selected_element_id,),
+            )
+            records_for_export = c2.fetchall()
+            if not records_for_export:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"),
+                )
+                return
+
+            try:
+                from elements import _export_maintenance_history_list
+
+                _export_maintenance_history_list(
+                    self,
+                    selected_element_id,
+                    selected_element_name,
+                    records_for_export,
+                )
+            except Exception as exc:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Σφάλμα κατά την εξαγωγή λίστας PDF:\n{exc}",
+                )
+
+        export_list_btn.bind(on_press=_export_filtered_element_history_list)
+        export_bar.add_widget(export_list_btn)
+        main_layout.add_widget(export_bar)
 
         # Filter bar: substation filter (left) + element filter (right)
         filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
@@ -10737,9 +10816,7 @@ class SubstationApp(App):
         filter_bar.add_widget(select_sub_btn)
 
         filter_bar.add_widget(Label(text="Στοιχείο:", size_hint_x=0.1))
-        elem_filter_input = TextInput(
-            text="(Όλα)", readonly=True, multiline=False, size_hint_x=0.2
-        )
+        elem_filter_input = TextInput(text="(Όλα)", readonly=True, multiline=False, size_hint_x=0.2)
         filter_bar.add_widget(elem_filter_input)
         elem_filter_btn = Button(
             text="...", size_hint_x=0.08,
@@ -10800,8 +10877,12 @@ class SubstationApp(App):
             except Exception:
                 pass
 
-        def render_cards(selected_element_id=None):
+        def render_cards():
             grid.clear_widgets()
+
+            selected_element_id = current_element_filter.get("id")
+            selected_element_name = current_element_filter.get("name") or ""
+            export_list_btn.disabled = selected_element_id is None
 
             if selected_element_id is not None:
                 records_to_show = [
@@ -10820,7 +10901,7 @@ class SubstationApp(App):
                 return
 
             if selected_element_id is not None:
-                info_label.text = f"Εμφανίζονται {len(records_to_show)} συντηρήσεις για το επιλεγμένο στοιχείο."
+                info_label.text = f"Εμφανίζονται {len(records_to_show)} συντηρήσεις για το στοιχείο: {selected_element_name}."
             elif total_records > len(maintenance_records):
                 info_label.text = (
                     f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_records} συντηρήσεις."
@@ -10856,7 +10937,13 @@ class SubstationApp(App):
                 def make_edit_handler(m_id, p):
                     return lambda x: self.show_maintenance_menu(
                         None, substation_name, p, m_id,
-                        lambda: self.show_substation_maintenance_history(substation_id, substation_name, parent_display_popup),
+                        lambda: self.show_substation_maintenance_history(
+                            substation_id,
+                            substation_name,
+                            parent_display_popup,
+                            current_element_filter.get("id"),
+                            current_element_filter.get("name"),
+                        ),
                     )
 
                 delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
@@ -10901,8 +10988,38 @@ class SubstationApp(App):
                     )
                     card.add_widget(comment_label)
 
-                # Elements list
                 elements = elements_by_maint.get(maint_id, [])
+
+                if selected_element_id is not None:
+                    selected_elem_for_record = next(
+                        (e for e in elements if e[0] == selected_element_id),
+                        None,
+                    )
+                    if selected_elem_for_record is not None:
+                        selected_elem_name_for_pdf = selected_elem_for_record[2]
+                        element_pdf_row = BoxLayout(size_hint_y=None, height=38, spacing=6)
+                        full_btn = Button(
+                            text=S["MESSAGES"].get("VIEW_FULL_MAINTENANCE", "Πλήρης αναφορά"),
+                            size_hint_x=0.5,
+                            **font_kwargs,
+                        )
+                        full_btn.bind(
+                            on_press=lambda x, mid=maint_id: self.show_maintenance_full_report(mid, popup)
+                        )
+                        element_pdf_row.add_widget(full_btn)
+
+                        export_element_pdf_btn = Button(
+                            text=S["MESSAGES"].get("EXPORT_MAINTENANCE_PDF", "Εξαγωγή PDF"),
+                            size_hint_x=0.5,
+                            **font_kwargs,
+                        )
+                        export_element_pdf_btn.bind(
+                            on_press=lambda x, mid=maint_id, eid=selected_element_id, ename=selected_elem_name_for_pdf: self.generate_pdf_report(mid, eid, ename)
+                        )
+                        element_pdf_row.add_widget(export_element_pdf_btn)
+                        card.add_widget(element_pdf_row)
+
+                # Elements list
                 card.add_widget(Label(
                     text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
                     size_hint_y=None, height=25, bold=True,
@@ -10973,8 +11090,10 @@ class SubstationApp(App):
 
             def _select_all(_):
                 picker.dismiss()
+                current_element_filter["id"] = None
+                current_element_filter["name"] = None
                 elem_filter_input.text = "(Όλα)"
-                render_cards(None)
+                render_cards()
 
             all_btn.bind(on_press=_select_all)
             picker_grid.add_widget(all_btn)
@@ -10984,9 +11103,10 @@ class SubstationApp(App):
 
                 def _select_elem(_, _eid=eid, _ename=ename):
                     picker.dismiss()
-                    # Open the unified element history view (same view as from
-                    # the substation database browser).
-                    self.show_element_maintenance_history(_eid, _ename, popup)
+                    current_element_filter["id"] = _eid
+                    current_element_filter["name"] = _ename
+                    elem_filter_input.text = _ename
+                    render_cards()
 
                 btn.bind(on_press=_select_elem)
                 picker_grid.add_widget(btn)
@@ -11020,6 +11140,9 @@ class SubstationApp(App):
 
         select_sub_btn.bind(on_press=_open_substation_filter_picker)
         elem_filter_btn.bind(on_press=_open_element_picker)
+
+        if current_element_filter["id"] is not None:
+            elem_filter_input.text = current_element_filter.get("name") or "(Επιλεγμένο)"
 
         render_cards()
 

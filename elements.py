@@ -714,251 +714,37 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
 
 
 def show_element_maintenance_history(app, element_id, element_name, parent_popup):
-    """
-    Show maintenance history for a specific element with:
-    - Short overview of element-specific data
-    - Button to view complete maintenance report
-    - Button to export maintenance to PDF
-    - Button at top to export complete list to PDF
-    - DGA button and history for transformers
-    """
-    from kivy.uix.boxlayout import BoxLayout
-    from kivy.uix.button import Button
-    from kivy.uix.gridlayout import GridLayout
-    from kivy.uix.label import Label
-    from kivy.uix.popup import Popup
-    from kivy.uix.scrollview import ScrollView
     from popups import show_message_popup
 
     c = app.conn.cursor()
-    
-    # Get element type to check if transformer
-    c.execute("SELECT element_type, serial_number, manufacturer, gate FROM elements WHERE id=?", (element_id,))
-    elem_row = c.fetchone()
-    is_transformer = False
-    element_serial = None
-    element_manufacturer = None
-    element_gate = None
-    if elem_row:
-        elem_type = elem_row[0] if isinstance(elem_row, (tuple, list)) else elem_row["element_type"]
-        element_serial = elem_row[1] if isinstance(elem_row, (tuple, list)) else elem_row["serial_number"]
-        element_manufacturer = elem_row[2] if isinstance(elem_row, (tuple, list)) else elem_row["manufacturer"]
-        element_gate = elem_row[3] if isinstance(elem_row, (tuple, list)) else elem_row["gate"]
-        is_transformer = app._is_transformer(elem_type) if elem_type else False
-    
-    # Query all maintenances where this element was maintained
     c.execute(
         """
-        SELECT m.id, m.date_time, m.maintenance_type, m.overall_comments,
-               me.element_comments, s.name as substation_name, s.id as substation_id,
-               me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
-               me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
-               me.operations_count
-        FROM maintenance m
-        JOIN maintenance_elements me ON m.id = me.maintenance_id
-        JOIN substations s ON m.substation_id = s.id
-        WHERE me.element_id = ?
-        ORDER BY m.date_time DESC
+        SELECT s.id, s.name
+        FROM elements e
+        JOIN substations s ON s.id = e.substation_id
+        WHERE e.id = ?
+        LIMIT 1
         """,
         (element_id,),
     )
-    maintenance_records = c.fetchall()
+    row = c.fetchone()
+    if not row:
+        show_message_popup(
+            S["TITLES"].get("ERROR", "Σφάλμα"),
+            S["MESSAGES"].get("ELEMENT_NOT_FOUND", "Το στοιχείο δεν βρέθηκε."),
+        )
+        return
 
-    popup = Popup(
-        title=S["MESSAGES"].get("ELEMENT_MAINT_HISTORY_TITLE", "Ιστορικό Συντηρήσεων Στοιχείου - {element_name}").format(element_name=element_name),
-        size_hint=(0.9, 0.9)
+    substation_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
+    substation_name = row[1] if isinstance(row, (tuple, list)) else row["name"]
+
+    app.show_substation_maintenance_history(
+        substation_id,
+        substation_name,
+        parent_popup,
+        preselected_element_id=element_id,
+        preselected_element_name=element_name,
     )
-    main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-    # Top button bar with export list to PDF
-    top_bar = BoxLayout(size_hint_y=None, height=50, spacing=10)
-    
-    # Spacer to center button
-    top_bar.add_widget(Label(text=""))
-    
-    if maintenance_records:
-        export_list_btn = Button(
-            text=S["MESSAGES"].get("EXPORT_HISTORY_LIST_PDF", "Εξαγωγή λίστας σε PDF"),
-            size_hint_x=0.3
-        )
-        export_list_btn.bind(
-            on_press=lambda x: _export_maintenance_history_list(
-                app, element_id, element_name, maintenance_records
-            )
-        )
-        top_bar.add_widget(export_list_btn)
-    
-    main_layout.add_widget(top_bar)
-
-    if not maintenance_records:
-        main_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get("NO_MAINTENANCE_HISTORY", "Δεν υπάρχει ιστορικό συντηρήσεων για αυτό το στοιχείο"),
-                size_hint_y=0.8,
-            )
-        )
-    else:
-        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
-        grid.bind(minimum_height=grid.setter("height"))
-
-        for (
-            maint_id,
-            date_time,
-            maint_type,
-            overall_comments,
-            element_comments,
-            substation_name,
-            substation_id,
-            insul_fa_gnd,
-            insul_fb_gnd,
-            insul_fc_gnd,
-            contact_res_fa,
-            contact_res_fb,
-            contact_res_fc,
-            operations_count,
-        ) in maintenance_records:
-            # Container for this maintenance record
-            maint_layout = BoxLayout(
-                size_hint_y=None,
-                orientation="vertical",
-                spacing=5,
-                padding=10,
-            )
-            maint_layout.bind(minimum_height=maint_layout.setter("height"))
-
-            # Header with date and type
-            header_text = f"[b]{date_time}[/b] - {substation_name}"
-            if maint_type:
-                header_text += f" ({maint_type})"
-            header_label = Label(
-                text=header_text,
-                size_hint_y=None,
-                height=30,
-                markup=True,
-                halign="left",
-                valign="middle"
-            )
-            header_label.bind(
-                width=lambda instance, value: setattr(instance, "text_size", (value, None))
-            )
-            maint_layout.add_widget(header_label)
-
-            # Element-specific data
-            data_parts = []
-            if element_comments:
-                data_parts.append(f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}")
-            
-            # Add measurements if present
-            measurements = []
-            if insul_fa_gnd:
-                measurements.append(f"Μόν. FA-GND: {insul_fa_gnd}")
-            if insul_fb_gnd:
-                measurements.append(f"FB-GND: {insul_fb_gnd}")
-            if insul_fc_gnd:
-                measurements.append(f"FC-GND: {insul_fc_gnd}")
-            if contact_res_fa:
-                measurements.append(f"Αντ. Επαφ. FA: {contact_res_fa}")
-            if contact_res_fb:
-                measurements.append(f"FB: {contact_res_fb}")
-            if contact_res_fc:
-                measurements.append(f"FC: {contact_res_fc}")
-            if operations_count:
-                measurements.append(f"Λειτουργίες: {operations_count}")
-            
-            if measurements:
-                data_parts.append(" | ".join(measurements))
-
-            if data_parts:
-                data_text = "\n".join(data_parts)
-            else:
-                data_text = S["MESSAGES"].get("NO_ELEMENT_DATA", "Δεν υπάρχουν συγκεκριμένα δεδομένα για το στοιχείο")
-
-            data_label = Label(
-                text=data_text,
-                size_hint_y=None,
-                height=50 if measurements else 30,
-                markup=True,
-                halign="left",
-                valign="top",
-                color=(0.5, 0.5, 0.5, 1)
-            )
-            data_label.bind(
-                width=lambda instance, value: setattr(instance, "text_size", (value, None))
-            )
-            maint_layout.add_widget(data_label)
-
-            # Button row 1: view full report + export PDF
-            btn_row1 = BoxLayout(size_hint_y=None, height=40, spacing=5)
-
-            view_full_btn = Button(
-                text=S["MESSAGES"].get("VIEW_FULL_MAINTENANCE", "Πλήρης αναφορά"),
-                size_hint_x=0.5,
-            )
-            view_full_btn.bind(
-                on_press=lambda x, mid=maint_id, p=popup: app.show_maintenance_full_report(mid, p)
-            )
-            btn_row1.add_widget(view_full_btn)
-
-            export_pdf_btn = Button(
-                text=S["MESSAGES"].get("EXPORT_MAINTENANCE_PDF", "Εξαγωγή PDF"),
-                size_hint_x=0.5,
-            )
-            export_pdf_btn.bind(
-                on_press=lambda x, mid=maint_id, eid=element_id: _export_single_maintenance_pdf(
-                    app, mid, eid
-                )
-            )
-            btn_row1.add_widget(export_pdf_btn)
-            maint_layout.add_widget(btn_row1)
-
-            # Button row 2: edit / email / delete
-            btn_row2 = BoxLayout(size_hint_y=None, height=40, spacing=5)
-
-            def _make_edit_handler(mid, sname):
-                def _on_done():
-                    show_element_maintenance_history(app, element_id, element_name, parent_popup)
-                return lambda x: app.show_maintenance_menu(None, sname, popup, mid, _on_done)
-
-            def _make_email_handler(mid):
-                return lambda x: app.send_maintenance_email_report(mid)
-
-            def _make_delete_handler(mid):
-                return lambda x: app.confirm_delete_maintenance(mid, popup)
-
-            edit_btn = Button(
-                text=S["BUTTONS"].get("EDIT", "Επεξεργασία"),
-                size_hint_x=0.4,
-            )
-            edit_btn.bind(on_press=_make_edit_handler(maint_id, substation_name))
-            btn_row2.add_widget(edit_btn)
-
-            email_btn = Button(
-                text=S["BUTTONS"].get("EMAIL", "Email"),
-                size_hint_x=0.3,
-            )
-            email_btn.bind(on_press=_make_email_handler(maint_id))
-            btn_row2.add_widget(email_btn)
-
-            delete_btn = Button(
-                text=S["BUTTONS"].get("DELETE", "Διαγραφή"),
-                size_hint_x=0.3,
-            )
-            delete_btn.bind(on_press=_make_delete_handler(maint_id))
-            btn_row2.add_widget(delete_btn)
-            maint_layout.add_widget(btn_row2)
-
-            grid.add_widget(maint_layout)
-
-        scroll.add_widget(grid)
-        main_layout.add_widget(scroll)
-
-    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
-    close_btn.bind(on_press=popup.dismiss)
-    main_layout.add_widget(close_btn)
-
-    popup.content = main_layout
-    popup.open()
 
 
 def _export_single_maintenance_pdf(app, maintenance_id, element_id):
