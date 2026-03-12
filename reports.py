@@ -204,6 +204,27 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
         elem_name = elem_row[2] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["name"] if elem_row else element_name)
 
         output_path = None
+        db_dir = os.path.dirname(getattr(app, "db_path", "") or os.path.abspath(__file__))
+
+        def _safe_component(text: str, fallback: str = "element") -> str:
+            value = str(text or "").strip()
+            if not value:
+                value = fallback
+            for ch in '\\/:*?"<>|\n\r\t':
+                value = value.replace(ch, "-")
+            value = " ".join(value.split())
+            return value[:80] or fallback
+
+        safe_elem_name = _safe_component(elem_name or element_name)
+
+        def _fallback_output_path() -> str:
+            fallback_dir = os.path.join(db_dir, "reports")
+            os.makedirs(fallback_dir, exist_ok=True)
+            return os.path.join(
+                fallback_dir,
+                f"Maintenance_M{maintenance_id}_E{element_id}_{safe_elem_name}.pdf",
+            )
+
         targets = get_transformer_report_targets(
             app.conn,
             maintenance_id=maintenance_id,
@@ -215,10 +236,27 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
             is_transformer = "μ/σ" in (elem_type or "").lower() or "transformer" in (elem_type or "").lower()
             subfolder = os.path.join(reports_root, "Transformers" if is_transformer else "Other")
             os.makedirs(subfolder, exist_ok=True)
-            safe_name = (elem_name or element_name).replace("/", "-").replace("\\", "-").replace(":", "-")
-            output_path = os.path.join(subfolder, f"Maintenance_M{maintenance_id}_E{element_id}_{safe_name}.pdf")
+            output_path = os.path.join(
+                subfolder,
+                f"Maintenance_M{maintenance_id}_E{element_id}_{safe_elem_name}.pdf",
+            )
 
-        pdf_path = generate_maintenance_report(app.conn, maintenance_id, element_id, output_path=output_path)
+        try:
+            pdf_path = generate_maintenance_report(
+                app.conn,
+                maintenance_id,
+                element_id,
+                output_path=output_path,
+            )
+        except (FileNotFoundError, OSError):
+            # If OneDrive-derived path is malformed, unavailable, or too long,
+            # retry into a guaranteed local reports folder.
+            pdf_path = generate_maintenance_report(
+                app.conn,
+                maintenance_id,
+                element_id,
+                output_path=_fallback_output_path(),
+            )
         upsert_maintenance_report_path(
             app.conn,
             maintenance_id=maintenance_id,
