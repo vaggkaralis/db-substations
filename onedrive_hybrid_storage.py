@@ -1767,13 +1767,36 @@ def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: b
                 skipped += 1
                 continue
 
-            generate_maintenance_report(conn, maintenance_id, element_id, output_path)
+            # Try canonical path first. If it fails (often due to path-length
+            # limits on older/OneDrive-managed Windows paths), fall back to
+            # progressively shorter destinations under the same reports root.
+            generated_path = None
+            candidates = [
+                output_path,
+                os.path.join(subfolder, f"M{maintenance_id}_E{element_id}.pdf"),
+                os.path.join(reports_root, "_AUTO_SHORT", f"M{maintenance_id}_E{element_id}.pdf"),
+            ]
+            last_exc = None
+            for cand in candidates:
+                try:
+                    os.makedirs(os.path.dirname(cand), exist_ok=True)
+                    generate_maintenance_report(conn, maintenance_id, element_id, cand)
+                    generated_path = cand
+                    break
+                except Exception as gen_exc:
+                    last_exc = gen_exc
+
+            if generated_path is None:
+                if last_exc:
+                    raise last_exc
+                raise RuntimeError("Failed to generate maintenance report")
+
             upsert_maintenance_report_path(
                 conn,
                 maintenance_id=maintenance_id,
                 element_id=element_id,
                 report_type="pdf",
-                report_path=output_path,
+                report_path=generated_path,
             )
             generated += 1
         except Exception as exc:
