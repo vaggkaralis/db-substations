@@ -183,7 +183,9 @@ def _element_slug_for_folder(elements: list[tuple[str, str]]) -> str:
     Priority: transformer > HV breaker > MV breaker > others.
     When transformers are present only transformers are listed;
     similarly for HV/MV breakers.
-    Up to 5 elements are named; if more exist "+N" is appended.
+    Up to 5 elements are named.
+    - If exactly one extra element exists, include that element explicitly.
+    - If more than one extra element exists, append "+Nmore".
     """
     if not elements:
         return ""
@@ -200,7 +202,14 @@ def _element_slug_for_folder(elements: list[tuple[str, str]]) -> str:
 
     parts = [_sanitize_element_name(name) for _, name in shown if _sanitize_element_name(name)]
     slug = "+".join(parts)
-    if rest:
+    if rest == 1:
+        # Prefer explicit naming over "+1more" for readability.
+        extra_name = _sanitize_element_name(winning[MAX_SHOWN][1]) if len(winning) > MAX_SHOWN else ""
+        if extra_name:
+            slug += f"+{extra_name}"
+        else:
+            slug += "+1more"
+    elif rest > 1:
         slug += f"+{rest}more"
     return slug
 
