@@ -4220,7 +4220,7 @@ class SubstationApp(App):
         try:
             def _apply_update(_dt):
                 try:
-                    percent = int((current / total * 100) if total > 0 else 0)
+                    percent = min(100, max(0, int((current / total * 100) if total > 0 else 0)))
                     progress_ui["operation_label"].text = operation
                     progress_ui["substation_label"].text = f"{substation}" if substation else ""
                     progress_ui["progress_bar"].value = percent

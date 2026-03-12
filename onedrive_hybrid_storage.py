@@ -728,8 +728,6 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
     media_rows = cur.fetchall() or []
     media_linked = 0
     seen_media = set()
-    
-    total_work = len(media_rows) + 1  # +1 for report linking phase
     current_work = 0
     
     for row in media_rows:
@@ -771,10 +769,13 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
         """
     )
     rows = cur.fetchall() or []
+    # total_work now covers the media phase (one tick per row) plus the report
+    # phase (one tick per 5 rows, rounded up), so current never exceeds total.
+    total_work = len(media_rows) + (len(rows) + 4) // 5
     report_linked = 0
     report_already = 0
     report_missing = 0
-    
+
     for idx, row in enumerate(rows):
         maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
         element_id = row[1] if isinstance(row, (tuple, list)) else row["element_id"]
