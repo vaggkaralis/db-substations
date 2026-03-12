@@ -10984,8 +10984,9 @@ class SubstationApp(App):
 
                 def _select_elem(_, _eid=eid, _ename=ename):
                     picker.dismiss()
-                    elem_filter_input.text = _ename
-                    render_cards(_eid)
+                    # Open the unified element history view (same view as from
+                    # the substation database browser).
+                    self.show_element_maintenance_history(_eid, _ename, popup)
 
                 btn.bind(on_press=_select_elem)
                 picker_grid.add_widget(btn)

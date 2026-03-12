@@ -820,21 +820,12 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
         ) in maintenance_records:
             # Container for this maintenance record
             maint_layout = BoxLayout(
-                size_hint_y=None, 
+                size_hint_y=None,
                 orientation="vertical",
                 spacing=5,
-                padding=10
+                padding=10,
             )
-            
-            # Calculate height based on content
-            base_height = 120
-            if element_comments:
-                base_height += 30
-            if insul_fa_gnd or insul_fb_gnd or insul_fc_gnd:
-                base_height += 30
-            if contact_res_fa or contact_res_fb or contact_res_fc:
-                base_height += 30
-            maint_layout.height = base_height
+            maint_layout.bind(minimum_height=maint_layout.setter("height"))
 
             # Header with date and type
             header_text = f"[b]{date_time}[/b] - {substation_name}"
@@ -897,39 +888,66 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
             )
             maint_layout.add_widget(data_label)
 
-            # Button row
-            btn_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
-            
+            # Button row 1: view full report + export PDF
+            btn_row1 = BoxLayout(size_hint_y=None, height=40, spacing=5)
+
             view_full_btn = Button(
                 text=S["MESSAGES"].get("VIEW_FULL_MAINTENANCE", "Πλήρης αναφορά"),
-                size_hint_x=0.5
+                size_hint_x=0.5,
             )
             view_full_btn.bind(
-                on_press=lambda x, mid=maint_id, p=popup: app.show_maintenance_full_report(
-                    mid, p
-                )
+                on_press=lambda x, mid=maint_id, p=popup: app.show_maintenance_full_report(mid, p)
             )
-            btn_row.add_widget(view_full_btn)
+            btn_row1.add_widget(view_full_btn)
 
             export_pdf_btn = Button(
                 text=S["MESSAGES"].get("EXPORT_MAINTENANCE_PDF", "Εξαγωγή PDF"),
-                size_hint_x=0.5
+                size_hint_x=0.5,
             )
             export_pdf_btn.bind(
                 on_press=lambda x, mid=maint_id, eid=element_id: _export_single_maintenance_pdf(
                     app, mid, eid
                 )
             )
-            btn_row.add_widget(export_pdf_btn)
+            btn_row1.add_widget(export_pdf_btn)
+            maint_layout.add_widget(btn_row1)
 
-            maint_layout.add_widget(btn_row)
+            # Button row 2: edit / email / delete
+            btn_row2 = BoxLayout(size_hint_y=None, height=40, spacing=5)
 
-            # Add separator line (visual divider)
-            from kivy.graphics import Color, Line
-            with maint_layout.canvas.before:
-                Color(0.8, 0.8, 0.8, 0.5)
-                # Draw a bottom border
-            
+            def _make_edit_handler(mid, sname):
+                def _on_done():
+                    show_element_maintenance_history(app, element_id, element_name, parent_popup)
+                return lambda x: app.show_maintenance_menu(None, sname, popup, mid, _on_done)
+
+            def _make_email_handler(mid):
+                return lambda x: app.send_maintenance_email_report(mid)
+
+            def _make_delete_handler(mid):
+                return lambda x: app.confirm_delete_maintenance(mid, popup)
+
+            edit_btn = Button(
+                text=S["BUTTONS"].get("EDIT", "Επεξεργασία"),
+                size_hint_x=0.4,
+            )
+            edit_btn.bind(on_press=_make_edit_handler(maint_id, substation_name))
+            btn_row2.add_widget(edit_btn)
+
+            email_btn = Button(
+                text=S["BUTTONS"].get("EMAIL", "Email"),
+                size_hint_x=0.3,
+            )
+            email_btn.bind(on_press=_make_email_handler(maint_id))
+            btn_row2.add_widget(email_btn)
+
+            delete_btn = Button(
+                text=S["BUTTONS"].get("DELETE", "Διαγραφή"),
+                size_hint_x=0.3,
+            )
+            delete_btn.bind(on_press=_make_delete_handler(maint_id))
+            btn_row2.add_widget(delete_btn)
+            maint_layout.add_widget(btn_row2)
+
             grid.add_widget(maint_layout)
 
         scroll.add_widget(grid)
