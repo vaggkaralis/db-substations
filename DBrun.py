@@ -1381,58 +1381,29 @@ class SubstationApp(App):
         # Add spacer for better visual separation
         content.add_widget(Widget(size_hint_y=None, height=15))
 
-        # Database path display and selection
-        db_path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=80, spacing=5)
+        # Database path - editable field with reset button
+        db_path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=60, spacing=5)
         
         db_path_label = Label(text=S["MESSAGES"].get("DB_PATH_LABEL", "Διαδρομή Βάσης Δεδομένων:"), size_hint_y=None, height=20)
         db_path_row.add_widget(db_path_label)
         
         current_db_path = get_db_path()
-        db_path_display = Label(
+        db_path_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
+        
+        db_path_input = TextInput(
             text=current_db_path or S["MESSAGES"].get("DB_PATH_DEFAULT", "(Προεπιλεγμένη)"),
-            size_hint_y=None,
-            height=30,
-            text_size=(self.root_layout.width * 0.5, None),
-            markup=True,
-            color=(0.5, 0.5, 0.5, 1)
+            multiline=False,
+            size_hint_x=0.95,
+            height=35,
         )
-        db_path_row.add_widget(db_path_display)
+        db_path_input_row.add_widget(db_path_input)
         
-        db_path_btn_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
-        change_db_btn = Button(text=S["MESSAGES"].get("DB_PATH_BUTTON", "Αλλαγή"), size_hint_x=0.5)
-        reset_db_btn = Button(text=S["BUTTONS"].get("RESET", "Επαναφορά"), size_hint_x=0.5)
-        
-        def _change_db_path(*_args):
-            from popups import ask_open_file
-            try:
-                file_path = ask_open_file(
-                    title=S["MESSAGES"].get("DB_PATH_SELECT", "Επιλέξτε αρχείο βάσης δεδομένων"),
-                    filetypes=(("Database files", "*.db"), ("All files", "*.*"))
-                )
-                if file_path:
-                    if not os.path.exists(file_path):
-                        show_message_popup(
-                            S["TITLES"].get("ERROR", "Σφάλμα"),
-                            S["MESSAGES"].get("DB_FILE_NOT_FOUND", "Το αρχείο της βάσης δεδομένων δεν βρέθηκε!")
-                        )
-                        return
-                    if set_db_path(file_path):
-                        db_path_display.text = file_path
-                        show_message_popup(
-                            S["TITLES"].get("INFO", "Πληροφορία"),
-                            S["MESSAGES"].get(
-                                "DB_PATH_SAVED_RESTART",
-                                "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Η εφαρμογή θα επανεκκινήσει τώρα.",
-                            ),
-                            callback=lambda: self._restart_app()
-                        )
-            except Exception as e:
-                show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), str(e))
+        reset_db_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
         
         def _reset_db_path(*_args):
             from config_manager import clear_db_path
             if clear_db_path():
-                db_path_display.text = S["MESSAGES"].get("DB_PATH_DEFAULT", "(Προεπιλεγμένη)")
+                db_path_input.text = S["MESSAGES"].get("DB_PATH_DEFAULT", "(Προεπιλεγμένη)")
                 show_message_popup(
                     S["TITLES"].get("INFO", "Πληροφορία"),
                     S["MESSAGES"].get(
@@ -1442,11 +1413,9 @@ class SubstationApp(App):
                     callback=lambda: self._restart_app()
                 )
         
-        change_db_btn.bind(on_press=_change_db_path)
         reset_db_btn.bind(on_press=_reset_db_path)
-        db_path_btn_row.add_widget(change_db_btn)
-        db_path_btn_row.add_widget(reset_db_btn)
-        db_path_row.add_widget(db_path_btn_row)
+        db_path_input_row.add_widget(reset_db_btn)
+        db_path_row.add_widget(db_path_input_row)
         
         content.add_widget(db_path_row)
 
@@ -1484,58 +1453,7 @@ class SubstationApp(App):
         sync_header_row.add_widget(sync_help_btn)
         content.add_widget(sync_header_row)
 
-        sync_enabled_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
-        sync_enabled_row.add_widget(
-            Label(text=S["MESSAGES"].get("SYNC_AUTO_ENABLED_LABEL", "Αυτόματος συγχρονισμός:"), size_hint_x=0.75)
-        )
-        sync_enabled_chk = CheckBox(
-            active=bool(get_app_setting("sync_auto_cycle_enabled", True)),
-            size_hint_x=0.25,
-        )
-        sync_enabled_row.add_widget(sync_enabled_chk)
-        content.add_widget(sync_enabled_row)
 
-        startup_probe_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
-        startup_probe_row.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "STARTUP_SYNC_PROBE_ENABLED_LABEL",
-                    "Έλεγχος διαφορών στην εκκίνηση (startup probe):",
-                ),
-                size_hint_x=0.75,
-            )
-        )
-        startup_probe_chk = CheckBox(
-            active=bool(get_app_setting("startup_sync_probe_enabled", True)),
-            size_hint_x=0.25,
-        )
-        startup_probe_row.add_widget(startup_probe_chk)
-        content.add_widget(startup_probe_row)
-
-        startup_prompt_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
-        startup_prompt_row.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "STARTUP_SYNC_PROMPT_ON_CHANGE_LABEL",
-                    "Ερώτηση πριν τον συγχρονισμό όταν υπάρχουν διαφορές:",
-                ),
-                size_hint_x=0.75,
-            )
-        )
-        startup_prompt_chk = CheckBox(
-            active=bool(get_app_setting("startup_sync_prompt_on_change", True)),
-            size_hint_x=0.25,
-        )
-        startup_prompt_row.add_widget(startup_prompt_chk)
-        content.add_widget(startup_prompt_row)
-
-        # Prompt setting applies only if startup probe is enabled.
-        startup_prompt_chk.disabled = not startup_probe_chk.active
-
-        def _on_startup_probe_toggle(_instance, value):
-            startup_prompt_chk.disabled = not bool(value)
-
-        startup_probe_chk.bind(active=_on_startup_probe_toggle)
 
         interval_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
         interval_row.add_widget(
@@ -1549,16 +1467,7 @@ class SubstationApp(App):
         interval_row.add_widget(interval_input)
         content.add_widget(interval_row)
 
-        backup_on_change_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
-        backup_on_change_row.add_widget(
-            Label(text=S["MESSAGES"].get("SYNC_BACKUP_ON_CHANGE_LABEL", "Δημιουργία snapshot όταν υπάρχουν νέες αποδεκτές αλλαγές:"), size_hint_x=0.75)
-        )
-        backup_on_change_chk = CheckBox(
-            active=bool(get_app_setting("sync_backup_on_change", True)),
-            size_hint_x=0.25,
-        )
-        backup_on_change_row.add_widget(backup_on_change_chk)
-        content.add_widget(backup_on_change_row)
+
 
         hot_keep_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
         hot_keep_row.add_widget(
@@ -1571,23 +1480,6 @@ class SubstationApp(App):
         )
         hot_keep_row.add_widget(hot_keep_input)
         content.add_widget(hot_keep_row)
-
-        retention_enabled_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
-        retention_enabled_row.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "SYNC_RETENTION_ENABLED_LABEL",
-                    "Αυτόματη διαγραφή παλιών αρχείων sync:",
-                ),
-                size_hint_x=0.75,
-            )
-        )
-        retention_enabled_chk = CheckBox(
-            active=bool(get_app_setting("sync_retention_enabled", True)),
-            size_hint_x=0.25,
-        )
-        retention_enabled_row.add_widget(retention_enabled_chk)
-        content.add_widget(retention_enabled_row)
 
         retention_days_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
         retention_days_row.add_widget(
@@ -1607,26 +1499,27 @@ class SubstationApp(App):
         retention_days_row.add_widget(retention_days_input)
         content.add_widget(retention_days_row)
 
-        # Days field applies only when retention cleanup is enabled.
-        retention_days_input.disabled = not retention_enabled_chk.active
-
-        def _on_retention_toggle(_instance, value):
-            retention_days_input.disabled = not bool(value)
-
-        retention_enabled_chk.bind(active=_on_retention_toggle)
-
-        sync_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=110, spacing=5)
+        sync_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=5)
         sync_root_row.add_widget(
             Label(text=S["MESSAGES"].get("SYNC_ROOT_PATH_LABEL", "Φάκελος sync_root_path:"), size_hint_y=None, height=20)
         )
         sync_root_default = resolve_sync_root(self.db_path)
+        sync_root_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
         sync_root_input = TextInput(
             text=str(get_app_setting("sync_root_path", sync_root_default) or sync_root_default),
             multiline=False,
-            size_hint_y=None,
+            size_hint_x=0.95,
             height=35,
         )
-        sync_root_row.add_widget(sync_root_input)
+        sync_root_input_row.add_widget(sync_root_input)
+        sync_root_reset_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+
+        def _reset_sync_root(*_args):
+            sync_root_input.text = ""
+
+        sync_root_reset_btn.bind(on_press=_reset_sync_root)
+        sync_root_input_row.add_widget(sync_root_reset_btn)
+        sync_root_row.add_widget(sync_root_input_row)
         sync_root_hint = Label(
             text=S["MESSAGES"].get(
                 "SYNC_ROOT_PATH_HINT",
@@ -1637,29 +1530,31 @@ class SubstationApp(App):
             color=(0.5, 0.5, 0.5, 1),
         )
         sync_root_row.add_widget(sync_root_hint)
-        sync_root_btn_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=10)
-        sync_root_reset_btn = Button(text=S["BUTTONS"].get("RESET", "Επαναφορά"))
-
-        def _reset_sync_root(*_args):
-            sync_root_input.text = ""
-
-        sync_root_reset_btn.bind(on_press=_reset_sync_root)
-        sync_root_btn_row.add_widget(sync_root_reset_btn)
-        sync_root_row.add_widget(sync_root_btn_row)
         content.add_widget(sync_root_row)
 
-        backup_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=110, spacing=5)
+        content.add_widget(Widget(size_hint_y=None, height=15))
+
+        backup_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=5)
         backup_root_row.add_widget(
             Label(text=S["MESSAGES"].get("BACKUP_ROOT_PATH_LABEL", "Φάκελος backup_root_path:"), size_hint_y=None, height=20)
         )
         backup_root_default = resolve_backup_root(self.db_path)
+        backup_root_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
         backup_root_input = TextInput(
             text=str(get_app_setting("backup_root_path", backup_root_default) or backup_root_default),
             multiline=False,
-            size_hint_y=None,
+            size_hint_x=0.95,
             height=35,
         )
-        backup_root_row.add_widget(backup_root_input)
+        backup_root_input_row.add_widget(backup_root_input)
+        backup_root_reset_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+
+        def _reset_backup_root(*_args):
+            backup_root_input.text = ""
+
+        backup_root_reset_btn.bind(on_press=_reset_backup_root)
+        backup_root_input_row.add_widget(backup_root_reset_btn)
+        backup_root_row.add_widget(backup_root_input_row)
         backup_root_hint = Label(
             text=S["MESSAGES"].get(
                 "BACKUP_ROOT_PATH_HINT",
@@ -1670,15 +1565,6 @@ class SubstationApp(App):
             color=(0.5, 0.5, 0.5, 1),
         )
         backup_root_row.add_widget(backup_root_hint)
-        backup_root_btn_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=10)
-        backup_root_reset_btn = Button(text=S["BUTTONS"].get("RESET", "Επαναφορά"))
-
-        def _reset_backup_root(*_args):
-            backup_root_input.text = ""
-
-        backup_root_reset_btn.bind(on_press=_reset_backup_root)
-        backup_root_btn_row.add_widget(backup_root_reset_btn)
-        backup_root_row.add_widget(backup_root_btn_row)
         content.add_widget(backup_root_row)
 
         scroll.add_widget(content)
@@ -1725,6 +1611,29 @@ class SubstationApp(App):
                     S["MESSAGES"].get("SYNC_RETENTION_DAYS_INVALID", "Μη έγκυρη τιμή για ημέρες διατήρησης sync."),
                 )
                 return
+
+            # Handle DB path changes
+            db_path_text = (db_path_input.text or "").strip()
+            current_db_path = get_db_path()
+            
+            if db_path_text and db_path_text != S["MESSAGES"].get("DB_PATH_DEFAULT", "(Προεπιλεγμένη)"):
+                # Validate that it's a file, not a directory
+                if os.path.exists(db_path_text) and not os.path.isfile(db_path_text):
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        f"Το db_path δείχνει σε φάκελο, όχι αρχείο:\n{db_path_text}\n\nΠαρακαλώ επιλέξτε αρχείο βάσης."
+                    )
+                    return
+                if not os.path.exists(db_path_text):
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        S["MESSAGES"].get("DB_FILE_NOT_FOUND", "Το αρχείο της βάσης δεδομένων δεν βρέθηκε!")
+                    )
+                    return
+                if db_path_text != current_db_path:
+                    if set_db_path(db_path_text):
+                        # Will restart at the end of this function
+                        pass
 
             sync_root_text = (sync_root_input.text or "").strip()
             backup_root_text = (backup_root_input.text or "").strip()
@@ -1776,13 +1685,9 @@ class SubstationApp(App):
             else:
                 clear_app_setting("backup_root_path")
 
-            set_app_setting("sync_auto_cycle_enabled", bool(sync_enabled_chk.active))
-            set_app_setting("startup_sync_probe_enabled", bool(startup_probe_chk.active))
-            set_app_setting("startup_sync_prompt_on_change", bool(startup_prompt_chk.active))
             set_app_setting("sync_auto_cycle_minutes", interval_minutes)
-            set_app_setting("sync_backup_on_change", bool(backup_on_change_chk.active))
             set_app_setting("backup_hot_keep", hot_keep)
-            set_app_setting("sync_retention_enabled", bool(retention_enabled_chk.active))
+            set_app_setting("sync_retention_enabled", True)
             set_app_setting("sync_retention_days", retention_days)
 
             if sync_root_text and os.path.abspath(sync_root_text) == os.path.abspath(default_sync_root):
@@ -4226,8 +4131,6 @@ class SubstationApp(App):
         details = self._get_startup_probe_change_details(previous_probe, current_probe)
         return details.get("actionable") or []
 
-        return changes
-
     def _show_startup_sync_prompt_popup(self, on_sync=None, on_skip=None, summary_text=""):
         """Prompt the user to start full startup sync only when probe detects differences."""
         popup = Popup(
@@ -5681,15 +5584,7 @@ class SubstationApp(App):
                 if (not force) and prompt_on_change and (probe_changed or shared_root_missing or first_probe_detected_work):
                     def _defer_startup_sync():
                         logging.info("Startup sync deferred by user")
-                        self._show_brief_info_toast(
-                            S["MESSAGES"].get(
-                                "STARTUP_SYNC_DEFERRED_TOAST",
-                                "Startup sync was deferred. You can run sync manually from Import/Sync.",
-                            ),
-                            duration=4.0,
-                            action_text=S["MESSAGES"].get("STARTUP_SYNC_DEFERRED_ACTION", "Open Import/Sync"),
-                            action_callback=lambda: self.show_import_menu(None),
-                        )
+                        self._update_sync_button_status()
 
                     self._show_startup_sync_prompt_popup(
                         on_sync=lambda: self._run_startup_sync_cycle(force=True),
@@ -5908,39 +5803,81 @@ class SubstationApp(App):
 
     def _run_periodic_sync_cycle(self, *_args):
         try:
-            if not bool(get_app_setting("sync_auto_cycle_enabled", True)):
-                return
             interval_minutes = int(get_app_setting("sync_auto_cycle_minutes", 60))
             now_ts = datetime.now().timestamp()
             if (now_ts - float(getattr(self, "_last_sync_cycle_ts", 0))) < max(60, interval_minutes * 60):
                 return
 
             self._last_sync_cycle_ts = now_ts
-            from sync_service import run_sync_cycle
 
+            # Run silent probe check with difference detection.
+            try:
+                from sync_service import resolve_sync_root
+                sync_root = resolve_sync_root(self.db_path)
+                current_probe = self._compute_startup_sync_probe(sync_root)
+                state = self._load_startup_sync_state()
+                previous_probe = state.get("last_probe")
+
+                if previous_probe:
+                    probe_details = self._get_startup_probe_change_details(previous_probe, current_probe)
+                    probe_changed = bool(probe_details.get("actionable") or [])
+
+                    # If differences detected, prompt the user.
+                    if probe_changed:
+                        def _do_periodic_sync():
+                            from sync_service import run_sync_cycle
+                            result = run_sync_cycle(
+                                self.conn,
+                                db_path=self.db_path,
+                                actor="scheduler",
+                                create_backup_on_change=True,
+                                hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+                            )
+                            try:
+                                q = process_hybrid_queue(self.db_path, max_jobs=120)
+                            except Exception:
+                                logging.exception("Hybrid queue processing failed in scheduler")
+                            if result and result.get("sync", {}).get("processed", 0) > 0:
+                                self._show_sync_notification(result)
+                            self._update_sync_button_status()
+                            # Refresh probe state after sync.
+                            try:
+                                post_probe = self._compute_startup_sync_probe(resolve_sync_root(self.db_path))
+                                self._save_startup_sync_state({
+                                    "state_version": 1,
+                                    "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                                    "last_probe": post_probe,
+                                    "last_run": {"sync_processed": 0, "sync_accepted": 0, "sync_conflicts": 0},
+                                })
+                            except Exception:
+                                pass
+
+                        # Show periodic sync prompt.
+                        self._show_startup_sync_prompt_popup(
+                            on_sync=_do_periodic_sync,
+                            on_skip=lambda: self._update_sync_button_status(),
+                            summary_text=self._build_startup_probe_summary(current_probe, previous_probe),
+                        )
+                        return
+                    # No changes detected; just update button state.
+                    self._update_sync_button_status()
+                    return
+            except Exception:
+                logging.exception("Periodic sync probe check failed")
+
+            # Fallback: run sync if probe check failed.
+            from sync_service import run_sync_cycle
             result = run_sync_cycle(
                 self.conn,
                 db_path=self.db_path,
                 actor="scheduler",
-                create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
+                create_backup_on_change=True,
                 hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
             )
-
-            # Retry deferred hybrid folder jobs periodically.
             try:
                 q = process_hybrid_queue(self.db_path, max_jobs=120)
-                if q.get("processed", 0) > 0:
-                    logging.info(
-                        "Hybrid queue processed=%s succeeded=%s failed=%s remaining=%s",
-                        q.get("processed", 0),
-                        q.get("succeeded", 0),
-                        q.get("failed", 0),
-                        q.get("remaining", 0),
-                    )
             except Exception:
                 logging.exception("Hybrid queue processing failed in scheduler")
-
-            # Show notification if changes were imported
             if result and result.get("sync", {}).get("processed", 0) > 0:
                 self._show_sync_notification(result)
             self._update_sync_button_status()

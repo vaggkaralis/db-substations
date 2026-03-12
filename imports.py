@@ -143,9 +143,33 @@ def show_import_menu(app, instance=None):
 
     layout.add_widget(Label(text=S["MESSAGES"].get("IMPORT_MENU_PROMPT", "Επιλέξτε τι θέλετε να εισάγετε:"), size_hint_y=0.15))
 
-    import_elements_btn = Button(text=S["MESSAGES"].get("IMPORT_ELEMENTS_BUTTON", "Εισαγωγή Στοιχείων από Αρχείο"), size_hint_y=0.15)
+    import_buttons_row = BoxLayout(
+        orientation="horizontal",
+        size_hint_y=0.19,
+        spacing=6,
+    )
+
+    import_elements_btn = Button(
+        text=S["MESSAGES"].get("IMPORT_ELEMENTS_BUTTON", "Εισαγωγή Στοιχείων από Αρχείο"),
+        size_hint_x=0.64,
+    )
+    import_elements_btn.halign = "center"
+    import_elements_btn.valign = "middle"
+    import_elements_btn.bind(size=lambda inst, value: setattr(inst, "text_size", (value[0] - 12, value[1] - 12)))
     import_elements_btn.bind(on_press=lambda x: _show_import_elements_from_menu(app, menu_popup))
-    layout.add_widget(import_elements_btn)
+    import_buttons_row.add_widget(import_elements_btn)
+
+    template_elements_btn = Button(
+        text=S["MESSAGES"].get("IMPORT_TEMPLATE_ELEMENTS_BUTTON", "Δημιουργία Template Εισαγωγής"),
+        size_hint_x=0.36,
+    )
+    template_elements_btn.halign = "center"
+    template_elements_btn.valign = "middle"
+    template_elements_btn.bind(size=lambda inst, value: setattr(inst, "text_size", (value[0] - 10, value[1] - 12)))
+    template_elements_btn.bind(on_press=app.create_elements_template)
+    import_buttons_row.add_widget(template_elements_btn)
+
+    layout.add_widget(import_buttons_row)
 
     import_android_btn = Button(text=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"), size_hint_y=0.15)
     import_android_btn.bind(on_press=lambda x: _show_import_android_changes_from_menu(app, menu_popup))
@@ -159,12 +183,6 @@ def show_import_menu(app, instance=None):
         layout.add_widget(export_db_btn)
     except Exception:
         pass
-
-    layout.add_widget(Label(text=S["MESSAGES"].get("IMPORT_TEMPLATE_PROMPT", "Ή δημιουργήστε πρότυπο εισαγωγής:"), size_hint_y=0.12))
-
-    template_elements_btn = Button(text=S["MESSAGES"].get("IMPORT_TEMPLATE_ELEMENTS_BUTTON", "Δημιουργία Template Εισαγωγής"), size_hint_y=0.15)
-    template_elements_btn.bind(on_press=app.create_elements_template)
-    layout.add_widget(template_elements_btn)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.12)
     cancel_btn.bind(on_press=menu_popup.dismiss)
