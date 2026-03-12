@@ -858,11 +858,39 @@ def _export_maintenance_history_list(app, element_id, element_name, maintenance_
         ]]
         
         for record in maintenance_records:
-            (
-                maint_id, date_time, maint_type, overall_comments, element_comments,
-                substation_name, insul_fa_gnd, insul_fb_gnd, insul_fc_gnd,
-                contact_res_fa, contact_res_fb, contact_res_fc, operations_count
-            ) = record
+            if len(record) >= 14:
+                (
+                    maint_id,
+                    date_time,
+                    maint_type,
+                    overall_comments,
+                    element_comments,
+                    substation_name,
+                    _substation_id,
+                    insul_fa_gnd,
+                    insul_fb_gnd,
+                    insul_fc_gnd,
+                    contact_res_fa,
+                    contact_res_fb,
+                    contact_res_fc,
+                    operations_count,
+                ) = record[:14]
+            else:
+                (
+                    maint_id,
+                    date_time,
+                    maint_type,
+                    overall_comments,
+                    element_comments,
+                    substation_name,
+                    insul_fa_gnd,
+                    insul_fb_gnd,
+                    insul_fc_gnd,
+                    contact_res_fa,
+                    contact_res_fb,
+                    contact_res_fc,
+                    operations_count,
+                ) = record
             
             # Build measurements summary
             measurements = []

@@ -10762,7 +10762,7 @@ class SubstationApp(App):
             c2.execute(
                 """
                 SELECT m.id, m.date_time, m.maintenance_type, m.overall_comments,
-                       me.element_comments, s.name as substation_name, s.id as substation_id,
+                      me.element_comments, s.name as substation_name,
                        me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
                        me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
                        me.operations_count

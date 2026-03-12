@@ -18,9 +18,22 @@ def show_message_popup(title: str, message: str, callback=None) -> None:
     popup = Popup(title=title, size_hint=size_hint)
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-    scroll = ScrollView()
-    msg_label = Label(text=message, size_hint_y=None, markup=False)
-    msg_label.bind(texture_size=msg_label.setter("size"))
+    scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=10)
+    msg_label = Label(
+        text=str(message),
+        size_hint_y=None,
+        markup=False,
+        halign="left",
+        valign="top",
+    )
+
+    def _update_wrap_width(instance, width):
+        instance.text_size = (max(10, width - 14), None)
+
+    msg_label.bind(
+        width=_update_wrap_width,
+        texture_size=lambda inst, size: setattr(inst, "height", size[1] + 8),
+    )
     scroll.add_widget(msg_label)
     layout.add_widget(scroll)
 
