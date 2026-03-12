@@ -630,6 +630,22 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
 
         inside = self.collide_point(*local)
         if inside and self.tooltip:
+            win_w, win_h = Window.size
+
+            def _calc_tooltip_pos(mx, my, tw, th):
+                # horizontal: place to the right of cursor; flip left if it would overflow
+                if mx + 12 + tw > win_w - 6:
+                    tx = mx - tw - 12
+                else:
+                    tx = mx + 12
+                tx = max(6, tx)
+                # vertical: place above cursor; flip below if it would overflow top
+                ty = my + 12
+                if ty + th > win_h:
+                    ty = my - th - 12
+                ty = max(6, ty)
+                return tx, ty
+
             # If no tooltip widget yet, create and add it
             if not self._tooltip_widget:
                 lbl = Label(text=self.tooltip, size_hint=(None, None), markup=False)
@@ -642,22 +658,6 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 w = lbl.texture_size[0] + 24 if hasattr(lbl, "texture_size") else 100
                 h = lbl.texture_size[1] + 12 if hasattr(lbl, "texture_size") else 24
                 lbl.size = (w, h)
-                # position tooltip: prefer right of cursor, flip left if near right edge
-                win_w, win_h = Window.size
-
-                def _calc_tooltip_pos(mx, my, tw, th):
-                    # horizontal: place to the right of cursor; flip left if it would overflow
-                    if mx + 12 + tw > win_w - 6:
-                        tx = mx - tw - 12
-                    else:
-                        tx = mx + 12
-                    tx = max(6, tx)
-                    # vertical: place above cursor; flip below if it would overflow top
-                    ty = my + 12
-                    if ty + th > win_h:
-                        ty = my - th - 12
-                    ty = max(6, ty)
-                    return tx, ty
 
                 x, y = _calc_tooltip_pos(pos[0], pos[1], w, h)
                 lbl.pos = (x, y)
@@ -708,18 +708,10 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
 
                 self._tooltip_widget = lbl
             else:
-                # update position: prefer top-right of cursor, fallback below if necessary
+                # update position on mouse-move using same flip logic
                 lbl = self._tooltip_widget
                 w, h = lbl.size
-                x = pos[0] + 12
-                y = pos[1] + 12
-                win_w, win_h = Window.size
-                if x + w > win_w:
-                    x = win_w - w - 6
-                if y + h > win_h:
-                    y = pos[1] - h - 12
-                if y < 6:
-                    y = 6
+                x, y = _calc_tooltip_pos(pos[0], pos[1], w, h)
                 lbl.pos = (x, y)
         else:
             # hide/remove existing tooltip if present
