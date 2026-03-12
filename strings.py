@@ -488,6 +488,8 @@ STRINGS_EL = {
         "ORG_SHORT": 'ΔΕΕΔ',
         "OVERALL_COMMENTS_HINT": 'Γενικά σχόλια για την συντήρηση...',
         "OVERALL_COMMENTS_LABEL": 'Γενικά Σχόλια Συντήρησης:',
+        "ONEDRIVE_MEDIA_LABEL": 'Σύνδεσμος Φάκελου Εικόνων/Video (OneDrive):',
+        "OPEN_ONEDRIVE_FOLDER": '📁 Φάκελος OneDrive',
         "PAGE_LABEL_TEMPLATE": 'Σελίδα {page}',
         "PAGE_SIZE_LABEL": 'Αντικείμενα/σελίδα',
         "PAGE_SIZE_OPTIONS": [
@@ -852,6 +854,8 @@ STRINGS_EN = {
         "RESPONSIBLE_REQUIRED": "Maintenance responsible is required!",
         "CREW_LABEL": "Maintenance Crew (optional):",
         "OVERALL_COMMENTS_LABEL": "General Maintenance Comments:",
+        "ONEDRIVE_MEDIA_LABEL": "Photos/Videos Folder Link (OneDrive):",
+        "OPEN_ONEDRIVE_FOLDER": "📁 OneDrive Folder",
         "ELEMENTS_SECTION_LABEL": "Elements maintained (at least 1):",
         "NO_ELEMENTS_IN_SUBSTATION": "There are no elements in this substation",
         "SELECT_AT_LEAST_ONE_ELEMENT": "You must select at least one element!",

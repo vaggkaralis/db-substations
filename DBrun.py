@@ -8754,7 +8754,7 @@ class SubstationApp(App):
 
         # OneDrive Media Folder Link
         content_layout.add_widget(
-            Label(text=S["MESSAGES"].get("ONEDRIVE_MEDIA_LABEL", "Σύνδεσμος Φάκελου Εικόνων/Βίδεο (OneDrive):"), size_hint_y=None, height=35)
+            Label(text=S["MESSAGES"].get("ONEDRIVE_MEDIA_LABEL", "Σύνδεσμος Φάκελου Εικόνων/Video (OneDrive):"), size_hint_y=None, height=35)
         )
         onedrive_media_default = (
             maintenance_record[7]
@@ -11295,7 +11295,7 @@ class SubstationApp(App):
         c.execute(
             """
             SELECT m.id, m.name, m.date_time, m.overall_comments, m.maintenance_type, m.user_name,
-                   s.id, s.name, s.location, s.division
+                   s.id, s.name, s.location, s.division, m.onedrive_media_folder_link
             FROM maintenance m
             JOIN substations s ON s.id = m.substation_id
             WHERE m.id = ?
@@ -11323,6 +11323,7 @@ class SubstationApp(App):
             substation_name,
             substation_location,
             substation_division,
+            onedrive_media_folder_link,
         ) = maintenance_row
 
         display_name = maint_name or self._build_maintenance_name(substation_name, date_time)
@@ -11453,9 +11454,22 @@ class SubstationApp(App):
         scroll.add_widget(content)
         main_layout.add_widget(scroll)
 
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
+        # OneDrive Folder Button + Close Button Layout
+        button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+        
+        if onedrive_media_folder_link and onedrive_media_folder_link.strip():
+            onedrive_btn = Button(
+                text=S["MESSAGES"].get("OPEN_ONEDRIVE_FOLDER", "📁 Φάκελος OneDrive"),
+                size_hint_x=0.5
+            )
+            onedrive_btn.bind(on_press=lambda x: webbrowser.open(onedrive_media_folder_link))
+            button_layout.add_widget(onedrive_btn)
+        
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=0.5)
         close_btn.bind(on_press=popup.dismiss)
-        main_layout.add_widget(close_btn)
+        button_layout.add_widget(close_btn)
+        
+        main_layout.add_widget(button_layout)
 
         popup.content = main_layout
         popup.open()
