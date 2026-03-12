@@ -3940,7 +3940,7 @@ class SubstationAndroidApp(App):
                     if onedrive_media_link:
                         onedrive_btn_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
                         onedrive_btn = Button(
-                            text="📁 Εικόνες/Video (OneDrive)",
+                            text="Φάκελος OneDrive",
                             size_hint_x=1,
                             background_color=(0.3, 0.6, 0.8, 1),
                             font_size='11sp'

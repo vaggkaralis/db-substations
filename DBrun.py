@@ -11458,14 +11458,25 @@ class SubstationApp(App):
         button_layout = BoxLayout(size_hint_y=0.1, spacing=10)
         
         if onedrive_media_folder_link and onedrive_media_folder_link.strip():
-            onedrive_btn = Button(
-                text=S["MESSAGES"].get("OPEN_ONEDRIVE_FOLDER", "📁 Φάκελος OneDrive"),
-                size_hint_x=0.5
+            onedrive_btn = IconOnlyButton(
+                icon_type="folder",
+                icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+                size_hint_x=0.1
             )
             onedrive_btn.bind(on_press=lambda x: webbrowser.open(onedrive_media_folder_link))
             button_layout.add_widget(onedrive_btn)
+            
+            onedrive_label = Button(
+                text=S["MESSAGES"].get("OPEN_ONEDRIVE_FOLDER", "Φάκελος OneDrive"),
+                size_hint_x=0.4
+            )
+            onedrive_label.bind(on_press=lambda x: webbrowser.open(onedrive_media_folder_link))
+            button_layout.add_widget(onedrive_label)
+            close_size_x = 0.5
+        else:
+            close_size_x = 1.0
         
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=0.5)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=close_size_x)
         close_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(close_btn)
         

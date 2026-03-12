@@ -298,6 +298,18 @@ class IconWidget(Widget):
                 for i in range(1, 4):
                     py = book_y + (book_h * i / 4.5)
                     Line(points=[book_x + book_w * 0.25, py, book_x + book_w * 0.85, py], width=max(0.8, line_w * 0.7))
+            elif self.icon_type == "folder":
+                # folder icon: top tab and body
+                folder_x = x + w * 0.15
+                folder_y = y + h * 0.2
+                folder_w = w * 0.7
+                folder_h = h * 0.6
+                tab_w = folder_w * 0.35
+                tab_h = h * 0.15
+                # folder tab (top-left corner)
+                Line(rectangle=(folder_x, folder_y + folder_h - tab_h, tab_w, tab_h), width=max(1.0, line_w))
+                # folder body
+                Line(rectangle=(folder_x, folder_y, folder_w, folder_h), width=max(1.2, line_w))
 
 
 class ShiftSelectableTextInput(TextInput):
