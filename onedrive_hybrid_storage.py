@@ -245,6 +245,28 @@ def _instance_slug(
     return "_".join(parts)
 
 
+def _instance_slug_short_fallback(
+    date_time: str | None,
+    substation_name: str | None,
+    maintenance_id: int,
+) -> str:
+    """Compact fallback instance name for long-path edge cases."""
+    dt = None
+    try:
+        dt = datetime.fromisoformat((date_time or "").replace("Z", "+00:00"))
+    except Exception:
+        dt = None
+    dt_part = dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+
+    sub = _safe_name(substation_name or "", fallback="substation")
+    sub = re.sub(r"[()]", "", sub)
+    sub = re.sub(r"\s+", "_", sub).strip("_")
+    if len(sub) > 16:
+        sub = sub[:16].rstrip("_")
+
+    return f"{dt_part}_{sub}_M{maintenance_id}"
+
+
 def _append_graph_queue(shared_root: str, payload: dict) -> None:
     queue_dir = os.path.join(shared_root, "_queue")
     os.makedirs(queue_dir, exist_ok=True)
@@ -1006,6 +1028,249 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
         "reports_linked": report_linked,
         "reports_already": report_already,
         "reports_missing": report_missing,
+    }
+
+
+def _replace_prefix_ci(path: str | None, old_prefix: str | None, new_prefix: str | None) -> str | None:
+    """Replace path prefix with case-insensitive matching (Windows friendly)."""
+    if not path or not old_prefix or not new_prefix:
+        return path
+    try:
+        p = os.path.abspath(path)
+        oldp = os.path.abspath(old_prefix)
+        newp = os.path.abspath(new_prefix)
+        p_norm = os.path.normcase(p)
+        old_norm = os.path.normcase(oldp)
+        if p_norm == old_norm:
+            return newp
+        old_pref = old_norm + os.sep
+        if p_norm.startswith(old_pref):
+            tail = p[len(oldp) :].lstrip("\\/")
+            return os.path.join(newp, tail)
+    except Exception:
+        return path
+    return path
+
+
+def retrofit_maintenance_instance_folder_names(
+    conn,
+    *,
+    db_path: str | None = None,
+    dry_run: bool = False,
+    limit: int | None = None,
+) -> dict:
+    """Rename existing maintenance instance folders to the new naming scheme.
+
+    - Recomputes target instance name with current ``_instance_slug`` logic.
+    - Renames existing folders when needed.
+    - Rewrites related DB paths in:
+      maintenance_storage_paths, maintenance.onedrive_media_folder_link,
+      maintenance_report_paths.report_path.
+
+    Returns migration statistics.
+    """
+    shared_root = resolve_shared_root(db_path)
+    cur = conn.cursor()
+
+    q = """
+        SELECT m.id, m.substation_id, m.date_time, s.name
+        FROM maintenance m
+        JOIN substations s ON s.id = m.substation_id
+        WHERE EXISTS (
+            SELECT 1 FROM maintenance_storage_paths msp WHERE msp.maintenance_id = m.id
+        )
+        ORDER BY m.id
+    """
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    cur.execute(q)
+    maint_rows = cur.fetchall() or []
+
+    scanned = 0
+    renamed_folders = 0
+    folder_conflicts = 0
+    storage_rows_updated = 0
+    maintenance_links_updated = 0
+    report_paths_updated = 0
+    errors = []
+
+    for row in maint_rows:
+        scanned += 1
+        maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
+        substation_id = row[1] if isinstance(row, (tuple, list)) else row["substation_id"]
+        date_time = row[2] if isinstance(row, (tuple, list)) else row["date_time"]
+        substation_name = row[3] if isinstance(row, (tuple, list)) else row["name"]
+
+        cur.execute(
+            """
+            SELECT DISTINCT e.element_type, e.name
+            FROM maintenance_elements me
+            JOIN elements e ON e.id = me.element_id
+            WHERE me.maintenance_id = ?
+            """,
+            (maintenance_id,),
+        )
+        elements = [(r[0] or "", r[1] or "") for r in (cur.fetchall() or [])]
+        target_instance_name = _instance_slug(
+            date_time,
+            substation_name=substation_name,
+            elements=elements,
+        )
+
+        cur.execute(
+            """
+            SELECT gate_key, instance_folder, media_folder, reports_folder
+            FROM maintenance_storage_paths
+            WHERE maintenance_id = ?
+            """,
+            (maintenance_id,),
+        )
+        path_rows = cur.fetchall() or []
+
+        for prow in path_rows:
+            gate_key = prow[0] if isinstance(prow, (tuple, list)) else prow["gate_key"]
+            old_instance_raw = prow[1] if isinstance(prow, (tuple, list)) else prow["instance_folder"]
+            old_media_raw = prow[2] if isinstance(prow, (tuple, list)) else prow["media_folder"]
+            old_reports_raw = prow[3] if isinstance(prow, (tuple, list)) else prow["reports_folder"]
+
+            old_instance_mapped = _remap_legacy_shared_root(old_instance_raw, shared_root)
+            old_media_mapped = _remap_legacy_shared_root(old_media_raw, shared_root)
+            old_reports_mapped = _remap_legacy_shared_root(old_reports_raw, shared_root)
+
+            instance_parent = os.path.dirname(old_instance_mapped or old_instance_raw or "")
+            if not instance_parent:
+                continue
+            target_instance = os.path.join(instance_parent, target_instance_name)
+
+            current_base = os.path.basename(os.path.normpath(old_instance_mapped or old_instance_raw or ""))
+            needs_rename = current_base != target_instance_name
+
+            # Resolve collisions by adding maintenance id suffix.
+            final_target = target_instance
+            if needs_rename and os.path.exists(final_target):
+                same = os.path.normcase(os.path.abspath(final_target)) == os.path.normcase(
+                    os.path.abspath(old_instance_mapped or old_instance_raw or final_target)
+                )
+                if not same:
+                    folder_conflicts += 1
+                    final_target = f"{target_instance}_M{maintenance_id}"
+
+            # Choose source path to rename (prefer mapped new-root path).
+            source_path = None
+            for candidate in [old_instance_mapped, old_instance_raw]:
+                if candidate and os.path.isdir(candidate):
+                    source_path = candidate
+                    break
+
+            # If DB already points to a renamed/missing path, try discovering a
+            # legacy Email_instance_* folder for this maintenance under the same
+            # Maintenance root.
+            if needs_rename and not source_path and instance_parent and os.path.isdir(instance_parent):
+                try:
+                    legacy_suffix = f"Email_instance_{maintenance_id}"
+                    for name in os.listdir(instance_parent):
+                        cand = os.path.join(instance_parent, name)
+                        if os.path.isdir(cand) and name.endswith(legacy_suffix):
+                            source_path = cand
+                            break
+                except Exception:
+                    pass
+
+            if needs_rename and source_path and os.path.normcase(os.path.abspath(source_path)) != os.path.normcase(os.path.abspath(final_target)):
+                try:
+                    if not dry_run:
+                        os.makedirs(os.path.dirname(final_target), exist_ok=True)
+                        shutil.move(source_path, final_target)
+                    renamed_folders += 1
+                except Exception as exc:
+                    errors.append(f"maintenance {maintenance_id} gate {gate_key}: {exc}")
+                    # Retry with a compact fallback name to avoid long-path errors.
+                    try:
+                        fallback_name = _instance_slug_short_fallback(
+                            date_time,
+                            substation_name,
+                            maintenance_id,
+                        )
+                        fallback_target = os.path.join(instance_parent, fallback_name)
+                        if fallback_target != final_target and not os.path.exists(fallback_target):
+                            if not dry_run:
+                                os.makedirs(os.path.dirname(fallback_target), exist_ok=True)
+                                shutil.move(source_path, fallback_target)
+                            renamed_folders += 1
+                            final_target = fallback_target
+                    except Exception:
+                        # Keep going so DB links can still be normalized away from
+                        # legacy naming even when the old folder is missing.
+                        pass
+
+            # Compute updated DB paths by prefix replacement from old->new.
+            new_instance = final_target if needs_rename else (old_instance_mapped or old_instance_raw)
+            new_media = _replace_prefix_ci(old_media_mapped or old_media_raw, old_instance_mapped or old_instance_raw, new_instance)
+            new_reports = _replace_prefix_ci(old_reports_mapped or old_reports_raw, old_instance_mapped or old_instance_raw, new_instance)
+
+            if (
+                (new_instance or "") != (old_instance_raw or "")
+                or (new_media or "") != (old_media_raw or "")
+                or (new_reports or "") != (old_reports_raw or "")
+            ):
+                if not dry_run:
+                    cur.execute(
+                        """
+                        UPDATE maintenance_storage_paths
+                        SET instance_folder=?, media_folder=?, reports_folder=?
+                        WHERE maintenance_id=? AND gate_key=?
+                        """,
+                        (new_instance, new_media, new_reports, maintenance_id, gate_key),
+                    )
+                storage_rows_updated += 1
+
+            # Update primary media link in maintenance table for this maintenance.
+            cur.execute(
+                "SELECT onedrive_media_folder_link FROM maintenance WHERE id=?",
+                (maintenance_id,),
+            )
+            mrow = cur.fetchone()
+            old_link = mrow[0] if mrow and isinstance(mrow, (tuple, list)) else (mrow["onedrive_media_folder_link"] if mrow else None)
+            new_link = _replace_prefix_ci(old_link, old_instance_raw, new_instance)
+            new_link = _replace_prefix_ci(new_link, old_instance_mapped, new_instance)
+            if (new_link or "") != (old_link or ""):
+                if not dry_run:
+                    cur.execute(
+                        "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
+                        (new_link, maintenance_id),
+                    )
+                maintenance_links_updated += 1
+
+            # Update tracked report paths for this maintenance.
+            cur.execute(
+                "SELECT id, report_path FROM maintenance_report_paths WHERE maintenance_id=?",
+                (maintenance_id,),
+            )
+            rrows = cur.fetchall() or []
+            for rrow in rrows:
+                rid = rrow[0] if isinstance(rrow, (tuple, list)) else rrow["id"]
+                old_report_path = rrow[1] if isinstance(rrow, (tuple, list)) else rrow["report_path"]
+                new_report_path = _replace_prefix_ci(old_report_path, old_instance_raw, new_instance)
+                new_report_path = _replace_prefix_ci(new_report_path, old_instance_mapped, new_instance)
+                if (new_report_path or "") != (old_report_path or ""):
+                    if not dry_run:
+                        cur.execute(
+                            "UPDATE maintenance_report_paths SET report_path=?, updated_at=? WHERE id=?",
+                            (new_report_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), rid),
+                        )
+                    report_paths_updated += 1
+
+    if not dry_run:
+        conn.commit()
+
+    return {
+        "scanned": scanned,
+        "renamed_folders": renamed_folders,
+        "folder_conflicts": folder_conflicts,
+        "storage_rows_updated": storage_rows_updated,
+        "maintenance_links_updated": maintenance_links_updated,
+        "report_paths_updated": report_paths_updated,
+        "errors": errors,
     }
 
 
