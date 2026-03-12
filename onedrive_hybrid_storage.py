@@ -64,6 +64,47 @@ def _resolve_default_shared_root(base_dir: str) -> str:
     return new_root
 
 
+def _remap_legacy_shared_root(path: str | None, shared_root: str) -> str | None:
+    """Remap a stored path from legacy shared root to the current shared root.
+
+    This prevents re-creating the old ``shared_substations`` tree when older DB
+    rows still reference it.
+    """
+    if not path:
+        return path
+
+    try:
+        current_root = os.path.abspath(shared_root)
+        legacy_root = os.path.abspath(
+            os.path.join(os.path.dirname(current_root), _LEGACY_SHARED_ROOT_NAME)
+        )
+        abs_path = os.path.abspath(path)
+
+        # Windows-safe case-insensitive prefix comparison.
+        abs_norm = os.path.normcase(abs_path)
+        legacy_norm = os.path.normcase(legacy_root)
+
+        if abs_norm == legacy_norm:
+            return current_root
+
+        legacy_prefix = legacy_norm + os.sep
+        if abs_norm.startswith(legacy_prefix):
+            rel_tail = abs_path[len(legacy_root) :].lstrip("\\/")
+            return os.path.join(current_root, rel_tail)
+
+        # Fallback: legacy folder name appears as a path component in a path
+        # rooted elsewhere (older explicit OneDrive roots). Replace that
+        # component in-place so calls no longer create shared_substations.
+        marker = os.sep + _LEGACY_SHARED_ROOT_NAME + os.sep
+        if marker in abs_path:
+            replacement = os.sep + _DEFAULT_SHARED_ROOT_NAME + os.sep
+            return abs_path.replace(marker, replacement, 1)
+    except Exception:
+        return path
+
+    return path
+
+
 def resolve_shared_root(db_path: str | None = None) -> str:
     configured = get_app_setting("onedrive_shared_root_path", None)
     if configured:
@@ -523,10 +564,13 @@ def ensure_maintenance_folders(
     existing_by_gate_key = {}
     for row in existing_rows:
         gate_key = row[0] if isinstance(row, (tuple, list)) else row["gate_key"]
+        instance_folder = row[1] if isinstance(row, (tuple, list)) else row["instance_folder"]
+        media_folder = row[2] if isinstance(row, (tuple, list)) else row["media_folder"]
+        reports_folder = row[3] if isinstance(row, (tuple, list)) else row["reports_folder"]
         existing_by_gate_key[gate_key] = {
-            "instance_folder": row[1] if isinstance(row, (tuple, list)) else row["instance_folder"],
-            "media_folder": row[2] if isinstance(row, (tuple, list)) else row["media_folder"],
-            "reports_folder": row[3] if isinstance(row, (tuple, list)) else row["reports_folder"],
+            "instance_folder": _remap_legacy_shared_root(instance_folder, shared_root),
+            "media_folder": _remap_legacy_shared_root(media_folder, shared_root),
+            "reports_folder": _remap_legacy_shared_root(reports_folder, shared_root),
         }
 
     created_rows = []
@@ -671,7 +715,8 @@ def get_transformer_report_targets(
     targets: list[str] = []
     seen: set[str] = set()
     for row in rows:
-        reports_root = row[0] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        reports_root_raw = row[0] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        reports_root = _remap_legacy_shared_root(reports_root_raw, shared_root)
         if not reports_root:
             continue
         if reports_root in seen:
