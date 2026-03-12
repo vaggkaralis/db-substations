@@ -217,13 +217,28 @@ def _apply_change_log_to_db(
                 # Insert related elements
                 elements = data.get("elements") or []
                 elements_ok = True
+                seen_element_ids = set()
                 for elem in elements:
                     elem_id = elem.get("element_id") or elem.get("id")
                     elem_comments = elem.get("element_comments") or elem.get("comments")
+                    if not elem_id:
+                        continue
+                    # Skip duplicate element ids in the same payload line.
+                    if elem_id in seen_element_ids:
+                        continue
+                    seen_element_ids.add(elem_id)
                     try:
                         cur.execute(
-                            "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
-                            (maintenance_id, elem_id, elem_comments),
+                            """
+                            INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments)
+                            SELECT ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1
+                                FROM maintenance_elements
+                                WHERE maintenance_id = ? AND element_id = ?
+                            )
+                            """,
+                            (maintenance_id, elem_id, elem_comments, maintenance_id, elem_id),
                         )
                         if data.get("date_time") and elem_id:
                             cur.execute(

@@ -23,6 +23,7 @@ from config_manager import (get_current_language, set_current_language,
                             set_app_setting, clear_app_setting)
 from db_version import is_db_compatible, get_app_version_string, get_db_version_string
 from db_integrity import check_database_integrity
+from import_diagnostics import log_import_diagnostic
 from validation import is_user_responsible_capable
 
 # Lazy-evaluated strings (called at runtime, not import time)
@@ -202,12 +203,26 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                 maintenance_id = cur.lastrowid
 
                 elements = data.get("elements") or []
+                seen_element_ids = set()
                 for elem in elements:
                     elem_id = elem.get("element_id") or elem.get("id")
                     elem_comments = elem.get("element_comments") or elem.get("comments")
+                    if not elem_id:
+                        continue
+                    # Skip duplicates within one payload entry.
+                    if elem_id in seen_element_ids:
+                        continue
+                    seen_element_ids.add(elem_id)
                     cur.execute(
-                        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
-                        (maintenance_id, elem_id, elem_comments),
+                        """
+                        INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments)
+                        SELECT ?, ?, ?
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM maintenance_elements
+                            WHERE maintenance_id = ? AND element_id = ?
+                        )
+                        """,
+                        (maintenance_id, elem_id, elem_comments, maintenance_id, elem_id),
                     )
                     # Update element maintenance_date if provided
                     if data.get("date_time") and elem_id:
@@ -255,9 +270,11 @@ class SubstationApp(App):
         if elem_type not in self.BREAKER_ELEMENT_TYPES:
             return elem_type
         try:
+            # HV breakers are always treated as central breakers.
             if elem_type == self.ELEM_BREAKER_YT:
                 label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
-            elif is_main_switch == 1:
+            # MV breakers with is_main_switch==1 are also central breakers.
+            elif elem_type == self.ELEM_BREAKER_MT and is_main_switch == 1:
                 label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
             elif is_main_switch == 2:
                 label = S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός")
@@ -663,9 +680,9 @@ class SubstationApp(App):
                 source=logo_path if os.path.exists(logo_path) else fallback_path,
                 size_hint_y=None,
                 height=height,
-                allow_stretch=True,
-                keep_ratio=True,
             )
+            if hasattr(logo, "fit_mode"):
+                logo.fit_mode = "contain"
             layout.add_widget(logo)
             return
         if reserve:
@@ -4764,18 +4781,8 @@ class SubstationApp(App):
                                 inactive_marker = " [color=ff0000][b][ΑΝΕΝΕΡΓΟ][/b][/color]"
 
                             # Create element text with multiple lines for better readability
-                            # Add breaker type label for circuit breakers
+                            # Add breaker subtype text for circuit breakers.
                             if elem_type in self.BREAKER_ELEMENT_TYPES:
-                                if elem_type == self.ELEM_BREAKER_YT:
-                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
-                                elif is_main_switch == 1:
-                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός")
-                                elif is_main_switch == 2:
-                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός")
-                                elif is_main_switch == 3:
-                                    breaker_type_label = S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών")
-                                else:
-                                    breaker_type_label = "Γραμμής"
                                 elem_type = self._format_elem_type(elem_type, is_main_switch)
 
                             breaker_info = (
@@ -9549,12 +9556,32 @@ class SubstationApp(App):
                     (maintenance_id, responsible_id, "responsible"),
                 )
 
-            for pid, cb in crew_checks.items():
-                if cb.active and pid != responsible_id:
+            selected_crew_ids = [
+                pid for pid, cb in crew_checks.items() if cb.active and pid != responsible_id
+            ]
+            for pid in selected_crew_ids:
+                if pid != responsible_id:
                     c.execute(
                         "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, ?)",
                         (maintenance_id, pid, "crew"),
                     )
+
+            if prefill_data.get("_diag_origin") == "email_ui_prefill":
+                detected_crew = set(prefill_data.get("_diag_detected_crew_ids") or [])
+                final_crew = set(selected_crew_ids)
+                log_import_diagnostic(
+                    "email_ui_people_saved",
+                    maintenance_id=maintenance_id,
+                    substation_id=substation_id,
+                    sender_name=prefill_data.get("_diag_sender_name") or "",
+                    subject=prefill_data.get("_diag_subject") or "",
+                    detected_responsible_id=prefill_data.get("_diag_detected_responsible_id"),
+                    final_responsible_id=responsible_id,
+                    detected_crew_ids=sorted(detected_crew),
+                    final_crew_ids=sorted(final_crew),
+                    crew_added_after_prefill=sorted(final_crew - detected_crew),
+                    crew_removed_after_prefill=sorted(detected_crew - final_crew),
+                )
 
             # Insert maintenance elements and update their maintenance_date
             for elem_id, widgets in selected_elements:

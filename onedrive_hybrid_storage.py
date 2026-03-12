@@ -384,11 +384,31 @@ def ensure_maintenance_folders(
     gate_buckets = _collect_gate_buckets(conn, element_ids)
     instance_name = _instance_slug(maintenance_name, maintenance_type, date_time, maintenance_id)
 
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT gate_key, instance_folder, media_folder, reports_folder
+        FROM maintenance_storage_paths
+        WHERE maintenance_id=?
+        """,
+        (maintenance_id,),
+    )
+    existing_rows = cur.fetchall() or []
+    existing_by_gate_key = {}
+    for row in existing_rows:
+        gate_key = row[0] if isinstance(row, (tuple, list)) else row["gate_key"]
+        existing_by_gate_key[gate_key] = {
+            "instance_folder": row[1] if isinstance(row, (tuple, list)) else row["instance_folder"],
+            "media_folder": row[2] if isinstance(row, (tuple, list)) else row["media_folder"],
+            "reports_folder": row[3] if isinstance(row, (tuple, list)) else row["reports_folder"],
+        }
+
     created_rows = []
     media_targets = []
 
     for bucket in gate_buckets:
         gate_rel = _gate_relative_path(bucket)
+        gate_key = f"{bucket[0]}:{bucket[1]}"
         gate_root = os.path.join(substation_root, gate_rel)
         maintenance_root = os.path.join(gate_root, "Maintenance")
         inspections_root = os.path.join(gate_root, "Inspections")
@@ -408,12 +428,19 @@ def ensure_maintenance_folders(
         _ensure_dir(inspections_root, queue_payload=queue_payload)
         _ensure_dir(dga_root, queue_payload=queue_payload)
 
-        instance_root = os.path.join(maintenance_root, instance_name)
-        reports_root = os.path.join(instance_root, "Reports")
+        existing = existing_by_gate_key.get(gate_key) or {}
+        instance_root = existing.get("instance_folder") or os.path.join(
+            maintenance_root, instance_name
+        )
+        reports_root = existing.get("reports_folder") or os.path.join(
+            instance_root, "Reports"
+        )
         reports_breakers = os.path.join(reports_root, "Breakers")
         reports_transformers = os.path.join(reports_root, "Transformers")
         reports_other = os.path.join(reports_root, "Other")
-        media_root = os.path.join(instance_root, "Photos_Videos")
+        media_root = existing.get("media_folder") or os.path.join(
+            instance_root, "Photos_Videos"
+        )
 
         _ensure_dir(instance_root, queue_payload=queue_payload)
         _ensure_dir(reports_root, queue_payload=queue_payload)
@@ -425,7 +452,7 @@ def ensure_maintenance_folders(
         media_targets.append(media_root)
         created_rows.append(
             {
-                "gate_key": f"{bucket[0]}:{bucket[1]}",
+                "gate_key": gate_key,
                 "gate_folder": gate_rel,
                 "instance_folder": instance_root,
                 "media_folder": media_root,

@@ -2,6 +2,7 @@ import os
 import threading
 from datetime import datetime
 
+from import_diagnostics import log_import_diagnostic
 from strings_proxy import STRINGS as S
 
 
@@ -484,6 +485,20 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     responsible_id = app._match_person_by_sender(sender_name, people)
     crew_ids = app._find_people_in_body(body, people, exclude_ids={responsible_id} if responsible_id else set())
 
+    people_name_by_id = {pid: name for pid, name, _role in people}
+    log_import_diagnostic(
+        "email_ui_people_detected",
+        sender_name=sender_name or "",
+        subject=subject or "",
+        substation_id=substation_id,
+        substation_name=substation_name,
+        body_length=len(body or ""),
+        detected_responsible_id=responsible_id,
+        detected_responsible_name=people_name_by_id.get(responsible_id),
+        detected_crew_ids=sorted(crew_ids),
+        detected_crew_names=[people_name_by_id.get(pid) for pid in sorted(crew_ids)],
+    )
+
     element_ids = app._find_elements_in_body(body, substation_id)
     incomplete_elements = set(element_ids)
 
@@ -508,6 +523,11 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         "element_ids": element_ids,
         "incomplete_elements": incomplete_elements,
         "attachment_paths": attachment_paths,
+        "_diag_origin": "email_ui_prefill",
+        "_diag_detected_responsible_id": responsible_id,
+        "_diag_detected_crew_ids": sorted(crew_ids),
+        "_diag_sender_name": sender_name or "",
+        "_diag_subject": subject or "",
     }
 
     prev = _get_previous_maintenance_defaults(app, substation_id, date_time_value)

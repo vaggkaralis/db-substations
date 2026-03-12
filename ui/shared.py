@@ -347,8 +347,8 @@ class IconButton(ButtonBehavior, BoxLayout):
         # Use an Image if `source` is provided, otherwise draw vector icon
         if self.source:
             self.icon = Image(source=self.source, size_hint=(None, None))
-            self.icon.allow_stretch = True
-            self.icon.keep_ratio = True
+            if hasattr(self.icon, "fit_mode"):
+                self.icon.fit_mode = "contain"
             self.icon.size = (35, 35)
         else:
             self.icon = IconWidget(
@@ -416,8 +416,8 @@ class IconButton(ButtonBehavior, BoxLayout):
                 pass
         if new_source:
             self.icon = Image(source=new_source, size_hint=(None, None))
-            self.icon.allow_stretch = True
-            self.icon.keep_ratio = True
+            if hasattr(self.icon, "fit_mode"):
+                self.icon.fit_mode = "contain"
             self.icon.size = (23, 23)
         else:
             self.icon = IconWidget(
@@ -466,8 +466,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
 
         if self.source:
             self.icon = Image(source=self.source, size_hint=(None, None))
-            self.icon.allow_stretch = True
-            self.icon.keep_ratio = True
+            if hasattr(self.icon, "fit_mode"):
+                self.icon.fit_mode = "contain"
         else:
             self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.icon_color, size_hint=(None, None))
 
@@ -516,8 +516,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             pass
         if new_source:
             self.icon = Image(source=new_source, size_hint=(None, None))
-            self.icon.allow_stretch = True
-            self.icon.keep_ratio = True
+            if hasattr(self.icon, "fit_mode"):
+                self.icon.fit_mode = "contain"
         else:
             self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.icon_color, size_hint=(None, None))
         self._update_icon_size()

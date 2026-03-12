@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime
 
 from database import init_db
+from import_diagnostics import log_import_diagnostic
 from email_eml_parser import sanitize_email_body_for_import
 from email_text_utils import normalize_text as _normalize_text
 from email_text_utils import tokenize_text as _tokenize_text
@@ -539,6 +540,19 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
     return matched
 
 
+def _fetch_person_names_by_ids(conn, person_ids):
+    ids = sorted({pid for pid in person_ids if pid is not None})
+    if not ids:
+        return {}
+    placeholders = ",".join(["?"] * len(ids))
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT id, name FROM people WHERE id IN ({placeholders})",
+        ids,
+    )
+    return {row["id"]: row["name"] for row in cur.fetchall()}
+
+
 def _get_previous_maintenance_defaults(conn, substation_id: int, date_time_value: str):
     c = conn.cursor()
     c.execute(
@@ -696,6 +710,23 @@ def create_maintenance_from_email(
         crew_ids = _find_people_in_body(
             conn, sanitized_body, exclude_ids={responsible_id} if responsible_id else set()
         )
+        people_name_map = _fetch_person_names_by_ids(
+            conn, set(crew_ids) | ({responsible_id} if responsible_id else set())
+        )
+        log_import_diagnostic(
+            "email_import_people_detected",
+            sender_name=sender_name or "",
+            sender_email=sender_email or "",
+            subject=subject or "",
+            substation_id=substation.get("id") if isinstance(substation, dict) else None,
+            substation_name=substation.get("name") if isinstance(substation, dict) else "",
+            maintenance_date_time=date_time_value,
+            body_length=len(sanitized_body or ""),
+            responsible_id=responsible_id,
+            responsible_name=people_name_map.get(responsible_id),
+            detected_crew_ids=sorted(crew_ids),
+            detected_crew_names=[people_name_map.get(pid) for pid in sorted(crew_ids)],
+        )
         # Don't use fallback to previous maintenance crew - only include explicitly mentioned crew
         # This prevents false preselection of crew members from previous work
 
@@ -752,6 +783,32 @@ def create_maintenance_from_email(
                 "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
                 (primary_media_folder, maintenance_id),
             )
+
+        c.execute(
+            """
+            SELECT role, person_id
+            FROM maintenance_people
+            WHERE maintenance_id=?
+            ORDER BY role, person_id
+            """,
+            (maintenance_id,),
+        )
+        persisted_people_rows = c.fetchall()
+        persisted_ids = {row["person_id"] for row in persisted_people_rows}
+        persisted_name_map = _fetch_person_names_by_ids(conn, persisted_ids)
+        log_import_diagnostic(
+            "email_import_people_persisted",
+            maintenance_id=maintenance_id,
+            substation_id=substation.get("id") if isinstance(substation, dict) else None,
+            people=[
+                {
+                    "role": row["role"],
+                    "person_id": row["person_id"],
+                    "person_name": persisted_name_map.get(row["person_id"]),
+                }
+                for row in persisted_people_rows
+            ],
+        )
 
         conn.commit()
 

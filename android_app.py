@@ -742,10 +742,10 @@ class SubstationAndroidApp(App):
                     
                     logo = Image(
                         source=logo_path,
-                        size_hint_x=1,
-                        allow_stretch=True,
-                        keep_ratio=True
+                        size_hint_x=1
                     )
+                    if hasattr(logo, "fit_mode"):
+                        logo.fit_mode = "contain"
                     logo_container.add_widget(logo)
                     redraw_bg(logo_container, None)  # Draw initial background
                     header_box.add_widget(logo_container)

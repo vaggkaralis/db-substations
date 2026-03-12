@@ -248,6 +248,9 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             "CREATE INDEX IF NOT EXISTS idx_maintenance_elements_maintenance ON maintenance_elements(maintenance_id)"
         )
         cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_maintenance_elements_maint_elem ON maintenance_elements(maintenance_id, element_id)"
+        )
+        cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_maintenance_people_maintenance ON maintenance_people(maintenance_id)"
         )
         cursor.execute(
