@@ -30,6 +30,30 @@ _MEDIA_EXTENSIONS = {
 _DEFAULT_SHARED_ROOT_NAME = "Κοινή Βάση Υποσταθμών"
 _LEGACY_SHARED_ROOT_NAME = "shared_substations"
 
+# Canonical Greek folder labels
+_DIR_GATE_1 = "ΠΥΛΗ 1"
+_DIR_GATE_2 = "ΠΥΛΗ 2"
+_DIR_GATE_3 = "ΠΥΛΗ 3"
+_DIR_GATE_UNKNOWN = "ΠΥΛΗ Άγνωστη"
+_DIR_INTERCONNECTIONS = "Διασυνδέσεις"
+
+_DIR_MAINTENANCE_PARTS = ("Συντηρήσεις", "Βλάβες")
+_DIR_INSPECTIONS = "Επιθεωρήσεις"
+_DIR_DGA_PARTS = ("Φυσικοχημικές", "Αεριοχρωματογραφία")
+
+_DIR_MEDIA = "Φωτογραφίες_Video"
+_DIR_REPORTS = "Αναφορές"
+_DIR_REPORTS_BREAKERS_HV = "Διακόπτες ΥΤ"
+_DIR_REPORTS_BREAKERS_MV = "Διακόπτες ΜΤ"
+_DIR_REPORTS_TRANSFORMERS = "Μετασχηματιστές"
+_DIR_REPORTS_OTHER = "Λοιπά"
+
+
+def _join_parts(parts: tuple[str, ...] | list[str] | str) -> str:
+    if isinstance(parts, str):
+        return parts
+    return os.path.join(*parts)
+
 
 def _safe_name(value: str, fallback: str = "unknown") -> str:
     text = (value or "").strip()
@@ -138,10 +162,25 @@ def _bucket_for_gate(gate_value: str | None) -> tuple[str, str]:
 def _gate_relative_path(bucket: tuple[str, str]) -> str:
     kind, value = bucket
     if kind == "interconnections":
-        return os.path.join("Interconnections", value)
+        return os.path.join(_DIR_INTERCONNECTIONS, value)
     if value in {"1", "2", "3"}:
-        return f"Gate_{value}"
-    return "Gate_unknown"
+        return {
+            "1": _DIR_GATE_1,
+            "2": _DIR_GATE_2,
+            "3": _DIR_GATE_3,
+        }.get(value, _DIR_GATE_UNKNOWN)
+    return _DIR_GATE_UNKNOWN
+
+
+def _report_subfolder_name_for_element(element_type: str | None) -> str:
+    t = (element_type or "").lower()
+    if any(s in t for s in _TRANSFORMER_SUBSTRS):
+        return _DIR_REPORTS_TRANSFORMERS
+    if any(s in t for s in _HV_BREAKER_SUBSTRS):
+        return _DIR_REPORTS_BREAKERS_HV
+    if any(s in t for s in _MV_BREAKER_SUBSTRS):
+        return _DIR_REPORTS_BREAKERS_MV
+    return _DIR_REPORTS_OTHER
 
 
 def _sanitize_element_name(name: str) -> str:
@@ -489,15 +528,28 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
         gate_rel = _gate_relative_path(bucket)
         gate_root = os.path.join(substation_root, gate_rel)
         _ensure_dir(gate_root, queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
-        _ensure_dir(os.path.join(gate_root, "Maintenance"), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
-        _ensure_dir(os.path.join(gate_root, "Inspections"), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
-        _ensure_dir(os.path.join(gate_root, "DGA_Measurements"), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
+        _ensure_dir(os.path.join(gate_root, _join_parts(_DIR_MAINTENANCE_PARTS)), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
+        _ensure_dir(os.path.join(gate_root, _DIR_INSPECTIONS), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
+        _ensure_dir(os.path.join(gate_root, _join_parts(_DIR_DGA_PARTS)), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
         created.append(gate_rel)
 
     active_rel = { _gate_relative_path(b) for b in active_buckets }
 
     removed = []
-    known_candidates = ["Gate_1", "Gate_2", "Gate_3", "Gate_unknown", os.path.join("Interconnections", "1-2"), os.path.join("Interconnections", "2-3")]
+    known_candidates = [
+        _DIR_GATE_1,
+        _DIR_GATE_2,
+        _DIR_GATE_3,
+        _DIR_GATE_UNKNOWN,
+        os.path.join(_DIR_INTERCONNECTIONS, "1-2"),
+        os.path.join(_DIR_INTERCONNECTIONS, "2-3"),
+        "Gate_1",
+        "Gate_2",
+        "Gate_3",
+        "Gate_unknown",
+        os.path.join("Interconnections", "1-2"),
+        os.path.join("Interconnections", "2-3"),
+    ]
     for rel in known_candidates:
         if rel in active_rel:
             continue
@@ -527,12 +579,13 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
                 pass
 
     # Remove Interconnections parent if empty
-    interconnections_root = os.path.join(substation_root, "Interconnections")
-    if os.path.isdir(interconnections_root) and _is_dir_empty(interconnections_root):
-        try:
-            os.rmdir(interconnections_root)
-        except Exception:
-            pass
+    for inter_dir in (_DIR_INTERCONNECTIONS, "Interconnections"):
+        interconnections_root = os.path.join(substation_root, inter_dir)
+        if os.path.isdir(interconnections_root) and _is_dir_empty(interconnections_root):
+            try:
+                os.rmdir(interconnections_root)
+            except Exception:
+                pass
 
     return {
         "created_or_ensured": created,
@@ -611,9 +664,9 @@ def ensure_maintenance_folders(
         gate_rel = _gate_relative_path(bucket)
         gate_key = f"{bucket[0]}:{bucket[1]}"
         gate_root = os.path.join(substation_root, gate_rel)
-        maintenance_root = os.path.join(gate_root, "Maintenance")
-        inspections_root = os.path.join(gate_root, "Inspections")
-        dga_root = os.path.join(gate_root, "DGA_Measurements")
+        maintenance_root = os.path.join(gate_root, _join_parts(_DIR_MAINTENANCE_PARTS))
+        inspections_root = os.path.join(gate_root, _DIR_INSPECTIONS)
+        dga_root = os.path.join(gate_root, _join_parts(_DIR_DGA_PARTS))
 
         queue_payload = {
             "kind": "ensure_gate_structure",
@@ -634,18 +687,20 @@ def ensure_maintenance_folders(
             maintenance_root, instance_name
         )
         reports_root = existing.get("reports_folder") or os.path.join(
-            instance_root, "Reports"
+            instance_root, _DIR_REPORTS
         )
-        reports_breakers = os.path.join(reports_root, "Breakers")
-        reports_transformers = os.path.join(reports_root, "Transformers")
-        reports_other = os.path.join(reports_root, "Other")
+        reports_breakers_hv = os.path.join(reports_root, _DIR_REPORTS_BREAKERS_HV)
+        reports_breakers_mv = os.path.join(reports_root, _DIR_REPORTS_BREAKERS_MV)
+        reports_transformers = os.path.join(reports_root, _DIR_REPORTS_TRANSFORMERS)
+        reports_other = os.path.join(reports_root, _DIR_REPORTS_OTHER)
         media_root = existing.get("media_folder") or os.path.join(
-            instance_root, "Photos_Videos"
+            instance_root, _DIR_MEDIA
         )
 
         _ensure_dir(instance_root, queue_payload=queue_payload)
         _ensure_dir(reports_root, queue_payload=queue_payload)
-        _ensure_dir(reports_breakers, queue_payload=queue_payload)
+        _ensure_dir(reports_breakers_hv, queue_payload=queue_payload)
+        _ensure_dir(reports_breakers_mv, queue_payload=queue_payload)
         _ensure_dir(reports_transformers, queue_payload=queue_payload)
         _ensure_dir(reports_other, queue_payload=queue_payload)
         _ensure_dir(media_root, queue_payload=queue_payload)
@@ -706,8 +761,8 @@ def get_transformer_report_targets(
     """Return ensured Reports folders for a maintenance instance.
 
     Prefers rows matching the specific gate bucket. Falls back to all stored rows for
-    the maintenance when gate mapping is unavailable. Callers should append subfolder
-    names like "Transformers" or "Other" as needed.
+    the maintenance when gate mapping is unavailable. Callers should append a report
+    subfolder selected by ``_report_subfolder_name_for_element``.
     """
     bucket = _bucket_for_gate(gate_value)
     gate_key = f"{bucket[0]}:{bucket[1]}"
@@ -775,7 +830,7 @@ def ensure_dga_folder(
     bucket = _bucket_for_gate(gate_value)
     gate_rel = _gate_relative_path(bucket)
     gate_root = os.path.join(substation_root, gate_rel)
-    dga_root = os.path.join(gate_root, "DGA_Measurements")
+    dga_root = os.path.join(gate_root, _join_parts(_DIR_DGA_PARTS))
 
     queue_payload = {
         "kind": "ensure_dga_folder",
@@ -996,8 +1051,7 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
             continue
 
         reports_root = targets[0]
-        is_transformer = "μ/σ" in (element_type or "").lower() or "transformer" in (element_type or "").lower()
-        subfolder = os.path.join(reports_root, "Transformers" if is_transformer else "Other")
+        subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(element_type))
         if not os.path.isdir(subfolder):
             report_missing += 1
             continue
@@ -1283,6 +1337,159 @@ def retrofit_maintenance_instance_folder_names(
     }
 
 
+def _map_folder_labels_in_path(path: str | None, *, element_type: str | None = None) -> str | None:
+    """Map legacy English folder labels in a Windows path to canonical Greek labels."""
+    if not path:
+        return path
+    try:
+        drive, tail = os.path.splitdrive(path)
+        parts = [p for p in re.split(r"[\\/]+", tail.strip("\\/")) if p]
+        mapped: list[str] = []
+        for part in parts:
+            low = part.lower()
+            if low == "gate_1":
+                mapped.append(_DIR_GATE_1)
+            elif low == "gate_2":
+                mapped.append(_DIR_GATE_2)
+            elif low == "gate_3":
+                mapped.append(_DIR_GATE_3)
+            elif low == "gate_unknown":
+                mapped.append(_DIR_GATE_UNKNOWN)
+            elif low == "interconnections":
+                mapped.append(_DIR_INTERCONNECTIONS)
+            elif low == "maintenance":
+                mapped.extend(_DIR_MAINTENANCE_PARTS)
+            elif low == "inspections":
+                mapped.append(_DIR_INSPECTIONS)
+            elif low == "dga_measurements":
+                mapped.extend(_DIR_DGA_PARTS)
+            elif low == "photos_videos":
+                mapped.append(_DIR_MEDIA)
+            elif low == "reports":
+                mapped.append(_DIR_REPORTS)
+            elif low == "transformers":
+                mapped.append(_DIR_REPORTS_TRANSFORMERS)
+            elif low == "other":
+                mapped.append(_DIR_REPORTS_OTHER)
+            elif low == "breakers":
+                mapped.append(_report_subfolder_name_for_element(element_type))
+            else:
+                mapped.append(part)
+
+        return (drive + os.sep if drive else "") + os.sep.join(mapped)
+    except Exception:
+        return path
+
+
+def retrofit_folder_labels_to_greek(
+    conn,
+    *,
+    db_path: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Retrospectively convert English storage folder labels to Greek labels."""
+    cur = conn.cursor()
+    scanned = 0
+    moved = 0
+    updated_storage = 0
+    updated_media_links = 0
+    updated_report_paths = 0
+    errors: list[str] = []
+
+    cur.execute(
+        """
+        SELECT maintenance_id, gate_key, instance_folder, media_folder, reports_folder
+        FROM maintenance_storage_paths
+        ORDER BY maintenance_id, gate_key
+        """
+    )
+    rows = cur.fetchall() or []
+
+    for row in rows:
+        scanned += 1
+        maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        gate_key = row[1] if isinstance(row, (tuple, list)) else row["gate_key"]
+        old_instance = row[2] if isinstance(row, (tuple, list)) else row["instance_folder"]
+        old_media = row[3] if isinstance(row, (tuple, list)) else row["media_folder"]
+        old_reports = row[4] if isinstance(row, (tuple, list)) else row["reports_folder"]
+
+        new_instance = _map_folder_labels_in_path(old_instance)
+        new_media = _map_folder_labels_in_path(old_media)
+        new_reports = _map_folder_labels_in_path(old_reports)
+
+        try:
+            if old_instance and new_instance and os.path.normcase(os.path.abspath(old_instance)) != os.path.normcase(os.path.abspath(new_instance)):
+                if os.path.isdir(old_instance):
+                    if not dry_run:
+                        os.makedirs(os.path.dirname(new_instance), exist_ok=True)
+                        if not os.path.exists(new_instance):
+                            shutil.move(old_instance, new_instance)
+                    moved += 1
+        except Exception as exc:
+            errors.append(f"maintenance {maintenance_id} gate {gate_key}: {exc}")
+
+        if (
+            (new_instance or "") != (old_instance or "")
+            or (new_media or "") != (old_media or "")
+            or (new_reports or "") != (old_reports or "")
+        ):
+            if not dry_run:
+                cur.execute(
+                    """
+                    UPDATE maintenance_storage_paths
+                    SET instance_folder=?, media_folder=?, reports_folder=?
+                    WHERE maintenance_id=? AND gate_key=?
+                    """,
+                    (new_instance, new_media, new_reports, maintenance_id, gate_key),
+                )
+            updated_storage += 1
+
+    cur.execute("SELECT id, onedrive_media_folder_link FROM maintenance")
+    for row in cur.fetchall() or []:
+        mid = row[0] if isinstance(row, (tuple, list)) else row["id"]
+        old_link = row[1] if isinstance(row, (tuple, list)) else row["onedrive_media_folder_link"]
+        new_link = _map_folder_labels_in_path(old_link)
+        if (new_link or "") != (old_link or ""):
+            if not dry_run:
+                cur.execute(
+                    "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
+                    (new_link, mid),
+                )
+            updated_media_links += 1
+
+    cur.execute(
+        """
+        SELECT mrp.id, mrp.report_path, e.element_type
+        FROM maintenance_report_paths mrp
+        JOIN elements e ON e.id = mrp.element_id
+        """
+    )
+    for row in cur.fetchall() or []:
+        rid = row[0] if isinstance(row, (tuple, list)) else row["id"]
+        old_path = row[1] if isinstance(row, (tuple, list)) else row["report_path"]
+        elem_type = row[2] if isinstance(row, (tuple, list)) else row["element_type"]
+        new_path = _map_folder_labels_in_path(old_path, element_type=elem_type)
+        if (new_path or "") != (old_path or ""):
+            if not dry_run:
+                cur.execute(
+                    "UPDATE maintenance_report_paths SET report_path=?, updated_at=? WHERE id=?",
+                    (new_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), rid),
+                )
+            updated_report_paths += 1
+
+    if not dry_run:
+        conn.commit()
+
+    return {
+        "scanned": scanned,
+        "moved": moved,
+        "updated_storage": updated_storage,
+        "updated_media_links": updated_media_links,
+        "updated_report_paths": updated_report_paths,
+        "errors": errors,
+    }
+
+
 def sync_all_substation_structures(conn, *, db_path: str | None = None, quiet: bool = True, progress_callback = None) -> dict:
     """Ensure folder structure exists for all substations with elements.
     
@@ -1436,8 +1643,7 @@ def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: b
                 continue
 
             reports_root = report_targets[0]
-            is_transformer = "μ/σ" in (element_type or "").lower() or "transformer" in (element_type or "").lower()
-            subfolder = os.path.join(reports_root, "Transformers" if is_transformer else "Other")
+            subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(element_type))
             os.makedirs(subfolder, exist_ok=True)
 
             safe_name = element_name.replace("/", "-").replace("\\", "-").replace(":", "-")

@@ -5,6 +5,7 @@ import sys
 
 from onedrive_hybrid_storage import (
     get_maintenance_report_path,
+    _report_subfolder_name_for_element,
     get_transformer_report_targets,
     upsert_maintenance_report_path,
 )
@@ -233,8 +234,7 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
         )
         if targets:
             reports_root = targets[0]
-            is_transformer = "μ/σ" in (elem_type or "").lower() or "transformer" in (elem_type or "").lower()
-            subfolder = os.path.join(reports_root, "Transformers" if is_transformer else "Other")
+            subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(elem_type))
             os.makedirs(subfolder, exist_ok=True)
             output_path = os.path.join(
                 subfolder,
