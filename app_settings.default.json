@@ -1,0 +1,11 @@
+{
+  "language": "el",
+  "db_path": "substations.db",
+  "sync_root_path": "sync_exchange",
+  "backup_root_path": "backups_auto",
+  "sync_auto_cycle_enabled": true,
+  "sync_auto_cycle_minutes": 60,
+  "sync_backup_on_change": true,
+  "backup_hot_keep": 3,
+  "setup_wizard_completed": false
+}

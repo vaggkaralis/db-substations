@@ -14,6 +14,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 
 data_files = [
     "database.py",
+    "app_settings.default.json",
     "importers.py",
     "popups.py",
     "templates.py",

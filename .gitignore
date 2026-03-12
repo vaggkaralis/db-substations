@@ -12,6 +12,9 @@ env/
 backups_auto/
 sync_exchange/
 
+# User-specific settings (runtime copy; app_settings.default.json is the template)
+app_settings.json
+
 # Bug reports (Android debugging)
 bugreport-*/
 
