@@ -1442,7 +1442,7 @@ def _map_folder_labels_in_path(path: str | None, *, element_type: str | None = N
         drive, tail = os.path.splitdrive(path)
         parts = [p for p in re.split(r"[\\/]+", tail.strip("\\/")) if p]
         mapped: list[str] = []
-        for part in parts:
+        for i, part in enumerate(parts):
             low = part.lower()
             if low == "gate_1":
                 mapped.append(_DIR_GATE_1)
@@ -1469,7 +1469,16 @@ def _map_folder_labels_in_path(path: str | None, *, element_type: str | None = N
             elif low == "other":
                 mapped.append(_DIR_REPORTS_OTHER)
             elif low == "breakers":
-                mapped.append(_report_subfolder_name_for_element(element_type))
+                if element_type:
+                    mapped.append(_report_subfolder_name_for_element(element_type))
+                else:
+                    # Filesystem-only retrofits may not know element_type.
+                    # Infer from nearby path parts and default to HV breakers.
+                    tail_low = " ".join(p.lower() for p in parts[i + 1 :])
+                    if ("μτ" in tail_low) or (" mt" in tail_low) or ("mv" in tail_low):
+                        mapped.append(_DIR_REPORTS_BREAKERS_MV)
+                    else:
+                        mapped.append(_DIR_REPORTS_BREAKERS_HV)
             else:
                 mapped.append(part)
 
