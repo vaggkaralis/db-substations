@@ -151,37 +151,6 @@ def show_import_menu(app, instance=None):
     import_android_btn.bind(on_press=lambda x: _show_import_android_changes_from_menu(app, menu_popup))
     layout.add_widget(import_android_btn)
 
-    sync_inbox_btn = Button(
-        text=S["MESSAGES"].get("IMPORT_SYNC_INBOX_BUTTON", "Επεξεργασία εισερχομένων OneDrive"),
-        size_hint_y=0.18,
-    )
-    sync_inbox_btn.bind(on_press=lambda x: _process_sync_inbox_from_menu(app, menu_popup))
-    layout.add_widget(sync_inbox_btn)
-
-    export_changes_btn = Button(
-        text=S["MESSAGES"].get("EXPORT_CHANGES_BUTTON", "Εξαγωγή Αλλαγών Τώρα"),
-        size_hint_y=0.18,
-    )
-    
-    def _export_changes_now(*_args):
-        try:
-            change_count = len(getattr(app, "_pending_changes", []))
-            if change_count == 0:
-                show_message_popup(
-                    S["TITLES"].get("INFO", "Πληροφορία"),
-                    S["MESSAGES"].get("NO_PENDING_CHANGES", "Δεν υπάρχουν αλλαγές προς εξαγωγή.")
-                )
-                return
-            app._export_pending_changes(show_popup=True)
-        except Exception as e:
-            show_message_popup(
-                S["TITLES"].get("ERROR", "Σφάλμα"),
-                S["MESSAGES"].get("EXPORT_CHANGES_ERROR_FMT", "Σφάλμα εξαγωγής: {error}").format(error=str(e))
-            )
-    
-    export_changes_btn.bind(on_press=_export_changes_now)
-    layout.add_widget(export_changes_btn)
-
     try:
         from reports import export_full_db_ui
 
@@ -215,14 +184,6 @@ def _show_import_elements_from_menu(app, menu_popup):
 
 def _show_import_android_changes_from_menu(app, menu_popup):
     show_import_android_changes_dialog(app, menu_popup)
-
-
-def _process_sync_inbox_from_menu(app, menu_popup):
-    try:
-        menu_popup.dismiss()
-    except Exception:
-        pass
-    app.process_sync_inbox_now()
 
 
 def show_import_substations_dialog(app, instance_or_parent_popup=None):

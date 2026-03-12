@@ -438,6 +438,66 @@ class IconButton(ButtonBehavior, BoxLayout):
         self._bg_color_inst.rgba = self.bg_color
 
 
+class StatusButton(ButtonBehavior, BoxLayout):
+    """Text-only status button with explicit canvas background."""
+
+    text = StringProperty("")
+    bg_color = ListProperty([0.11, 0.56, 0.27, 1])
+    bg_color_down = ListProperty([0.08, 0.44, 0.21, 1])
+    text_color = ListProperty([1, 1, 1, 1])
+    font_size = StringProperty("12sp")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = "horizontal"
+        self.padding = (12, 6)
+
+        self.label = Label(
+            text=self.text,
+            color=self.text_color,
+            halign="center",
+            valign="middle",
+            font_size=self.font_size,
+        )
+        self.label.bind(size=self._sync_text_size)
+        self.add_widget(self.label)
+
+        with self.canvas.before:
+            self._bg_color_inst = Color(*self.bg_color)
+            self._bg_rect = Rectangle(pos=self.pos, size=self.size)
+
+        self.bind(pos=self._update_bg, size=self._update_bg)
+        self.bind(text=self._update_text)
+        self.bind(text_color=self._update_colors)
+        self.bind(font_size=self._update_font_size)
+        self.bind(bg_color=self._update_bg_color)
+
+    def _sync_text_size(self, _instance, _value):
+        self.label.text_size = (self.label.width, self.label.height)
+
+    def _update_bg(self, *_args):
+        self._bg_rect.pos = self.pos
+        self._bg_rect.size = self.size
+
+    def _update_text(self, *_args):
+        self.label.text = self.text
+
+    def _update_colors(self, *_args):
+        self.label.color = self.text_color
+
+    def _update_font_size(self, *_args):
+        self.label.font_size = self.font_size
+
+    def _update_bg_color(self, *_args):
+        self._bg_color_inst.rgba = self.bg_color
+
+    def on_press(self):
+        self._bg_color_inst.rgba = self.bg_color_down
+
+    def on_release(self):
+        self._bg_color_inst.rgba = self.bg_color
+
+
 class IconOnlyButton(ButtonBehavior, BoxLayout):
     """Compact icon-only button using vector IconWidget or an image source."""
 

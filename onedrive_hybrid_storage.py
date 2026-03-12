@@ -27,6 +27,9 @@ _MEDIA_EXTENSIONS = {
     ".m4v",
 }
 
+_DEFAULT_SHARED_ROOT_NAME = "Κοινή Βάση Υποσταθμών"
+_LEGACY_SHARED_ROOT_NAME = "shared_substations"
+
 
 def _safe_name(value: str, fallback: str = "unknown") -> str:
     text = (value or "").strip()
@@ -44,6 +47,23 @@ def _slug(value: str, fallback: str = "item") -> str:
     return text.strip("_") or fallback
 
 
+def _resolve_default_shared_root(base_dir: str) -> str:
+    new_root = os.path.abspath(os.path.join(base_dir, _DEFAULT_SHARED_ROOT_NAME))
+    legacy_root = os.path.abspath(os.path.join(base_dir, _LEGACY_SHARED_ROOT_NAME))
+
+    if os.path.isdir(legacy_root) and not os.path.exists(new_root):
+        try:
+            shutil.move(legacy_root, new_root)
+        except Exception:
+            return legacy_root
+
+    if os.path.exists(new_root):
+        return new_root
+    if os.path.exists(legacy_root):
+        return legacy_root
+    return new_root
+
+
 def resolve_shared_root(db_path: str | None = None) -> str:
     configured = get_app_setting("onedrive_shared_root_path", None)
     if configured:
@@ -51,12 +71,12 @@ def resolve_shared_root(db_path: str | None = None) -> str:
 
     sync_root = get_app_setting("sync_root_path", None)
     if sync_root:
-        return os.path.abspath(os.path.join(sync_root, "shared_substations"))
+        return _resolve_default_shared_root(sync_root)
 
     if db_path:
-        return os.path.abspath(os.path.join(os.path.dirname(db_path), "shared_substations"))
+        return _resolve_default_shared_root(os.path.dirname(db_path))
 
-    return os.path.abspath("shared_substations")
+    return os.path.abspath(_DEFAULT_SHARED_ROOT_NAME)
 
 
 def _bucket_for_gate(gate_value: str | None) -> tuple[str, str]:

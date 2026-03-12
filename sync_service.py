@@ -3,6 +3,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -458,6 +459,68 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
     }
 
 
+def prune_old_sync_change_files(sync_root: str, *, max_age_days: int = 60) -> dict:
+    """Delete old sync payload files from shared OneDrive folders.
+
+    Files older than `max_age_days` are removed from:
+    - inbox/pending
+    - inbox/processed/accepted
+    - inbox/processed/rejected
+    - inbox/processed/conflicts
+    """
+    tree = ensure_sync_tree(sync_root)
+    dirs = [
+        tree["inbox_pending"],
+        tree["accepted"],
+        tree["rejected"],
+        tree["conflicts"],
+    ]
+
+    max_age_days = max(1, int(max_age_days))
+    cutoff_ts = time.time() - float(max_age_days * 24 * 60 * 60)
+
+    removed = 0
+    scanned = 0
+    errors = 0
+
+    for folder in dirs:
+        try:
+            names = os.listdir(folder)
+        except Exception:
+            continue
+
+        for name in names:
+            path = os.path.join(folder, name)
+            if not os.path.isfile(path):
+                continue
+            if not name.lower().endswith((".json", ".jsonl")):
+                continue
+
+            scanned += 1
+            try:
+                mtime = os.path.getmtime(path)
+            except Exception:
+                errors += 1
+                continue
+
+            if mtime >= cutoff_ts:
+                continue
+
+            try:
+                os.remove(path)
+                removed += 1
+            except Exception:
+                errors += 1
+
+    return {
+        "enabled": True,
+        "max_age_days": max_age_days,
+        "scanned": scanned,
+        "removed": removed,
+        "errors": errors,
+    }
+
+
 def ensure_backup_tree(backup_root: str) -> dict[str, str]:
     paths = {
         "hot": os.path.join(backup_root, "hot"),
@@ -551,6 +614,22 @@ def run_sync_cycle(
 
     sync_summary = process_sync_inbox(conn, effective_sync_root, actor=actor)
 
+    retention_enabled = bool(get_app_setting("sync_retention_enabled", True))
+    retention_days = int(get_app_setting("sync_retention_days", 60) or 60)
+    retention_summary = {
+        "enabled": retention_enabled,
+        "max_age_days": max(1, retention_days),
+        "scanned": 0,
+        "removed": 0,
+        "errors": 0,
+    }
+
+    if retention_enabled:
+        retention_summary = prune_old_sync_change_files(
+            effective_sync_root,
+            max_age_days=max(1, retention_days),
+        )
+
     snapshot_path = None
     if create_backup_on_change and sync_summary["accepted"] > 0:
         snapshot_path = create_snapshot(
@@ -563,6 +642,7 @@ def run_sync_cycle(
 
     return {
         "sync": sync_summary,
+        "retention": retention_summary,
         "snapshot": snapshot_path,
         "backup_root": effective_backup_root,
     }

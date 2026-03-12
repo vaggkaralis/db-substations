@@ -62,6 +62,8 @@ try:
     # Ensure the requested Kivy version before loading submodules
     kivy.require("2.3.0")
     import logging
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("PIL.PngImagePlugin").setLevel(logging.WARNING)
 
     # Dynamically import Kivy submodules (avoid static imports after code)
     App = importlib.import_module("kivy.app").App
@@ -161,6 +163,8 @@ except Exception:
                 pass
     import logging
     logging.basicConfig()
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("PIL.PngImagePlugin").setLevel(logging.WARNING)
 from validation import (PEOPLE_ROLES, filter_people_for_maintenance,
                         group_people_by_category)
 
@@ -249,7 +253,7 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
 # Maximize window on startup
 Window.maximize()
 
-from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput
+from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput, StatusButton
 
 
 class SubstationApp(App):
@@ -534,6 +538,16 @@ class SubstationApp(App):
         self.settings_btn.bind(on_press=self.show_settings_popup)
         top_bar.add_widget(self.settings_btn)
         top_bar.add_widget(Widget())
+        self.sync_onedrive_btn = StatusButton(
+            text=S["MESSAGES"].get("SYNC_ONEDRIVE_BUTTON", "Συγχρονισμός OneDrive"),
+            size_hint=(None, None),
+            height=30,
+            width=170,
+            font_size="12sp",
+            text_color=(1, 1, 1, 1),
+        )
+        self.sync_onedrive_btn.bind(on_press=self.sync_onedrive_now)
+        top_bar.add_widget(self.sync_onedrive_btn)
         self.app_info_btn = Button(
             text=S["MESSAGES"].get("APP_INFO_SHORT", "Πληρ. Εφαρμ."),
             size_hint=(None, None),
@@ -604,6 +618,7 @@ class SubstationApp(App):
         self._check_previous_sync_issues()  # Check for rejected/conflict files
         self._run_startup_sync_cycle()
         Clock.schedule_interval(self._run_periodic_sync_cycle, 60)
+        self._update_sync_button_status()
 
         # Ensure people name columns exist and are populated (migration)
         try:
@@ -1557,6 +1572,49 @@ class SubstationApp(App):
         hot_keep_row.add_widget(hot_keep_input)
         content.add_widget(hot_keep_row)
 
+        retention_enabled_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        retention_enabled_row.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "SYNC_RETENTION_ENABLED_LABEL",
+                    "Αυτόματη διαγραφή παλιών αρχείων sync:",
+                ),
+                size_hint_x=0.75,
+            )
+        )
+        retention_enabled_chk = CheckBox(
+            active=bool(get_app_setting("sync_retention_enabled", True)),
+            size_hint_x=0.25,
+        )
+        retention_enabled_row.add_widget(retention_enabled_chk)
+        content.add_widget(retention_enabled_row)
+
+        retention_days_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=10)
+        retention_days_row.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "SYNC_RETENTION_DAYS_LABEL",
+                    "Διατήρηση αρχείων sync (ημέρες):",
+                ),
+                size_hint_x=0.7,
+            )
+        )
+        retention_days_input = TextInput(
+            text=str(int(get_app_setting("sync_retention_days", 60) or 60)),
+            multiline=False,
+            size_hint_x=0.3,
+        )
+        retention_days_row.add_widget(retention_days_input)
+        content.add_widget(retention_days_row)
+
+        # Days field applies only when retention cleanup is enabled.
+        retention_days_input.disabled = not retention_enabled_chk.active
+
+        def _on_retention_toggle(_instance, value):
+            retention_days_input.disabled = not bool(value)
+
+        retention_enabled_chk.bind(active=_on_retention_toggle)
+
         sync_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=110, spacing=5)
         sync_root_row.add_widget(
             Label(text=S["MESSAGES"].get("SYNC_ROOT_PATH_LABEL", "Φάκελος sync_root_path:"), size_hint_y=None, height=20)
@@ -1659,6 +1717,15 @@ class SubstationApp(App):
                 )
                 return
 
+            try:
+                retention_days = max(1, int((retention_days_input.text or "").strip() or "60"))
+            except Exception:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("SYNC_RETENTION_DAYS_INVALID", "Μη έγκυρη τιμή για ημέρες διατήρησης sync."),
+                )
+                return
+
             sync_root_text = (sync_root_input.text or "").strip()
             backup_root_text = (backup_root_input.text or "").strip()
 
@@ -1715,6 +1782,8 @@ class SubstationApp(App):
             set_app_setting("sync_auto_cycle_minutes", interval_minutes)
             set_app_setting("sync_backup_on_change", bool(backup_on_change_chk.active))
             set_app_setting("backup_hot_keep", hot_keep)
+            set_app_setting("sync_retention_enabled", bool(retention_enabled_chk.active))
+            set_app_setting("sync_retention_days", retention_days)
 
             if sync_root_text and os.path.abspath(sync_root_text) == os.path.abspath(default_sync_root):
                 clear_app_setting("sync_root_path")
@@ -3868,7 +3937,7 @@ class SubstationApp(App):
         
         # Operation label
         operation_label = Label(
-            text=S["MESSAGES"].get("STARTUP_INITIALIZING", "Initializing..."),
+            text=S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
             size_hint_y=None,
             height=30,
         )
@@ -4035,7 +4104,7 @@ class SubstationApp(App):
             "tracker_mtime": tracker_mtime,
         }
 
-    def _build_startup_probe_summary(self, probe: dict | None) -> str:
+    def _build_startup_probe_summary(self, probe: dict | None, previous_probe: dict | None = None) -> str:
         """Build a compact summary shown in the startup sync prompt."""
         if not isinstance(probe, dict):
             return ""
@@ -4051,7 +4120,113 @@ class SubstationApp(App):
         lines.append(f"• Υποσταθμοί στον κοινόχρηστο φάκελο: {shared_dirs}")
         if not shared_exists:
             lines.append("• Προσοχή: ο κοινόχρηστος φάκελος δεν βρέθηκε.")
+
+        if isinstance(previous_probe, dict):
+            changes = self._summarize_startup_probe_changes(previous_probe, probe)
+            if changes:
+                lines.append("")
+                lines.append(S["MESSAGES"].get("STARTUP_SYNC_CHANGES_TITLE", "Τι άλλαξε από την τελευταία εκκίνηση:"))
+                lines.extend(changes)
+
         return "\n".join(lines)
+
+    def _get_startup_probe_change_details(self, previous_probe: dict, current_probe: dict):
+        """Classify startup probe changes into actionable vs technical deltas."""
+        actionable = []
+        technical = []
+
+        def _fmt_ts(val):
+            try:
+                if not val:
+                    return "-"
+                return datetime.fromtimestamp(float(val)).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(val)
+
+        prev_pending = int(((previous_probe.get("pending") or {}).get("count", 0) or 0))
+        curr_pending = int(((current_probe.get("pending") or {}).get("count", 0) or 0))
+        if prev_pending != curr_pending:
+            actionable.append(f"• Άλλαξαν τα εκκρεμή αρχεία εισαγωγής: {prev_pending} -> {curr_pending}")
+
+        prev_pending_latest = float(((previous_probe.get("pending") or {}).get("latest_mtime", 0.0) or 0.0))
+        curr_pending_latest = float(((current_probe.get("pending") or {}).get("latest_mtime", 0.0) or 0.0))
+        if prev_pending_latest != curr_pending_latest:
+            actionable.append(
+                f"• Άλλαξε ο χρόνος τελευταίου εκκρεμούς αρχείου: "
+                f"{_fmt_ts(prev_pending_latest)} -> {_fmt_ts(curr_pending_latest)}"
+            )
+
+        prev_accepted = int(((previous_probe.get("accepted") or {}).get("count", 0) or 0))
+        curr_accepted = int(((current_probe.get("accepted") or {}).get("count", 0) or 0))
+        if prev_accepted != curr_accepted:
+            actionable.append(f"• Άλλαξαν τα accepted αρχεία: {prev_accepted} -> {curr_accepted}")
+
+        prev_accepted_latest = float(((previous_probe.get("accepted") or {}).get("latest_mtime", 0.0) or 0.0))
+        curr_accepted_latest = float(((current_probe.get("accepted") or {}).get("latest_mtime", 0.0) or 0.0))
+        if prev_accepted_latest != curr_accepted_latest:
+            actionable.append(
+                f"• Άλλαξε ο χρόνος τελευταίου accepted αρχείου: "
+                f"{_fmt_ts(prev_accepted_latest)} -> {_fmt_ts(curr_accepted_latest)}"
+            )
+
+        prev_sub_dirs = int(previous_probe.get("shared_substation_dirs", 0) or 0)
+        curr_sub_dirs = int(current_probe.get("shared_substation_dirs", 0) or 0)
+        if prev_sub_dirs != curr_sub_dirs:
+            actionable.append(f"• Άλλαξε ο αριθμός υποσταθμών στον κοινόχρηστο φάκελο: {prev_sub_dirs} -> {curr_sub_dirs}")
+
+        prev_shared_exists = bool(previous_probe.get("shared_root_exists", True))
+        curr_shared_exists = bool(current_probe.get("shared_root_exists", True))
+        if prev_shared_exists != curr_shared_exists:
+            actionable.append(
+                f"• Άλλαξε η διαθεσιμότητα του κοινόχρηστου φακέλου: {prev_shared_exists} -> {curr_shared_exists}"
+            )
+
+        prev_sync_root = str(previous_probe.get("sync_root") or "")
+        curr_sync_root = str(current_probe.get("sync_root") or "")
+        if prev_sync_root.lower() != curr_sync_root.lower():
+            actionable.append(f"• Άλλαξε το sync root: {prev_sync_root} -> {curr_sync_root}")
+
+        prev_shared_root = str(previous_probe.get("shared_root") or "")
+        curr_shared_root = str(current_probe.get("shared_root") or "")
+        if prev_shared_root.lower() != curr_shared_root.lower():
+            actionable.append(f"• Άλλαξε το shared root: {prev_shared_root} -> {curr_shared_root}")
+
+        prev_db_path = str(previous_probe.get("db_path") or "")
+        curr_db_path = str(current_probe.get("db_path") or "")
+        if prev_db_path.lower() != curr_db_path.lower():
+            actionable.append(f"• Άλλαξε η διαδρομή βάσης: {prev_db_path} -> {curr_db_path}")
+
+        # Technical metadata changes (mtime-only) are useful for diagnostics but
+        # should not by themselves trigger a startup sync prompt.
+        if previous_probe.get("db_mtime") != current_probe.get("db_mtime"):
+            technical.append(
+                f"• Μεταβλήθηκε το αρχείο βάσης (db mtime): "
+                f"{_fmt_ts(previous_probe.get('db_mtime'))} -> {_fmt_ts(current_probe.get('db_mtime'))}"
+            )
+
+        if previous_probe.get("tracker_mtime") != current_probe.get("tracker_mtime"):
+            technical.append(
+                f"• Μεταβλήθηκε ο δείκτης συγχρονισμού (tracker mtime): "
+                f"{_fmt_ts(previous_probe.get('tracker_mtime'))} -> {_fmt_ts(current_probe.get('tracker_mtime'))}"
+            )
+
+        if previous_probe.get("shared_root_mtime") != current_probe.get("shared_root_mtime"):
+            technical.append(
+                f"• Μεταβλήθηκε ο κοινόχρηστος φάκελος (shared_root mtime): "
+                f"{_fmt_ts(previous_probe.get('shared_root_mtime'))} -> {_fmt_ts(current_probe.get('shared_root_mtime'))}"
+            )
+
+        return {
+            "actionable": actionable,
+            "technical": technical,
+        }
+
+    def _summarize_startup_probe_changes(self, previous_probe: dict, current_probe: dict):
+        """Return human-readable actionable delta lines for startup sync decisions."""
+        details = self._get_startup_probe_change_details(previous_probe, current_probe)
+        return details.get("actionable") or []
+
+        return changes
 
     def _show_startup_sync_prompt_popup(self, on_sync=None, on_skip=None, summary_text=""):
         """Prompt the user to start full startup sync only when probe detects differences."""
@@ -5238,6 +5413,39 @@ class SubstationApp(App):
         return _f(self, file_path)
 
     def process_sync_inbox_now(self):
+        exported_file = None
+        exported_count = 0
+        structure_result = {
+            "total": 0,
+            "synced": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
+        report_result = {
+            "total": 0,
+            "generated": 0,
+            "skipped": 0,
+            "failed": 0,
+        }
+        relink_result = {
+            "media_linked": 0,
+            "reports_linked": 0,
+            "reports_already": 0,
+            "reports_missing": 0,
+        }
+        queue_result = {
+            "processed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "remaining": 0,
+        }
+        try:
+            exported_count = len(getattr(self, "_pending_changes", []) or [])
+            if exported_count > 0:
+                exported_file = self._export_pending_changes(show_popup=False)
+        except Exception:
+            logging.exception("Failed to export pending changes before manual OneDrive sync")
+
         from sync_service import run_sync_cycle
 
         current_user = get_current_user() or {}
@@ -5252,6 +5460,42 @@ class SubstationApp(App):
             create_backup_on_change=backup_on_change,
             hot_keep=hot_keep,
         )
+        retention = summary.get("retention") or {}
+
+        # Reconcile the shared OneDrive folder structure and missing reports.
+        try:
+            structure_result = sync_all_substation_structures(
+                self.conn,
+                db_path=self.db_path,
+                quiet=True,
+            )
+        except Exception:
+            logging.exception("Failed to sync shared OneDrive folder structures during manual sync")
+
+        try:
+            report_result = regenerate_maintenance_reports(
+                self.conn,
+                db_path=self.db_path,
+                quiet=True,
+            )
+        except Exception:
+            logging.exception("Failed to regenerate maintenance reports during manual sync")
+
+        # Also reconcile shared-folder assets (images/reports) into DB links.
+        try:
+            relink_result = relink_existing_maintenance_assets(
+                self.conn,
+                db_path=self.db_path,
+            )
+        except Exception:
+            logging.exception("Failed to relink shared OneDrive assets during manual sync")
+
+        # Retry queued hybrid jobs (folder creation retries).
+        try:
+            queue_result = process_hybrid_queue(self.db_path, max_jobs=120)
+        except Exception:
+            logging.exception("Failed to process hybrid queue during manual sync")
+
         sync = summary["sync"]
         processed = int(sync.get("processed", 0) or 0)
         accepted = int(sync.get("accepted", 0) or 0)
@@ -5262,6 +5506,7 @@ class SubstationApp(App):
         # If there are conflicts, show conflict resolution UI instead of summary
         if conflicts > 0:
             self._show_sync_notification(summary)
+            self._update_sync_button_status()
             return
 
         # Manual sync uses the same visual language as auto sync (bold + color emphasis).
@@ -5275,9 +5520,49 @@ class SubstationApp(App):
             self._format_sync_report_line("Αποδεκτά", accepted, kind="positive"),
         ]
         if already_applied > 0:
-            lines.append(f"↻ Ήδη εφαρμοσμένα: [b]{already_applied}[/b]")
+            lines.append(f"Ήδη εφαρμοσμένα: [b]{already_applied}[/b]")
         if rejected > 0:
             lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
+
+        if exported_file:
+            lines.append("")
+            lines.append(
+                S["MESSAGES"].get(
+                    "SYNC_EXPORTED_CHANGES_LINE_FMT",
+                    "Εξερχόμενες αλλαγές: [b]{count}[/b] (αρχείο: {file})",
+                ).format(count=exported_count, file=os.path.basename(exported_file))
+            )
+
+        lines.extend(
+            [
+                "",
+                f"Συγχρ. δομής OneDrive: total={int(structure_result.get('total', 0) or 0)}, "
+                f"ok={int(structure_result.get('synced', 0) or 0)}, "
+                f"failed={int(structure_result.get('failed', 0) or 0)}",
+                f"Συγχρ. αναφορών OneDrive: total={int(report_result.get('total', 0) or 0)}, "
+                f"generated={int(report_result.get('generated', 0) or 0)}, "
+                f"failed={int(report_result.get('failed', 0) or 0)}",
+                f"Συγχρ. assets OneDrive: media_linked={int(relink_result.get('media_linked', 0) or 0)}, "
+                f"reports_linked={int(relink_result.get('reports_linked', 0) or 0)}, "
+                f"reports_missing={int(relink_result.get('reports_missing', 0) or 0)}",
+            ]
+        )
+
+        if retention.get("enabled"):
+            lines.append(
+                f"Retention {int(retention.get('max_age_days', 60) or 60)} ημέρες: "
+                f"διαγράφηκαν={int(retention.get('removed', 0) or 0)}, "
+                f"ελέγχθηκαν={int(retention.get('scanned', 0) or 0)}, "
+                f"σφάλματα={int(retention.get('errors', 0) or 0)}"
+            )
+
+        if int(queue_result.get("processed", 0) or 0) > 0:
+            lines.append(
+                f"Queue jobs: processed={int(queue_result.get('processed', 0) or 0)}, "
+                f"ok={int(queue_result.get('succeeded', 0) or 0)}, "
+                f"failed={int(queue_result.get('failed', 0) or 0)}, "
+                f"remaining={int(queue_result.get('remaining', 0) or 0)}"
+            )
 
         lines.extend(self._build_sync_file_summary_lines(sync, max_files=6))
 
@@ -5293,6 +5578,53 @@ class SubstationApp(App):
             S["TITLES"].get("INFO", "Πληροφορία"),
             "\n".join(lines),
         )
+        self._update_sync_button_status()
+
+    def sync_onedrive_now(self, *_args):
+        """Unified OneDrive sync action: export local changes and process inbox."""
+        try:
+            self.process_sync_inbox_now()
+        finally:
+            self._update_sync_button_status()
+
+    def _sync_has_pending_work(self):
+        """Return True when local or shared OneDrive sync work is pending."""
+        local_pending = len(getattr(self, "_pending_changes", []) or []) > 0
+        if local_pending:
+            return True
+
+        try:
+            from sync_service import resolve_sync_root
+
+            sync_root = resolve_sync_root(self.db_path)
+            pending_dir = os.path.join(sync_root, "inbox", "pending")
+            if os.path.isdir(pending_dir):
+                for name in os.listdir(pending_dir):
+                    path = os.path.join(pending_dir, name)
+                    if os.path.isfile(path) and name.lower().endswith((".json", ".jsonl")):
+                        return True
+        except Exception:
+            # Keep status conservative: if we cannot inspect, don't fail the UI.
+            pass
+
+        return False
+
+    def _update_sync_button_status(self):
+        """Update OneDrive sync button color based on pending state."""
+        btn = getattr(self, "sync_onedrive_btn", None)
+        if not btn:
+            return
+
+        pending = self._sync_has_pending_work()
+        if pending:
+            color = (0.78, 0.19, 0.16, 1)
+            color_down = (0.62, 0.15, 0.13, 1)
+        else:
+            color = (0.11, 0.56, 0.27, 1)
+            color_down = (0.08, 0.44, 0.21, 1)
+
+        btn.bg_color = list(color)
+        btn.bg_color_down = list(color_down)
 
     def _run_startup_sync_cycle(self, force=False):
         try:
@@ -5320,11 +5652,33 @@ class SubstationApp(App):
                     self._last_sync_cycle_ts = datetime.now().timestamp()
                     return
 
-                probe_changed = bool(previous_probe and previous_probe != current_probe)
+                probe_details = self._get_startup_probe_change_details(previous_probe or {}, current_probe or {})
+                probe_changed = bool(previous_probe and (probe_details.get("actionable") or []))
+                pending_count = int(((current_probe.get("pending") or {}).get("count", 0) or 0))
+                first_probe_detected_work = bool(previous_probe is None and pending_count > 0)
                 shared_root_missing = not shared_root_exists
 
+                # First startup after enabling probe: if there is no baseline and no
+                # actionable work, persist baseline and avoid heavy sync tasks.
+                if (not force) and previous_probe is None and not first_probe_detected_work and not shared_root_missing:
+                    self._save_startup_sync_state(
+                        {
+                            "state_version": 1,
+                            "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                            "last_probe": current_probe,
+                            "last_run": {
+                                "sync_processed": 0,
+                                "sync_accepted": 0,
+                                "sync_conflicts": 0,
+                            },
+                        }
+                    )
+                    self._last_sync_cycle_ts = datetime.now().timestamp()
+                    self._update_sync_button_status()
+                    return
+
                 # Prompt when probe changed OR when shared root is missing.
-                if (not force) and prompt_on_change and (probe_changed or shared_root_missing):
+                if (not force) and prompt_on_change and (probe_changed or shared_root_missing or first_probe_detected_work):
                     def _defer_startup_sync():
                         logging.info("Startup sync deferred by user")
                         self._show_brief_info_toast(
@@ -5340,7 +5694,7 @@ class SubstationApp(App):
                     self._show_startup_sync_prompt_popup(
                         on_sync=lambda: self._run_startup_sync_cycle(force=True),
                         on_skip=_defer_startup_sync,
-                        summary_text=self._build_startup_probe_summary(current_probe),
+                        summary_text=self._build_startup_probe_summary(current_probe, previous_probe),
                     )
                     return
             
@@ -5377,7 +5731,13 @@ class SubstationApp(App):
                     # Ensure folder structure for all substations with elements
                     try:
                         def _sync_progress(operation, substation, current, total):
-                            self._update_startup_progress(progress_ui, operation, substation, current, total)
+                            self._update_startup_progress(
+                                progress_ui,
+                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
+                                substation,
+                                current,
+                                total,
+                            )
                         
                         sync_result = sync_all_substation_structures(
                             startup_conn,
@@ -5397,7 +5757,13 @@ class SubstationApp(App):
                     # Generate missing PDF reports for existing maintenance records
                     try:
                         def _report_progress(operation, substation, current, total):
-                            self._update_startup_progress(progress_ui, operation, substation, current, total)
+                            self._update_startup_progress(
+                                progress_ui,
+                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
+                                substation,
+                                current,
+                                total,
+                            )
                         
                         report_result = regenerate_maintenance_reports(
                             startup_conn,
@@ -5418,7 +5784,13 @@ class SubstationApp(App):
                     # Relink existing file/folder assets into DB when missing.
                     try:
                         def _relink_progress(operation, substation, current, total):
-                            self._update_startup_progress(progress_ui, operation, substation, current, total)
+                            self._update_startup_progress(
+                                progress_ui,
+                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
+                                substation,
+                                current,
+                                total,
+                            )
                         
                         relink_result = relink_existing_maintenance_assets(
                             startup_conn,
@@ -5507,6 +5879,8 @@ class SubstationApp(App):
                         summary_delay,
                     )
 
+                self._update_sync_button_status()
+
                 # Refresh and persist startup probe state after startup sync work.
                 if probe_enabled:
                     try:
@@ -5569,6 +5943,7 @@ class SubstationApp(App):
             # Show notification if changes were imported
             if result and result.get("sync", {}).get("processed", 0) > 0:
                 self._show_sync_notification(result)
+            self._update_sync_button_status()
         except Exception:
             logging.exception("Periodic sync cycle failed")
 
@@ -5582,6 +5957,7 @@ class SubstationApp(App):
                 "table": table,
                 "data": data
             })
+            self._update_sync_button_status()
         except Exception:
             logging.exception("Failed to append change log")
 
@@ -5615,6 +5991,7 @@ class SubstationApp(App):
 
             change_count = len(self._pending_changes)
             self._pending_changes = []  # Clear after export
+            self._update_sync_button_status()
 
             if show_popup:
                 show_message_popup(
@@ -5731,7 +6108,7 @@ class SubstationApp(App):
                 self._format_sync_report_line("Αποδεκτά", accepted, kind="positive"),
             ]
             if already_applied > 0:
-                lines.append(f"↻ Ήδη εφαρμοσμένα: {already_applied}")
+                lines.append(f"Ήδη εφαρμοσμένα: {already_applied}")
             if rejected > 0:
                 lines.append(self._format_sync_report_line("Απορριφθέντα", rejected, kind="negative"))
 
