@@ -103,7 +103,78 @@ def _gate_relative_path(bucket: tuple[str, str]) -> str:
     return "Gate_unknown"
 
 
-def _instance_slug(maintenance_name: str | None, maintenance_type: str | None, date_time: str | None, maintenance_id: int | None = None) -> str:
+def _sanitize_element_name(name: str) -> str:
+    """Compact an element name for use in a folder slug.
+
+    Strips dashes, dots, leading/trailing spaces and collapses internal whitespace
+    to a single underscore.  E.g. "Ρ-215" → "Ρ215", "Τ 101/Α" → "Τ101_Α".
+    """
+    text = (name or "").strip()
+    # Remove forbidden Windows path characters and dashes/dots used as separators
+    text = re.sub(r'[\\/:*?"<>|.\-]', "", text)
+    # Collapse whitespace to underscores
+    text = re.sub(r"\s+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text
+
+
+# Substrings that identify element types by priority (Greek + English, lower-case)
+_TRANSFORMER_SUBSTRS = ("μετασχηματιστ", "μ/σ", "transformer")
+_HV_BREAKER_SUBSTRS  = ("διακόπτης υτ", "hv breaker")
+_MV_BREAKER_SUBSTRS  = ("διακόπτης μτ", "mv breaker")
+
+def _element_priority(element_type: str) -> int:
+    """Return sort priority: 0=transformer, 1=HV breaker, 2=MV breaker, 3=other."""
+    t = (element_type or "").lower()
+    if any(s in t for s in _TRANSFORMER_SUBSTRS):
+        return 0
+    if any(s in t for s in _HV_BREAKER_SUBSTRS):
+        return 1
+    if any(s in t for s in _MV_BREAKER_SUBSTRS):
+        return 2
+    return 3
+
+
+def _element_slug_for_folder(elements: list[tuple[str, str]]) -> str:
+    """Build the element portion of the folder name.
+
+    ``elements`` is a list of (element_type, element_name) tuples.
+    Priority: transformer > HV breaker > MV breaker > others.
+    When transformers are present only transformers are listed;
+    similarly for HV/MV breakers.
+    Up to 5 elements are named; if more exist "+N" is appended.
+    """
+    if not elements:
+        return ""
+
+    sorted_elems = sorted(elements, key=lambda e: _element_priority(e[0]))
+    top_priority = _element_priority(sorted_elems[0][0])
+
+    # Keep only elements of the winning priority group
+    winning = [e for e in sorted_elems if _element_priority(e[0]) == top_priority]
+
+    MAX_SHOWN = 5
+    shown = winning[:MAX_SHOWN]
+    rest  = len(winning) - len(shown)
+
+    parts = [_sanitize_element_name(name) for _, name in shown if _sanitize_element_name(name)]
+    slug = "+".join(parts)
+    if rest:
+        slug += f"+{rest}more"
+    return slug
+
+
+def _instance_slug(
+    date_time: str | None,
+    substation_name: str | None = None,
+    elements: list[tuple[str, str]] | None = None,
+) -> str:
+    """Build the maintenance instance folder name.
+
+    Format: ``{YYYYMMDD_HHMM}_{substation_short}[_{element_slug}]``
+
+    ``elements`` is a list of (element_type, element_name) tuples.
+    """
     dt = None
     try:
         dt = datetime.fromisoformat((date_time or "").replace("Z", "+00:00"))
@@ -111,13 +182,26 @@ def _instance_slug(maintenance_name: str | None, maintenance_type: str | None, d
         dt = None
 
     dt_part = dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
-    type_part = _slug(maintenance_type or "maintenance", fallback="maintenance")
-    name_part = _slug(maintenance_name or "instance", fallback="instance")
 
-    base = f"{dt_part}_{type_part}_{name_part}"
-    if maintenance_id:
-        base = f"{base}_{maintenance_id}"
-    return base
+    # Substation: take up to 25 chars, slug-ify
+    sub_slug = ""
+    if substation_name:
+        safe = _safe_name(substation_name, fallback="")
+        # strip parentheses content e.g. "ΔΟΞΑ (ΘΕΣΣΑΛΟΝΙΚΗ I)" → "ΔΟΞΑ ΘΕΣΣΑΛΟΝΙΚΗ I"
+        safe = re.sub(r"[()]", "", safe).strip()
+        safe = re.sub(r"\s+", "_", safe).strip("_")
+        if len(safe) > 25:
+            safe = safe[:25].rstrip("_")
+        sub_slug = safe
+
+    elem_slug = _element_slug_for_folder(elements or [])
+
+    parts = [dt_part]
+    if sub_slug:
+        parts.append(sub_slug)
+    if elem_slug:
+        parts.append(elem_slug)
+    return "_".join(parts)
 
 
 def _append_graph_queue(shared_root: str, payload: dict) -> None:
@@ -401,8 +485,30 @@ def ensure_maintenance_folders(
     substation_root = base["substation_root"]
     shared_root = base["shared_root"]
 
+    element_ids = list(element_ids)
     gate_buckets = _collect_gate_buckets(conn, element_ids)
-    instance_name = _instance_slug(maintenance_name, maintenance_type, date_time, maintenance_id)
+
+    # Resolve substation name for folder naming
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM substations WHERE id=?", (substation_id,))
+    row = cur.fetchone()
+    substation_name_for_slug = row[0] if row else None
+
+    # Resolve element types + names for folder naming (only if IDs provided)
+    elements_for_slug: list[tuple[str, str]] = []
+    if element_ids:
+        placeholders = ",".join("?" * len(element_ids))
+        cur.execute(
+            f"SELECT element_type, name FROM elements WHERE id IN ({placeholders})",
+            element_ids,
+        )
+        elements_for_slug = [(r[0] or "", r[1] or "") for r in cur.fetchall()]
+
+    instance_name = _instance_slug(
+        date_time,
+        substation_name=substation_name_for_slug,
+        elements=elements_for_slug,
+    )
 
     cur = conn.cursor()
     cur.execute(
