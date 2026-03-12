@@ -642,18 +642,24 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 w = lbl.texture_size[0] + 24 if hasattr(lbl, "texture_size") else 100
                 h = lbl.texture_size[1] + 12 if hasattr(lbl, "texture_size") else 24
                 lbl.size = (w, h)
-                # position at top-right of cursor, with fallback below if space insufficient
-                x = pos[0] + 12
-                y = pos[1] + 12
-                # clamp to window
+                # position tooltip: prefer right of cursor, flip left if near right edge
                 win_w, win_h = Window.size
-                if x + w > win_w:
-                    x = win_w - w - 6
-                if y + h > win_h:
-                    # not enough space above: place below cursor
-                    y = pos[1] - h - 12
-                if y < 6:
-                    y = 6
+
+                def _calc_tooltip_pos(mx, my, tw, th):
+                    # horizontal: place to the right of cursor; flip left if it would overflow
+                    if mx + 12 + tw > win_w - 6:
+                        tx = mx - tw - 12
+                    else:
+                        tx = mx + 12
+                    tx = max(6, tx)
+                    # vertical: place above cursor; flip below if it would overflow top
+                    ty = my + 12
+                    if ty + th > win_h:
+                        ty = my - th - 12
+                    ty = max(6, ty)
+                    return tx, ty
+
+                x, y = _calc_tooltip_pos(pos[0], pos[1], w, h)
                 lbl.pos = (x, y)
                 lbl.canvas.ask_update()
                 # schedule a post-layout update to recompute texture-derived size/position
@@ -668,16 +674,7 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                         w2 = lbl.texture_size[0] + 24 if hasattr(lbl, "texture_size") else lbl.width
                         h2 = lbl.texture_size[1] + 12 if hasattr(lbl, "texture_size") else lbl.height
                         lbl.size = (w2, h2)
-                        # reposition with same clamping logic
-                        x2 = pos[0] + 12
-                        y2 = pos[1] + 12
-                        win_w, win_h = Window.size
-                        if x2 + w2 > win_w:
-                            x2 = win_w - w2 - 6
-                        if y2 + h2 > win_h:
-                            y2 = pos[1] - h2 - 12
-                        if y2 < 6:
-                            y2 = 6
+                        x2, y2 = _calc_tooltip_pos(pos[0], pos[1], w2, h2)
                         lbl.pos = (x2, y2)
 
                     Clock.schedule_once(_refresh_tooltip, 0)
