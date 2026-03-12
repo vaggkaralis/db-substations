@@ -15,6 +15,9 @@ sync_exchange/
 # User-specific settings (runtime copy; app_settings.default.json is the template)
 app_settings.json
 
+# Runtime state files (auto-generated, machine-specific)
+.startup_sync_state.json
+
 # Bug reports (Android debugging)
 bugreport-*/
 
