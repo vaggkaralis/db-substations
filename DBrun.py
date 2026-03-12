@@ -10565,506 +10565,60 @@ class SubstationApp(App):
         )
 
     def show_maintenance_history(self, instance, _deferred=False):
-        """Show maintenance history"""
-        if not _deferred:
-            self._run_with_loading(
-                lambda: self.show_maintenance_history(instance, _deferred=True),
-                S["MESSAGES"].get("LOADING_MAINT_HISTORY", "Φόρτωση ιστορικού συντηρήσεων..."),
-            )
-            return
-
-        font_kwargs = self._get_ui_font_kwargs()
-        history_limit = 80
+        """Show maintenance history – prompt user to pick a substation first."""
         c = self.conn.cursor()
-        c.execute("SELECT id, name FROM substations")
+        c.execute(
+            """
+            SELECT s.id, s.name, COUNT(m.id) AS maint_count
+            FROM substations s
+            LEFT JOIN maintenance m ON m.substation_id = s.id
+            GROUP BY s.id, s.name
+            ORDER BY s.name
+            """
+        )
         all_substations_raw = c.fetchall()
-        substation_map = {row[1]: row[0] for row in all_substations_raw}
-        all_substations = sorted(all_substations_raw, key=lambda row: row[1])
-
-        c.execute("SELECT COUNT(*) FROM maintenance")
-        all_records_count = c.fetchone()[0]
-
-        if not all_records_count:
+        if not all_substations_raw:
+            from reports import show_message_popup
             show_message_popup(S["TITLES"]["INFO"], S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"))
             return
 
-        popup = Popup(title=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντήρησης"), size_hint=(0.95, 0.9))
-        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        # For this chooser only, append maintenance count to each visible substation label.
+        chooser_rows = []
+        display_to_actual = {}
+        for sub_id, sub_name, maint_count in all_substations_raw:
+            display_name = f"{sub_name} ({maint_count})"
+            chooser_rows.append((sub_id, display_name))
+            display_to_actual[display_name] = (sub_id, sub_name)
 
-        filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
-        filter_bar.add_widget(Label(text=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού:"), size_hint_x=0.22))
-        substation_input = TextInput(
-            text="(Όλα)", readonly=True, multiline=False, size_hint_x=0.48
-        )
-        filter_bar.add_widget(substation_input)
-        select_sub_btn = Button(text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"), size_hint_x=0.15)
-        filter_bar.add_widget(select_sub_btn)
-        show_all_btn = Button(text=S["MESSAGES"].get("ALL_LABEL", "(Όλα)"), size_hint_x=0.15)
-        filter_bar.add_widget(show_all_btn)
-        main_layout.add_widget(filter_bar)
-
-        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
-        grid.bind(minimum_height=grid.setter("height"))
-        info_label = Label(text="", size_hint_y=None, height=24)
-        main_layout.add_widget(info_label)
-
-        # Cache heavy "all substations" dataset to speed repeated filter resets
-        all_records_cache = {"records": None, "total_count": None, "people": None, "elements": None}
-
-        def fetch_records(selected_substation):
-            if selected_substation and selected_substation != "(Όλα)":
-                c.execute(
-                    """
-                    SELECT m.id, s.name, m.name, m.date_time, m.overall_comments
-                    FROM maintenance m
-                    JOIN substations s ON m.substation_id = s.id
-                    WHERE s.name = ?
-                    ORDER BY m.date_time DESC
-                    LIMIT ?
-                """,
-                    (selected_substation, history_limit),
-                )
-                return c.fetchall()
-
-            if all_records_cache["records"] is not None:
-                return all_records_cache["records"]
-
-            c.execute("""
-                SELECT m.id, s.name, m.name, m.date_time, m.overall_comments
-                FROM maintenance m
-                JOIN substations s ON m.substation_id = s.id
-                ORDER BY m.date_time DESC
-                LIMIT ?
-            """, (history_limit,))
-            rows = c.fetchall()
-            all_records_cache["records"] = rows
-            return rows
-
-        def fetch_total_count(selected_substation):
-            if selected_substation and selected_substation != "(Όλα)":
-                c.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM maintenance m
-                    JOIN substations s ON m.substation_id = s.id
-                    WHERE s.name = ?
-                """,
-                    (selected_substation,),
-                )
-                return c.fetchone()[0]
-
-            if all_records_cache["total_count"] is not None:
-                return all_records_cache["total_count"]
-
-            c.execute("SELECT COUNT(*) FROM maintenance")
-            total = c.fetchone()[0]
-            all_records_cache["total_count"] = total
-            return total
-
-        def render_records(selected_substation):
-            grid.clear_widgets()
-            maintenance_records = fetch_records(selected_substation)
-            total_count = fetch_total_count(selected_substation)
-            if total_count > len(maintenance_records):
-                info_label.text = f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_count} συντηρήσεις."
-            else:
-                info_label.text = ""
-            if not maintenance_records:
-                grid.add_widget(
-                    Label(
-                        text=S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"),
-                        size_hint_y=None,
-                        height=40,
-                    )
-                )
+        def _on_substation_selected(sub_name):
+            selected = display_to_actual.get(sub_name)
+            if selected is None:
                 return
+            sub_id, actual_sub_name = selected
+            self.show_substation_maintenance_history(sub_id, actual_sub_name)
 
-            def _add_separator(container, color=(0.75, 0.78, 0.82, 1), height=2):
-                sep = Widget(size_hint_y=None, height=height)
-                if hasattr(sep, "canvas"):
-                    try:
-                        with sep.canvas.before:
-                            sep._sep_color = Color(*color)
-                            sep._sep_rect = Rectangle(pos=sep.pos, size=sep.size)
+        self._show_substation_selection_window_with_callback(
+            None,
+            chooser_rows,
+            on_select=_on_substation_selected,
+            title=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντήρησης – Επιλογή Υποσταθμού"),
+        )
 
-                        def _update_sep(_inst, _val):
-                            if hasattr(sep, "_sep_rect"):
-                                sep._sep_rect.pos = sep.pos
-                                sep._sep_rect.size = sep.size
-
-                        sep.bind(pos=_update_sep, size=_update_sep)
-                    except Exception:
-                        pass
-                container.add_widget(sep)
-
-            def _style_maintenance_card(card_widget):
-                if not hasattr(card_widget, "canvas"):
-                    return
-                try:
-                    with card_widget.canvas.before:
-                        card_widget._bg_color = Color(*self.theme.get("popup_bg", (0.97, 0.98, 0.99, 1)))
-                        card_widget._bg_rect = Rectangle(pos=card_widget.pos, size=card_widget.size)
-                    with card_widget.canvas.after:
-                        card_widget._border_color = Color(0.72, 0.76, 0.81, 1)
-                        card_widget._border_line = Line(
-                            rectangle=(
-                                card_widget.x,
-                                card_widget.y,
-                                card_widget.width,
-                                card_widget.height,
-                            ),
-                            width=1,
-                        )
-
-                    def _update_card_style(_inst, _val):
-                        if hasattr(card_widget, "_bg_rect"):
-                            card_widget._bg_rect.pos = card_widget.pos
-                            card_widget._bg_rect.size = card_widget.size
-                        if hasattr(card_widget, "_border_line"):
-                            card_widget._border_line.rectangle = (
-                                card_widget.x,
-                                card_widget.y,
-                                card_widget.width,
-                                card_widget.height,
-                            )
-
-                    card_widget.bind(pos=_update_card_style, size=_update_card_style)
-                except Exception:
-                    pass
-
-            maint_ids = [row[0] for row in maintenance_records]
-            people_by_maint = {}
-            elements_by_maint = {}
-
-            if selected_substation == "(Όλα)" and all_records_cache["people"] is not None and all_records_cache["elements"] is not None:
-                people_by_maint = all_records_cache["people"]
-                elements_by_maint = all_records_cache["elements"]
-            elif maint_ids:
-                placeholders = ",".join(["?"] * len(maint_ids))
-
-                # Bulk fetch responsible/crew people for all maintenance rows in this view
-                c.execute(
-                    f"""
-                    SELECT mp.maintenance_id, p.name, mp.role
-                    FROM maintenance_people mp
-                    JOIN people p ON mp.person_id = p.id
-                    WHERE mp.maintenance_id IN ({placeholders})
-                    ORDER BY p.name
-                    """,
-                    maint_ids,
-                )
-                for m_id, person_name, role in c.fetchall():
-                    entry = people_by_maint.setdefault(
-                        m_id, {"responsible": None, "crew": []}
-                    )
-                    if role == "responsible":
-                        entry["responsible"] = person_name
-                    elif role == "crew":
-                        entry["crew"].append(person_name)
-
-                # Bulk fetch elements for all maintenance rows in this view
-                # Track already-added element IDs per maintenance to avoid displaying duplicates
-                elements_added_per_maint = {mid: set() for mid in maint_ids}
-                c.execute(
-                    f"""
-                    SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
-                           me.element_comments, e.breaker_category
-                    FROM maintenance_elements me
-                    JOIN elements e ON me.element_id = e.id
-                    WHERE me.maintenance_id IN ({placeholders})
-                    ORDER BY me.maintenance_id, e.name
-                    """,
-                    maint_ids,
-                )
-                for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
-                    # Only add if this element hasn't been added for this maintenance yet
-                    if elem_id not in elements_added_per_maint[m_id]:
-                        elements_by_maint.setdefault(m_id, []).append(
-                            (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
-                        )
-                        elements_added_per_maint[m_id].add(elem_id)
-
-                if selected_substation == "(Όλα)":
-                    all_records_cache["people"] = people_by_maint
-                    all_records_cache["elements"] = elements_by_maint
-
-            grouped_records = {}
-            for row in maintenance_records:
-                grouped_records.setdefault(row[1], []).append(row)
-
-            sorted_substations = sorted(grouped_records.keys(), key=lambda name: (name or "").lower())
-
-            for group_sub_name in sorted_substations:
-                group_rows = grouped_records[group_sub_name]
-
-                section_header = Label(
-                    text=f"[b]{group_sub_name}[/b]",
-                    markup=True,
-                    size_hint_y=None,
-                    height=34,
-                    halign="left",
-                    valign="middle",
-                )
-                section_header.bind(
-                    width=lambda inst, val: setattr(inst, "text_size", (val, None)),
-                    texture_size=lambda inst, val: setattr(inst, "height", max(34, val[1] + 8)),
-                )
-                grid.add_widget(section_header)
-
-                group_count = Label(
-                    text=f"{len(group_rows)} συντηρήσεις",
-                    size_hint_y=None,
-                    height=22,
-                    halign="left",
-                    valign="middle",
-                )
-                group_count.bind(
-                    width=lambda inst, val: setattr(inst, "text_size", (val, None)),
-                    texture_size=lambda inst, val: setattr(inst, "height", max(22, val[1] + 4)),
-                )
-                grid.add_widget(group_count)
-                _add_separator(grid)
-
-                for (
-                    maint_id,
-                    sub_name,
-                    maint_name,
-                    date_time,
-                    overall_comments,
-                ) in group_rows:
-                    # Maintenance card
-                    card = BoxLayout(
-                        orientation="vertical", size_hint_y=None, padding=8, spacing=6
-                    )
-                    card.bind(minimum_height=card.setter("height"))
-                    _style_maintenance_card(card)
-
-                    # Header
-                    header = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                    display_name = maint_name or self._build_maintenance_name(
-                        sub_name, date_time
-                    )
-                    header.add_widget(
-                        Label(
-                            text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.45
-                        )
-                    )
-                    header.add_widget(Label(text=f"Ημ/νία: {date_time}", size_hint_x=0.2))
-                    from ui.shared import IconOnlyButton
-                    edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
-                    delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-                    email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.1)
-
-                    def make_delete_handler(m_id, p):
-                        return lambda x: self.confirm_delete_maintenance(m_id, p)
-
-                    def make_email_handler(m_id):
-                        return lambda x: self.send_maintenance_email_report(m_id)
-
-                    def make_edit_handler(m_id, p):
-                        return lambda x: self.show_maintenance_menu(
-                            None, None, p, m_id, lambda: self.show_maintenance_history(None)
-                        )
-
-                    delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
-                    email_btn.bind(on_press=make_email_handler(maint_id))
-                    edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
-                    header.add_widget(edit_btn)
-                    header.add_widget(delete_btn)
-                    header.add_widget(email_btn)
-                    card.add_widget(header)
-
-                    # Responsible and crew
-                    people_info = people_by_maint.get(
-                        maint_id, {"responsible": None, "crew": []}
-                    )
-                    responsible = people_info.get("responsible")
-                    crew = people_info.get("crew") or []
-                    if responsible or crew:
-                        crew_text = ", ".join(crew) if crew else "-"
-                        resp_text = responsible if responsible else "-"
-                        people_label = Label(
-                            text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
-                            size_hint_y=None,
-                            height=25,
-                        )
-                        people_label.bind(
-                            width=lambda instance, value: setattr(
-                                instance, "text_size", (value, None)
-                            ),
-                            texture_size=lambda instance, value: setattr(
-                                instance, "height", value[1] + 6
-                            ),
-                        )
-                        card.add_widget(people_label)
-
-                    # Overall comments
-                    if overall_comments:
-                        try:
-                            from maintenance_email_importer import _format_email_body_for_readability
-                            display_comments = _format_email_body_for_readability(overall_comments)
-                        except Exception:
-                            display_comments = overall_comments
-
-                        comment_label = Label(
-                            text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=display_comments), size_hint_y=None, height=30
-                        )
-                        comment_label.bind(
-                            width=lambda instance, value: setattr(
-                                instance, "text_size", (value, None)
-                            ),
-                            texture_size=lambda instance, value: setattr(
-                                instance, "height", value[1] + 6
-                            ),
-                        )
-                        card.add_widget(comment_label)
-
-                    # Elements for this maintenance (from bulk prefetch)
-                    elements = elements_by_maint.get(maint_id, [])
-
-                    # Elements list
-                    elements_label = Label(
-                        text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
-                        size_hint_y=None,
-                        height=25,
-                        bold=True,
-                    )
-                    card.add_widget(elements_label)
-
-                    for (
-                        elem_id,
-                        elem_type,
-                        elem_name,
-                        serial_num,
-                        elem_comments,
-                        breaker_category,
-                    ) in elements:
-                        # Element info with optional PDF button
-                        elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                        elem_row.bind(minimum_height=elem_row.setter("height"))
-
-                        elem_text = (
-                            f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
-                        )
-                        if elem_comments:
-                            elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
-
-                        elem_label = Label(
-                            text=elem_text, size_hint_x=0.6, size_hint_y=None
-                        )
-                        elem_label.bind(
-                            width=lambda instance, value: setattr(
-                                instance, "text_size", (value, None)
-                            ),
-                            texture_size=lambda instance, value: (
-                                setattr(instance, "height", value[1] + 6),
-                                setattr(elem_row, "height", max(40, value[1] + 10)),
-                            ),
-                        )
-                        elem_row.add_widget(elem_label)
-
-                        # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES_ALL)
-                        buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
-
-                        view_btn = Button(
-                            text=S["MESSAGES"].get("VIEW_SHORT", "Εμφ."),
-                            size_hint_x=0.34,
-                            size_hint_y=None,
-                            height=35,
-                            **font_kwargs,
-                        )
-
-                        def make_view_handler(m_id, e_id, e_name):
-                            return lambda x: self.show_maintenance_element_details(
-                                m_id, e_id, e_name
-                            )
-
-                        view_btn.bind(
-                            on_press=make_view_handler(maint_id, elem_id, elem_name)
-                        )
-                        buttons_container.add_widget(view_btn)
-
-                        if (
-                            S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης") in elem_type
-                            and breaker_category in self.BREAKER_CATEGORIES_ALL
-                        ):
-                            pdf_btn = Button(
-                                text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
-                                size_hint_x=0.5,
-                                size_hint_y=None,
-                                height=35,
-                                **font_kwargs,
-                            )
-
-                            def make_pdf_handler(m_id, e_id, e_name):
-                                return lambda x: self.generate_pdf_report(
-                                    m_id, e_id, e_name
-                                )
-
-                            pdf_btn.bind(
-                                on_press=make_pdf_handler(maint_id, elem_id, elem_name)
-                            )
-                            buttons_container.add_widget(pdf_btn)
-                        else:
-                            buttons_container.add_widget(Label(text="", size_hint_x=0.5))
-
-                        elem_row.add_widget(buttons_container)
-
-                        card.add_widget(elem_row)
-
-                    grid.add_widget(card)
-                    _add_separator(grid, color=(0.82, 0.84, 0.87, 1), height=1)
-
-                grid.add_widget(Widget(size_hint_y=None, height=8))
-
-        def _on_select_substation_filter(sub_name):
-            substation_input.text = sub_name
-            self._run_with_loading(
-                lambda: render_records(sub_name),
-                S["MESSAGES"].get("LOADING_MAINT_HISTORY", "Φόρτωση ιστορικού συντηρήσεων..."),
-            )
-
-        def _open_substation_filter_picker(_instance=None):
-            self._show_substation_selection_window_with_callback(
-                popup,
-                all_substations,
-                on_select=_on_select_substation_filter,
-                title=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού"),
-            )
-
-        def _show_all_substations_filter(_instance=None):
-            substation_input.text = "(Όλα)"
-            self._run_with_loading(
-                lambda: render_records("(Όλα)"),
-                S["MESSAGES"].get("LOADING_MAINT_HISTORY", "Φόρτωση ιστορικού συντηρήσεων..."),
-            )
-
-        select_sub_btn.bind(on_press=_open_substation_filter_picker)
-        show_all_btn.bind(on_press=_show_all_substations_filter)
-
-        render_records(substation_input.text)
-
-        scroll.add_widget(grid)
-        main_layout.add_widget(scroll)
-
-        # Close button
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
-        close_btn.bind(on_press=popup.dismiss)
-        main_layout.add_widget(close_btn)
-
-        popup.content = main_layout
-        popup.open()
+    def _show_maintenance_history_obsolete_unused(self, instance, _deferred=False):
+        """Deprecated shim. Kept only to avoid breaking stale callbacks."""
+        self.show_maintenance_history(instance)
 
     def show_substation_maintenance_history(
         self, substation_id, substation_name, parent_display_popup=None
     ):
-        """Show maintenance history for a specific substation"""
+        """Show maintenance history for a specific substation with element filter."""
         font_kwargs = self._get_ui_font_kwargs()
         history_limit = 80
         c = self.conn.cursor()
+
         c.execute("SELECT COUNT(*) FROM maintenance WHERE substation_id = ?", (substation_id,))
         total_records = c.fetchone()[0]
+
         c.execute(
             """
             SELECT m.id, m.name, m.date_time, m.overall_comments
@@ -11072,168 +10626,222 @@ class SubstationApp(App):
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
             LIMIT ?
-        """,
+            """,
             (substation_id, history_limit),
         )
         maintenance_records = c.fetchall()
 
+        # Bulk-prefetch people and elements for all loaded records
+        people_by_maint = {}
+        elements_by_maint = {}
+        all_elements_in_sub = []  # [(id, name, element_type), ...] for element filter
+
+        if maintenance_records:
+            maint_ids = [row[0] for row in maintenance_records]
+            placeholders = ",".join(["?"] * len(maint_ids))
+
+            c.execute(
+                f"""
+                SELECT mp.maintenance_id, p.name, mp.role
+                FROM maintenance_people mp
+                JOIN people p ON mp.person_id = p.id
+                WHERE mp.maintenance_id IN ({placeholders})
+                ORDER BY p.name
+                """,
+                maint_ids,
+            )
+            for m_id, person_name, role in c.fetchall():
+                entry = people_by_maint.setdefault(m_id, {"responsible": None, "crew": []})
+                if role == "responsible":
+                    entry["responsible"] = person_name
+                elif role == "crew":
+                    entry["crew"].append(person_name)
+
+            elements_added_per_maint = {mid: set() for mid in maint_ids}
+            c.execute(
+                f"""
+                SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
+                       me.element_comments, e.breaker_category
+                FROM maintenance_elements me
+                JOIN elements e ON me.element_id = e.id
+                WHERE me.maintenance_id IN ({placeholders})
+                ORDER BY me.maintenance_id, e.name
+                """,
+                maint_ids,
+            )
+            for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
+                if elem_id not in elements_added_per_maint[m_id]:
+                    elements_by_maint.setdefault(m_id, []).append(
+                        (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
+                    )
+                    elements_added_per_maint[m_id].add(elem_id)
+
+            # Build element filter from all maintained elements of this substation.
+            c.execute(
+                """
+                SELECT DISTINCT e.id, e.name, e.element_type
+                FROM maintenance m
+                JOIN maintenance_elements me ON me.maintenance_id = m.id
+                JOIN elements e ON e.id = me.element_id
+                WHERE m.substation_id = ?
+                ORDER BY e.name
+                """,
+                (substation_id,),
+            )
+            all_elements_in_sub = c.fetchall()
+
+        c.execute(
+            """
+            SELECT s.id, s.name, COUNT(m.id) AS maint_count
+            FROM substations s
+            LEFT JOIN maintenance m ON m.substation_id = s.id
+            GROUP BY s.id, s.name
+            ORDER BY s.name
+            """
+        )
+        all_substations_raw = c.fetchall()
+        chooser_substations = []
+        chooser_map = {}
+        for sub_id, sub_name, maint_count in all_substations_raw:
+            display_name = f"{sub_name} ({maint_count})"
+            chooser_substations.append((sub_id, display_name))
+            chooser_map[display_name] = (sub_id, sub_name)
+
         popup = Popup(
             title=f"Ιστορικό Συντήρησης: {substation_name}", size_hint=(0.95, 0.9)
         )
-        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
 
         # Add Maintenance button at the top
-        add_maint_btn = Button(text=S["BUTTONS"].get("ADD_MAINTENANCE", "+ Προσθήκη Νέας Συντήρησης"), size_hint_y=0.1)
+        add_maint_btn = Button(
+            text=S["BUTTONS"].get("ADD_MAINTENANCE", "+ Προσθήκη Νέας Συντήρησης"),
+            size_hint_y=None, height=40,
+        )
         add_maint_btn.bind(
-            on_press=lambda x: self.show_maintenance_menu_for_substation(
-                substation_id, substation_name, popup
-            )
+            on_press=lambda x: self.show_maintenance_menu_for_substation(substation_id, substation_name, popup)
         )
         main_layout.add_widget(add_maint_btn)
 
-        if not maintenance_records:
-            # Show message but still allow adding maintenance
-            no_records_label = Label(
-                text=S["MESSAGES"].get(
-                    "NO_MAINT_FOR_SUBSTATION",
-                    'Δεν υπάρχουν καταχωρημένες συντηρήσεις για τον υποσταθμό "{substation_name}".\nΧρησιμοποιήστε το κουμπί παραπάνω για να προσθέσετε.',
-                ).format(substation_name=substation_name),
-                size_hint_y=0.7,
-            )
-            main_layout.add_widget(no_records_label)
-        else:
-            if total_records > len(maintenance_records):
-                main_layout.add_widget(
-                    Label(
-                        text=f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_records} συντηρήσεις.",
-                        size_hint_y=None,
-                        height=24,
-                    )
-                )
-            scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-            grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
-            grid.bind(minimum_height=grid.setter("height"))
+        # Filter bar: substation filter (left) + element filter (right)
+        filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
 
-            def _add_separator(container, color=(0.75, 0.78, 0.82, 1), height=2):
-                sep = Widget(size_hint_y=None, height=height)
-                if hasattr(sep, "canvas"):
-                    try:
-                        with sep.canvas.before:
-                            sep._sep_color = Color(*color)
-                            sep._sep_rect = Rectangle(pos=sep.pos, size=sep.size)
+        filter_bar.add_widget(Label(text=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού:"), size_hint_x=0.18))
+        substation_input = TextInput(
+            text=substation_name,
+            readonly=True,
+            multiline=False,
+            size_hint_x=0.32,
+        )
+        filter_bar.add_widget(substation_input)
+        select_sub_btn = Button(text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"), size_hint_x=0.12)
+        filter_bar.add_widget(select_sub_btn)
 
-                        def _update_sep(_inst, _val):
-                            if hasattr(sep, "_sep_rect"):
-                                sep._sep_rect.pos = sep.pos
-                                sep._sep_rect.size = sep.size
+        filter_bar.add_widget(Label(text="Στοιχείο:", size_hint_x=0.1))
+        elem_filter_input = TextInput(
+            text="(Όλα)", readonly=True, multiline=False, size_hint_x=0.2
+        )
+        filter_bar.add_widget(elem_filter_input)
+        elem_filter_btn = Button(
+            text="...", size_hint_x=0.08,
+            disabled=(len(all_elements_in_sub) == 0),
+        )
+        filter_bar.add_widget(elem_filter_btn)
+        main_layout.add_widget(filter_bar)
 
-                        sep.bind(pos=_update_sep, size=_update_sep)
-                    except Exception:
-                        pass
-                container.add_widget(sep)
+        info_label = Label(text="", size_hint_y=None, height=22)
+        main_layout.add_widget(info_label)
 
-            def _style_maintenance_card(card_widget):
-                if not hasattr(card_widget, "canvas"):
-                    return
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        grid.bind(minimum_height=grid.setter("height"))
+
+        def _add_separator(container, color=(0.75, 0.78, 0.82, 1), height=2):
+            sep = Widget(size_hint_y=None, height=height)
+            if hasattr(sep, "canvas"):
                 try:
-                    with card_widget.canvas.before:
-                        card_widget._bg_color = Color(*self.theme.get("popup_bg", (0.97, 0.98, 0.99, 1)))
-                        card_widget._bg_rect = Rectangle(pos=card_widget.pos, size=card_widget.size)
-                    with card_widget.canvas.after:
-                        card_widget._border_color = Color(0.72, 0.76, 0.81, 1)
-                        card_widget._border_line = Line(
-                            rectangle=(
-                                card_widget.x,
-                                card_widget.y,
-                                card_widget.width,
-                                card_widget.height,
-                            ),
-                            width=1,
-                        )
+                    with sep.canvas.before:
+                        sep._sep_color = Color(*color)
+                        sep._sep_rect = Rectangle(pos=sep.pos, size=sep.size)
 
-                    def _update_card_style(_inst, _val):
-                        if hasattr(card_widget, "_bg_rect"):
-                            card_widget._bg_rect.pos = card_widget.pos
-                            card_widget._bg_rect.size = card_widget.size
-                        if hasattr(card_widget, "_border_line"):
-                            card_widget._border_line.rectangle = (
-                                card_widget.x,
-                                card_widget.y,
-                                card_widget.width,
-                                card_widget.height,
-                            )
+                    def _update_sep(_inst, _val):
+                        if hasattr(sep, "_sep_rect"):
+                            sep._sep_rect.pos = sep.pos
+                            sep._sep_rect.size = sep.size
 
-                    card_widget.bind(pos=_update_card_style, size=_update_card_style)
+                    sep.bind(pos=_update_sep, size=_update_sep)
                 except Exception:
                     pass
+            container.add_widget(sep)
 
-            maint_ids = [row[0] for row in maintenance_records]
-            people_by_maint = {}
-            elements_by_maint = {}
-
-            if maint_ids:
-                placeholders = ",".join(["?"] * len(maint_ids))
-
-                # Bulk fetch responsible/crew people for all maintenance rows in this substation
-                c.execute(
-                    f"""
-                    SELECT mp.maintenance_id, p.name, mp.role
-                    FROM maintenance_people mp
-                    JOIN people p ON mp.person_id = p.id
-                    WHERE mp.maintenance_id IN ({placeholders})
-                    ORDER BY p.name
-                    """,
-                    maint_ids,
-                )
-                for m_id, person_name, role in c.fetchall():
-                    entry = people_by_maint.setdefault(
-                        m_id, {"responsible": None, "crew": []}
+        def _style_maintenance_card(card_widget):
+            if not hasattr(card_widget, "canvas"):
+                return
+            try:
+                with card_widget.canvas.before:
+                    card_widget._bg_color = Color(*self.theme.get("popup_bg", (0.97, 0.98, 0.99, 1)))
+                    card_widget._bg_rect = Rectangle(pos=card_widget.pos, size=card_widget.size)
+                with card_widget.canvas.after:
+                    card_widget._border_color = Color(0.72, 0.76, 0.81, 1)
+                    card_widget._border_line = Line(
+                        rectangle=(card_widget.x, card_widget.y, card_widget.width, card_widget.height),
+                        width=1,
                     )
-                    if role == "responsible":
-                        entry["responsible"] = person_name
-                    elif role == "crew":
-                        entry["crew"].append(person_name)
 
-                # Bulk fetch elements for all maintenance rows in this substation
-                # Track already-added element IDs per maintenance to avoid displaying duplicates
-                elements_added_per_maint = {mid: set() for mid in maint_ids}
-                c.execute(
-                    f"""
-                    SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
-                           me.element_comments, e.breaker_category
-                    FROM maintenance_elements me
-                    JOIN elements e ON me.element_id = e.id
-                    WHERE me.maintenance_id IN ({placeholders})
-                    ORDER BY me.maintenance_id, e.name
-                    """,
-                    maint_ids,
-                )
-                for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
-                    # Only add if this element hasn't been added for this maintenance yet
-                    if elem_id not in elements_added_per_maint[m_id]:
-                        elements_by_maint.setdefault(m_id, []).append(
-                            (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
+                def _update_card_style(_inst, _val):
+                    if hasattr(card_widget, "_bg_rect"):
+                        card_widget._bg_rect.pos = card_widget.pos
+                        card_widget._bg_rect.size = card_widget.size
+                    if hasattr(card_widget, "_border_line"):
+                        card_widget._border_line.rectangle = (
+                            card_widget.x, card_widget.y, card_widget.width, card_widget.height,
                         )
-                        elements_added_per_maint[m_id].add(elem_id)
 
-            for maint_id, maint_name, date_time, overall_comments in maintenance_records:
-                # Maintenance card
-                card = BoxLayout(
-                    orientation="vertical", size_hint_y=None, padding=8, spacing=6
+                card_widget.bind(pos=_update_card_style, size=_update_card_style)
+            except Exception:
+                pass
+
+        def render_cards(selected_element_id=None):
+            grid.clear_widgets()
+
+            if selected_element_id is not None:
+                records_to_show = [
+                    r for r in maintenance_records
+                    if any(e[0] == selected_element_id for e in elements_by_maint.get(r[0], []))
+                ]
+            else:
+                records_to_show = maintenance_records
+
+            if not records_to_show:
+                grid.add_widget(Label(
+                    text=S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"),
+                    size_hint_y=None, height=40,
+                ))
+                info_label.text = ""
+                return
+
+            if selected_element_id is not None:
+                info_label.text = f"Εμφανίζονται {len(records_to_show)} συντηρήσεις για το επιλεγμένο στοιχείο."
+            elif total_records > len(maintenance_records):
+                info_label.text = (
+                    f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_records} συντηρήσεις."
                 )
+            else:
+                info_label.text = ""
+
+            for maint_id, maint_name, date_time, overall_comments in records_to_show:
+                card = BoxLayout(orientation="vertical", size_hint_y=None, padding=8, spacing=6)
                 card.bind(minimum_height=card.setter("height"))
                 _style_maintenance_card(card)
 
-                # Header
+                # Header row
                 header = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                display_name = maint_name or self._build_maintenance_name(
-                    substation_name, date_time
-                )
-                header.add_widget(
-                    Label(text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True, size_hint_x=0.6)
-                )
+                display_name = maint_name or self._build_maintenance_name(substation_name, date_time)
+                header.add_widget(Label(
+                    text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name),
+                    bold=True, size_hint_x=0.6,
+                ))
                 from ui.shared import IconOnlyButton
-                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get('primary', (0.2,0.6,1,1)), size=(35, 35))
+                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
                 delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
                 email_btn = Button(text=S["BUTTONS"].get("EMAIL", "Email"), size_hint_x=0.13)
 
@@ -11242,90 +10850,65 @@ class SubstationApp(App):
                         m_id, p, substation_id, substation_name, parent_display_popup
                     )
 
-                delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
-
                 def make_email_handler(m_id):
                     return lambda x: self.send_maintenance_email_report(m_id)
 
-                email_btn.bind(on_press=make_email_handler(maint_id))
-
                 def make_edit_handler(m_id, p):
                     return lambda x: self.show_maintenance_menu(
-                        None,
-                        substation_name,
-                        p,
-                        m_id,
-                        lambda: self.show_substation_maintenance_history(
-                            substation_id, substation_name, parent_display_popup
-                        ),
+                        None, substation_name, p, m_id,
+                        lambda: self.show_substation_maintenance_history(substation_id, substation_name, parent_display_popup),
                     )
 
+                delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
+                email_btn.bind(on_press=make_email_handler(maint_id))
                 edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
                 header.add_widget(edit_btn)
                 header.add_widget(email_btn)
                 header.add_widget(delete_btn)
                 card.add_widget(header)
 
-                # Responsible and crew
-                people_info = people_by_maint.get(
-                    maint_id, {"responsible": None, "crew": []}
-                )
+                # Responsible / crew
+                people_info = people_by_maint.get(maint_id, {"responsible": None, "crew": []})
                 responsible = people_info.get("responsible")
                 crew = people_info.get("crew") or []
                 if responsible or crew:
-                    crew_text = ", ".join(crew) if crew else "-"
-                    resp_text = responsible if responsible else "-"
                     people_label = Label(
-                        text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(resp=resp_text, crew=crew_text),
-                        size_hint_y=None,
-                        height=25,
+                        text=S["MESSAGES"].get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}").format(
+                            resp=responsible or "-", crew=", ".join(crew) if crew else "-"
+                        ),
+                        size_hint_y=None, height=25,
                     )
                     people_label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        ),
-                        texture_size=lambda instance, value: setattr(
-                            instance, "height", value[1] + 6
-                        ),
+                        width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                        texture_size=lambda inst, val: setattr(inst, "height", val[1] + 6),
                     )
                     card.add_widget(people_label)
 
                 # Overall comments
                 if overall_comments:
+                    try:
+                        from maintenance_email_importer import _format_email_body_for_readability
+                        display_comments = _format_email_body_for_readability(overall_comments)
+                    except Exception:
+                        display_comments = overall_comments
                     comment_label = Label(
-                        text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=overall_comments), size_hint_y=None, height=30
+                        text=S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=display_comments),
+                        size_hint_y=None, height=30,
                     )
                     comment_label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        ),
-                        texture_size=lambda instance, value: setattr(
-                            instance, "height", value[1] + 6
-                        ),
+                        width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                        texture_size=lambda inst, val: setattr(inst, "height", val[1] + 6),
                     )
                     card.add_widget(comment_label)
 
-                # Elements for this maintenance (from bulk prefetch)
-                elements = elements_by_maint.get(maint_id, [])
-
                 # Elements list
-                elements_label = Label(
+                elements = elements_by_maint.get(maint_id, [])
+                card.add_widget(Label(
                     text=S["MESSAGES"].get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
-                    size_hint_y=None,
-                    height=25,
-                    bold=True,
-                )
-                card.add_widget(elements_label)
+                    size_hint_y=None, height=25, bold=True,
+                ))
 
-                for (
-                    elem_id,
-                    elem_type,
-                    elem_name,
-                    serial_num,
-                    elem_comments,
-                    breaker_category,
-                ) in elements:
-                    # Element info with optional PDF button
+                for elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in elements:
                     elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
                     elem_row.bind(minimum_height=elem_row.setter("height"))
 
@@ -11335,31 +10918,22 @@ class SubstationApp(App):
 
                     elem_label = Label(text=elem_text, size_hint_x=0.6, size_hint_y=None)
                     elem_label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        ),
-                        texture_size=lambda instance, value: (
-                            setattr(instance, "height", value[1] + 6),
-                            setattr(elem_row, "height", max(40, value[1] + 10)),
+                        width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                        texture_size=lambda inst, val: (
+                            setattr(inst, "height", val[1] + 6),
+                            setattr(elem_row, "height", max(40, val[1] + 10)),
                         ),
                     )
                     elem_row.add_widget(elem_label)
 
-                    # Add PDF button for circuit breakers (check Greek names from BREAKER_CATEGORIES_ALL)
                     buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
-
                     view_btn = Button(
                         text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."),
-                        size_hint_x=0.34,
-                        size_hint_y=None,
-                        height=35,
-                        **font_kwargs,
+                        size_hint_x=0.34, size_hint_y=None, height=35, **font_kwargs,
                     )
 
                     def make_view_handler(m_id, e_id, e_name):
-                        return lambda x: self.show_maintenance_element_details(
-                            m_id, e_id, e_name
-                        )
+                        return lambda x: self.show_maintenance_element_details(m_id, e_id, e_name)
 
                     view_btn.bind(on_press=make_view_handler(maint_id, elem_id, elem_name))
                     buttons_container.add_widget(view_btn)
@@ -11370,34 +10944,89 @@ class SubstationApp(App):
                     ):
                         pdf_btn = Button(
                             text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
-                            size_hint_x=0.5,
-                            size_hint_y=None,
-                            height=35,
-                            **font_kwargs,
+                            size_hint_x=0.5, size_hint_y=None, height=35, **font_kwargs,
                         )
 
                         def make_pdf_handler(m_id, e_id, e_name):
                             return lambda x: self.generate_pdf_report(m_id, e_id, e_name)
 
-                        pdf_btn.bind(
-                            on_press=make_pdf_handler(maint_id, elem_id, elem_name)
-                        )
+                        pdf_btn.bind(on_press=make_pdf_handler(maint_id, elem_id, elem_name))
                         buttons_container.add_widget(pdf_btn)
                     else:
                         buttons_container.add_widget(Label(text="", size_hint_x=0.5))
 
                     elem_row.add_widget(buttons_container)
-
                     card.add_widget(elem_row)
 
                 grid.add_widget(card)
                 _add_separator(grid, color=(0.82, 0.84, 0.87, 1), height=1)
 
-            scroll.add_widget(grid)
-            main_layout.add_widget(scroll)
+        def _open_element_picker(_instance=None):
+            picker = Popup(title="Επιλογή Στοιχείου", size_hint=(0.6, 0.75))
+            picker_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+            picker_scroll = ScrollView(bar_width=8, scroll_type=["bars", "content"])
+            picker_grid = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
+            picker_grid.bind(minimum_height=picker_grid.setter("height"))
+
+            # "(Όλα)" reset option
+            all_btn = Button(text="(Όλα στοιχεία)", size_hint_y=None, height=45)
+
+            def _select_all(_):
+                picker.dismiss()
+                elem_filter_input.text = "(Όλα)"
+                render_cards(None)
+
+            all_btn.bind(on_press=_select_all)
+            picker_grid.add_widget(all_btn)
+
+            for eid, ename, etype in all_elements_in_sub:
+                btn = Button(text=f"{ename}  [{etype}]", size_hint_y=None, height=45)
+
+                def _select_elem(_, _eid=eid, _ename=ename):
+                    picker.dismiss()
+                    elem_filter_input.text = _ename
+                    render_cards(_eid)
+
+                btn.bind(on_press=_select_elem)
+                picker_grid.add_widget(btn)
+
+            cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=40)
+            cancel_btn.bind(on_press=picker.dismiss)
+            picker_scroll.add_widget(picker_grid)
+            picker_layout.add_widget(picker_scroll)
+            picker_layout.add_widget(cancel_btn)
+            picker.content = picker_layout
+            picker.open()
+
+        def _on_substation_filter_selected(selected_sub_name):
+            selected = chooser_map.get(selected_sub_name)
+            if selected is None:
+                return
+            selected_sub_id, actual_sub_name = selected
+            self.show_substation_maintenance_history(
+                selected_sub_id,
+                actual_sub_name,
+                parent_display_popup,
+            )
+
+        def _open_substation_filter_picker(_instance=None):
+            self._show_substation_selection_window_with_callback(
+                popup,
+                chooser_substations,
+                on_select=_on_substation_filter_selected,
+                title=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού"),
+            )
+
+        select_sub_btn.bind(on_press=_open_substation_filter_picker)
+        elem_filter_btn.bind(on_press=_open_element_picker)
+
+        render_cards()
+
+        scroll.add_widget(grid)
+        main_layout.add_widget(scroll)
 
         # Close button
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=45)
         close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
 
