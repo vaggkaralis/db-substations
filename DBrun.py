@@ -11052,18 +11052,16 @@ class SubstationApp(App):
                     bold=True, size_hint_x=0.6,
                 ))
                 from ui.shared import IconOnlyButton
-                
-                # View full report button (eye icon)
-                view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
-                
-                # Edit button
-                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
-                
-                # Delete button
-                delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-                
-                # Email button (email icon)
-                email_btn = IconOnlyButton(icon_type="email", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
+
+                # Helper function to open URL or local file path
+                def open_folder_or_url(path):
+                    if path.startswith(('http://', 'https://')):
+                        webbrowser.open(path)
+                    else:
+                        try:
+                            os.startfile(path)
+                        except Exception:
+                            pass
 
                 def make_delete_handler(m_id, p):
                     return lambda x: self.confirm_delete_maintenance_for_substation(
@@ -11088,6 +11086,25 @@ class SubstationApp(App):
                 def make_view_handler(m_id):
                     return lambda x: self.show_maintenance_full_report(m_id, popup)
 
+                # Folder button (only if link exists) — leftmost button in header
+                if onedrive_media_folder_link and onedrive_media_folder_link.strip():
+                    folder_btn = IconOnlyButton(
+                        icon_type="folder",
+                        icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+                        size=(35, 35),
+                    )
+                    folder_btn.bind(on_press=lambda x, link=onedrive_media_folder_link: open_folder_or_url(link))
+                    header.add_widget(folder_btn)
+
+                # View full report button (eye icon)
+                view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
+                # Edit button
+                edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
+                # Email button
+                email_btn = IconOnlyButton(icon_type="email", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
+                # Delete button
+                delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+
                 delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
                 email_btn.bind(on_press=make_email_handler(maint_id))
                 edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
@@ -11097,32 +11114,6 @@ class SubstationApp(App):
                 header.add_widget(email_btn)
                 header.add_widget(delete_btn)
                 card.add_widget(header)
-                
-                # OneDrive folder button (if link exists)
-                if onedrive_media_folder_link and onedrive_media_folder_link.strip():
-                    folder_btn_layout = BoxLayout(size_hint_y=None, height=35, spacing=5)
-                    
-                    # Helper function to open URL or local file path
-                    def open_folder_or_url(path):
-                        if path.startswith(('http://', 'https://')):
-                            webbrowser.open(path)
-                        else:
-                            try:
-                                os.startfile(path)
-                            except Exception:
-                                pass
-                    
-                    folder_btn = IconOnlyButton(
-                        icon_type="folder",
-                        icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
-                        size_hint_x=0.08
-                    )
-                    folder_btn.bind(on_press=lambda x, link=onedrive_media_folder_link: open_folder_or_url(link))
-                    folder_btn_layout.add_widget(folder_btn)
-                    
-                    # Empty space to push to the left
-                    folder_btn_layout.add_widget(Widget(size_hint_x=0.92))
-                    card.add_widget(folder_btn_layout)
 
                 # Responsible / crew
                 people_info = people_by_maint.get(maint_id, {"responsible": None, "crew": []})
