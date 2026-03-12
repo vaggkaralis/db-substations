@@ -520,26 +520,35 @@ class SubstationApp(App):
             self.show_login_popup(on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0))
     
     def _needs_first_time_setup(self) -> bool:
-        """Check if critical first-time setup is needed.
+        """Check if setup wizard should be shown.
         
-        Returns True if any critical settings are missing.
+        Returns True for a fresh install (no DB file) OR when a previously
+        configured critical setting is now missing/invalid.
         """
         from config_manager import get_db_path, get_app_setting
         
-        # Check if database path is set
-        if not get_db_path():
-            return True
+        db_path = get_db_path()
+        wizard_done = bool(get_app_setting("setup_wizard_completed", False))
         
-        # Check if sync root path is set
-        if not get_app_setting("sync_root_path"):
-            return True
+        # If wizard was already completed, only re-show when a critical
+        # setting has become invalid (e.g. user deleted the db_path setting
+        # and the default path also doesn't exist).
+        if wizard_done:
+            # A configured DB path that no longer points to a real file is a problem
+            if db_path and not os.path.isfile(db_path):
+                return True
+            return False
         
-        # Check if backup root path is set
-        if not get_app_setting("backup_root_path"):
-            return True
+        # Wizard not yet done for this install.
+        # If the default/configured DB file exists, it's an existing installation -
+        # silently mark completed and skip wizard.
+        effective_db = db_path or DB_PATH
+        if os.path.isfile(effective_db):
+            set_app_setting("setup_wizard_completed", True)
+            return False
         
-        # All critical settings are present
-        return False
+        # No DB file found - genuine fresh install
+        return True
     
     def _show_first_use_setup_wizard(self, on_complete=None):
         """Show first-time setup wizard for new installation.
@@ -549,8 +558,26 @@ class SubstationApp(App):
         from sync_service import resolve_sync_root, resolve_backup_root
         from kivy.uix.spinner import Spinner
         
+        # Resolve db path early (self.db_path not yet set before login)
+        _configured_db_path = get_db_path()
+        _wizard_db_path = os.path.abspath(_configured_db_path or DB_PATH)
+        _is_repair = bool(get_app_setting("setup_wizard_completed", False))
+        
+        # Build context-aware intro text
+        if _is_repair and _configured_db_path and not os.path.isfile(_configured_db_path):
+            _intro_text = (
+                f"[color=ff4444][b]Πρόβλημα:[/b] Το αρχείο βάσης δεδομένων δεν βρέθηκε:[/color]\n"
+                f"{_configured_db_path}\n\n"
+                "Παρακαλώ ορίστε τη σωστή διαδρομή ή αφήστε κενό για προεπιλογή."
+            )
+            _title = "Επαναφορά Ρυθμίσεων"
+        else:
+            _intro_text = S["MESSAGES"].get("SETUP_WIZARD_INTRO",
+                "Καλώς ήρθατε! Παρακαλώ ορίστε τις παρακάτω ρυθμίσεις για να ξεκινήσει η εφαρμογή.")
+            _title = S["TITLES"].get("SETUP_WIZARD", "Αρχική Ρύθμιση Εφαρμογής")
+        
         popup = Popup(
-            title=S["TITLES"].get("SETUP_WIZARD", "Αρχική Ρύθμιση Εφαρμογής"),
+            title=_title,
             size_hint=(0.85, 0.9),
             auto_dismiss=False,
         )
@@ -564,11 +591,12 @@ class SubstationApp(App):
         
         # Title/intro
         intro = Label(
-            text=S["MESSAGES"].get("SETUP_WIZARD_INTRO", 
-                "Καλώς ήρθατε! Παρακαλώ ορίστε τις παρακάτω ρυθμίσεις για να ξεκινήσει η εφαρμογή."),
+            text=_intro_text,
             size_hint_y=None,
-            height=60,
+            height=90 if _is_repair else 60,
             markup=True,
+            halign="left",
+            valign="middle",
         )
         intro.bind(size=lambda obj, _val: setattr(obj, "text_size", (obj.width, obj.height)))
         content.add_widget(intro)
@@ -613,7 +641,7 @@ class SubstationApp(App):
         )
         sync_section.add_widget(sync_title)
         
-        sync_default = resolve_sync_root(self.db_path)
+        sync_default = resolve_sync_root(_wizard_db_path)
         sync_input = TextInput(
             text=sync_default or "",
             multiline=False,
@@ -643,7 +671,7 @@ class SubstationApp(App):
         )
         backup_section.add_widget(backup_title)
         
-        backup_default = resolve_backup_root(self.db_path)
+        backup_default = resolve_backup_root(_wizard_db_path)
         backup_input = TextInput(
             text=backup_default or "",
             multiline=False,
@@ -790,6 +818,7 @@ class SubstationApp(App):
             
             set_app_setting("sync_auto_cycle_enabled", bool(autosync_chk.active))
             set_app_setting("sync_auto_cycle_minutes", interval_minutes)
+            set_app_setting("setup_wizard_completed", True)
             
             popup.dismiss()
             
@@ -801,6 +830,7 @@ class SubstationApp(App):
             )
         
         def _skip_setup(*_args):
+            set_app_setting("setup_wizard_completed", True)
             popup.dismiss()
             if on_complete:
                 on_complete()
