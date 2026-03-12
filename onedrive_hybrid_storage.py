@@ -501,6 +501,100 @@ def _is_dir_empty(path: str) -> bool:
         return False
 
 
+def _merge_tree_into(src: str, dst: str) -> None:
+    """Merge a source directory tree into destination without data loss."""
+    if not os.path.isdir(src):
+        return
+
+    os.makedirs(dst, exist_ok=True)
+    for name in list(os.listdir(src)):
+        src_item = os.path.join(src, name)
+        dst_item = os.path.join(dst, name)
+
+        if os.path.isdir(src_item):
+            if os.path.isdir(dst_item):
+                _merge_tree_into(src_item, dst_item)
+                try:
+                    os.rmdir(src_item)
+                except Exception:
+                    pass
+            elif os.path.exists(dst_item):
+                base, ext = os.path.splitext(name)
+                idx = 1
+                candidate = os.path.join(dst, f"{base}_legacy{idx}{ext}")
+                while os.path.exists(candidate):
+                    idx += 1
+                    candidate = os.path.join(dst, f"{base}_legacy{idx}{ext}")
+                shutil.move(src_item, candidate)
+            else:
+                shutil.move(src_item, dst_item)
+        else:
+            if os.path.exists(dst_item):
+                base, ext = os.path.splitext(name)
+                idx = 1
+                candidate = os.path.join(dst, f"{base}_legacy{idx}{ext}")
+                while os.path.exists(candidate):
+                    idx += 1
+                    candidate = os.path.join(dst, f"{base}_legacy{idx}{ext}")
+                shutil.move(src_item, candidate)
+            else:
+                shutil.move(src_item, dst_item)
+
+
+def _merge_legacy_path(src: str, dst: str) -> bool:
+    """Merge a legacy path into canonical path; return True when attempted."""
+    if not os.path.isdir(src):
+        return False
+
+    if os.path.normcase(os.path.abspath(src)) == os.path.normcase(os.path.abspath(dst)):
+        return False
+
+    _merge_tree_into(src, dst)
+    if os.path.isdir(src) and _is_dir_empty(src):
+        try:
+            os.rmdir(src)
+        except Exception:
+            try:
+                shutil.rmtree(src)
+            except Exception:
+                pass
+    return True
+
+
+def _reconcile_legacy_gate_root_folders(substation_root: str) -> None:
+    """Fold legacy English gate/interconnection folders into Greek folders."""
+    pairs = [
+        ("Gate_1", _DIR_GATE_1),
+        ("Gate_2", _DIR_GATE_2),
+        ("Gate_3", _DIR_GATE_3),
+        ("Gate_unknown", _DIR_GATE_UNKNOWN),
+        (os.path.join("Interconnections", "1-2"), os.path.join(_DIR_INTERCONNECTIONS, "1-2")),
+        (os.path.join("Interconnections", "2-3"), os.path.join(_DIR_INTERCONNECTIONS, "2-3")),
+    ]
+    for src_rel, dst_rel in pairs:
+        src = os.path.join(substation_root, src_rel)
+        dst = os.path.join(substation_root, dst_rel)
+        _merge_legacy_path(src, dst)
+
+    _merge_legacy_path(
+        os.path.join(substation_root, "Interconnections"),
+        os.path.join(substation_root, _DIR_INTERCONNECTIONS),
+    )
+
+
+def _reconcile_legacy_gate_children(gate_root: str) -> None:
+    """Fold legacy English gate child folders into canonical Greek folders."""
+    pairs = [
+        ("Maintenance", _join_parts(_DIR_MAINTENANCE_PARTS)),
+        ("Inspections", _DIR_INSPECTIONS),
+        ("DGA_Measurements", _join_parts(_DIR_DGA_PARTS)),
+    ]
+    for src_rel, dst_rel in pairs:
+        src = os.path.join(gate_root, src_rel)
+        dst = os.path.join(gate_root, dst_rel)
+        _merge_legacy_path(src, dst)
+
+
 def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | None = None) -> dict:
     """Ensure gate/interconnection folders match gates used by current elements.
 
@@ -509,6 +603,7 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
     """
     base = ensure_substation_structure(conn, substation_id, db_path=db_path)
     substation_root = base["substation_root"]
+    _reconcile_legacy_gate_root_folders(substation_root)
 
     cur = conn.cursor()
     cur.execute("SELECT gate FROM elements WHERE substation_id=?", (substation_id,))
@@ -527,6 +622,7 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
     for bucket in active_buckets:
         gate_rel = _gate_relative_path(bucket)
         gate_root = os.path.join(substation_root, gate_rel)
+        _reconcile_legacy_gate_children(gate_root)
         _ensure_dir(gate_root, queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
         _ensure_dir(os.path.join(gate_root, _join_parts(_DIR_MAINTENANCE_PARTS)), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
         _ensure_dir(os.path.join(gate_root, _DIR_INSPECTIONS), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
@@ -664,6 +760,7 @@ def ensure_maintenance_folders(
         gate_rel = _gate_relative_path(bucket)
         gate_key = f"{bucket[0]}:{bucket[1]}"
         gate_root = os.path.join(substation_root, gate_rel)
+        _reconcile_legacy_gate_children(gate_root)
         maintenance_root = os.path.join(gate_root, _join_parts(_DIR_MAINTENANCE_PARTS))
         inspections_root = os.path.join(gate_root, _DIR_INSPECTIONS)
         dga_root = os.path.join(gate_root, _join_parts(_DIR_DGA_PARTS))
