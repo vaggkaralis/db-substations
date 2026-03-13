@@ -233,7 +233,8 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
                 yes_callback=_replace_existing,
                 yes_text="ΑΝΤΙΚΑΤΑΣΤΑΣΗ",
                 no_text="ΑΝΟΙΓΜΑ",
-                no_callback=lambda: _show_success(existing_path, "opened"),
+                no_callback=lambda: open_file(existing_path),
+                cancel_text=S["BUTTONS"].get("CANCEL", "Ακύρωση"),
             )
             return
 
@@ -295,7 +296,17 @@ def open_file(path, *, not_found_message="Το αρχείο δεν βρέθηκ�
         return False
 
 
-def show_confirm(title: str, message: str, yes_callback=None, yes_text="ΝΑΙ", no_text="ΟΧΙ", yes_color=None, size_hint=(0.6, 0.3), no_callback=None):
+def show_confirm(
+    title: str,
+    message: str,
+    yes_callback=None,
+    yes_text="ΝΑΙ",
+    no_text="ΟΧΙ",
+    yes_color=None,
+    size_hint=(0.6, 0.3),
+    no_callback=None,
+    cancel_text=None,
+):
     """Show a standardized confirmation popup and call `yes_callback` when confirmed.
 
     The callback is called after the popup is dismissed.
@@ -304,11 +315,34 @@ def show_confirm(title: str, message: str, yes_callback=None, yes_text="ΝΑΙ",
     BoxLayout = __import__("kivy.uix.boxlayout", fromlist=["BoxLayout"]).BoxLayout
     Label = __import__("kivy.uix.label", fromlist=["Label"]).Label
     Button = __import__("kivy.uix.button", fromlist=["Button"]).Button
+    ScrollView = __import__("kivy.uix.scrollview", fromlist=["ScrollView"]).ScrollView
 
     popup = Popup(title=title, size_hint=size_hint)
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-    warning_label = Label(text=message, size_hint_y=0.6)
-    layout.add_widget(warning_label)
+
+    scroll = ScrollView(size_hint_y=0.65, bar_width=10, scroll_type=["bars", "content"])
+    warning_label = Label(
+        text=message,
+        size_hint_y=None,
+        halign="left",
+        valign="top",
+    )
+
+    def _sync_message_size(_instance=None, _value=None):
+        try:
+            label_width = max(10, scroll.width - 12)
+            warning_label.text_size = (label_width, None)
+            warning_label.texture_update()
+            warning_label.height = max(60, warning_label.texture_size[1] + 8)
+        except Exception:
+            pass
+
+    scroll.bind(size=_sync_message_size)
+    warning_label.bind(texture_size=_sync_message_size)
+    _sync_message_size()
+
+    scroll.add_widget(warning_label)
+    layout.add_widget(scroll)
 
     buttons_layout = BoxLayout(size_hint_y=0.3, spacing=10)
 
@@ -347,6 +381,11 @@ def show_confirm(title: str, message: str, yes_callback=None, yes_text="ΝΑΙ",
 
     no_btn.bind(on_press=lambda x: _on_no(x))
     buttons_layout.add_widget(no_btn)
+
+    if cancel_text:
+        cancel_btn = Button(text=cancel_text)
+        cancel_btn.bind(on_press=lambda _x: popup.dismiss())
+        buttons_layout.add_widget(cancel_btn)
 
     layout.add_widget(buttons_layout)
     popup.content = layout

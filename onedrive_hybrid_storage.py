@@ -30,8 +30,10 @@ _MEDIA_EXTENSIONS = {
 
 _DEFAULT_SHARED_ROOT_NAME = "Κοινή Βάση Υποσταθμών"
 _LEGACY_SHARED_ROOT_NAME = "shared_substations"
-_CANONICAL_SHARED_CONTAINER_NAME = "Κεντρική Βάση Δεδομένων"
-_LEGACY_SHARED_CONTAINER_NAMES = ("Κοινή Βάση Υποσταθμών",)
+_LEGACY_SHARED_ROOT_ALIASES = (
+    "Βάση Δεδομένων Κεντρική",
+    "Κεντρική Βάση Δεδομένων",
+)
 
 # Canonical Greek folder labels
 _DIR_GATE_1 = "ΠΥΛΗ 1"
@@ -87,6 +89,14 @@ def _safe_name(value: str, fallback: str = "unknown") -> str:
     return text or fallback
 
 
+def _is_legacy_shared_root_alias(name: str | None) -> bool:
+    text = str(name or "").strip()
+    if not text:
+        return False
+    norm = os.path.normcase(text)
+    return any(norm == os.path.normcase(alias) for alias in _LEGACY_SHARED_ROOT_ALIASES)
+
+
 def _slug(value: str, fallback: str = "item") -> str:
     text = _safe_name(value, fallback=fallback)
     text = text.replace(" ", "_")
@@ -124,36 +134,6 @@ def _canonical_report_filename(substation_name: str, element_name: str, maintena
     return short_stem + ".pdf"
 
 
-def _resolve_default_shared_root(base_dir: str) -> str:
-    new_root = os.path.abspath(os.path.join(base_dir, _DEFAULT_SHARED_ROOT_NAME))
-    legacy_root = os.path.abspath(os.path.join(base_dir, _LEGACY_SHARED_ROOT_NAME))
-
-    if os.path.isdir(legacy_root) and not os.path.exists(new_root):
-        try:
-            shutil.move(legacy_root, new_root)
-        except Exception:
-            return legacy_root
-
-    if os.path.exists(new_root):
-        return new_root
-    if os.path.exists(legacy_root):
-        return legacy_root
-    return new_root
-
-
-def _replace_path_component(path: str, old_component: str, new_component: str) -> str:
-    try:
-        drive, tail = os.path.splitdrive(path)
-        parts = tail.split(os.sep)
-        for idx, part in enumerate(parts):
-            if part.lower() == old_component.lower():
-                parts[idx] = new_component
-                return drive + os.sep.join(parts)
-    except Exception:
-        return path
-    return path
-
-
 def _remap_legacy_shared_root(path: str | None, shared_root: str) -> str | None:
     """Remap a stored path from legacy shared root to the current shared root.
 
@@ -167,37 +147,12 @@ def _remap_legacy_shared_root(path: str | None, shared_root: str) -> str | None:
         current_root = os.path.abspath(shared_root)
         abs_path = os.path.abspath(path)
         current_parent = os.path.abspath(os.path.dirname(current_root))
-        current_grandparent = os.path.abspath(os.path.dirname(current_parent))
         equivalent_roots = [
             os.path.abspath(os.path.join(current_parent, _LEGACY_SHARED_ROOT_NAME)),
             os.path.abspath(os.path.join(current_parent, _DEFAULT_SHARED_ROOT_NAME)),
         ]
-
-        equivalent_roots.append(
-            os.path.abspath(os.path.join(current_grandparent, _CANONICAL_SHARED_CONTAINER_NAME, _DEFAULT_SHARED_ROOT_NAME))
-        )
-        for legacy_container_name in _LEGACY_SHARED_CONTAINER_NAMES:
-            equivalent_roots.append(
-                os.path.abspath(os.path.join(current_grandparent, legacy_container_name, _DEFAULT_SHARED_ROOT_NAME))
-            )
-
-        # Map between alternative parent container labels in both directions.
-        canonical_candidate = _replace_path_component(
-            current_root,
-            _LEGACY_SHARED_CONTAINER_NAMES[0],
-            _CANONICAL_SHARED_CONTAINER_NAME,
-        )
-        if canonical_candidate != current_root:
-            equivalent_roots.append(os.path.abspath(canonical_candidate))
-
-        for legacy_container_name in _LEGACY_SHARED_CONTAINER_NAMES:
-            candidate = _replace_path_component(
-                current_root,
-                _CANONICAL_SHARED_CONTAINER_NAME,
-                legacy_container_name,
-            )
-            if candidate != current_root:
-                equivalent_roots.append(os.path.abspath(candidate))
+        for alias in _LEGACY_SHARED_ROOT_ALIASES:
+            equivalent_roots.append(os.path.abspath(os.path.join(current_parent, alias)))
 
         # Windows-safe case-insensitive prefix comparison.
         abs_norm = os.path.normcase(abs_path)
@@ -219,14 +174,30 @@ def _remap_legacy_shared_root(path: str | None, shared_root: str) -> str | None:
             replacement = os.sep + _DEFAULT_SHARED_ROOT_NAME + os.sep
             return abs_path.replace(marker, replacement, 1)
 
-        for legacy_container_name in _LEGACY_SHARED_CONTAINER_NAMES:
-            remapped = _replace_path_component(
-                abs_path,
-                legacy_container_name,
-                _CANONICAL_SHARED_CONTAINER_NAME,
-            )
-            if remapped != abs_path:
-                return remapped
+        for alias in _LEGACY_SHARED_ROOT_ALIASES:
+            alias_marker = os.sep + alias + os.sep
+            if alias_marker in abs_path:
+                replacement = os.sep + _DEFAULT_SHARED_ROOT_NAME + os.sep
+                return abs_path.replace(alias_marker, replacement, 1)
+
+        # Generic fallback: if an old absolute path contains the canonical
+        # shared-root segment anywhere, anchor it to the currently configured
+        # shared root and preserve only the tail under that segment.
+        parts = abs_path.split(os.sep)
+        default_norm = os.path.normcase(_DEFAULT_SHARED_ROOT_NAME)
+        for idx, part in enumerate(parts):
+            if os.path.normcase(part) != default_norm:
+                continue
+            rel_tail = os.sep.join(parts[idx + 1 :]).lstrip("\\/")
+            return os.path.join(current_root, rel_tail) if rel_tail else current_root
+
+        for alias in _LEGACY_SHARED_ROOT_ALIASES:
+            alias_norm = os.path.normcase(alias)
+            for idx, part in enumerate(parts):
+                if os.path.normcase(part) != alias_norm:
+                    continue
+                rel_tail = os.sep.join(parts[idx + 1 :]).lstrip("\\/")
+                return os.path.join(current_root, rel_tail) if rel_tail else current_root
     except Exception:
         return path
 
@@ -249,6 +220,8 @@ def _normalize_shared_root_relative(configured_value: str | None, sync_root: str
     rooted_relative = text.startswith("\\") or text.startswith("/")
     if rooted_relative:
         rel = text.lstrip("\\/").strip()
+        if _is_legacy_shared_root_alias(rel):
+            return _DEFAULT_SHARED_ROOT_NAME
         return rel or _DEFAULT_SHARED_ROOT_NAME
 
     expanded = os.path.expandvars(os.path.expanduser(text))
@@ -259,13 +232,21 @@ def _normalize_shared_root_relative(configured_value: str | None, sync_root: str
             common = os.path.commonpath([sync_abs, abs_value])
             if os.path.normcase(common) == os.path.normcase(sync_abs):
                 rel = os.path.relpath(abs_value, sync_abs).strip("\\/")
+                if _is_legacy_shared_root_alias(rel):
+                    return _DEFAULT_SHARED_ROOT_NAME
                 return rel or _DEFAULT_SHARED_ROOT_NAME
         except Exception:
             pass
         # Legacy absolute path outside sync_root: keep just folder label.
-        return os.path.basename(abs_value.rstrip("\\/")) or _DEFAULT_SHARED_ROOT_NAME
+        base = os.path.basename(abs_value.rstrip("\\/"))
+        if _is_legacy_shared_root_alias(base):
+            return _DEFAULT_SHARED_ROOT_NAME
+        return base or _DEFAULT_SHARED_ROOT_NAME
 
-    return expanded.strip("\\/") or _DEFAULT_SHARED_ROOT_NAME
+    rel = expanded.strip("\\/")
+    if _is_legacy_shared_root_alias(rel):
+        return _DEFAULT_SHARED_ROOT_NAME
+    return rel or _DEFAULT_SHARED_ROOT_NAME
 
 
 def resolve_shared_root(db_path: str | None = None) -> str:
@@ -490,6 +471,8 @@ def process_hybrid_queue(db_path: str | None = None, *, max_jobs: int = 100) -> 
     added on top of this queue format later.
     """
     queue_file = get_hybrid_queue_file(db_path)
+    current_shared_root = resolve_shared_root(db_path)
+    _reconcile_legacy_shared_root_aliases(current_shared_root)
     if not os.path.exists(queue_file):
         return {
             "processed": 0,
@@ -523,6 +506,10 @@ def process_hybrid_queue(db_path: str | None = None, *, max_jobs: int = 100) -> 
             failed += 1
             remaining_rows.append(raw)
             continue
+
+        # Guard against stale queued jobs that still reference legacy shared
+        # folder aliases; always materialize under the currently resolved root.
+        path = _remap_legacy_shared_root(path, current_shared_root) or path
 
         try:
             os.makedirs(_win_path(path), exist_ok=True)
@@ -609,6 +596,7 @@ def ensure_substation_structure(conn, substation_id: int, *, db_path: str | None
     substation_name = row[0] if isinstance(row, (tuple, list)) else row["name"]
     safe_substation = _safe_name(substation_name, fallback=f"substation_{substation_id}")
     shared_root = resolve_shared_root(db_path)
+    _reconcile_legacy_shared_root_aliases(shared_root)
 
     queue_payload = {
         "kind": "ensure_substation_structure",
@@ -713,6 +701,19 @@ def _merge_legacy_path(src: str, dst: str) -> bool:
             except Exception:
                 pass
     return True
+
+
+def _reconcile_legacy_shared_root_aliases(shared_root: str) -> None:
+    """Merge/remove legacy top-level shared-root aliases next to shared_root."""
+    current_root = os.path.abspath(shared_root)
+    parent = os.path.dirname(current_root)
+    candidates = [_LEGACY_SHARED_ROOT_NAME, *_LEGACY_SHARED_ROOT_ALIASES]
+
+    for alias in candidates:
+        legacy_root = os.path.abspath(os.path.join(parent, alias))
+        if os.path.normcase(legacy_root) == os.path.normcase(current_root):
+            continue
+        _merge_legacy_path(legacy_root, current_root)
 
 
 def _reconcile_legacy_gate_root_folders(substation_root: str) -> None:
@@ -1217,6 +1218,24 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
         """
     )
     media_rows = cur.fetchall() or []
+
+    # Preload report rows so total_work is available for media-phase progress.
+    cur.execute(
+        """
+        SELECT m.id, me.element_id, e.name, e.element_type, e.gate, s.name
+        FROM maintenance m
+        JOIN maintenance_elements me ON me.maintenance_id = m.id
+        JOIN elements e ON e.id = me.element_id
+        JOIN substations s ON s.id = m.substation_id
+        ORDER BY m.id DESC
+        """
+    )
+    rows = cur.fetchall() or []
+
+    # total_work covers media phase (one tick per row) plus report phase
+    # (one tick per 5 report rows, rounded up).
+    total_work = len(media_rows) + (len(rows) + 4) // 5
+
     media_linked = 0
     seen_media = set()
     current_work = 0
@@ -1249,20 +1268,6 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
             media_linked += 1
 
     # Relink maintenance PDFs into maintenance_report_paths.
-    cur.execute(
-        """
-        SELECT m.id, me.element_id, e.name, e.element_type, e.gate, s.name
-        FROM maintenance m
-        JOIN maintenance_elements me ON me.maintenance_id = m.id
-        JOIN elements e ON e.id = me.element_id
-        JOIN substations s ON s.id = m.substation_id
-        ORDER BY m.id DESC
-        """
-    )
-    rows = cur.fetchall() or []
-    # total_work now covers the media phase (one tick per row) plus the report
-    # phase (one tick per 5 rows, rounded up), so current never exceeds total.
-    total_work = len(media_rows) + (len(rows) + 4) // 5
     report_linked = 0
     report_already = 0
     report_missing = 0

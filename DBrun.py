@@ -947,6 +947,7 @@ class SubstationApp(App):
         self.db_path = os.path.abspath(selected_db_path)
         self._last_sync_cycle_ts = 0
         self._pending_changes = []  # Track changes for export on close
+        self._sync_attention_needed = False  # Probe detected work that user deferred
         self._check_previous_sync_issues()  # Check for rejected/conflict files
         self._run_startup_sync_cycle()
         Clock.schedule_interval(self._run_periodic_sync_cycle, 60)
@@ -4458,6 +4459,49 @@ class SubstationApp(App):
             "latest_mtime": round(float(latest_mtime), 3),
         }
 
+    def _scan_actionable_pending_payloads(self, pending_dir, tracker_path):
+        """Return actionable pending count/mtime (untracked, pending, or conflict)."""
+        tracker = {}
+        try:
+            if os.path.isfile(tracker_path):
+                with open(tracker_path, "r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                    if isinstance(loaded, dict):
+                        tracker = loaded
+        except Exception:
+            tracker = {}
+
+        count = 0
+        latest_mtime = 0.0
+        try:
+            for name in os.listdir(pending_dir):
+                fp = os.path.join(pending_dir, name)
+                if not os.path.isfile(fp):
+                    continue
+                if not name.lower().endswith((".json", ".jsonl")):
+                    continue
+
+                info = tracker.get(name) if isinstance(tracker, dict) else None
+                status = str((info or {}).get("status") or "").strip().lower()
+                actionable = (not status) or (status in {"pending", "conflict"})
+                if not actionable:
+                    continue
+
+                count += 1
+                try:
+                    mt = os.path.getmtime(fp)
+                    if mt > latest_mtime:
+                        latest_mtime = mt
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return {
+            "count": int(count),
+            "latest_mtime": round(float(latest_mtime), 3),
+        }
+
     def _compute_startup_sync_probe(self, sync_root):
         """Compute a lightweight signature of shared sync state and local DB state."""
         pending_dir = os.path.join(sync_root, "inbox", "pending")
@@ -4491,6 +4535,9 @@ class SubstationApp(App):
             except Exception:
                 shared_substation_dirs = 0
 
+        pending_total = self._scan_sync_payload_dir(pending_dir)
+        pending_actionable = self._scan_actionable_pending_payloads(pending_dir, tracker_path)
+
         return {
             "version": 1,
             "db_path": os.path.abspath(self.db_path),
@@ -4500,7 +4547,9 @@ class SubstationApp(App):
             "shared_root_mtime": shared_mtime,
             "shared_substation_dirs": int(shared_substation_dirs),
             "db_mtime": db_mtime,
-            "pending": self._scan_sync_payload_dir(pending_dir),
+            # `pending` represents actionable pending work only.
+            "pending": pending_actionable,
+            "pending_total": pending_total,
             "accepted": self._scan_sync_payload_dir(accepted_dir),
             "tracker_mtime": tracker_mtime,
         }
@@ -4512,11 +4561,14 @@ class SubstationApp(App):
 
         pending = int(((probe.get("pending") or {}).get("count", 0) or 0))
         accepted = int(((probe.get("accepted") or {}).get("count", 0) or 0))
+        pending_total = int(((probe.get("pending_total") or {}).get("count", 0) or 0))
         shared_dirs = int(probe.get("shared_substation_dirs", 0) or 0)
         shared_exists = bool(probe.get("shared_root_exists", True))
 
         lines = [S["MESSAGES"].get("STARTUP_SYNC_SUMMARY_TITLE", "Σύνοψη διαφοράς:")]
         lines.append(f"• Εκκρεμή αρχεία εισαγωγής: {pending}")
+        if pending_total > pending:
+            lines.append(f"• Ήδη επεξεργασμένα αρχεία σε pending: {pending_total - pending}")
         lines.append(f"• Αρχεία στο processed/accepted: {accepted}")
         lines.append(f"• Υποσταθμοί στον κοινόχρηστο φάκελο: {shared_dirs}")
         if not shared_exists:
@@ -4560,12 +4612,12 @@ class SubstationApp(App):
         prev_accepted = int(((previous_probe.get("accepted") or {}).get("count", 0) or 0))
         curr_accepted = int(((current_probe.get("accepted") or {}).get("count", 0) or 0))
         if prev_accepted != curr_accepted:
-            actionable.append(f"• Άλλαξαν τα accepted αρχεία: {prev_accepted} -> {curr_accepted}")
+            technical.append(f"• Άλλαξαν τα accepted αρχεία: {prev_accepted} -> {curr_accepted}")
 
         prev_accepted_latest = float(((previous_probe.get("accepted") or {}).get("latest_mtime", 0.0) or 0.0))
         curr_accepted_latest = float(((current_probe.get("accepted") or {}).get("latest_mtime", 0.0) or 0.0))
         if prev_accepted_latest != curr_accepted_latest:
-            actionable.append(
+            technical.append(
                 f"• Άλλαξε ο χρόνος τελευταίου accepted αρχείου: "
                 f"{_fmt_ts(prev_accepted_latest)} -> {_fmt_ts(curr_accepted_latest)}"
             )
@@ -5811,7 +5863,59 @@ class SubstationApp(App):
         from changelog import import_android_changes_from_file as _f
         return _f(self, file_path)
 
-    def process_sync_inbox_now(self):
+    def process_sync_inbox_now(self, progress_callback=None, conn_override=None, show_report=True):
+        last_progress = [0]
+
+        def _notify_progress(percent, operation, detail=""):
+            if not callable(progress_callback):
+                return
+            try:
+                safe_percent = max(last_progress[0], min(100, int(percent or 0)))
+                last_progress[0] = safe_percent
+                progress_callback(safe_percent, operation, detail)
+            except Exception:
+                pass
+
+        def _stage_progress_callback(start_pct, end_pct, default_detail):
+            span = max(0, int(end_pct) - int(start_pct))
+
+            def _cb(*args, **kwargs):
+                operation = kwargs.get("operation")
+                substation = kwargs.get("substation")
+                current = kwargs.get("current", 0)
+                total = kwargs.get("total", 0)
+
+                if len(args) >= 1:
+                    operation = args[0]
+                if len(args) >= 2:
+                    substation = args[1]
+                if len(args) >= 3:
+                    current = args[2]
+                if len(args) >= 4:
+                    total = args[3]
+
+                try:
+                    ratio = (float(current) / float(total)) if float(total) > 0 else 0.0
+                except Exception:
+                    ratio = 0.0
+                ratio = max(0.0, min(1.0, ratio))
+
+                pct = int(start_pct + (span * ratio)) if span > 0 else int(start_pct)
+                detail = str(substation or default_detail or "")
+                _notify_progress(
+                    pct,
+                    S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+                    detail,
+                )
+
+            return _cb
+
+        _notify_progress(
+            5,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_PREPARE", "Προετοιμασία συγχρονισμού..."),
+        )
+
         exported_file = None
         exported_count = 0
         structure_result = {
@@ -5846,14 +5950,20 @@ class SubstationApp(App):
             logging.exception("Failed to export pending changes before manual OneDrive sync")
 
         from sync_service import run_sync_cycle
+        work_conn = conn_override if conn_override is not None else self.conn
 
         current_user = get_current_user() or {}
         actor = current_user.get("name") or "desktop"
         hot_keep = int(get_app_setting("backup_hot_keep", 3) or 3)
         backup_on_change = bool(get_app_setting("sync_backup_on_change", True))
 
+        _notify_progress(
+            25,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_INBOX", "Επεξεργασία εισερχομένων αλλαγών..."),
+        )
         summary = run_sync_cycle(
-            self.conn,
+            work_conn,
             db_path=self.db_path,
             actor=actor,
             create_backup_on_change=backup_on_change,
@@ -5862,38 +5972,82 @@ class SubstationApp(App):
         retention = summary.get("retention") or {}
 
         # Reconcile the shared OneDrive folder structure and missing reports.
+        _notify_progress(
+            50,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
+        )
         try:
+            structure_progress = _stage_progress_callback(
+                50,
+                62,
+                S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
+            )
             structure_result = sync_all_substation_structures(
-                self.conn,
+                work_conn,
                 db_path=self.db_path,
                 quiet=True,
+                progress_callback=structure_progress,
             )
         except Exception:
             logging.exception("Failed to sync shared OneDrive folder structures during manual sync")
 
+        _notify_progress(
+            62,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_REPORTS", "Αναγέννηση αναφορών συντήρησης..."),
+        )
         try:
+            reports_progress = _stage_progress_callback(
+                62,
+                86,
+                S["MESSAGES"].get("SYNC_PROGRESS_REPORTS", "Αναγέννηση αναφορών συντήρησης..."),
+            )
             report_result = regenerate_maintenance_reports(
-                self.conn,
+                work_conn,
                 db_path=self.db_path,
                 quiet=True,
+                progress_callback=reports_progress,
             )
         except Exception:
             logging.exception("Failed to regenerate maintenance reports during manual sync")
 
         # Also reconcile shared-folder assets (images/reports) into DB links.
+        _notify_progress(
+            86,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."),
+        )
         try:
+            relink_progress = _stage_progress_callback(
+                86,
+                94,
+                S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."),
+            )
             relink_result = relink_existing_maintenance_assets(
-                self.conn,
+                work_conn,
                 db_path=self.db_path,
+                progress_callback=relink_progress,
             )
         except Exception:
             logging.exception("Failed to relink shared OneDrive assets during manual sync")
 
         # Retry queued hybrid jobs (folder creation retries).
+        _notify_progress(
+            95,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_QUEUE", "Επεξεργασία ουράς εργασιών..."),
+        )
         try:
             queue_result = process_hybrid_queue(self.db_path, max_jobs=120)
         except Exception:
             logging.exception("Failed to process hybrid queue during manual sync")
+
+        _notify_progress(
+            98,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_FINALIZE", "Ολοκλήρωση συγχρονισμού..."),
+        )
 
         sync = summary["sync"]
         processed = int(sync.get("processed", 0) or 0)
@@ -5904,9 +6058,16 @@ class SubstationApp(App):
         
         # If there are conflicts, show conflict resolution UI instead of summary
         if conflicts > 0:
-            self._show_sync_notification(summary)
-            self._update_sync_button_status()
-            return
+            result_payload = {
+                "has_conflicts": True,
+                "summary": summary,
+                "report_title": None,
+                "report_body": None,
+            }
+            if show_report:
+                self._show_sync_notification(summary)
+                self._update_sync_button_status()
+            return result_payload
 
         # Manual sync uses the same visual language as auto sync (bold + color emphasis).
         lines = [
@@ -5932,6 +6093,8 @@ class SubstationApp(App):
                 ).format(count=exported_count, file=os.path.basename(exported_file))
             )
 
+        report_generated = int(report_result.get("generated", 0) or 0)
+        report_missing = int(relink_result.get("reports_missing", 0) or 0)
         lines.extend(
             [
                 "",
@@ -5939,13 +6102,24 @@ class SubstationApp(App):
                 f"ok={int(structure_result.get('synced', 0) or 0)}, "
                 f"failed={int(structure_result.get('failed', 0) or 0)}",
                 f"Συγχρ. αναφορών OneDrive: total={int(report_result.get('total', 0) or 0)}, "
-                f"generated={int(report_result.get('generated', 0) or 0)}, "
+                f"generated={report_generated}, "
+                f"skipped={int(report_result.get('skipped', 0) or 0)}, "
                 f"failed={int(report_result.get('failed', 0) or 0)}",
-                f"Συγχρ. assets OneDrive: media_linked={int(relink_result.get('media_linked', 0) or 0)}, "
-                f"reports_linked={int(relink_result.get('reports_linked', 0) or 0)}, "
-                f"reports_missing={int(relink_result.get('reports_missing', 0) or 0)}",
             ]
         )
+        if report_missing > 0 and report_generated == 0:
+            lines.append(
+                f"Συγχρ. assets OneDrive: media_linked={int(relink_result.get('media_linked', 0) or 0)}, "
+                f"reports_linked={int(relink_result.get('reports_linked', 0) or 0)}, "
+                f"reports_already={int(relink_result.get('reports_already', 0) or 0)}, "
+                f"reports_missing={report_missing}"
+            )
+        else:
+            lines.append(
+                f"Συγχρ. assets OneDrive: media_linked={int(relink_result.get('media_linked', 0) or 0)}, "
+                f"reports_linked={int(relink_result.get('reports_linked', 0) or 0)}, "
+                f"reports_already={int(relink_result.get('reports_already', 0) or 0)}"
+            )
 
         if retention.get("enabled"):
             lines.append(
@@ -5973,18 +6147,159 @@ class SubstationApp(App):
                 ).format(snapshot=summary["snapshot"])
             )
 
-        self._show_rich_sync_report(
-            S["TITLES"].get("INFO", "Πληροφορία"),
-            "\n".join(lines),
-        )
-        self._update_sync_button_status()
+        result_payload = {
+            "has_conflicts": False,
+            "summary": summary,
+            "report_title": S["TITLES"].get("INFO", "Πληροφορία"),
+            "report_body": "\n".join(lines),
+        }
+        if show_report:
+            self._show_rich_sync_report(
+                result_payload["report_title"],
+                result_payload["report_body"],
+            )
+            self._update_sync_button_status()
+        return result_payload
 
     def sync_onedrive_now(self, *_args):
         """Unified OneDrive sync action: export local changes and process inbox."""
+        progress_ui = None
         try:
-            self.process_sync_inbox_now()
-        finally:
-            self._update_sync_button_status()
+            progress_ui = self._show_startup_progress_popup()
+            progress_ui["operation_label"].text = S["MESSAGES"].get(
+                "STARTUP_SYNC_DATA_ONEDRIVE",
+                "Συγχρονισμός δεδομένων με OneDrive...",
+            )
+            progress_ui["substation_label"].text = S["MESSAGES"].get(
+                "MANUAL_SYNC_PROGRESS_SUBTITLE",
+                "Προετοιμασία συγχρονισμού...",
+            )
+            progress_ui["progress_bar"].value = 0
+            progress_ui["progress_text"].text = "0%"
+            progress_ui["popup"].open()
+        except Exception:
+            progress_ui = None
+
+        def _update_manual_progress(percent, operation, detail):
+            if not progress_ui:
+                return
+            try:
+                safe_percent = max(0, min(100, int(percent or 0)))
+
+                def _apply(_dt):
+                    try:
+                        progress_ui["operation_label"].text = operation or S["MESSAGES"].get(
+                            "STARTUP_SYNC_DATA_ONEDRIVE",
+                            "Συγχρονισμός δεδομένων με OneDrive...",
+                        )
+                        progress_ui["substation_label"].text = detail or ""
+                        progress_ui["progress_bar"].value = safe_percent
+                        progress_ui["progress_text"].text = f"{safe_percent}%"
+                    except Exception:
+                        pass
+
+                Clock.schedule_once(_apply, 0)
+            except Exception:
+                pass
+
+        def _finish_manual_sync(result_payload=None, worker_error=None):
+            try:
+                if worker_error is not None:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        S["MESSAGES"].get("SYNC_MANUAL_FAILED_FMT", "Αποτυχία χειροκίνητου συγχρονισμού:\n{error}").format(
+                            error=str(worker_error)
+                        ),
+                    )
+                    return
+
+                payload = result_payload or {}
+                if payload.get("has_conflicts"):
+                    self._show_sync_notification(payload.get("summary") or {})
+                else:
+                    title = payload.get("report_title") or S["TITLES"].get("INFO", "Πληροφορία")
+                    body = payload.get("report_body") or ""
+                    if body:
+                        self._show_rich_sync_report(title, body)
+
+                # Refresh startup probe baseline after manual sync so periodic
+                # checks do not immediately re-prompt on already-processed deltas.
+                try:
+                    from sync_service import resolve_sync_root
+
+                    post_probe = self._compute_startup_sync_probe(resolve_sync_root(self.db_path))
+                    sync_summary = (payload.get("summary") or {}).get("sync", {}) if isinstance(payload, dict) else {}
+                    self._save_startup_sync_state(
+                        {
+                            "state_version": 1,
+                            "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                            "last_probe": post_probe,
+                            "last_run": {
+                                "sync_processed": int(sync_summary.get("processed", 0) or 0),
+                                "sync_accepted": int(sync_summary.get("accepted", 0) or 0),
+                                "sync_conflicts": int(sync_summary.get("conflicts", 0) or 0),
+                            },
+                        }
+                    )
+                except Exception:
+                    logging.exception("Failed to refresh startup sync probe after manual sync")
+
+                # Manual sync explicitly resolves deferred attention state.
+                self._sync_attention_needed = False
+            finally:
+                try:
+                    if progress_ui:
+                        progress_ui["popup"].dismiss()
+                except Exception:
+                    pass
+                self._update_sync_button_status()
+
+        def _run_manual_sync(_dt):
+            try:
+                if progress_ui:
+                    _update_manual_progress(
+                        5,
+                        S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+                        S["MESSAGES"].get("SYNC_PROGRESS_PREPARE", "Προετοιμασία συγχρονισμού..."),
+                    )
+                import threading
+
+                def _worker():
+                    worker_conn = None
+                    payload = None
+                    worker_error = None
+                    try:
+                        worker_conn = init_db(self.db_path)
+                        payload = self.process_sync_inbox_now(
+                            progress_callback=_update_manual_progress,
+                            conn_override=worker_conn,
+                            show_report=False,
+                        )
+                        _update_manual_progress(
+                            100,
+                            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+                            S["MESSAGES"].get("SYNC_PROGRESS_DONE", "Ο συγχρονισμός ολοκληρώθηκε."),
+                        )
+                    except Exception as exc:
+                        worker_error = exc
+                    finally:
+                        try:
+                            if worker_conn is not None:
+                                worker_conn.close()
+                        except Exception:
+                            pass
+
+                        Clock.schedule_once(
+                            lambda _dt: _finish_manual_sync(payload, worker_error),
+                            0,
+                        )
+
+                threading.Thread(target=_worker, daemon=True).start()
+            except Exception as exc:
+                _finish_manual_sync(None, exc)
+
+        # Defer the heavy work by one frame so the progress popup renders first.
+        Clock.schedule_once(_run_manual_sync, 0)
 
     def _sync_has_pending_work(self):
         """Return True when local or shared OneDrive sync work is pending."""
@@ -5998,10 +6313,33 @@ class SubstationApp(App):
             sync_root = resolve_sync_root(self.db_path)
             pending_dir = os.path.join(sync_root, "inbox", "pending")
             if os.path.isdir(pending_dir):
+                pending_names = []
                 for name in os.listdir(pending_dir):
                     path = os.path.join(pending_dir, name)
                     if os.path.isfile(path) and name.lower().endswith((".json", ".jsonl")):
-                        return True
+                        pending_names.append(name)
+
+                if pending_names:
+                    tracker = {}
+                    tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
+                    try:
+                        if os.path.isfile(tracker_path):
+                            with open(tracker_path, "r", encoding="utf-8") as fh:
+                                loaded = json.load(fh)
+                                if isinstance(loaded, dict):
+                                    tracker = loaded
+                    except Exception:
+                        tracker = {}
+
+                    # A file is actionable when it is new/untracked or was
+                    # previously marked as conflict/pending.
+                    for name in pending_names:
+                        info = tracker.get(name) if isinstance(tracker, dict) else None
+                        status = str((info or {}).get("status") or "").strip().lower()
+                        if not status:
+                            return True
+                        if status in {"pending", "conflict"}:
+                            return True
         except Exception:
             # Keep status conservative: if we cannot inspect, don't fail the UI.
             pass
@@ -6014,7 +6352,7 @@ class SubstationApp(App):
         if not btn:
             return
 
-        pending = self._sync_has_pending_work()
+        pending = self._sync_has_pending_work() or bool(getattr(self, "_sync_attention_needed", False))
         if pending:
             color = (0.78, 0.19, 0.16, 1)
             color_down = (0.62, 0.15, 0.13, 1)
@@ -6048,6 +6386,7 @@ class SubstationApp(App):
                 # Never silently skip startup sync when shared root folder is missing.
                 if (not force) and previous_probe and previous_probe == current_probe and shared_root_exists:
                     logging.info("Startup sync skipped: no probe changes detected")
+                    self._sync_attention_needed = False
                     self._last_sync_cycle_ts = datetime.now().timestamp()
                     return
 
@@ -6061,6 +6400,7 @@ class SubstationApp(App):
                 # actionable sync delta, skip heavy startup sync work.
                 if (not force) and previous_probe and (not probe_changed) and (not shared_root_missing):
                     logging.info("Startup sync skipped: only technical probe changes detected")
+                    self._sync_attention_needed = False
                     self._last_sync_cycle_ts = datetime.now().timestamp()
                     self._update_sync_button_status()
                     return
@@ -6080,6 +6420,7 @@ class SubstationApp(App):
                             },
                         }
                     )
+                    self._sync_attention_needed = False
                     self._last_sync_cycle_ts = datetime.now().timestamp()
                     self._update_sync_button_status()
                     return
@@ -6088,8 +6429,11 @@ class SubstationApp(App):
                 if (not force) and prompt_on_change and (probe_changed or shared_root_missing or first_probe_detected_work):
                     def _defer_startup_sync():
                         logging.info("Startup sync deferred by user")
+                        self._sync_attention_needed = True
                         self._update_sync_button_status()
 
+                    self._sync_attention_needed = True
+                    self._update_sync_button_status()
                     self._show_startup_sync_prompt_popup(
                         on_sync=lambda: self._run_startup_sync_cycle(force=True),
                         on_skip=_defer_startup_sync,
@@ -6108,6 +6452,7 @@ class SubstationApp(App):
                 "report_result": None,
                 "relink_result": None,
                 "run_result": None,
+                "queue_result": None,
             }
             
             # Define the heavy work to run in background thread
@@ -6238,6 +6583,7 @@ class SubstationApp(App):
                 # Retry deferred hybrid folder jobs (local-first queue worker).
                 try:
                     q = process_hybrid_queue(self.db_path, max_jobs=120)
+                    results["queue_result"] = q
                     if q.get("processed", 0) > 0:
                         logging.info(
                             "Hybrid queue processed=%s succeeded=%s failed=%s remaining=%s",
@@ -6248,6 +6594,12 @@ class SubstationApp(App):
                         )
                 except Exception:
                     logging.exception("Hybrid queue processing failed at startup")
+                    results["queue_result"] = {
+                        "processed": 0,
+                        "succeeded": 0,
+                        "failed": 0,
+                        "remaining": 0,
+                    }
 
                 # Schedule completion on UI thread
                 Clock.schedule_once(lambda dt: _finish_startup(), 0)
@@ -6259,23 +6611,77 @@ class SubstationApp(App):
                 except Exception:
                     pass
                 
+                self._sync_attention_needed = False
                 self._last_sync_cycle_ts = datetime.now().timestamp()
                 
                 sync_result = results["sync_result"] or {}
                 report_result = results["report_result"] or {}
                 relink_result = results["relink_result"] or {}
                 run_result = results["run_result"]
+                queue_result = results["queue_result"] or {}
 
                 startup_sync = (run_result or {}).get("sync", {})
                 startup_accepted = int(startup_sync.get("accepted", 0) or 0)
                 startup_conflicts = int(startup_sync.get("conflicts", 0) or 0)
 
-                # Only notify for startup auto-sync when there is meaningful change to review.
-                if run_result and (startup_accepted > 0 or startup_conflicts > 0):
-                    summary_delay = 1.2 if startup_conflicts > 0 else 0.6
+                show_startup_summary = bool(get_app_setting("startup_sync_show_summary", True))
+                if show_startup_summary:
+                    startup_generated = int(report_result.get("generated", 0) or 0)
+                    startup_missing = int(relink_result.get("reports_missing", 0) or 0)
+                    lines = [
+                        S["MESSAGES"].get("STARTUP_SYNC_SUMMARY_HEADER", "Ο συγχρονισμός εκκίνησης ολοκληρώθηκε."),
+                        "",
+                        f"Συγχρ. δομής OneDrive: total={int(sync_result.get('total', 0) or 0)}, "
+                        f"ok={int(sync_result.get('synced', 0) or 0)}, "
+                        f"failed={int(sync_result.get('failed', 0) or 0)}",
+                        f"Συγχρ. αναφορών OneDrive: total={int(report_result.get('total', 0) or 0)}, "
+                        f"generated={startup_generated}, "
+                        f"skipped={int(report_result.get('skipped', 0) or 0)}, "
+                        f"failed={int(report_result.get('failed', 0) or 0)}",
+                        "",
+                        f"Εισερχόμενα sync: processed={int(startup_sync.get('processed', 0) or 0)}, "
+                        f"accepted={startup_accepted}, conflicts={startup_conflicts}, "
+                        f"already={int(startup_sync.get('already_applied', 0) or 0)}, "
+                        f"rejected={int(startup_sync.get('rejected', 0) or 0)}",
+                    ]
+
+                    if startup_missing > 0 and startup_generated == 0:
+                        lines.insert(
+                            4,
+                            f"Συγχρ. assets OneDrive: media_linked={int(relink_result.get('media_linked', 0) or 0)}, "
+                            f"reports_linked={int(relink_result.get('reports_linked', 0) or 0)}, "
+                            f"reports_already={int(relink_result.get('reports_already', 0) or 0)}, "
+                            f"reports_missing={startup_missing}",
+                        )
+                    else:
+                        lines.insert(
+                            4,
+                            f"Συγχρ. assets OneDrive: media_linked={int(relink_result.get('media_linked', 0) or 0)}, "
+                            f"reports_linked={int(relink_result.get('reports_linked', 0) or 0)}, "
+                            f"reports_already={int(relink_result.get('reports_already', 0) or 0)}",
+                        )
+
+                    if int(queue_result.get("processed", 0) or 0) > 0:
+                        lines.append(
+                            f"Queue jobs: processed={int(queue_result.get('processed', 0) or 0)}, "
+                            f"ok={int(queue_result.get('succeeded', 0) or 0)}, "
+                            f"failed={int(queue_result.get('failed', 0) or 0)}, "
+                            f"remaining={int(queue_result.get('remaining', 0) or 0)}"
+                        )
+
+                    try:
+                        self._show_rich_sync_report(
+                            S["TITLES"].get("INFO", "Πληροφορία"),
+                            "\n".join(lines),
+                        )
+                    except Exception:
+                        pass
+
+                # Keep dedicated conflict UI when needed (shows file-level details).
+                if run_result and startup_conflicts > 0:
                     Clock.schedule_once(
                         lambda dt: self._show_sync_notification(run_result),
-                        summary_delay,
+                        0.8,
                     )
 
                 self._update_sync_button_status()
@@ -6343,6 +6749,7 @@ class SubstationApp(App):
                                 logging.exception("Hybrid queue processing failed in scheduler")
                             if result and result.get("sync", {}).get("processed", 0) > 0:
                                 self._show_sync_notification(result)
+                            self._sync_attention_needed = False
                             self._update_sync_button_status()
                             # Refresh probe state after sync.
                             try:
@@ -6357,6 +6764,8 @@ class SubstationApp(App):
                                 pass
 
                         # Show periodic sync prompt.
+                        self._sync_attention_needed = True
+                        self._update_sync_button_status()
                         self._show_startup_sync_prompt_popup(
                             on_sync=_do_periodic_sync,
                             on_skip=lambda: self._update_sync_button_status(),
@@ -6364,6 +6773,7 @@ class SubstationApp(App):
                         )
                         return
                     # No changes detected; just update button state.
+                    self._sync_attention_needed = False
                     self._update_sync_button_status()
                     return
             except Exception:
