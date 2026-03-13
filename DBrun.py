@@ -55,7 +55,11 @@ from onedrive_hybrid_storage import (
 )
 from popups import ask_open_file
 from reports import create_elements_template, create_substations_template
-from dga_reports import generate_dga_excel_report
+from dga_reports import (
+    generate_dga_excel_report,
+    load_dga_template_metadata,
+    evaluate_dga_limits,
+)
 
 try:
     import kivy
@@ -4829,6 +4833,15 @@ class SubstationApp(App):
 
         # Create main layout
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        if not show_elements:
+            dga_tools_layout = BoxLayout(size_hint_y=None, height=42, spacing=8)
+            dga_out_of_limits_btn = Button(text=S["MESSAGES"].get("DGA_ALL_PROBLEMATIC_BTN", "DGA εκτός ορίων (όλοι οι Υ/Σ)"))
+            dga_out_of_limits_btn.bind(
+                on_press=lambda _x, p=popup: self.show_problematic_dga_measurements(parent_popup=p)
+            )
+            dga_tools_layout.add_widget(dga_out_of_limits_btn)
+            main_layout.add_widget(dga_tools_layout)
 
         # Create scrollable grid for records
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -11273,7 +11286,7 @@ class SubstationApp(App):
 
         c.execute(
             """
-            SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link
+            SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type
             FROM maintenance m
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
@@ -11543,22 +11556,23 @@ class SubstationApp(App):
 
             if not records_to_show:
                 grid.add_widget(Label(
-                    text=S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"),
+                    text=S["MESSAGES"].get("NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένα συμβάντα/μετρήσεις"),
                     size_hint_y=None, height=40,
                 ))
                 info_label.text = ""
                 return
 
             if selected_element_id is not None:
-                info_label.text = f"Εμφανίζονται {len(records_to_show)} συντηρήσεις για το στοιχείο: {selected_element_name}."
+                info_label.text = f"Εμφανίζονται {len(records_to_show)} συμβάντα/μετρήσεις για το στοιχείο: {selected_element_name}."
             elif total_records > len(maintenance_records):
                 info_label.text = (
-                    f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_records} συντηρήσεις."
+                    f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_records} συμβάντα/μετρήσεις."
                 )
             else:
                 info_label.text = ""
 
-            for maint_id, maint_name, date_time, overall_comments, onedrive_media_folder_link in records_to_show:
+            for maint_id, maint_name, date_time, overall_comments, onedrive_media_folder_link, maintenance_type in records_to_show:
+                elements = elements_by_maint.get(maint_id, [])
                 card = BoxLayout(orientation="vertical", size_hint_y=None, padding=8, spacing=6)
                 card.bind(minimum_height=card.setter("height"))
                 _style_maintenance_card(card)
@@ -11566,8 +11580,9 @@ class SubstationApp(App):
                 # Header row
                 header = BoxLayout(size_hint_y=None, height=40, spacing=5)
                 display_name = maint_name or self._build_maintenance_name(substation_name, date_time)
+                maint_type_display = maintenance_type or S["MESSAGES"].get("MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση")
                 header.add_widget(Label(
-                    text=S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name),
+                    text=S["MESSAGES"].get("MAINTENANCE_HEADER", "{type}: {name}").format(type=maint_type_display, name=display_name),
                     bold=True, size_hint_x=0.6,
                 ))
                 from ui.shared import IconOnlyButton
@@ -11590,30 +11605,62 @@ class SubstationApp(App):
                 def make_email_handler(m_id):
                     return lambda x: self.send_maintenance_email_report(m_id)
 
-                def make_edit_handler(m_id, p):
-                    return lambda x: self.show_maintenance_menu(
-                        None, substation_name, p, m_id,
-                        lambda: self.show_substation_maintenance_history(
-                            substation_id,
-                            substation_name,
-                            parent_display_popup,
-                            current_element_filter.get("id"),
-                            current_element_filter.get("name"),
-                        ),
-                    )
+                def make_edit_handler(m_id, p, maint_type, elements):
+                    if maint_type in ("Επαναληπτική συντήρηση", "Βλάβη"):
+                        return lambda x: self.show_maintenance_menu(
+                            None, substation_name, p, m_id,
+                            lambda: self.show_substation_maintenance_history(
+                                substation_id,
+                                substation_name,
+                                parent_display_popup,
+                                current_element_filter.get("id"),
+                                current_element_filter.get("name"),
+                            ),
+                        )
+                    elif maint_type == "Φυσικοχημικές/Αεριοχρωματογραφία":
+                        # Find the DGA measurement for this maintenance and element
+                        # Use the first element as the target
+                        if elements:
+                            elem_id = elements[0][0]
+                            c2 = self.conn.cursor()
+                            c2.execute("SELECT id FROM dga_measurements WHERE maintenance_id=? AND element_id=? ORDER BY measurement_date DESC, created_at DESC LIMIT 1", (m_id, elem_id))
+                            dga_row = c2.fetchone()
+                            dga_id = dga_row[0] if dga_row else None
+                            return lambda x: self.show_dga_measurement_popup(
+                                maintenance_id=m_id,
+                                element_id=elem_id,
+                                element_name=elements[0][2],
+                                substation_id=substation_id,
+                                substation_name=substation_name,
+                                gate_value=None,
+                                serial_number=elements[0][3],
+                                manufacturer=None,
+                                dga_id=dga_id,
+                            )
+                        else:
+                            return lambda x: show_message_popup(
+                                S["TITLES"].get("ERROR", "Σφάλμα"),
+                                "Δεν βρέθηκε μέτρηση DGA για επεξεργασία."
+                            )
+                    else:
+                        return lambda x: show_message_popup(
+                            S["TITLES"].get("ERROR", "Σφάλμα"),
+                            f"Άγνωστος τύπος συμβάντος: {maint_type}"
+                        )
 
                 def make_view_handler(m_id):
                     return lambda x: self.show_maintenance_full_report(m_id, popup)
 
-                # Folder button (only if link exists) — leftmost button in header
+                # Folder button (only if link exists) — immediately to the left of the eye button
+                folder_btn = None
                 if onedrive_media_folder_link and onedrive_media_folder_link.strip():
                     folder_btn = IconOnlyButton(
                         icon_type="folder",
                         icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
                         size=(35, 35),
+                        tooltip="Φάκελος"
                     )
                     folder_btn.bind(on_press=lambda x, link=onedrive_media_folder_link: open_folder_or_url(link))
-                    header.add_widget(folder_btn)
 
                 # View full report button (eye icon)
                 view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
@@ -11626,8 +11673,11 @@ class SubstationApp(App):
 
                 delete_btn.bind(on_press=make_delete_handler(maint_id, popup))
                 email_btn.bind(on_press=make_email_handler(maint_id))
-                edit_btn.bind(on_press=make_edit_handler(maint_id, popup))
+                edit_btn.bind(on_press=make_edit_handler(maint_id, popup, maintenance_type, elements))
                 view_btn.bind(on_press=make_view_handler(maint_id))
+                # Add buttons in the correct order: folder (if any), then eye, then others
+                if folder_btn:
+                    header.add_widget(folder_btn)
                 header.add_widget(view_btn)
                 header.add_widget(edit_btn)
                 header.add_widget(email_btn)
@@ -11724,6 +11774,25 @@ class SubstationApp(App):
                     elem_row.add_widget(elem_label)
 
                     buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
+
+                    # Add folder button for DGA report if present
+                    from ui.shared import IconOnlyButton
+                    import os
+                    c2 = self.conn.cursor()
+                    c2.execute("SELECT report_path FROM dga_measurements WHERE maintenance_id=? AND element_id=? ORDER BY measurement_date DESC, created_at DESC LIMIT 1", (maint_id, elem_id))
+                    dga_row = c2.fetchone()
+                    folder_btn = None
+                    if dga_row and dga_row[0] and os.path.exists(dga_row[0]):
+                        def _open_folder(_x, path=dga_row[0]):
+                            folder = os.path.dirname(path)
+                            if os.path.exists(folder):
+                                try:
+                                    os.startfile(folder)
+                                except Exception:
+                                    pass
+                        folder_btn = IconOnlyButton(icon_type="folder", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(38, 36), tooltip="Φάκελος")
+                        folder_btn.bind(on_press=lambda _x, path=dga_row[0]: _open_folder(_x, path))
+
                     view_btn = Button(
                         text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."),
                         size_hint_x=0.34, size_hint_y=None, height=35, **font_kwargs,
@@ -11733,6 +11802,9 @@ class SubstationApp(App):
                         return lambda x: self.show_maintenance_element_details(m_id, e_id, e_name)
 
                     view_btn.bind(on_press=make_view_handler(maint_id, elem_id, elem_name))
+                    # Add folder button to the left of the view button
+                    if folder_btn:
+                        buttons_container.add_widget(folder_btn)
                     buttons_container.add_widget(view_btn)
 
                     if (
@@ -11877,9 +11949,10 @@ class SubstationApp(App):
         ) = maintenance_row
 
         display_name = maint_name or self._build_maintenance_name(substation_name, date_time)
+        maint_type_display = maintenance_type or S["MESSAGES"].get("MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση")
 
         popup = Popup(
-            title=f"Αναφορά Συντήρησης: {display_name}",
+            title=f"Αναφορά {maint_type_display}: {display_name}",
             size_hint=(0.95, 0.9),
         )
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -11902,7 +11975,7 @@ class SubstationApp(App):
             )
             content.add_widget(label)
 
-        add_wrapped_label(S["MESSAGES"].get("MAINTENANCE_HEADER", "Συντήρηση: {name}").format(name=display_name), bold=True)
+        add_wrapped_label(S["MESSAGES"].get("MAINTENANCE_HEADER", "{type}: {name}").format(type=maint_type_display, name=display_name), bold=True)
         add_wrapped_label(f"{S['MESSAGES'].get('SUBSTATION_LABEL_PLAIN', 'Υποσταθμός')}: {substation_name}")
         add_wrapped_label(f"{S['MESSAGES'].get('DATE_LABEL', 'Ημερομηνία:')} {date_time or '-'}")
         add_wrapped_label(f"{S['MESSAGES'].get('MAINT_TYPE_LABEL', 'Τύπος Συντήρησης:')} {maintenance_type or '-'}")
@@ -12496,6 +12569,297 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
+    def _get_dga_template_path(self):
+        return os.path.join(os.path.dirname(__file__), "dga report.xlsx")
+
+    def _get_dga_template_metadata(self):
+        return load_dga_template_metadata(self._get_dga_template_path())
+
+    def _evaluate_dga_values(self, values):
+        return evaluate_dga_limits(values, self._get_dga_template_path())
+
+    def _dga_level_badge(self, level):
+        if level == "bad":
+            return f"[color=ff4d4d][b]{S['MESSAGES'].get('DGA_BADGE_BAD', 'ΕΚΤΟΣ ΟΡΙΩΝ')}[/b][/color]"
+        if level == "warn":
+            return f"[color=ffcc33][b]{S['MESSAGES'].get('DGA_BADGE_WARN', 'ΑΝΕΚΤΟ / WARNING')}[/b][/color]"
+        return f"[color=66cc66][b]{S['MESSAGES'].get('DGA_BADGE_OK', 'OK')}[/b][/color]"
+
+    def _build_dga_status_legend_label(self):
+        legend = (
+            f"[b]{S['MESSAGES'].get('DGA_LEGEND_TITLE', 'Υπόμνημα')}:[/b] "
+            f"[color=66cc66]{S['MESSAGES'].get('DGA_LEGEND_OK_COLOR', 'Πράσινο=OK')}[/color]  |  "
+            f"[color=ffcc33]{S['MESSAGES'].get('DGA_LEGEND_WARN_COLOR', 'Κίτρινο=ΑΝΕΚΤΟ/Warning')}[/color]  |  "
+            f"[color=ff4d4d]{S['MESSAGES'].get('DGA_LEGEND_BAD_COLOR', 'Κόκκινο=ΕΚΤΟΣ ΟΡΙΩΝ')}[/color]"
+        )
+        lbl = Label(
+            text=legend,
+            markup=True,
+            size_hint_y=None,
+            height=26,
+            halign="left",
+            valign="middle",
+        )
+        lbl.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+        return lbl
+
+    def _format_dga_problem_summary(self, evaluation, max_bad=3, max_warn=2):
+        if not evaluation:
+            return ""
+        chunks = []
+        bad_entries = evaluation.get("problems") or []
+        warn_entries = evaluation.get("warnings") or []
+
+        for entry in bad_entries[:max_bad]:
+            label = entry.get("label") or entry.get("key") or "-"
+            value = entry.get("value")
+            try:
+                value_txt = f"{float(value):.4g}"
+            except Exception:
+                value_txt = str(value)
+            good_text = (entry.get("good_text") or "").strip()
+            tolerable_text = (entry.get("tolerable_text") or "").strip()
+            poor_text = (entry.get("poor_text") or "").strip()
+            if good_text or tolerable_text or poor_text:
+                parts = []
+                if good_text:
+                    parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_GOOD', 'ΚΑΛΟ')}: {good_text}")
+                if tolerable_text:
+                    parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_TOLERABLE', 'ΑΝΕΚΤΟ')}: {tolerable_text}")
+                if poor_text:
+                    parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_POOR', 'ΠΤΩΧΟ')}: {poor_text}")
+                limits_txt = ", ".join(parts)
+            else:
+                limit_text = entry.get("limit_text") or "-"
+                limits_txt = S['MESSAGES'].get('DGA_LIMIT_FMT', 'όριο: {limit}').format(limit=limit_text)
+            chunks.append(f"[color=ff4d4d]{label}: {value_txt} ({limits_txt})[/color]")
+
+        for entry in warn_entries[:max_warn]:
+            label = entry.get("label") or entry.get("key") or "-"
+            value = entry.get("value")
+            try:
+                value_txt = f"{float(value):.4g}"
+            except Exception:
+                value_txt = str(value)
+            good_text = entry.get("good_text") or "-"
+            tolerable_text = entry.get("tolerable_text") or entry.get("limit_text") or "-"
+            chunks.append(
+                f"[color=ffcc33]{label}: {value_txt} ({S['MESSAGES'].get('DGA_GOOD_TOLERABLE_FMT', 'καλό: {good} | ανεκτό: {tolerable}').format(good=good_text, tolerable=tolerable_text)})[/color]"
+            )
+
+        remaining = max(0, len(bad_entries) - max_bad) + max(0, len(warn_entries) - max_warn)
+        if remaining > 0:
+            chunks.append(S["MESSAGES"].get("DGA_MORE_FMT", "+{remaining} ακόμη").format(remaining=remaining))
+        return "\n".join(chunks)
+
+    def show_problematic_dga_measurements(self, parent_popup=None):
+        """Display DGA measurements that are outside configured template limits."""
+        c = self.conn.cursor()
+        c.execute(
+            """
+            SELECT
+                dm.id,
+                dm.maintenance_id,
+                dm.element_id,
+                dm.substation_id,
+                dm.measurement_date,
+                dm.report_path,
+                dm.created_at,
+                s.name,
+                e.name,
+                e.gate,
+                e.serial_number,
+                e.manufacturer,
+                dm.h2, dm.c2h2, dm.c2h4, dm.c2h6, dm.co, dm.co2, dm.ch4, dm.o2, dm.c3h8, dm.n2, dm.h2o,
+                dm.density, dm.humidity, dm.dielectric_strength, dm.loss_factor, dm.surface_tension
+            FROM dga_measurements dm
+            JOIN substations s ON s.id = dm.substation_id
+            JOIN elements e ON e.id = dm.element_id
+            ORDER BY dm.measurement_date DESC, dm.created_at DESC
+            """
+        )
+        rows = c.fetchall()
+
+        problematic = []
+        for row in rows:
+            (
+                _dga_id,
+                maintenance_id,
+                element_id,
+                substation_id,
+                measurement_date,
+                report_path,
+                _created_at,
+                substation_name,
+                element_name,
+                gate_value,
+                serial_number,
+                manufacturer,
+                h2,
+                c2h2,
+                c2h4,
+                c2h6,
+                co,
+                co2,
+                ch4,
+                o2,
+                c3h8,
+                n2,
+                h2o,
+                density,
+                humidity,
+                dielectric_strength,
+                loss_factor,
+                surface_tension,
+            ) = row
+
+            values = {
+                "h2": h2,
+                "c2h2": c2h2,
+                "c2h4": c2h4,
+                "c2h6": c2h6,
+                "co": co,
+                "co2": co2,
+                "ch4": ch4,
+                "o2": o2,
+                "c3h8": c3h8,
+                "n2": n2,
+                "h2o": h2o,
+                "density": density,
+                "humidity": humidity,
+                "dielectric_strength": dielectric_strength,
+                "loss_factor": loss_factor,
+                "surface_tension": surface_tension,
+            }
+            evaluation = self._evaluate_dga_values(values)
+            if evaluation.get("is_problematic") or evaluation.get("has_warnings"):
+                problematic.append(
+                    {
+                        "maintenance_id": maintenance_id,
+                        "element_id": element_id,
+                        "substation_id": substation_id,
+                        "measurement_date": measurement_date,
+                        "report_path": report_path,
+                        "substation_name": substation_name,
+                        "element_name": element_name,
+                        "gate_value": gate_value,
+                        "serial_number": serial_number,
+                        "manufacturer": manufacturer,
+                        "evaluation": evaluation,
+                        "level": evaluation.get("overall_level", "ok"),
+                    }
+                )
+
+        popup = Popup(title=S["MESSAGES"].get("DGA_PROBLEMATIC_TITLE", "DGA Προειδοποιήσεις / Εκτός Ορίων"), size_hint=(0.96, 0.9))
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        if not problematic:
+            main_layout.add_widget(
+                Label(
+                    text=S["MESSAGES"].get("DGA_NO_PROBLEMATIC", "Δεν βρέθηκαν DGA μετρήσεις με warning ή εκτός ορίων."),
+                    size_hint_y=1,
+                )
+            )
+        else:
+            info = Label(
+                text=S["MESSAGES"].get("DGA_PROBLEMATIC_COUNT_FMT", "Βρέθηκαν {count} μετρήσεις με warning/εκτός ορίων.").format(count=len(problematic)),
+                size_hint_y=None,
+                height=28,
+            )
+            main_layout.add_widget(info)
+            main_layout.add_widget(self._build_dga_status_legend_label())
+
+            scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+            content = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=4)
+            content.bind(minimum_height=content.setter("height"))
+
+            for item in problematic:
+                row_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=120, spacing=4, padding=4)
+                title = Label(
+                    text=(
+                        f"{self._dga_level_badge(item.get('level', 'ok'))} "
+                        f"[b]{item['substation_name']}[/b] | {item['element_name']} | "
+                        f"{S['MESSAGES'].get('DGA_MEAS_DATE_LABEL', 'Ημ. μέτρησης')}: {item['measurement_date'] or '-'}"
+                    ),
+                    markup=True,
+                    size_hint_y=None,
+                    height=30,
+                    halign="left",
+                    valign="middle",
+                )
+                title.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+                row_layout.add_widget(title)
+
+                summary = Label(
+                    text=self._format_dga_problem_summary(item["evaluation"], max_bad=2, max_warn=2),
+                    size_hint_y=None,
+                    height=54,
+                    halign="left",
+                    valign="top",
+                    markup=True,
+                )
+                summary.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+                row_layout.add_widget(summary)
+
+                btns = BoxLayout(size_hint_y=None, height=32, spacing=6)
+
+                def _make_history_handler(data):
+                    def _show(_x):
+                        popup.dismiss()
+                        self.show_dga_history_popup(
+                            maintenance_id=data["maintenance_id"],
+                            element_id=data["element_id"],
+                            element_name=data["element_name"],
+                            substation_id=data["substation_id"],
+                            substation_name=data["substation_name"],
+                            gate_value=data["gate_value"],
+                            serial_number=data["serial_number"],
+                            manufacturer=data["manufacturer"],
+                        )
+
+                    return _show
+
+                history_btn = Button(text=S["MESSAGES"].get("DGA_HISTORY_BTN_SHORT", "Ιστορικό"))
+                history_btn.bind(on_press=_make_history_handler(item))
+                btns.add_widget(history_btn)
+
+                open_btn = Button(text=S["MESSAGES"].get("DGA_OPEN_REPORT_BUTTON", "Άνοιγμα Αναφοράς"))
+                report_path = item.get("report_path")
+
+                if report_path and os.path.exists(report_path):
+                    def _make_open(path):
+                        def _open(_x):
+                            from reports import open_file
+
+                            open_file(path)
+
+                        return _open
+
+                    open_btn.bind(on_press=_make_open(report_path))
+                else:
+                    open_btn.disabled = True
+                btns.add_widget(open_btn)
+
+                row_layout.add_widget(btns)
+                content.add_widget(row_layout)
+
+            scroll.add_widget(content)
+            main_layout.add_widget(scroll)
+
+        bottom = BoxLayout(size_hint_y=None, height=40, spacing=8)
+        close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"))
+        close_btn.bind(on_press=popup.dismiss)
+        bottom.add_widget(close_btn)
+        main_layout.add_widget(bottom)
+
+        popup.content = main_layout
+        if parent_popup:
+            try:
+                parent_popup.dismiss()
+            except Exception:
+                pass
+        popup.open()
+
     def show_substation_dga_measurements(self, substation_id, substation_name, parent_popup=None):
         """Display all DGA measurements for a substation, grouped by transformer."""
         from kivy.uix.boxlayout import BoxLayout
@@ -12539,6 +12903,9 @@ class SubstationApp(App):
         add_btn = Button(text=f"+ {S['MESSAGES'].get('DGA_ADD_MEASUREMENT_SHORT', 'Νέα Μέτρηση')}")
         add_btn.bind(on_press=lambda x, p=popup, sid=substation_id: self._show_dga_maintenance_form(parent_popup=p, preselected_substation_id=sid))
         top_bar.add_widget(add_btn)
+        problematic_btn = Button(text=S["MESSAGES"].get("DGA_PROBLEMATIC_BTN_SHORT", "Εκτός ορίων (όλοι οι Υ/Σ)"))
+        problematic_btn.bind(on_press=lambda _x, p=popup: self.show_problematic_dga_measurements(parent_popup=p))
+        top_bar.add_widget(problematic_btn)
         main_layout.add_widget(top_bar)
 
         if not dga_transformers:
@@ -12728,10 +13095,174 @@ class SubstationApp(App):
             content.add_widget(ti)
             return ti
 
+        def add_choice_field(label, values, default=""):
+            content.add_widget(Label(text=label, size_hint_y=None, height=34))
+            values = [str(v) for v in (values or []) if str(v)]
+            text = str(default or "").strip()
+            if values:
+                if text not in values:
+                    text = values[0]
+                sp = Spinner(text=text, values=values, size_hint_y=None, height=34)
+                content.add_widget(sp)
+                return sp
+            ti = TextInput(text=text, multiline=False, size_hint_y=None, height=34)
+            content.add_widget(ti)
+            return ti
+
+        def _load_active_people_names():
+            try:
+                pc = self.conn.cursor()
+                pc.execute(
+                    "SELECT name FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE"
+                )
+                names = [str(row[0]).strip() for row in pc.fetchall() if row and row[0]]
+                return [n for n in names if n]
+            except Exception:
+                return []
+
+        active_people_names = _load_active_people_names()
+        current_user = get_current_user() or {}
+        logged_user_name = str(current_user.get("name") or "").strip()
+
+        def add_people_field(label, existing_value=""):
+            content.add_widget(Label(text=label, size_hint_y=None, height=34))
+
+            existing_value = str(existing_value or "").strip()
+            selected_value = existing_value
+            if active_people_names:
+                if selected_value in active_people_names:
+                    pass
+                elif logged_user_name and logged_user_name in active_people_names:
+                    selected_value = logged_user_name
+                else:
+                    selected_value = active_people_names[0]
+
+                sp = Spinner(
+                    text=selected_value,
+                    values=active_people_names,
+                    size_hint_y=None,
+                    height=34,
+                )
+                content.add_widget(sp)
+                return sp
+
+            # Fallback only if no people exist, so data entry can still proceed.
+            ti = TextInput(text=selected_value, multiline=False, size_hint_y=None, height=34)
+            content.add_widget(ti)
+            return ti
+
         def _safe_str(val):
             if val is None:
                 return ""
             return str(val)
+
+        dga_meta = self._get_dga_template_metadata()
+        dga_sections = dga_meta.get("sections", {})
+        dga_fields = dga_meta.get("by_key", {})
+
+        def add_section(title, subtitle=""):
+            header = Label(
+                text=f"[b]{title}[/b]",
+                markup=True,
+                size_hint_y=None,
+                height=32,
+                halign="left",
+                valign="middle",
+            )
+            header.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+            content.add_widget(header)
+            if subtitle:
+                st = Label(
+                    text=f"[i][color=aaaaaa]{subtitle}[/color][/i]",
+                    markup=True,
+                    size_hint_y=None,
+                    height=32,
+                    halign="right",
+                    valign="middle",
+                )
+                st.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+                content.add_widget(st)
+            else:
+                content.add_widget(Label(text="", size_hint_y=None, height=32))
+
+        _BG_OK   = (0.82, 1.0,  0.82, 1.0)
+        _BG_WARN = (1.0,  1.0,  0.70, 1.0)
+        _BG_BAD  = (1.0,  0.80, 0.80, 1.0)
+        _BG_NONE = (1.0,  1.0,  1.0,  1.0)
+
+        def _field_level(val_str, good_rules, tolerable_rules):
+            """Return 'ok', 'warn', 'bad', or '' for a single typed value."""
+            try:
+                v = float(str(val_str).replace(",", ".").strip()) if str(val_str).strip() else None
+            except ValueError:
+                v = None
+            if v is None:
+                return ""
+            for r in good_rules:
+                lo, hi = r.get("min"), r.get("max")
+                ok = True
+                if lo is not None:
+                    ok = (v >= lo) if r.get("min_inc", True) else (v > lo)
+                if ok and hi is not None:
+                    ok = (v <= hi) if r.get("max_inc", True) else (v < hi)
+                if ok:
+                    return "ok"
+            for r in tolerable_rules:
+                lo, hi = r.get("min"), r.get("max")
+                ok = True
+                if lo is not None:
+                    ok = (v >= lo) if r.get("min_inc", True) else (v > lo)
+                if ok and hi is not None:
+                    ok = (v <= hi) if r.get("max_inc", True) else (v < hi)
+                if ok:
+                    return "warn"
+            if good_rules or tolerable_rules:
+                return "bad"
+            return ""
+
+        def add_measurement_field(key, fallback_label, default=""):
+            meta = dga_fields.get(key, {})
+            label = meta.get("label") or fallback_label
+            unit = (meta.get("unit") or "").strip()
+            section = meta.get("section", "")
+            good_text = (meta.get("good_text") or "").strip()
+            tolerable_text = (meta.get("tolerable_text") or "").strip()
+            poor_text = (meta.get("poor_text") or "").strip()
+            limit_text = (meta.get("limit_text") or "").strip()
+            good_rules = list(meta.get("good_rules") or [])
+            tolerable_rules = list(meta.get("tolerable_rules") or [])
+            suffix_parts = []
+            if unit:
+                suffix_parts.append(unit)
+            if section == "physchem":
+                limit_parts = []
+                if good_text:
+                    limit_parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_GOOD', 'ΚΑΛΟ')}: {good_text}")
+                if tolerable_text:
+                    limit_parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_TOLERABLE', 'ΑΝΕΚΤΟ')}: {tolerable_text}")
+                if poor_text:
+                    limit_parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_POOR', 'ΠΤΩΧΟ')}: {poor_text}")
+                if limit_parts:
+                    suffix_parts.append(", ".join(limit_parts))
+            else:
+                if limit_text:
+                    suffix_parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_LABEL', 'όριο')}: {limit_text}")
+            if suffix_parts:
+                label = f"{label} ({', '.join(suffix_parts)})"
+            content.add_widget(Label(text=label, size_hint_y=None, height=34))
+            ti = TextInput(text=default or "", multiline=False, size_hint_y=None, height=34)
+            content.add_widget(ti)
+            if good_rules or tolerable_rules:
+                def _on_text(inst, val, _gr=good_rules, _tr=tolerable_rules):
+                    lvl = _field_level(val, _gr, _tr)
+                    inst.foreground_color = {
+                        "ok":   (0.0,  0.6,  0.1, 1.0),
+                        "warn": (0.8,  0.5,  0.0, 1.0),
+                        "bad":  (0.85, 0.0,  0.0, 1.0),
+                    }.get(lvl, (0.0, 0.0, 0.0, 1.0))
+                ti.bind(text=_on_text)
+                _on_text(ti, ti.text)  # colour immediately on open / edit
+            return ti
 
         now_txt = datetime.now().strftime("%Y-%m-%d")
 
@@ -12739,59 +13270,218 @@ class SubstationApp(App):
             (meas_date, samp_date, samp_resp, meas_resp, samp_pt, samp_meth, samp_temp,
              h2_v, c2h2_v, c2h4_v, c2h6_v, co_v, co2_v, ch4_v, o2_v, c3h8_v, n2_v, h2o_v,
              dens, hum, diel, loss, surf, nts, rpt_path) = existing_row
-            sampling_date = add_field(S["MESSAGES"].get("DGA_SAMPLING_DATE_LABEL", "Sampling Date"), _safe_str(samp_date or now_txt))
-            measurement_date = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_DATE_LABEL", "Measurement Date"), _safe_str(meas_date or now_txt))
-            sample_point = add_field(S["MESSAGES"].get("DGA_SAMPLE_POINT_LABEL", "Sample Point"), _safe_str(samp_pt))
-            sampling_method = add_field(S["MESSAGES"].get("DGA_METHOD_LABEL", "Method"), _safe_str(samp_meth))
-            sampling_responsible = add_field(S["MESSAGES"].get("DGA_SAMPLING_RESPONSIBLE_LABEL", "Sampling Responsible"), _safe_str(samp_resp))
-            measurement_responsible = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_RESPONSIBLE_LABEL", "Measurement Responsible"), _safe_str(meas_resp))
-            sample_temperature = add_field(S["MESSAGES"].get("DGA_SAMPLE_TEMPERATURE_LABEL", "Sample Temperature"), _safe_str(samp_temp))
-            h2 = add_field("H2", _safe_str(h2_v))
-            c2h2 = add_field("C2H2", _safe_str(c2h2_v))
-            c2h4 = add_field("C2H4", _safe_str(c2h4_v))
-            c2h6 = add_field("C2H6", _safe_str(c2h6_v))
-            co = add_field("CO", _safe_str(co_v))
-            co2 = add_field("CO2", _safe_str(co2_v))
-            ch4 = add_field("CH4", _safe_str(ch4_v))
-            o2 = add_field("O2", _safe_str(o2_v))
-            c3h8 = add_field("C3H8", _safe_str(c3h8_v))
-            n2 = add_field("N2", _safe_str(n2_v))
-            h2o = add_field("H2O", _safe_str(h2o_v))
-            density = add_field(S["MESSAGES"].get("DGA_DENSITY_LABEL", "Density"), _safe_str(dens))
-            humidity = add_field(S["MESSAGES"].get("DGA_HUMIDITY_LABEL", "Humidity"), _safe_str(hum))
-            dielectric_strength = add_field(S["MESSAGES"].get("DGA_DIELECTRIC_STRENGTH_LABEL", "Dielectric Strength"), _safe_str(diel))
-            loss_factor = add_field(S["MESSAGES"].get("DGA_LOSS_FACTOR_LABEL", "Loss Factor"), _safe_str(loss))
-            surface_tension = add_field(S["MESSAGES"].get("DGA_SURFACE_TENSION_LABEL", "Surface Tension"), _safe_str(surf))
-            content.add_widget(Label(text=S["MESSAGES"].get("DGA_NOTES_LABEL", "Notes"), size_hint_y=None, height=34))
-            notes = TextInput(text=_safe_str(nts), multiline=True, size_hint_y=None, height=90)
-            content.add_widget(notes)
         else:
-            sampling_date = add_field(S["MESSAGES"].get("DGA_SAMPLING_DATE_LABEL", "Sampling Date"), now_txt)
-            measurement_date = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_DATE_LABEL", "Measurement Date"), now_txt)
-            sample_point = add_field(S["MESSAGES"].get("DGA_SAMPLE_POINT_LABEL", "Sample Point"), "")
-            sampling_method = add_field(S["MESSAGES"].get("DGA_METHOD_LABEL", "Method"), "")
-            sampling_responsible = add_field(S["MESSAGES"].get("DGA_SAMPLING_RESPONSIBLE_LABEL", "Sampling Responsible"), "")
-            measurement_responsible = add_field(S["MESSAGES"].get("DGA_MEASUREMENT_RESPONSIBLE_LABEL", "Measurement Responsible"), "")
-            sample_temperature = add_field(S["MESSAGES"].get("DGA_SAMPLE_TEMPERATURE_LABEL", "Sample Temperature"), "")
-            h2 = add_field("H2", "")
-            c2h2 = add_field("C2H2", "")
-            c2h4 = add_field("C2H4", "")
-            c2h6 = add_field("C2H6", "")
-            co = add_field("CO", "")
-            co2 = add_field("CO2", "")
-            ch4 = add_field("CH4", "")
-            o2 = add_field("O2", "")
-            c3h8 = add_field("C3H8", "")
-            n2 = add_field("N2", "")
-            h2o = add_field("H2O", "")
-            density = add_field(S["MESSAGES"].get("DGA_DENSITY_LABEL", "Density"), "")
-            humidity = add_field(S["MESSAGES"].get("DGA_HUMIDITY_LABEL", "Humidity"), "")
-            dielectric_strength = add_field(S["MESSAGES"].get("DGA_DIELECTRIC_STRENGTH_LABEL", "Dielectric Strength"), "")
-            loss_factor = add_field(S["MESSAGES"].get("DGA_LOSS_FACTOR_LABEL", "Loss Factor"), "")
-            surface_tension = add_field(S["MESSAGES"].get("DGA_SURFACE_TENSION_LABEL", "Surface Tension"), "")
-            content.add_widget(Label(text=S["MESSAGES"].get("DGA_NOTES_LABEL", "Notes"), size_hint_y=None, height=34))
-            notes = TextInput(text="", multiline=True, size_hint_y=None, height=90)
-            content.add_widget(notes)
+            meas_date = now_txt
+            samp_date = now_txt
+            samp_resp = ""
+            meas_resp = ""
+            samp_pt = "BOTTOM"
+            samp_meth = "ΔΟΧΕΙΟ ΑΛΟΥΜΙΝΙΟΥ"
+            samp_temp = "20"
+            h2_v = c2h2_v = c2h4_v = c2h6_v = co_v = co2_v = ch4_v = o2_v = c3h8_v = n2_v = h2o_v = ""
+            dens = hum = diel = loss = surf = ""
+            nts = ""
+
+        add_section(dga_sections.get("meta") or S["MESSAGES"].get("DGA_SECTION_META_LABEL", "Στοιχεία Δειγματοληψίας / Μέτρησης"))
+        sampling_date = add_field(S["MESSAGES"].get("DGA_SAMPLING_DATE_LABEL", "Sampling Date"), _safe_str(samp_date or now_txt))
+        measurement_date = add_field(
+            S["MESSAGES"].get("DGA_MEASUREMENT_DATE_LABEL", "Measurement Date"),
+            _safe_str(meas_date if edit_mode else now_txt),
+        )
+        sample_point_values = ["TOP", "MIDDLE", "BOTTOM"]
+        sample_point = add_choice_field(
+            S["MESSAGES"].get("DGA_SAMPLE_POINT_LABEL", "Sample Point"),
+            sample_point_values,
+            _safe_str(samp_pt or "BOTTOM"),
+        )
+        method_values = [
+            "ΔΟΧΕΙΟ ΑΛΟΥΜΙΝΙΟΥ",
+            "ΓΥΑΛΙΝΗ ΣΥΡΙΓΓΑ",
+            "ΔΟΧΕΙΟ ΑΛΟΥΜΙΝΙΟΥ & ΓΥΑΛΙΝΗ ΣΥΡΙΓΓΑ",
+        ]
+        sampling_method = add_choice_field(
+            S["MESSAGES"].get("DGA_METHOD_LABEL", "Method"),
+            method_values,
+            _safe_str(samp_meth or "ΔΟΧΕΙΟ ΑΛΟΥΜΙΝΙΟΥ"),
+        )
+        sampling_responsible = add_people_field(
+            S["MESSAGES"].get("DGA_SAMPLING_RESPONSIBLE_LABEL", "Sampling Responsible"),
+            _safe_str(samp_resp),
+        )
+        measurement_responsible = add_people_field(
+            S["MESSAGES"].get("DGA_MEASUREMENT_RESPONSIBLE_LABEL", "Measurement Responsible"),
+            _safe_str(meas_resp),
+        )
+        sample_temperature = add_field(
+            f"{S['MESSAGES'].get('DGA_SAMPLE_TEMPERATURE_LABEL', 'Sample Temperature')} (°C)",
+            _safe_str(samp_temp or "20"),
+        )
+
+        add_section(dga_sections.get("gases") or S["MESSAGES"].get("DGA_SECTION_GASES_LABEL", "Αέρια"), S["MESSAGES"].get("DGA_SECTION_GASES_STANDARD", "IEC 60599 / IEC 60567"))
+        h2 = add_measurement_field("h2", "H2", _safe_str(h2_v))
+        c2h2 = add_measurement_field("c2h2", "C2H2", _safe_str(c2h2_v))
+        c2h4 = add_measurement_field("c2h4", "C2H4", _safe_str(c2h4_v))
+        c2h6 = add_measurement_field("c2h6", "C2H6", _safe_str(c2h6_v))
+        co = add_measurement_field("co", "CO", _safe_str(co_v))
+        co2 = add_measurement_field("co2", "CO2", _safe_str(co2_v))
+        ch4 = add_measurement_field("ch4", "CH4", _safe_str(ch4_v))
+        o2 = add_measurement_field("o2", "O2", _safe_str(o2_v))
+        c3h8 = add_measurement_field("c3h8", "C3H8", _safe_str(c3h8_v))
+        n2 = add_measurement_field("n2", "N2", _safe_str(n2_v))
+        h2o = add_measurement_field("h2o", "H2O", _safe_str(h2o_v))
+
+        # --- Live-calculated gas ratios (IEC 60599) ---
+        _RATIO_DEFS = [
+            ("C2H2 / C2H4", "c2h2", "c2h4"),
+            ("CH4 / H2",    "ch4",  "h2"),
+            ("C2H4 / C2H6", "c2h4", "c2h6"),
+            ("CO2 / CO",    "co2",  "co"),
+            ("O2 / N2",     "o2",   "n2"),
+            ("C2H2 / H2",   "c2h2", "h2"),
+        ]
+        # Same pre-ratio corrections as template sheet "Ανάλυση" (column F formulas: MAX(Ei, floor)).
+        _RATIO_GAS_CORRECTION_MIN = {
+            "c2h2": 1.0,
+            "h2": 5.0,
+            "ch4": 1.0,
+            "c2h4": 1.0,
+            "c2h6": 1.0,
+            "co": 25.0,
+            "co2": 25.0,
+            "o2": 500.0,
+            "c3h8": 1.0,
+            "n2": 2000.0,
+        }
+        # IEC 60599 diagnostic ratio colour thresholds (good / tolerable / bad)
+        _RATIO_COLOR_RULES = {
+            "C2H2 / C2H4": {
+                "good":      [{"max": 0.1,  "max_inc": False}],
+                "tolerable": [{"min": 0.1,  "max": 3.0}],
+                "poor_text": ">3",
+            },
+            "CH4 / H2": {
+                "good":      [{"min": 0.1,  "max": 1.0}],
+                "tolerable": [{"max": 0.1,  "max_inc": False}, {"min": 1.0, "max": 3.0}],
+                "poor_text": ">3",
+            },
+            "C2H4 / C2H6": {
+                "good":      [{"max": 1.0,  "max_inc": False}],
+                "tolerable": [{"min": 1.0,  "max": 3.0}],
+                "poor_text": ">3",
+            },
+            "CO2 / CO": {
+                "good":      [{"min": 11.0}],
+                "tolerable": [{"min": 3.0,  "max": 11.0}],
+                "poor_text": "<3",
+            },
+            "O2 / N2": {
+                "good":      [{"min": 0.3}],
+                "tolerable": [{"min": 0.1,  "max": 0.3}],
+                "poor_text": "<0.1",
+            },
+            "C2H2 / H2": {
+                "good":      [{"max": 0.01, "max_inc": False}],
+                "tolerable": [{"min": 0.01, "max": 3.0}],
+                "poor_text": ">3",
+            },
+        }
+        _ratio_inputs = {
+            "h2": h2, "c2h2": c2h2, "c2h4": c2h4, "c2h6": c2h6,
+            "co": co, "co2": co2, "ch4": ch4, "o2": o2, "n2": n2,
+        }
+        _ratio_labels = {}
+        from kivy.graphics import Color, Rectangle
+        _RATIO_BG_IDLE = (0.93, 0.93, 0.93, 1)
+
+        def _rules_to_text(rules):
+            parts = []
+            for _r in rules:
+                _lo, _hi = _r.get("min"), _r.get("max")
+                _lo_inc = _r.get("min_inc", True)
+                _hi_inc = _r.get("max_inc", True)
+                if _lo is None and _hi is not None:
+                    parts.append(f"{'\u2264' if _hi_inc else '<'}{_hi:g}")
+                elif _lo is not None and _hi is None:
+                    parts.append(f"{'\u2265' if _lo_inc else '>'}{_lo:g}")
+                elif _lo is not None and _hi is not None:
+                    parts.append(f"{_lo:g}-{_hi:g}")
+            return " / ".join(parts)
+
+        add_section(S["MESSAGES"].get("DGA_SECTION_RATIOS_LABEL", "Λόγοι Αερίων"), S["MESSAGES"].get("DGA_SECTION_RATIOS_STANDARD", "IEC 60599"))
+        for _rname, _num_k, _den_k in _RATIO_DEFS:
+            _rules = _RATIO_COLOR_RULES.get(_rname, {})
+            _good_txt = _rules_to_text(_rules.get("good", []))
+            _tolerable_txt = _rules_to_text(_rules.get("tolerable", []))
+            _poor_txt = (_rules.get("poor_text") or "").strip()
+            _limit_parts = []
+            if _good_txt:
+                _limit_parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_GOOD', 'ΚΑΛΟ')}: {_good_txt}")
+            if _tolerable_txt:
+                _limit_parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_TOLERABLE', 'ΑΝΕΚΤΟ')}: {_tolerable_txt}")
+            if _poor_txt:
+                _limit_parts.append(f"{S['MESSAGES'].get('DGA_LIMIT_POOR', 'ΠΤΩΧΟ')}: {_poor_txt}")
+            _lbl_text = f"{_rname} ({', '.join(_limit_parts)})" if _limit_parts else _rname
+            _lbl = Label(text=_lbl_text, size_hint_y=None, height=34, halign="left", valign="middle")
+            _lbl.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+            content.add_widget(_lbl)
+            _rl = Label(
+                text="", size_hint_y=None, height=34,
+                halign="center", valign="middle", color=(0, 0, 0, 1),
+            )
+            _rl.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+            with _rl.canvas.before:
+                _bg_col = Color(*_RATIO_BG_IDLE)
+                _bg_rect = Rectangle(pos=_rl.pos, size=_rl.size)
+            _rl._bg_rect = _bg_rect
+            _rl._bg_color_inst = _bg_col
+            _rl.bind(
+                pos=lambda i, v: setattr(i._bg_rect, "pos", v),
+                size=lambda i, v: setattr(i._bg_rect, "size", v),
+            )
+            content.add_widget(_rl)
+            _ratio_labels[_rname] = _rl
+
+        def _update_ratios(*_):
+            for _rn, _nk, _dk in _RATIO_DEFS:
+                _rl = _ratio_labels[_rn]
+                try:
+                    _n = float(_ratio_inputs[_nk].text.replace(",", ".").strip())
+                    _d = float(_ratio_inputs[_dk].text.replace(",", ".").strip())
+                    _n = max(_n, _RATIO_GAS_CORRECTION_MIN.get(_nk, _n))
+                    _d = max(_d, _RATIO_GAS_CORRECTION_MIN.get(_dk, _d))
+                    if _d != 0:
+                        _rv = _n / _d
+                        _rl.text = f"{_rv:.4f}"
+                        _rules = _RATIO_COLOR_RULES.get(_rn, {})
+                        _lvl = _field_level(
+                            str(_rv),
+                            _rules.get("good", []),
+                            _rules.get("tolerable", []),
+                        )
+                        _rl._bg_color_inst.rgba = {
+                            "ok": _BG_OK, "warn": _BG_WARN, "bad": _BG_BAD,
+                        }.get(_lvl, _RATIO_BG_IDLE)
+                    else:
+                        _rl.text = ""
+                        _rl._bg_color_inst.rgba = _RATIO_BG_IDLE
+                except (ValueError, ZeroDivisionError, KeyError):
+                    _rl.text = ""
+                    _rl._bg_color_inst.rgba = _RATIO_BG_IDLE
+
+        for _gi in _ratio_inputs.values():
+            _gi.bind(text=_update_ratios)
+        _update_ratios()
+
+        add_section(dga_sections.get("physchem") or S["MESSAGES"].get("DGA_SECTION_PHYSCHEM_LABEL", "Φυσικοχημικές Μετρήσεις"), S["MESSAGES"].get("DGA_SECTION_PHYSCHEM_STANDARD", "IEC 60422"))
+        density = add_measurement_field("density", S["MESSAGES"].get("DGA_DENSITY_LABEL", "Density"), _safe_str(dens))
+        humidity = add_measurement_field("humidity", S["MESSAGES"].get("DGA_HUMIDITY_LABEL", "Humidity"), _safe_str(hum))
+        dielectric_strength = add_measurement_field("dielectric_strength", S["MESSAGES"].get("DGA_DIELECTRIC_STRENGTH_LABEL", "Dielectric Strength"), _safe_str(diel))
+        loss_factor = add_measurement_field("loss_factor", S["MESSAGES"].get("DGA_LOSS_FACTOR_LABEL", "Loss Factor"), _safe_str(loss))
+        surface_tension = add_measurement_field("surface_tension", S["MESSAGES"].get("DGA_SURFACE_TENSION_LABEL", "Surface Tension"), _safe_str(surf))
+
+        content.add_widget(Label(text=S["MESSAGES"].get("DGA_NOTES_LABEL", "Notes"), size_hint_y=None, height=34))
+        notes = TextInput(text=_safe_str(nts), multiline=True, size_hint_y=None, height=90)
+        content.add_widget(notes)
 
         scroll.add_widget(content)
         main_layout.add_widget(scroll)
@@ -12962,6 +13652,39 @@ class SubstationApp(App):
                 self.conn.commit()
                 popup.dismiss()
 
+                eval_values = {
+                    "h2": h2.text.strip(),
+                    "c2h2": c2h2.text.strip(),
+                    "c2h4": c2h4.text.strip(),
+                    "c2h6": c2h6.text.strip(),
+                    "co": co.text.strip(),
+                    "co2": co2.text.strip(),
+                    "ch4": ch4.text.strip(),
+                    "o2": o2.text.strip(),
+                    "c3h8": c3h8.text.strip(),
+                    "n2": n2.text.strip(),
+                    "h2o": h2o.text.strip(),
+                    "density": density.text.strip(),
+                    "humidity": humidity.text.strip(),
+                    "dielectric_strength": dielectric_strength.text.strip(),
+                    "loss_factor": loss_factor.text.strip(),
+                    "surface_tension": surface_tension.text.strip(),
+                }
+                evaluation = self._evaluate_dga_values(eval_values)
+                summary = self._format_dga_problem_summary(evaluation, max_bad=3, max_warn=2)
+                success_msg = S["MESSAGES"].get("DGA_SAVE_SUCCESS_FMT", "DGA report saved:\n{path}").format(
+                    path=primary_report_path
+                )
+                overall_level = evaluation.get("overall_level", "ok")
+                if overall_level == "bad":
+                    success_msg += "\n\n" + S["MESSAGES"].get("DGA_STATUS_BAD_MSG", "Κατάσταση ορίων: ΕΚΤΟΣ ΟΡΙΩΝ (ΚΟΚΚΙΝΟ)")
+                elif overall_level == "warn":
+                    success_msg += "\n\n" + S["MESSAGES"].get("DGA_STATUS_WARN_MSG", "Κατάσταση ορίων: ΑΝΕΚΤΟ / WARNING (ΚΙΤΡΙΝΟ)")
+                else:
+                    success_msg += "\n\n" + S["MESSAGES"].get("DGA_STATUS_OK_MSG", "Κατάσταση ορίων: OK (ΠΡΑΣΙΝΟ)")
+                if summary:
+                    success_msg += "\n" + summary
+
                 # Open report after save
                 from reports import open_file
                 def _open():
@@ -12969,7 +13692,7 @@ class SubstationApp(App):
 
                 show_message_popup(
                     S["TITLES"].get("SUCCESS", "Επιτυχία"),
-                    S["MESSAGES"].get("DGA_SAVE_SUCCESS_FMT", "DGA report saved:\n{path}").format(path=primary_report_path),
+                    success_msg,
                     callback=_open,
                 )
             except Exception as exc:
@@ -13007,7 +13730,9 @@ class SubstationApp(App):
         c = self.conn.cursor()
         c.execute(
             """
-            SELECT id, measurement_date, sampling_date, report_path, created_at
+            SELECT id, measurement_date, sampling_date, report_path, created_at,
+                   h2, c2h2, c2h4, c2h6, co, co2, ch4, o2, c3h8, n2, h2o,
+                   density, humidity, dielectric_strength, loss_factor, surface_tension
             FROM dga_measurements
             WHERE element_id=?
             ORDER BY measurement_date DESC, created_at DESC
@@ -13021,6 +13746,7 @@ class SubstationApp(App):
             size_hint=(0.92, 0.88),
         )
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        main_layout.add_widget(self._build_dga_status_legend_label())
 
         if not rows:
             main_layout.add_widget(
@@ -13035,8 +13761,52 @@ class SubstationApp(App):
             content.bind(minimum_height=content.setter("height"))
 
             for row in rows:
-                dga_id, meas_date, samp_date, rpt_path, created = row
+                (
+                    dga_id,
+                    meas_date,
+                    samp_date,
+                    rpt_path,
+                    created,
+                    h2,
+                    c2h2,
+                    c2h4,
+                    c2h6,
+                    co,
+                    co2,
+                    ch4,
+                    o2,
+                    c3h8,
+                    n2,
+                    h2o,
+                    density,
+                    humidity,
+                    dielectric_strength,
+                    loss_factor,
+                    surface_tension,
+                ) = row
                 row_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=80, padding=4, spacing=4)
+
+                evaluation = self._evaluate_dga_values(
+                    {
+                        "h2": h2,
+                        "c2h2": c2h2,
+                        "c2h4": c2h4,
+                        "c2h6": c2h6,
+                        "co": co,
+                        "co2": co2,
+                        "ch4": ch4,
+                        "o2": o2,
+                        "c3h8": c3h8,
+                        "n2": n2,
+                        "h2o": h2o,
+                        "density": density,
+                        "humidity": humidity,
+                        "dielectric_strength": dielectric_strength,
+                        "loss_factor": loss_factor,
+                        "surface_tension": surface_tension,
+                    }
+                )
+                status_badge = self._dga_level_badge(evaluation.get("overall_level", "ok"))
 
                 info_line = Label(
                     text=S["MESSAGES"].get(
@@ -13047,9 +13817,12 @@ class SubstationApp(App):
                         sampling_date=samp_date or "-",
                         created_at=created or "-",
                     ),
+                    markup=False,
                     size_hint_y=None,
                     height=28,
                 )
+                info_line.text = f"{status_badge}  {info_line.text}"
+                info_line.markup = True
                 row_layout.add_widget(info_line)
 
                 btns = BoxLayout(size_hint_y=None, height=38, spacing=6)
@@ -13081,9 +13854,31 @@ class SubstationApp(App):
                         self._confirm_delete_dga(did, path, popup, element_id, element_name, substation_id, substation_name, gate_value, serial_number, manufacturer, maintenance_id)
                     return _del
 
-                open_btn = Button(text=S["MESSAGES"].get("DGA_OPEN_REPORT_BUTTON", "Open Report"))
-                open_btn.bind(on_press=_make_open(rpt_path))
-                btns.add_widget(open_btn)
+
+                # Folder-only button (left of open/eye button)
+                from ui.shared import IconOnlyButton
+                import os
+                def _make_open_folder(path):
+                    def _open_folder(_x):
+                        folder = os.path.dirname(path)
+                        if os.path.exists(folder):
+                            try:
+                                os.startfile(folder)
+                            except Exception:
+                                pass
+                    return _open_folder
+
+
+
+                folder_btn = IconOnlyButton(icon_type="folder", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(38, 36), tooltip="Φάκελος")
+                folder_btn.bind(on_press=_make_open_folder(rpt_path))
+
+                eye_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(38, 36), tooltip=S["MESSAGES"].get("TOOLTIP_VIEW", "Προβολή"))
+                eye_btn.bind(on_press=_make_open(rpt_path))
+
+                # Add folder button to the left of the eye button
+                btns.add_widget(folder_btn)
+                btns.add_widget(eye_btn)
 
                 edit_btn = Button(text=S["BUTTONS"].get("EDIT", "Edit"))
                 edit_btn.bind(on_press=_make_edit(dga_id))
