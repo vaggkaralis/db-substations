@@ -18,6 +18,54 @@ from email_text_utils import iter_substation_name_candidates as _iter_substation
 from onedrive_hybrid_storage import ensure_maintenance_folders
 from settings import DB_PATH as DEFAULT_DB_PATH
 
+try:
+    from strings_proxy import STRINGS as S
+except Exception:
+    S = {"MESSAGES": {}}
+
+
+_FAULT_SUBJECT_STEMS = (
+    "βλαβ",        # βλάβη / βλαβη / βλαβών
+    "επισκευ",     # επισκευή / επισκευη / επισκευές
+    "αποκαταστ",   # αποκατάσταση
+    "δυσλειτουργ", # δυσλειτουργία
+    "βραχυκυκλ",   # βραχυκύκλωμα
+    "αστοχι",      # αστοχία
+    "fault",
+    "failure",
+    "repair",
+    "restore",
+    "outage",
+)
+
+
+def infer_maintenance_type_from_subject(subject: str, default_type: str | None = None) -> str:
+    """Infer maintenance type from subject keywords.
+
+    If the subject contains fault/repair stems, return a fault label
+    (prefer localized configured labels). Otherwise return `default_type`
+    (or configured MAINT_TYPE_DEFAULT fallback).
+    """
+    fallback_default = default_type or S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση")
+    text = (subject or "").strip()
+    if not text:
+        return fallback_default
+
+    text = re.sub(r"^\s*(?:fwd|fw|re)\s*:\s*", "", text, flags=re.IGNORECASE)
+    normalized = _normalize_for_alias_lookup(text)
+    if not normalized:
+        return fallback_default
+
+    has_fault_stem = any(stem in normalized for stem in _FAULT_SUBJECT_STEMS)
+    if not has_fault_stem:
+        return fallback_default
+
+    maint_types = list(S.get("MESSAGES", {}).get("MAINTENANCE_TYPES", []))
+    for candidate in ("Βλάβη", "Fault"):
+        if candidate in maint_types:
+            return candidate
+    return "Βλάβη"
+
 # Map common substation name variations to database names
 _SUBSTATION_ALIASES = {
     # Π.ΜΕΛΛΑΣ
@@ -733,7 +781,7 @@ def create_maintenance_from_email(
 
         if "maintenance_type" in maint_cols:
             fields.append("maintenance_type")
-            values.append("Email")
+            values.append(infer_maintenance_type_from_subject(subject, default_type="Email"))
 
         if "user_name" in maint_cols:
             fields.append("user_name")

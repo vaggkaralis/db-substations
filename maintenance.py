@@ -493,6 +493,11 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     received_at = payload.get("received_at", "")
     attachment_paths = payload.get("attachment_paths", []) or []
 
+    try:
+        from maintenance_email_importer import infer_maintenance_type_from_subject
+    except Exception:
+        infer_maintenance_type_from_subject = None
+
     c = app.conn.cursor()
     c.execute("SELECT id, name FROM substations ORDER BY name")
     substations = c.fetchall()
@@ -561,10 +566,14 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     if not date_time_value:
         date_time_value = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    default_maintenance_type = S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση")
+    if callable(infer_maintenance_type_from_subject):
+        default_maintenance_type = infer_maintenance_type_from_subject(subject, default_maintenance_type)
+
     prefill = {
         "substation_id": substation_id,
         "substation_name": substation_name,
-        "maintenance_type": S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"),
+        "maintenance_type": default_maintenance_type,
         "date_time": date_time_value,
         "overall_comments": body,
         "responsible_id": responsible_id,
