@@ -366,14 +366,28 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
         pattern = rf"\b{re.escape(initial)}\s*[.-]?\s*{re.escape(surname_token)}\b"
         return re.search(pattern, normalized_body) is not None
 
+    def _matches_surname_in_crew_context(surname_token: str) -> bool:
+        if not surname_token or not normalized_body:
+            return False
+        for m in re.finditer(rf"\b{re.escape(surname_token)}\b", normalized_body):
+            start = max(0, m.start() - 120)
+            end = min(len(normalized_body), m.end() + 120)
+            window = normalized_body[start:end]
+            if re.search(r"\b(εργαζομεν|συνεργει|υπερωρι|ομαδα|επικεφαλησ)\w*", window):
+                return True
+        return False
+
     found = set()
     matched_name_keys = set()
+    surname_to_person_ids = {}
     for pid, name in people:
         if pid in exclude_ids:
             continue
         person_tokens = _tokenize_text(name)
         if not person_tokens:
             continue
+
+        surname_to_person_ids.setdefault(person_tokens[0], []).append(pid)
 
         surname_token = person_tokens[0]
         given_token = person_tokens[-1]
@@ -406,6 +420,19 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
         matched_name_keys.add(name_key)
         found.add(pid)
 
+    # Fallback for crew lines that mention only surnames, e.g.
+    # "Οι εργαζόμενοι Μπάκανος, Μπέης ...".
+    # To avoid false positives, accept only unambiguous surnames and only
+    # when they appear near crew-related keywords.
+    for surname_token, candidate_ids in surname_to_person_ids.items():
+        if len(candidate_ids) != 1:
+            continue
+        pid = candidate_ids[0]
+        if pid in exclude_ids or pid in found:
+            continue
+        if _matches_surname_in_crew_context(surname_token):
+            found.add(pid)
+
     return found
 
 
@@ -420,6 +447,7 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
     normalized_body = _normalize_text(body_text)
     normalized_body = re.sub(r"μ\s*[\./-]\s*σ", "μσ", normalized_body)
     normalized_body = re.sub(r"m\s*[\./-]\s*s", "ms", normalized_body)
+    normalized_body = normalized_body.lower()
     normalized_body = re.sub(r"(μσ|ms)\s*[ilι]\b", r"\g<1>1", normalized_body)
     compact_body = re.sub(r"[^0-9a-zα-ω]+", "", normalized_body)
     compact_body = re.sub(r"(μσ|ms)[ilι](?![0-9])", r"\g<1>1", compact_body)
@@ -536,6 +564,35 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
         md_matched = any(eid in matched for eid, _, _, _ in motor_drive_candidates)
         if not md_matched and len(motor_drive_candidates) == 1:
             matched.add(motor_drive_candidates[0][0])
+
+    # Filter incidental transformer mentions (e.g. "σύγκριση με παλαιότερες
+    # τιμές του ΜΣ2") while keeping operational mentions of worked elements.
+    def _is_weak_transformer_context(ms_digits: str) -> bool:
+        token_pat = rf"μ[σς]{re.escape(ms_digits)}"
+
+        # Strong evidence only when action verbs are close to the same token.
+        strong = re.search(
+            rf"(?:\b(συντηρ|εργασ|μετρησ|επανασυνδε|αφαιρεσ|εγκαταστασ)\w*\b[^\n.,;:()]{{0,30}}\b{token_pat}\b|\b{token_pat}\b[^\n.,;:()]{{0,30}}\b(συντηρ|εργασ|μετρησ|επανασυνδε|αφαιρεσ|εγκαταστασ)\w*\b)",
+            normalized_body,
+        )
+        if strong:
+            return False
+
+        # Weak evidence: comparison / historical reference around the token.
+        weak = re.search(
+            rf"(?:\b(συγκρι|παλαιοτερ|γραφημα|χαρακτηριστικ)\w*\b[^\n.,;:()]{{0,40}}\b{token_pat}\b|\b{token_pat}\b[^\n.,;:()]{{0,40}}\b(συγκρι|παλαιοτερ|γραφημα|χαρακτηριστικ)\w*\b|\bτιμ\w*\b[^\n.,;:()]{{0,20}}\bτου\b[^\n.,;:()]{{0,20}}\b{token_pat}\b)",
+            normalized_body,
+        )
+        return weak is not None
+
+    for elem_id, elem_name, _elem_type in elements:
+        base = _normalize_text(elem_name).lower()
+        compact = re.sub(r"[^0-9a-zα-ω]+", "", base)
+        ms_match = re.match(r"^μ[σς]([0-9]+)$", compact)
+        if not ms_match:
+            continue
+        if elem_id in matched and _is_weak_transformer_context(ms_match.group(1)):
+            matched.discard(elem_id)
 
     return matched
 

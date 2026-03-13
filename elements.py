@@ -5,7 +5,7 @@ while allowing incremental extraction.
 """
 
 from strings_proxy import STRINGS as S
-from onedrive_hybrid_storage import sync_substation_gate_folders
+from onedrive_hybrid_storage import resolve_shared_root, sync_substation_gate_folders
 from validation import (validate_breaker_category_required,
                         validate_gate_assignment)
 from ui.shared import IconOnlyButton
@@ -748,27 +748,94 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
 
 
 def _export_single_maintenance_pdf(app, maintenance_id, element_id):
-    """Export a single maintenance report to PDF"""
+    """Export a single maintenance report to PDF with proper folder handling and duplicate checks"""
     from popups import show_message_popup
+    from report_sync import safe_generate_and_store_report
+    from reports import show_confirm
     import os
     
     try:
-        from pdf_reports import generate_maintenance_report
+        # Get element info for messages
+        cursor = app.conn.cursor()
+        cursor.execute("SELECT name FROM elements WHERE id = ?", (element_id,))
+        elem_row = cursor.fetchone()
+        element_name = elem_row[0] if elem_row else f"Element {element_id}"
         
-        output_path = generate_maintenance_report(app.conn, maintenance_id, element_id)
-        
-        # Open the PDF if on desktop
-        if hasattr(app, '_open_file'):
-            app._open_file(output_path)
-        
-        show_message_popup(
-            S["TITLES"].get("SUCCESS", "Επιτυχία"),
-            f"PDF δημιουργήθηκε στο:\n{output_path}"
+        # Use the report sync system to generate the report
+        result = safe_generate_and_store_report(
+            app.conn,
+            maintenance_id=maintenance_id,
+            element_id=element_id,
         )
+        
+        # If report exists, prompt user
+        if result.get("action_taken") == "prompt_user":
+            def _on_replace():
+                result2 = safe_generate_and_store_report(
+                    app.conn,
+                    maintenance_id=maintenance_id,
+                    element_id=element_id,
+                    user_prompted_action="replace",
+                )
+                if result2["success"]:
+                    show_message_popup(
+                        S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                        f"Η αναφορά αντικαταστάθηκε.\n\n{element_name}"
+                    )
+                    if hasattr(app, '_open_file') and result2["path"]:
+                        app._open_file(result2["path"])
+                else:
+                    show_message_popup(
+                        S["TITLES"]["ERROR"],
+                        f"Σφάλμα κατά την αντικατάσταση:\n{result2['message']}"
+                    )
+            
+            def _on_open():
+                result2 = safe_generate_and_store_report(
+                    app.conn,
+                    maintenance_id=maintenance_id,
+                    element_id=element_id,
+                    user_prompted_action="open",
+                )
+                if result2["success"] and result2["path"]:
+                    if hasattr(app, '_open_file'):
+                        app._open_file(result2["path"])
+                    else:
+                        show_message_popup(
+                            S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                            f"Άνοιγμα αναφοράς:\n{result2['path']}"
+                        )
+            
+            # Show confirmation: Replace or Open?
+            show_confirm(
+                S["TITLES"].get("CONFIRM", "Επιβεβαίωση"),
+                f"Η αναφορά για {element_name} υπάρχει ήδη.\n\nΘέλετε να την αντικαταστήσετε;",
+                yes_callback=_on_replace,
+                yes_text=S["BUTTONS"].get("REPLACE", "Αντικατάσταση"),
+                no_text=S["BUTTONS"].get("OPEN", "Άνοιγμα υπάρχουσας"),
+            )
+            return
+        
+        # Handle successful generation or other results
+        if result["success"]:
+            action_msg = "ενημερώθηκε" if result.get("action_taken") == "replaced" else "δημιουργήθηκε"
+            show_message_popup(
+                S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                f"PDF {action_msg} επιτυχώς.\n\n{element_name}"
+            )
+            # Open the PDF if on desktop
+            if hasattr(app, '_open_file') and result["path"]:
+                app._open_file(result["path"])
+        else:
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                f"Σφάλμα:\n{result.get('message', 'Άγνωστο σφάλμα')}"
+            )
+    
     except Exception as e:
         show_message_popup(
             S["TITLES"]["ERROR"],
-            f"Σφάλμα κατά τη δημιουργία PDF:\n{str(e)}"
+            f"Σφάλμα κατά την εξαγωγή PDF:\n{str(e)}"
         )
 
 
@@ -795,8 +862,9 @@ def _export_maintenance_history_list(app, element_id, element_name, maintenance_
                 return "-"
             return pdf_gen.normalize_text(str(text))
         
-        # Create output path
-        reports_dir = os.path.join(os.path.dirname(__file__), "reports")
+        # Create output path under the configured shared root.
+        shared_root = resolve_shared_root(getattr(app, "db_path", None))
+        reports_dir = os.path.join(shared_root, "_EXPORTS", "maintenance_history")
         os.makedirs(reports_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_name = element_name.replace("/", "-").replace("\\", "-")

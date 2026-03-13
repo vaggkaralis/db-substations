@@ -4,13 +4,16 @@ import subprocess
 import sys
 
 from onedrive_hybrid_storage import (
+    ensure_maintenance_folders,
     get_maintenance_report_path,
     _report_subfolder_name_for_element,
     get_transformer_report_targets,
+    resolve_shared_root,
     upsert_maintenance_report_path,
 )
 from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from popups import show_message_popup
+from report_sync import safe_generate_and_store_report
 from strings_proxy import STRINGS as S
 
 
@@ -163,125 +166,85 @@ def show_sf6_management_popup(app, instance=None):
 
 def generate_pdf_report(app, maintenance_id, element_id, element_name):
     """Generate PDF maintenance report (UI wrapper)."""
-    # Lazy imports for UI elements
-    importlib.import_module("kivy.uix.popup").Popup
-    importlib.import_module("kivy.uix.boxlayout").BoxLayout
-    importlib.import_module("kivy.uix.button").Button
-    importlib.import_module("kivy.uix.label").Label
-
     try:
-        tracked_path = get_maintenance_report_path(
-            app.conn,
-            maintenance_id=maintenance_id,
-            element_id=element_id,
-            report_type="pdf",
-            verify_exists=True,
-        )
-
-        if tracked_path:
-            def _open_existing():
-                try:
-                    if sys.platform == "win32":
-                        os.startfile(tracked_path)
-                    elif sys.platform == "darwin":
-                        subprocess.call(["open", tracked_path])
-                    else:
-                        subprocess.call(["xdg-open", tracked_path])
-                except Exception:
-                    pass
-
-            show_message_popup(
-                S["TITLES"].get("INFO", "Info"),
-                S["MESSAGES"].get("PDF_CREATED", "Το PDF δημιουργήθηκε:\n{path}").format(path=tracked_path),
-                callback=_open_existing,
-            )
-            return
-
         c = app.conn.cursor()
-        c.execute("SELECT gate, element_type, name FROM elements WHERE id=?", (element_id,))
+        c.execute(
+            "SELECT gate FROM elements WHERE id=?",
+            (element_id,),
+        )
         elem_row = c.fetchone()
         gate_value = elem_row[0] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["gate"] if elem_row else None)
-        elem_type = elem_row[1] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["element_type"] if elem_row else None)
-        elem_name = elem_row[2] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["name"] if elem_row else element_name)
 
-        output_path = None
-        db_dir = os.path.dirname(getattr(app, "db_path", "") or os.path.abspath(__file__))
-
-        def _safe_component(text: str, fallback: str = "element") -> str:
-            value = str(text or "").strip()
-            if not value:
-                value = fallback
-            for ch in '\\/:*?"<>|\n\r\t':
-                value = value.replace(ch, "-")
-            value = " ".join(value.split())
-            return value[:80] or fallback
-
-        safe_elem_name = _safe_component(elem_name or element_name)
-
-        def _fallback_output_path() -> str:
-            fallback_dir = os.path.join(db_dir, "reports")
-            os.makedirs(fallback_dir, exist_ok=True)
-            return os.path.join(
-                fallback_dir,
-                f"Maintenance_M{maintenance_id}_E{element_id}_{safe_elem_name}.pdf",
-            )
-
-        targets = get_transformer_report_targets(
-            app.conn,
-            maintenance_id=maintenance_id,
-            gate_value=gate_value,
-            db_path=getattr(app, "db_path", None),
-        )
-        if targets:
-            reports_root = targets[0]
-            subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(elem_type))
-            os.makedirs(subfolder, exist_ok=True)
-            output_path = os.path.join(
-                subfolder,
-                f"Maintenance_M{maintenance_id}_E{element_id}_{safe_elem_name}.pdf",
-            )
-
-        try:
-            pdf_path = generate_maintenance_report(
-                app.conn,
-                maintenance_id,
-                element_id,
-                output_path=output_path,
-            )
-        except (FileNotFoundError, OSError):
-            # If OneDrive-derived path is malformed, unavailable, or too long,
-            # retry into a guaranteed local reports folder.
-            pdf_path = generate_maintenance_report(
-                app.conn,
-                maintenance_id,
-                element_id,
-                output_path=_fallback_output_path(),
-            )
-        upsert_maintenance_report_path(
-            app.conn,
-            maintenance_id=maintenance_id,
-            element_id=element_id,
-            report_type="pdf",
-            report_path=pdf_path,
-        )
-        app.conn.commit()
-
-        def _open_pdf():
+        def _open_pdf(path: str):
             try:
                 if sys.platform == "win32":
-                    os.startfile(pdf_path)
+                    os.startfile(path)
                 elif sys.platform == "darwin":
-                    subprocess.call(["open", pdf_path])
+                    subprocess.call(["open", path])
                 else:
-                    subprocess.call(["xdg-open", pdf_path])
+                    subprocess.call(["xdg-open", path])
             except Exception:
                 pass
 
-        show_message_popup(
-            "PDF Δημιουργήθηκε",
-            f'Το αρχείο PDF για το στοιχείο "{element_name}"\nδημιουργήθηκε επιτυχώς!\n\nΑποθηκεύτηκε στο:\n{pdf_path}',
-            callback=_open_pdf,
+        def _show_success(path: str, action_taken: str):
+            if action_taken == "replaced":
+                msg = f'Το αρχείο PDF για το στοιχείο "{element_name}"\nαντικαταστάθηκε επιτυχώς!\n\nΑποθηκεύτηκε στο:\n{path}'
+            elif action_taken == "opened":
+                msg = f'Το αρχείο PDF για το στοιχείο "{element_name}"\nυπάρχει ήδη.\n\nΤο αρχείο είναι:\n{path}'
+            else:
+                msg = f'Το αρχείο PDF για το στοιχείο "{element_name}"\nδημιουργήθηκε επιτυχώς!\n\nΑποθηκεύτηκε στο:\n{path}'
+            show_message_popup(
+                "PDF Έτοιμο",
+                msg,
+                callback=lambda: _open_pdf(path),
+            )
+
+        result = safe_generate_and_store_report(
+            app.conn,
+            maintenance_id=maintenance_id,
+            element_id=element_id,
+            gate_value=gate_value,
+            db_path=getattr(app, "db_path", None),
         )
+
+        if result.get("action_taken") == "prompt_user" and result.get("path"):
+            existing_path = result["path"]
+
+            def _replace_existing():
+                replace_result = safe_generate_and_store_report(
+                    app.conn,
+                    maintenance_id=maintenance_id,
+                    element_id=element_id,
+                    gate_value=gate_value,
+                    db_path=getattr(app, "db_path", None),
+                    user_prompted_action="replace",
+                )
+                if not replace_result.get("success"):
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        replace_result.get("message") or "Αποτυχία αντικατάστασης PDF.",
+                    )
+                    return
+                _show_success(replace_result["path"], replace_result.get("action_taken") or "replaced")
+
+            show_confirm(
+                S["TITLES"].get("CONFIRM", "Επιβεβαίωση"),
+                f"Το PDF υπάρχει ήδη:\n{existing_path}\n\nΘέλετε αντικατάσταση ή άνοιγμα του υπάρχοντος;",
+                yes_callback=_replace_existing,
+                yes_text="ΑΝΤΙΚΑΤΑΣΤΑΣΗ",
+                no_text="ΑΝΟΙΓΜΑ",
+                no_callback=lambda: _show_success(existing_path, "opened"),
+            )
+            return
+
+        if not result.get("success"):
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                result.get("message") or "Αποτυχία δημιουργίας PDF.",
+            )
+            return
+
+        _show_success(result["path"], result.get("action_taken") or "created")
 
     except Exception as e:
         show_message_popup(S["TITLES"]["ERROR"], f"Αποτυχία δημιουργίας PDF:\n{str(e)}")
@@ -332,7 +295,7 @@ def open_file(path, *, not_found_message="Το αρχείο δεν βρέθηκ�
         return False
 
 
-def show_confirm(title: str, message: str, yes_callback=None, yes_text="ΝΑΙ", no_text="ΟΧΙ", yes_color=None, size_hint=(0.6, 0.3)):
+def show_confirm(title: str, message: str, yes_callback=None, yes_text="ΝΑΙ", no_text="ΟΧΙ", yes_color=None, size_hint=(0.6, 0.3), no_callback=None):
     """Show a standardized confirmation popup and call `yes_callback` when confirmed.
 
     The callback is called after the popup is dismissed.
@@ -370,7 +333,19 @@ def show_confirm(title: str, message: str, yes_callback=None, yes_text="ΝΑΙ",
     buttons_layout.add_widget(yes_btn)
 
     no_btn = Button(text=no_text)
-    no_btn.bind(on_press=popup.dismiss)
+
+    def _on_no(_instance=None):
+        try:
+            popup.dismiss()
+        except Exception:
+            pass
+        try:
+            if no_callback:
+                no_callback()
+        except Exception:
+            pass
+
+    no_btn.bind(on_press=lambda x: _on_no(x))
     buttons_layout.add_widget(no_btn)
 
     layout.add_widget(buttons_layout)

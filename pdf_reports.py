@@ -28,6 +28,15 @@ from datetime import datetime
 
 from strings_proxy import STRINGS as S
 
+
+def _fs_path(path: str) -> str:
+    abs_path = os.path.abspath(path)
+    if os.name != "nt" or abs_path.startswith("\\\\?\\"):
+        return abs_path
+    if abs_path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + abs_path[2:]
+    return "\\\\?\\" + abs_path
+
 # Canonical breaker element names
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
 ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
@@ -169,11 +178,19 @@ class MaintenanceReportGenerator:
         Args:
             maintenance_id: ID of the maintenance record
             element_id: ID of the element (circuit breaker)
-            output_path: Optional output path for the PDF. If None, generates in 'reports' folder
+            output_path: REQUIRED - full path where the PDF should be saved
+                        This should be determined by report_sync module to ensure
+                        proper OneDrive folder structure and prevent empty folders
 
         Returns:
             Path to the generated PDF file
         """
+        if output_path is None:
+            raise ValueError(
+                "output_path is required. Use report_sync.get_or_prompt_report_path() "
+                "to determine proper output path and check for existing reports."
+            )
+        
         c = self.conn.cursor()
 
         # Get maintenance record
@@ -236,7 +253,11 @@ class MaintenanceReportGenerator:
             model_name,
         ) = element
 
-        # Removed coercion to 'Ελαίου'
+        # Legacy records can have a NULL breaker category; default to oil report
+        # to keep retroactive report generation resilient.
+        breaker_category = (breaker_category or "").strip()
+        if not breaker_category:
+            breaker_category = "Ελαίου"
 
         # Get maintenance measurements for this element
         c.execute(
@@ -264,23 +285,21 @@ class MaintenanceReportGenerator:
                 f"No maintenance data found for element {element_id} in maintenance {maintenance_id}"
             )
 
-        # Create output directory if needed
-        if output_path is None:
-            reports_dir = os.path.join(os.path.dirname(__file__), "reports")
-            os.makedirs(reports_dir, exist_ok=True)
+        # Ensure parent directory exists (folder should be created by caller)
+        parent_dir = os.path.dirname(output_path)
+        if not os.path.exists(_fs_path(parent_dir)):
+            os.makedirs(_fs_path(parent_dir), exist_ok=True)
 
-            # Generate filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_name = elem_name.replace("/", "-").replace("\\", "-")
-            output_path = os.path.join(
-                reports_dir, f"Maintenance_{safe_name}_{timestamp}.pdf"
-            )
+        output_write_path = _fs_path(output_path)
 
         # Generate the PDF based on breaker category
-        if "SF6" in breaker_category:
-            self._generate_sf6_report(output_path, maintenance, element, measurements)
-        elif breaker_category in ["Oil", "Πτωχού Ελαίου", "Ελαίου"]:
-            self._generate_oil_report(output_path, maintenance, element, measurements)
+        category_lower = breaker_category.lower()
+        if "sf6" in category_lower:
+            self._generate_sf6_report(output_write_path, maintenance, element, measurements)
+        elif category_lower in ["oil", "πτωχού ελαίου", "ελαίου"]:
+            self._generate_oil_report(output_write_path, maintenance, element, measurements)
+        elif category_lower in ["vacuum", "κενού"]:
+            self._generate_vacuum_report(output_write_path, maintenance, element, measurements)
         else:
             raise ValueError(f"Unknown breaker category: {breaker_category}")
 
@@ -465,6 +484,7 @@ class MaintenanceReportGenerator:
 
     def _create_measurements_table(self, measurements, breaker_category):
         """Create measurements table for insulation and contact resistance"""
+        breaker_category = (breaker_category or "").strip()
         (
             elem_comments,
             ins_closed_fa,
@@ -608,7 +628,7 @@ class MaintenanceReportGenerator:
         tables.append(table)
 
         # SF6 Gas Quality (only for SF6 breakers)
-        if "SF6" in breaker_category and (sf6_n2_fa or h2o_fa or so2_fa):
+        if "SF6" in breaker_category.upper() and (sf6_n2_fa or h2o_fa or so2_fa):
             sf6_data = [
                 ["ΠΟΙΟΤΗΤΑ ΑΕΡΙΟΥ SF6", "", "", ""],
                 ["", "SF6/N2 (%)", "H2O (°C atm)", "SO2 (ppm)"],
@@ -664,7 +684,7 @@ class MaintenanceReportGenerator:
             tables.append(sf6_table)
 
         # Vacuum Check VIDAR (only for Vacuum breakers)
-        if breaker_category == "Vacuum" and (vidar_fa or vidar_fb or vidar_fc):
+        if breaker_category.lower() in ["vacuum", "κενού"] and (vidar_fa or vidar_fb or vidar_fc):
             vidar_data = [
                 ["ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR)", "", "", ""],
                 ["", "ΦΑ-ΦΑ", "ΦΒ-ΦΒ", "ΦΓ-ΦΓ"],
@@ -927,11 +947,26 @@ def generate_maintenance_report(conn, maintenance_id, element_id, output_path=No
         conn: Database connection
         maintenance_id: ID of the maintenance record
         element_id: ID of the circuit breaker element
-        output_path: Optional output path for the PDF
+        output_path: REQUIRED - full path where the PDF should be saved
 
     Returns:
         Path to the generated PDF file
+        
+    Note:
+        output_path must be provided. Use report_sync module to determine proper path:
+        
+        from report_sync import safe_generate_and_store_report
+        result = safe_generate_and_store_report(
+            conn, 
+            maintenance_id=mid,
+            element_id=eid,
+        )
     """
+    if output_path is None:
+        raise ValueError(
+            "output_path is required. Use report_sync.safe_generate_and_store_report() instead."
+        )
+    
     generator = MaintenanceReportGenerator(conn)
     return generator.generate_maintenance_report(
         maintenance_id, element_id, output_path

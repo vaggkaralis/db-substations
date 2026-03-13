@@ -39,6 +39,7 @@ def get_model_prompt():
 import importlib
 
 from email_eml_parser import parse_eml_file
+from pdf_parser import parse_pdf_file
 from import_wizard import ColumnMappingPopup, DataValidationPopup
 from model_management import show_models_management
 from onedrive_hybrid_storage import (
@@ -1167,6 +1168,7 @@ class SubstationApp(App):
             "ask_open_file": ask_open_file,
             "show_message_popup": show_message_popup,
             "parse_eml_file": parse_eml_file,
+            "parse_pdf_file": parse_pdf_file,
         }
         try:
             # provide export helper if available
@@ -1191,6 +1193,7 @@ class SubstationApp(App):
             "ask_open_file": ask_open_file,
             "show_message_popup": show_message_popup,
             "parse_eml_file": parse_eml_file,
+            "parse_pdf_file": parse_pdf_file,
         }
         return _m(self, ui, parent_popup)
 
@@ -1198,6 +1201,30 @@ class SubstationApp(App):
         from maintenance import _import_maintenance_from_email_file as _m
         ui = {
             "parse_eml_file": parse_eml_file,
+            "show_message_popup": show_message_popup,
+        }
+        return _m(self, ui, file_path)
+
+    def _show_import_maintenance_pdf_dialog(self, parent_popup=None):
+        from maintenance import _show_import_maintenance_pdf_dialog as _m
+        ui = {
+            "Popup": Popup,
+            "BoxLayout": BoxLayout,
+            "Label": Label,
+            "Button": Button,
+            "TextInput": TextInput,
+            "FileChooserListView": FileChooserListView,
+            "Spinner": Spinner,
+            "ask_open_file": ask_open_file,
+            "show_message_popup": show_message_popup,
+            "parse_pdf_file": parse_pdf_file,
+        }
+        return _m(self, ui, parent_popup)
+
+    def _import_maintenance_from_pdf_file(self, file_path):
+        from maintenance import _import_maintenance_from_pdf_file as _m
+        ui = {
+            "parse_pdf_file": parse_pdf_file,
             "show_message_popup": show_message_popup,
         }
         return _m(self, ui, file_path)
@@ -1830,6 +1857,8 @@ class SubstationApp(App):
         retention_days_row.add_widget(retention_days_input)
         content.add_widget(retention_days_row)
 
+        default_shared_relative = "\\Κοινή Βάση Υποσταθμών"
+
         sync_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=5)
         sync_root_row.add_widget(
             Label(text=S["MESSAGES"].get("SYNC_ROOT_PATH_LABEL", "Φάκελος sync_root_path:"), size_hint_y=None, height=20)
@@ -1837,24 +1866,18 @@ class SubstationApp(App):
         sync_root_default = resolve_sync_root(self.db_path)
         sync_root_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
         sync_root_input = TextInput(
-            text=str(get_app_setting("sync_root_path", sync_root_default) or sync_root_default),
+            text=str(sync_root_default),
             multiline=False,
-            size_hint_x=0.95,
+            readonly=True,
+            size_hint_x=1.0,
             height=35,
         )
         sync_root_input_row.add_widget(sync_root_input)
-        sync_root_reset_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-
-        def _reset_sync_root(*_args):
-            sync_root_input.text = ""
-
-        sync_root_reset_btn.bind(on_press=_reset_sync_root)
-        sync_root_input_row.add_widget(sync_root_reset_btn)
         sync_root_row.add_widget(sync_root_input_row)
         sync_root_hint = Label(
             text=S["MESSAGES"].get(
                 "SYNC_ROOT_PATH_HINT",
-                "Κενό = προεπιλογή (δίπλα στη βάση: sync_exchange)",
+                "Το sync_root_path ορίζεται κεντρικά. Εδώ ρυθμίζετε μόνο το σχετικό onedrive_shared_root_path.",
             ),
             size_hint_y=None,
             height=20,
@@ -1862,6 +1885,47 @@ class SubstationApp(App):
         )
         sync_root_row.add_widget(sync_root_hint)
         content.add_widget(sync_root_row)
+
+        shared_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=5)
+        shared_root_row.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "ONEDRIVE_SHARED_ROOT_PATH_LABEL",
+                    "Φάκελος κοινών δεδομένων OneDrive (Κοινή Βάση Υποσταθμών):",
+                ),
+                size_hint_y=None,
+                height=20,
+            )
+        )
+        stored_shared_root = str(get_app_setting("onedrive_shared_root_path", "") or "").strip()
+        shared_root_display = stored_shared_root or default_shared_relative
+        shared_root_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
+        shared_root_input = TextInput(
+            text=shared_root_display,
+            multiline=False,
+            size_hint_x=0.95,
+            height=35,
+        )
+        shared_root_input_row.add_widget(shared_root_input)
+        shared_root_reset_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+
+        def _reset_shared_root(*_args):
+            shared_root_input.text = ""
+
+        shared_root_reset_btn.bind(on_press=_reset_shared_root)
+        shared_root_input_row.add_widget(shared_root_reset_btn)
+        shared_root_row.add_widget(shared_root_input_row)
+        shared_root_hint = Label(
+            text=S["MESSAGES"].get(
+                "ONEDRIVE_SHARED_ROOT_PATH_HINT",
+                "Σχετικό με το sync_root_path. Παράδειγμα: \\Κοινή Βάση Υποσταθμών",
+            ),
+            size_hint_y=None,
+            height=20,
+            color=(0.5, 0.5, 0.5, 1),
+        )
+        shared_root_row.add_widget(shared_root_hint)
+        content.add_widget(shared_root_row)
 
         content.add_widget(Widget(size_hint_y=None, height=15))
 
@@ -1966,33 +2030,76 @@ class SubstationApp(App):
                         # Will restart at the end of this function
                         pass
 
-            sync_root_text = (sync_root_input.text or "").strip()
+            shared_root_text = (shared_root_input.text or "").strip()
             backup_root_text = (backup_root_input.text or "").strip()
 
             default_sync_root = resolve_sync_root(self.db_path)
             default_backup_root = resolve_backup_root(self.db_path)
 
-            if sync_root_text:
-                # Check if it's an existing file (not directory)
-                if os.path.exists(sync_root_text) and not os.path.isdir(sync_root_text):
+            # sync_root_path is managed centrally; keep read-only in this dialog.
+            if os.path.exists(default_sync_root) and not os.path.isdir(default_sync_root):
+                show_message_popup(
+                    S["TITLES"]["ERROR"],
+                    f"Το sync_root_path δείχνει σε αρχείο, όχι φάκελο:\n{default_sync_root}\n\nΠαρακαλώ διορθώστε τη ρύθμιση."
+                )
+                return
+            if not os.path.exists(default_sync_root):
+                try:
+                    os.makedirs(default_sync_root)
+                except OSError as e:
                     show_message_popup(
                         S["TITLES"]["ERROR"],
-                        f"Το sync_root_path δείχνει σε αρχείο, όχι φάκελο:\n{sync_root_text}\n\nΠαρακαλώ επιλέξτε φάκελο."
+                        f"Αδυναμία δημιουργίας φακέλου sync_root_path:\n\n{default_sync_root}\n\nΣφάλμα: {str(e)}"
                     )
                     return
-                # Create directory only if it doesn't exist
-                if not os.path.exists(sync_root_text):
+
+            if shared_root_text:
+                raw_shared = os.path.expandvars(os.path.expanduser(shared_root_text))
+                rooted_relative = shared_root_text.startswith("\\") or shared_root_text.startswith("/")
+                shared_relative = ""
+
+                if rooted_relative:
+                    shared_relative = shared_root_text.lstrip("\\/").strip()
+                elif os.path.isabs(raw_shared):
+                    shared_abs = os.path.abspath(raw_shared)
+                    sync_abs = os.path.abspath(default_sync_root)
                     try:
-                        os.makedirs(sync_root_text)
+                        common = os.path.commonpath([sync_abs, shared_abs])
+                    except ValueError:
+                        common = ""
+                    if os.path.normcase(common) != os.path.normcase(sync_abs):
+                        show_message_popup(
+                            S["TITLES"]["ERROR"],
+                            "Το onedrive_shared_root_path πρέπει να είναι σχετικό με το sync_root_path ή απόλυτο path κάτω από αυτό.",
+                        )
+                        return
+                    shared_relative = os.path.relpath(shared_abs, sync_abs).strip("\\/")
+                else:
+                    shared_relative = raw_shared.strip("\\/")
+
+                if not shared_relative:
+                    shared_relative = default_shared_relative.lstrip("\\/")
+
+                shared_target_abs = os.path.join(default_sync_root, shared_relative)
+                if os.path.exists(shared_target_abs) and not os.path.isdir(shared_target_abs):
+                    show_message_popup(
+                        S["TITLES"]["ERROR"],
+                        f"Το onedrive_shared_root_path δείχνει σε αρχείο, όχι φάκελο:\n{shared_target_abs}\n\nΠαρακαλώ επιλέξτε φάκελο."
+                    )
+                    return
+                if not os.path.exists(shared_target_abs):
+                    try:
+                        os.makedirs(shared_target_abs)
                     except OSError as e:
                         show_message_popup(
                             S["TITLES"]["ERROR"],
-                            f"Αδυναμία δημιουργίας φακέλου sync_root_path:\n\n{sync_root_text}\n\nΣφάλμα: {str(e)}"
+                            f"Αδυναμία δημιουργίας φακέλου onedrive_shared_root_path:\n\n{shared_target_abs}\n\nΣφάλμα: {str(e)}"
                         )
                         return
-                set_app_setting("sync_root_path", os.path.abspath(sync_root_text))
+                shared_setting_value = "\\" + shared_relative.replace("/", "\\")
+                set_app_setting("onedrive_shared_root_path", shared_setting_value)
             else:
-                clear_app_setting("sync_root_path")
+                clear_app_setting("onedrive_shared_root_path")
 
             if backup_root_text:
                 # Check if it's an existing file (not directory)
@@ -2021,8 +2128,10 @@ class SubstationApp(App):
             set_app_setting("sync_retention_enabled", True)
             set_app_setting("sync_retention_days", retention_days)
 
-            if sync_root_text and os.path.abspath(sync_root_text) == os.path.abspath(default_sync_root):
-                clear_app_setting("sync_root_path")
+            if shared_root_text:
+                normalized_shared = str(get_app_setting("onedrive_shared_root_path", "") or "").strip()
+                if normalized_shared == default_shared_relative:
+                    clear_app_setting("onedrive_shared_root_path")
             if backup_root_text and os.path.abspath(backup_root_text) == os.path.abspath(default_backup_root):
                 clear_app_setting("backup_root_path")
 
@@ -12312,7 +12421,7 @@ class SubstationApp(App):
                     "notes": notes.text.strip(),
                 }
 
-                # Ensure DGA folder exists
+                # Determine DGA folder path (don't create yet)
                 folder_info = ensure_dga_folder(
                     self.conn,
                     substation_id=substation_id,
@@ -12326,6 +12435,10 @@ class SubstationApp(App):
                 safe_element_name = element_name.replace("/", "_").replace("\\", "_")
                 file_base = f"DGA_Report_{safe_element_name}_{stamp}.xlsx"
                 primary_report_path = os.path.join(folder_info["folder_path"], file_base)
+                
+                # Create folder ONLY when actually generating the report
+                os.makedirs(os.path.dirname(primary_report_path), exist_ok=True)
+                
                 template = os.path.join(os.path.dirname(__file__), "dga report.xlsx")
                 generate_dga_excel_report(template, primary_report_path, payload)
 
@@ -12338,6 +12451,8 @@ class SubstationApp(App):
                         db_path=self.db_path,
                     )
                     for target_folder in transformer_targets:
+                        # Create target folder only when copying file
+                        os.makedirs(target_folder, exist_ok=True)
                         secondary_path = os.path.join(target_folder, file_base)
                         shutil.copy2(primary_report_path, secondary_path)
                 except Exception:

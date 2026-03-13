@@ -19,6 +19,7 @@ def _make_ui_dict(ui):
         "ask_open_file",
         "show_message_popup",
         "parse_eml_file",
+        "parse_pdf_file",
         "import_maintenance_from_pst_file",
         "export_maintenances_per_substation",
     )
@@ -110,6 +111,15 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
 
     import_pst_btn.bind(on_press=_on_import_pst)
     buttons_row.add_widget(import_pst_btn)
+
+    import_pdf_btn = Button(text=S["MESSAGES"].get("IMPORT_PDF_FILE", "Εισαγωγή αρχείου .pdf"))
+
+    def _on_import_pdf(_instance=None):
+        popup.dismiss()
+        _show_import_maintenance_pdf_dialog(app, ui, parent_popup=parent_popup)
+
+    import_pdf_btn.bind(on_press=_on_import_pdf)
+    buttons_row.add_widget(import_pdf_btn)
     layout.add_widget(buttons_row)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.25)
@@ -392,6 +402,45 @@ def _import_maintenance_from_email_file(app, ui, file_path):
         payload = parse_eml_file(file_path)
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Αποτυχία ανάγνωσης .emλ:\n{str(exc)}")
+        return
+
+    app._open_maintenance_from_email_payload(payload)
+
+
+def _show_import_maintenance_pdf_dialog(app, ui, parent_popup=None):
+    ui = _make_ui_dict(ui)
+    ask_open_file = ui["ask_open_file"]
+    show_message_popup = ui["show_message_popup"]
+
+    try:
+        fp = ask_open_file(title="Select .pdf file", filetypes=(("PDF files", "*.pdf"),))
+    except ImportError:
+        fp = None
+    except Exception:
+        fp = None
+
+    if fp:
+        try:
+            if parent_popup:
+                parent_popup.dismiss()
+        except Exception:
+            pass
+        app._import_maintenance_from_pdf_file(fp)
+        return
+
+    show_message_popup(
+        "Σφάλμα",
+        "Δεν ήταν δυνατή η εμφάνιση επιλογέα αρχείων. Χρησιμοποιήστε το --file από γραμμή εντολών.",
+    )
+
+
+def _import_maintenance_from_pdf_file(app, ui, file_path):
+    parse_pdf_file = ui.get("parse_pdf_file")
+    show_message_popup = ui.get("show_message_popup")
+    try:
+        payload = parse_pdf_file(file_path)
+    except Exception as exc:
+        show_message_popup("Σφάλμα", f"Αποτυχία ανάγνωσης .pdf:\n{str(exc)}")
         return
 
     app._open_maintenance_from_email_payload(payload)

@@ -99,6 +99,41 @@ def _resolve_path_value(value: str | None) -> str | None:
     return os.path.abspath(os.path.join(settings_dir, expanded))
 
 
+def _normalize_onedrive_shared_root_value(value, settings: dict) -> str | None:
+    """Persist onedrive_shared_root_path as a rooted-relative segment.
+
+    Stored format: "\\Some Folder" (always relative to sync_root_path).
+    """
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if text.startswith("\\") or text.startswith("/"):
+        rel = text.lstrip("\\/").strip()
+        return ("\\" + rel.replace("/", "\\")) if rel else None
+
+    expanded = os.path.expandvars(os.path.expanduser(text))
+    if os.path.isabs(expanded):
+        abs_value = os.path.abspath(expanded)
+        sync_abs = _resolve_path_value(settings.get("sync_root_path"))
+        if sync_abs:
+            try:
+                common = os.path.commonpath([sync_abs, abs_value])
+            except ValueError:
+                common = ""
+            if os.path.normcase(common) == os.path.normcase(sync_abs):
+                rel = os.path.relpath(abs_value, sync_abs).strip("\\/")
+                return ("\\" + rel.replace("/", "\\")) if rel else None
+        rel = os.path.basename(abs_value.rstrip("\\/"))
+        return ("\\" + rel) if rel else None
+
+    rel = expanded.strip("\\/")
+    return ("\\" + rel.replace("/", "\\")) if rel else None
+
+
 def _normalize_settings(settings: dict) -> tuple[dict, bool]:
     """Fill in missing keys from the default template.
 
@@ -326,7 +361,10 @@ def set_app_setting(key: str, value) -> bool:
     """
     try:
         settings = _load_app_settings()
-        settings[key] = value
+        if key == "onedrive_shared_root_path":
+            settings[key] = _normalize_onedrive_shared_root_value(value, settings)
+        else:
+            settings[key] = value
         _save_app_settings(settings)
         return True
     except Exception:
