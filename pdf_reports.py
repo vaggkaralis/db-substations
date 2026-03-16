@@ -827,6 +827,11 @@ class MaintenanceReportGenerator:
 
         # Build PDF
         doc.build(story)
+        # Ensure file is readable by all users (fix Acrobat Reader access denied)
+        try:
+            os.chmod(output_path, 0o666)
+        except Exception:
+            pass
 
     def _generate_oil_report(
         self, output_path, maintenance_data, element_data, measurements
@@ -882,6 +887,11 @@ class MaintenanceReportGenerator:
 
         # Build PDF
         doc.build(story)
+        # Ensure file is readable by all users (fix Acrobat Reader access denied)
+        try:
+            os.chmod(output_path, 0o666)
+        except Exception:
+            pass
 
     def _generate_vacuum_report(
         self, output_path, maintenance_data, element_data, measurements
@@ -937,6 +947,11 @@ class MaintenanceReportGenerator:
 
         # Build PDF
         doc.build(story)
+        # Ensure file is readable by all users (fix Acrobat Reader access denied)
+        try:
+            os.chmod(output_path, 0o666)
+        except Exception:
+            pass
 
 
 def generate_maintenance_report(conn, maintenance_id, element_id, output_path=None):
