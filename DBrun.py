@@ -1,4 +1,5 @@
 import json
+import json
 import os
 import re
 import shutil
@@ -7,8 +8,7 @@ import sys
 import subprocess
 import unicodedata
 import webbrowser
-from datetime import datetime
-
+from datetime import datetime, timedelta
 from database import init_db
 from email_text_utils import normalize_text, tokenize_text, tokens_match, normalize_substation_tokens, tokenize_substation_text, iter_substation_name_candidates
 from importers import (import_elements_from_csv, import_elements_from_excel,
@@ -3830,25 +3830,59 @@ class SubstationApp(App):
         transformers = c.fetchall()
 
         num_gates = len(transformers)
-
-        # Regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, ...
         gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
-        # Regular gates: ΠΥΛΗ 1, ΠΥΛΗ 2, ...
         regular = [f"{gate_prefix} {i + 1}" for i in range(num_gates)]
-        # Interconnection gates: ΠΥΛΗ 1-2, ΠΥΛΗ 2-3, ...
-        inter = [f"{gate_prefix} {i}-{i + 1}" for i in range(1, num_gates)]
+        gate_numbers = [i + 1 for i in range(num_gates)]
+        from scripts.access_gate_utils import generate_interconnection_gate_labels
+        inter = generate_interconnection_gate_labels(gate_numbers)
+
+        inter_sorted = self.sort_gate_labels_for_display(inter)
 
         if is_interconnection is True:
-            gates = inter
+            gates = inter_sorted
         elif is_interconnection is False:
             gates = regular
         else:
-            # Default: if there are multiple transformers, include both regular and interconnection
-            # so users can pick gates that span transformers (e.g., 1-2).
-            gates = regular + inter
+            gates = regular + inter_sorted
 
-        # Always include option for unassigned
         return [get_unreg()] + gates
+
+    @staticmethod
+    def gate_display_sort_key(gate_label):
+        gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+        gate = str(gate_label or "").strip()
+        priority_order = [
+            f"{gate_prefix} 1-3",
+            f"{gate_prefix} 1",
+            f"{gate_prefix} 1-2",
+            f"{gate_prefix} 2",
+            f"{gate_prefix} 2-3",
+            f"{gate_prefix} 3",
+        ]
+        if gate in priority_order:
+            return (0, priority_order.index(gate))
+
+        inter_match = re.match(rf"{re.escape(gate_prefix)} (\d+)-(\d+)$", gate)
+        if inter_match:
+            return (1, int(inter_match.group(1)), int(inter_match.group(2)))
+
+        regular_match = re.match(rf"{re.escape(gate_prefix)} (\d+)$", gate)
+        if regular_match:
+            return (2, int(regular_match.group(1)))
+
+        return (3, gate)
+
+    @classmethod
+    def sort_gate_labels_for_display(cls, gate_labels):
+        return sorted(gate_labels, key=cls.gate_display_sort_key)
+
+    # Utility to sort element rows for display using the requested gate order.
+    @staticmethod
+    def sort_element_gate_display(element_rows):
+        def row_sort_key(row):
+            gate = row.get("gate") or ""
+            return SubstationApp.gate_display_sort_key(gate)
+        return sorted(element_rows, key=row_sort_key)
 
     def show_import_menu(self, instance):
         from imports import show_import_menu as _f
@@ -5167,7 +5201,7 @@ class SubstationApp(App):
                 gate_values = [all_label]
                 # Ensure we have a gate prefix available in this scope for sorting
                 gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
-                gate_values.extend(sorted([g for g in gate_set if g.startswith(gate_prefix)]))
+                gate_values.extend(self.sort_gate_labels_for_display([g for g in gate_set if g.startswith(gate_prefix)]))
                 gate_values.extend(sorted([g for g in gate_set if not g.startswith(gate_prefix)]))
                 if has_unassigned:
                     gate_values.append(get_unreg())
@@ -5321,24 +5355,20 @@ class SubstationApp(App):
                     for gate_key in gates_dict:
                         gates_dict[gate_key].sort(key=get_element_priority)
 
-                    # Display elements grouped by gate
-                    # Show gates in order: ΠΥΛΗ 1, ΠΥΛΗ 2, etc., then unassigned
-                    sorted_gates = sorted(
-                        [g for g in gates_dict.keys() if g.startswith("ΠΥΛΗ")]
+                    # Display elements grouped by gate in the requested visual order.
+                    gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+                    sorted_gates = self.sort_gate_labels_for_display(
+                        [g for g in gates_dict.keys() if g.startswith(gate_prefix)]
                     )
                     unreg_val = get_unreg()
                     if unreg_val in gates_dict:
                         sorted_gates.append(unreg_val)
-                    
-                    # Note: inactive elements are shown in a separate menu via show_inactive_elements()
-                    # They are NOT displayed here in the main element list
 
                     for gate_name in sorted_gates:
                         gate_elements = gates_dict[gate_name]
 
                         # Gate header with count
                         element_count = len(gate_elements)
-                        # Use red color for inactive gate header
                         header_color = (1, 0, 0, 1) if gate_name == "Ανενεργά" else (0.2, 0.6, 1, 1)
                         gate_label = Label(
                             text=f"   {gate_name} ({element_count} στοιχεία)",
@@ -5349,7 +5379,6 @@ class SubstationApp(App):
                         )
                         grid.add_widget(gate_label)
 
-                        # Display elements in this gate
                         for j, elem in enumerate(gate_elements, 1):
                             (
                                 elem_id,
@@ -5374,10 +5403,6 @@ class SubstationApp(App):
                                 manual_pdf,
                             ) = elem
 
-                            # Check if maintenance is overdue or missing
-                            from datetime import datetime, timedelta
-
-                            # Prefer element-specific maintenance cycle; fall back to model's if element has none
                             maintenance_cycle = None
                             if element_maintenance_cycle and element_maintenance_cycle > 0:
                                 maintenance_cycle = element_maintenance_cycle

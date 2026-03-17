@@ -29,13 +29,21 @@ def setup_app_with_substation_and_transformers(transformer_names):
 def test_get_available_gates_regular_and_inter():
     app, sid = setup_app_with_substation_and_transformers(["T1", "T2", "T3"])
     gates_both = app.get_available_gates(sid, None)
-    # Expect regular 1..3 and inter 1-2,2-3, plus the unassigned option
+    # Assignment-safe order: unassigned, regular gates first, then interconnections.
     assert "(Μη καταχωρημένο)" in gates_both
     assert "ΠΥΛΗ 1" in gates_both
     assert "ΠΥΛΗ 2" in gates_both
     assert "ΠΥΛΗ 3" in gates_both
     assert "ΠΥΛΗ 1-2" in gates_both
     assert "ΠΥΛΗ 2-3" in gates_both
+    assert gates_both[:6] == [
+        "(Μη καταχωρημένο)",
+        "ΠΥΛΗ 1",
+        "ΠΥΛΗ 2",
+        "ΠΥΛΗ 3",
+        "ΠΥΛΗ 1-3",
+        "ΠΥΛΗ 1-2",
+    ]
 
 
 def test_get_available_gates_inter_true_false():
@@ -46,6 +54,13 @@ def test_get_available_gates_inter_true_false():
     assert all("-" not in g for g in regular if g != "(Μη καταχωρημένο)")
     assert "ΠΥΛΗ 1-2" in inter
     assert all("-" in g for g in inter if g != "(Μη καταχωρημένο)")
+
+
+def test_sort_gate_labels_for_display_requested_order():
+    ordered = SubstationApp.sort_gate_labels_for_display(
+        ["ΠΥΛΗ 2-3", "ΠΥΛΗ 2", "ΠΥΛΗ 1-2", "ΠΥΛΗ 3", "ΠΥΛΗ 1", "ΠΥΛΗ 1-3"]
+    )
+    assert ordered == ["ΠΥΛΗ 1-3", "ΠΥΛΗ 1", "ΠΥΛΗ 1-2", "ΠΥΛΗ 2", "ΠΥΛΗ 2-3", "ΠΥΛΗ 3"]
 
 
 def test_breaker_category_and_format_helpers():

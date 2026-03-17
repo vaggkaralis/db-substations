@@ -1,3 +1,16 @@
+# Utility to generate all interconnection gate labels for a list of gate numbers
+def generate_interconnection_gate_labels(gate_numbers):
+    """
+    Given a list of gate numbers (e.g., [1, 2, 3]), return all unique interconnection gate labels.
+    Example: [1, 2, 3] -> ['ΠΥΛΗ 1-2', 'ΠΥΛΗ 1-3', 'ΠΥΛΗ 2-3']
+    """
+    labels = []
+    n = len(gate_numbers)
+    for i in range(n):
+        for j in range(i + 1, n):
+            labels.append(f"ΠΥΛΗ {gate_numbers[i]}-{gate_numbers[j]}")
+    return labels
+
 import re
 import unicodedata
 from collections import defaultdict
