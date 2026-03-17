@@ -1373,12 +1373,9 @@ class SubstationApp(App):
         return found
 
     def _find_elements_in_body(self, body_text: str, substation_id: int):
-        # Lightweight fallback: detailed element extraction from free text
-        # is complex and was removed accidentally. Return an empty set so
-        # callers safely continue when no elements are inferred from the
-        # message body. If advanced extraction is needed later, restore
-        # the original implementation.
-        return set()
+        from maintenance_email_importer import _find_elements_in_body as _m
+
+        return _m(self.conn, body_text, substation_id)
 
     def _get_previous_maintenance_defaults(
         self, substation_id: int, date_time_value: str
@@ -11539,6 +11536,26 @@ class SubstationApp(App):
             except Exception:
                 pass
 
+        def _show_element_comments_popup(comment_text):
+            comment_popup = Popup(
+                title=S["MESSAGES"].get("ELEMENT_COMMENTS_SECTION", "Σχόλια Στοιχείου"),
+                size_hint=(0.7, 0.45),
+            )
+            comment_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+            scroll_box = ScrollView(bar_width=8, scroll_type=["bars", "content"])
+            comment_label = Label(text=comment_text or "-", size_hint_y=None)
+            comment_label.bind(
+                width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                texture_size=lambda inst, val: setattr(inst, "height", val[1] + 10),
+            )
+            scroll_box.add_widget(comment_label)
+            comment_layout.add_widget(scroll_box)
+            close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=40)
+            close_btn.bind(on_press=comment_popup.dismiss)
+            comment_layout.add_widget(close_btn)
+            comment_popup.content = comment_layout
+            comment_popup.open()
+
         def render_cards():
             grid.clear_widgets()
 
@@ -11760,8 +11777,6 @@ class SubstationApp(App):
                     elem_row.bind(minimum_height=elem_row.setter("height"))
 
                     elem_text = f"  • {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
-                    if elem_comments:
-                        elem_text += "\n    " + S["MESSAGES"].get("COMMENTS_LABEL", "Σχόλια: {text}").format(text=elem_comments)
 
                     elem_label = Label(text=elem_text, size_hint_x=0.6, size_hint_y=None)
                     elem_label.bind(
@@ -11802,6 +11817,18 @@ class SubstationApp(App):
                         return lambda x: self.show_maintenance_element_details(m_id, e_id, e_name)
 
                     view_btn.bind(on_press=make_view_handler(maint_id, elem_id, elem_name))
+
+                    if elem_comments:
+                        comments_btn = Button(
+                            text=S["MESSAGES"].get("ELEMENT_COMMENTS_SECTION", "Σχόλια Στοιχείου"),
+                            size_hint_x=0.34,
+                            size_hint_y=None,
+                            height=35,
+                            **font_kwargs,
+                        )
+                        comments_btn.bind(on_press=lambda _x, text=elem_comments: _show_element_comments_popup(text))
+                        buttons_container.add_widget(comments_btn)
+
                     # Add folder button to the left of the view button
                     if folder_btn:
                         buttons_container.add_widget(folder_btn)

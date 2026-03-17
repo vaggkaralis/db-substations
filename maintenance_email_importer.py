@@ -499,17 +499,37 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
     normalized_body = re.sub(r"(μσ|ms)\s*[ilι]\b", r"\g<1>1", normalized_body)
     compact_body = re.sub(r"[^0-9a-zα-ω]+", "", normalized_body)
     compact_body = re.sub(r"(μσ|ms)[ilι](?![0-9])", r"\g<1>1", compact_body)
+    exact_designators = set()
+    for prefix, digits in re.findall(r"\b([a-zα-ω]{1,6})\s*[-/ ]\s*([0-9]{1,6})\b", normalized_body):
+        exact_designators.add(f"{prefix}{digits}")
+    for prefix, digits in re.findall(r"\b([a-zα-ω]{1,6})([0-9]{1,6})\b", normalized_body):
+        exact_designators.add(f"{prefix}{digits}")
+    breaker_refs = set()
+    for digits in re.findall(r"\bρ\s*[-/ ]?\s*([0-9]{1,4})\b", normalized_body):
+        breaker_refs.add(digits)
     has_satyf = "σατυφ" in compact_body
-    transformer_numbers = set(
-        re.findall(r"(?:μσ|μετασχηματιστησ)[^0-9]{0,3}([0-9]+)", normalized_body)
-    )
-    transformer_numbers.update(
-        re.findall(r"(?:ms|transformer)[^0-9]{0,3}([0-9]+)", normalized_body)
-    )
-    ms_numbers = set(re.findall(r"μσ([0-9]+)", compact_body))
-    ms_numbers.update(re.findall(r"ms([0-9]+)", compact_body))
+    # Only extract numbers from explicit designators (e.g., ΜΣ2, ΜΣ-2, Μετασχηματιστής 2)
+    transformer_numbers = set()
+    ms_numbers = set()
+    # Patterns for explicit transformer designators
+    explicit_patterns = [
+        r"μ[σς][ -]?([0-9]+)\b",
+        r"μετασχηματιστ(ης|ής)[ -]?([0-9]+)\b",
+        r"ms[ -]?([0-9]+)\b",
+        r"transformer[ -]?([0-9]+)\b",
+    ]
+    for pat in explicit_patterns:
+        for m in re.finditer(pat, normalized_body):
+            # For patterns with two groups, the number is always the last group
+            if len(m.groups()) == 2:
+                num = m.group(2)
+            else:
+                num = m.group(1)
+            transformer_numbers.add(num)
+            ms_numbers.add(num)
 
     matched = set()
+    exact_breaker_matches = set()
     motor_drive_candidates = []
     for elem_id, elem_name, elem_type in elements:
         base = _normalize_text(elem_name)
@@ -517,13 +537,19 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
         variants = {compact}
 
         digits = "".join(ch for ch in compact if ch.isdigit())
+        elem_type_norm = _normalize_text(elem_type)
+        is_transformer = (
+            "μετασχηματιστης" in elem_type_norm
+            or compact.startswith("μσ")
+            or compact.startswith("ms")
+        )
+        is_r_breaker = compact.startswith("ρ") and digits != ""
+
         if digits:
-            if "μετασχηματιστης" in _normalize_text(elem_type) or compact.startswith(
-                "μσ"
-            ):
+            if is_transformer:
                 variants.add(f"μσ{digits}")
                 variants.add(f"μετασχηματιστης{digits}")
-            if compact.startswith("ρ"):
+            if is_r_breaker:
                 variants.add(f"ρ{digits}")
 
         element_ms_numbers = set(
@@ -535,7 +561,6 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
         element_ms_numbers.update(re.findall(r"μσ([0-9]+)", compact))
         element_ms_numbers.update(re.findall(r"ms([0-9]+)", compact))
 
-        elem_type_norm = _normalize_text(elem_type)
         is_motor_drive = (
             "motor drive" in elem_type_norm
             or elem_type_norm == "motordrive"
@@ -572,6 +597,50 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
             if not digits and len(transformer_numbers | ms_numbers) == 1:
                 matched.add(elem_id)
                 continue
+
+        # Transformers must be referenced explicitly with a transformer designator
+        # like ΜΣ2, ΜΣ-2, Μετασχηματιστής 2. Generic mentions like "δύο ΜΣ" must not resolve to ΜΣ2.
+        if is_transformer:
+            # Only match if explicit designator (ΜΣ2, ΜΣ-2, Μετασχηματιστής 2) with strong operational context is present
+            def _has_strong_transformer_context(ms_digits: str) -> bool:
+                # Only match if the designator appears as a whole word (not as part of a count or generic mention)
+                # e.g., "ΜΣ2", "ΜΣ-2", "Μετασχηματιστής 2"
+                patterns = [
+                    rf"μ[σς][ -]?{re.escape(ms_digits)}\b",
+                    rf"μετασχηματιστ(ης|ής)[ -]?{re.escape(ms_digits)}\b",
+                    rf"ms[ -]?{re.escape(ms_digits)}\b",
+                    rf"transformer[ -]?{re.escape(ms_digits)}\b",
+                ]
+                # Require strong operational context near the designator
+                for pat in patterns:
+                    strong = re.search(
+                        rf"(?:\b(συντηρ|εργασ|μετρησ|επανασυνδε|αφαιρεσ|εγκαταστασ)\w*\b[^\n.,;:()]{{0,30}}\b{pat}|\b{pat}[^\n.,;:()]{{0,30}}\b(συντηρ|εργασ|μετρησ|επανασυνδε|αφαιρεσ|εγκαταστασ)\w*\b)",
+                        normalized_body,
+                    )
+                    if strong:
+                        return True
+                return False
+            # Only match if explicit designator and strong context
+            if digits and digits in (transformer_numbers | ms_numbers):
+                if _has_strong_transformer_context(digits):
+                    matched.add(elem_id)
+            continue
+
+        # Breakers named Ρ-15 / Ρ-255 must match exact R-designators from the mail,
+        # whether written as Ρ15 or Ρ-15.
+        if is_r_breaker:
+            if digits and digits in breaker_refs:
+                matched.add(elem_id)
+                exact_breaker_matches.add(elem_id)
+            continue
+
+        # For all other numbered elements, allow only exact compact designator matches.
+        if is_transformer:
+            # Do not allow fallback substring/variant matching for transformers
+            continue
+        if digits and compact in exact_designators:
+            matched.add(elem_id)
+            continue
 
         # Use regex with word boundary to avoid substring matches
         # e.g., "ρ25" should not match "ρ250"
@@ -641,6 +710,11 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
             continue
         if elem_id in matched and _is_weak_transformer_context(ms_match.group(1)):
             matched.discard(elem_id)
+
+    # Exact breaker designators are the highest-confidence matches in email text.
+    # When present, avoid preselecting additional elements from the same mail.
+    if exact_breaker_matches:
+        return exact_breaker_matches
 
     return matched
 
