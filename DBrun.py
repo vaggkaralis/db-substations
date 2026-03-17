@@ -11296,6 +11296,7 @@ class SubstationApp(App):
         # Bulk-prefetch people and elements for all loaded records
         people_by_maint = {}
         elements_by_maint = {}
+        dga_report_by_maint = {}
         all_elements_in_sub = []  # [(id, name, element_type), ...] for element filter
 
         if maintenance_records:
@@ -11319,11 +11320,24 @@ class SubstationApp(App):
                 elif role == "crew":
                     entry["crew"].append(person_name)
 
+            c.execute(
+                f"""
+                SELECT maintenance_id, report_path
+                FROM dga_measurements
+                WHERE maintenance_id IN ({placeholders})
+                ORDER BY maintenance_id, measurement_date DESC, created_at DESC, id DESC
+                """,
+                maint_ids,
+            )
+            for maintenance_id, report_path in c.fetchall():
+                if maintenance_id not in dga_report_by_maint:
+                    dga_report_by_maint[maintenance_id] = report_path
+
             elements_added_per_maint = {mid: set() for mid in maint_ids}
             c.execute(
                 f"""
                 SELECT me.maintenance_id, e.id, e.element_type, e.name, e.serial_number,
-                       me.element_comments, e.breaker_category
+                       me.element_comments, e.breaker_category, e.manufacturer
                 FROM maintenance_elements me
                 JOIN elements e ON me.element_id = e.id
                 WHERE me.maintenance_id IN ({placeholders})
@@ -11331,10 +11345,10 @@ class SubstationApp(App):
                 """,
                 maint_ids,
             )
-            for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in c.fetchall():
+            for m_id, elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category, manufacturer in c.fetchall():
                 if elem_id not in elements_added_per_maint[m_id]:
                     elements_by_maint.setdefault(m_id, []).append(
-                        (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category)
+                        (elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category, manufacturer)
                     )
                     elements_added_per_maint[m_id].add(elem_id)
 
@@ -11651,7 +11665,7 @@ class SubstationApp(App):
                                 substation_name=substation_name,
                                 gate_value=None,
                                 serial_number=elements[0][3],
-                                manufacturer=None,
+                                manufacturer=elements[0][6],
                                 dga_id=dga_id,
                             )
                         else:
@@ -11669,15 +11683,21 @@ class SubstationApp(App):
                     return lambda x: self.show_maintenance_full_report(m_id, popup)
 
                 # Folder button (only if link exists) — immediately to the left of the eye button
+                header_folder_link = onedrive_media_folder_link
+                if not header_folder_link and maintenance_type == "Φυσικοχημικές/Αεριοχρωματογραφία":
+                    dga_report_path = dga_report_by_maint.get(maint_id)
+                    if dga_report_path and os.path.exists(dga_report_path):
+                        header_folder_link = os.path.dirname(dga_report_path)
+
                 folder_btn = None
-                if onedrive_media_folder_link and onedrive_media_folder_link.strip():
+                if header_folder_link and header_folder_link.strip():
                     folder_btn = IconOnlyButton(
                         icon_type="folder",
                         icon_color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
                         size=(35, 35),
                         tooltip="Φάκελος"
                     )
-                    folder_btn.bind(on_press=lambda x, link=onedrive_media_folder_link: open_folder_or_url(link))
+                    folder_btn.bind(on_press=lambda x, link=header_folder_link: open_folder_or_url(link))
 
                 # View full report button (eye icon)
                 view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
@@ -11772,7 +11792,7 @@ class SubstationApp(App):
                     size_hint_y=None, height=25, bold=True,
                 ))
 
-                for elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category in elements:
+                for elem_id, elem_type, elem_name, serial_num, elem_comments, breaker_category, manufacturer in elements:
                     elem_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
                     elem_row.bind(minimum_height=elem_row.setter("height"))
 
@@ -11789,24 +11809,6 @@ class SubstationApp(App):
                     elem_row.add_widget(elem_label)
 
                     buttons_container = BoxLayout(size_hint_x=0.4, spacing=5)
-
-                    # Add folder button for DGA report if present
-                    from ui.shared import IconOnlyButton
-                    import os
-                    c2 = self.conn.cursor()
-                    c2.execute("SELECT report_path FROM dga_measurements WHERE maintenance_id=? AND element_id=? ORDER BY measurement_date DESC, created_at DESC LIMIT 1", (maint_id, elem_id))
-                    dga_row = c2.fetchone()
-                    folder_btn = None
-                    if dga_row and dga_row[0] and os.path.exists(dga_row[0]):
-                        def _open_folder(_x, path=dga_row[0]):
-                            folder = os.path.dirname(path)
-                            if os.path.exists(folder):
-                                try:
-                                    os.startfile(folder)
-                                except Exception:
-                                    pass
-                        folder_btn = IconOnlyButton(icon_type="folder", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(38, 36), tooltip="Φάκελος")
-                        folder_btn.bind(on_press=lambda _x, path=dga_row[0]: _open_folder(_x, path))
 
                     view_btn = Button(
                         text=S["MESSAGES"].get("VIEW_SHORT", "Προβ."),
@@ -11829,9 +11831,6 @@ class SubstationApp(App):
                         comments_btn.bind(on_press=lambda _x, text=elem_comments: _show_element_comments_popup(text))
                         buttons_container.add_widget(comments_btn)
 
-                    # Add folder button to the left of the view button
-                    if folder_btn:
-                        buttons_container.add_widget(folder_btn)
                     buttons_container.add_widget(view_btn)
 
                     if (
