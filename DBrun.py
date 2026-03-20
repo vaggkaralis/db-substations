@@ -105,6 +105,8 @@ try:
     CoreImage = importlib.import_module("kivy.core.image").Image
     Clipboard = importlib.import_module("kivy.core.clipboard").Clipboard
     Clock = importlib.import_module("kivy.clock").Clock
+    from kivy.core.text import Label as CoreLabel
+    from kivy.graphics import PushMatrix, PopMatrix, Rotate, Translate
 except Exception:
     # Running in test environment without Kivy available — provide lightweight stubs
     class _StubWidget:
@@ -172,12 +174,149 @@ except Exception:
                 cb(0)
             except Exception:
                 pass
+    try:
+        from kivy.core.text import Label as CoreLabel
+    except Exception:
+        CoreLabel = None
+    # No-op matrix operations for test environment
+    def PushMatrix():
+        return None
+    def PopMatrix():
+        return None
+    def Rotate(*a, **k):
+        return None
+    def Translate(*a, **k):
+        return None
     import logging
     logging.basicConfig()
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("PIL.PngImagePlugin").setLevel(logging.WARNING)
 from validation import (PEOPLE_ROLES, filter_people_for_maintenance,
                         group_people_by_category)
+
+# Gate color manager (consistent colors across the app)
+GATE_COLOR_PALETTE = [
+    (0.2, 0.6, 1, 1),
+    (0.96, 0.76, 0.2, 1),
+    (0.8, 0.2, 0.2, 1),
+    (0.4, 0.8, 0.4, 1),
+    (0.6, 0.3, 0.85, 1),
+    (0.95, 0.4, 0.7, 1),
+    (0.2, 0.8, 0.8, 1),
+]
+_gate_color_map = {}
+_assigned_colors = {}
+
+def get_gate_color(label: str):
+    """Return a deterministic color for a gate label.
+
+    Ensures different labels are assigned different colors when possible by
+    probing the palette; if palette is exhausted, generates a unique HSV-based color.
+    """
+    if not label:
+        return (0.85, 0.85, 0.85, 1)
+    if label in _gate_color_map:
+        return _gate_color_map[label]
+
+    try:
+        import hashlib
+        import colorsys
+
+        h = int(hashlib.md5(str(label).encode("utf-8")).hexdigest(), 16)
+        base_idx = h % len(GATE_COLOR_PALETTE)
+
+        # Linear probe to avoid assigning the same palette color to different labels
+        for offset in range(len(GATE_COLOR_PALETTE)):
+            idx = (base_idx + offset) % len(GATE_COLOR_PALETTE)
+            candidate = GATE_COLOR_PALETTE[idx]
+            # if candidate unused or already assigned to this label, use it
+            owner = _assigned_colors.get(candidate)
+            if owner is None or owner == label:
+                color = candidate
+                break
+        else:
+            # Palette exhausted: generate an HSV-based color from the hash
+            hue = (h % 360) / 360.0
+            sat = 0.65 + ((h >> 8) % 20) / 100.0  # 0.65-0.84
+            val = 0.7 + ((h >> 16) % 20) / 100.0  # 0.70-0.89
+            r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
+            color = (r, g, b, 1)
+    except Exception:
+        color = GATE_COLOR_PALETTE[0]
+
+    _gate_color_map[label] = color
+    try:
+        _assigned_colors[color] = label
+    except Exception:
+        pass
+    return color
+
+
+class GateTag(Widget):
+    """Small vertical tag showing gate name rotated bottom->top with colored background."""
+
+    def __init__(self, label, **kwargs):
+        super().__init__(**kwargs)
+        self.gate_label = str(label or "")
+        self.size_hint_x = None
+        self.width = 36
+        self.size_hint_y = None
+        self.height = 0
+        self._bg = get_gate_color(self.gate_label)
+        self.bind(pos=self._update, size=self._update)
+
+    def _update(self, *a):
+        self.canvas.clear()
+        with self.canvas:
+            Color(*self._bg)
+            Rectangle(pos=self.pos, size=(self.width, self.height))
+            # draw rotated text using CoreLabel if available
+            if CoreLabel:
+                try:
+                    lab = CoreLabel(text=self.gate_label, font_size=14)
+                    lab.refresh()
+                    tex = lab.texture
+                    if tex:
+                        # compute scaling so rotated text fits inside tag height
+                        tex_w, tex_h = tex.size
+                        # after rotation, the texture width becomes vertical span; ensure it fits
+                        avail = max(4, self.height - 8)
+                        scale = min(1.0, avail / float(tex_w)) if tex_w > 0 else 1.0
+                        draw_w = tex_w * scale
+                        draw_h = tex_h * scale
+                        PushMatrix()
+                        Translate(self.x + self.width / 2, self.y + self.height / 2)
+                        Rotate(angle=90, origin=(0, 0))
+                        Color(1, 1, 1, 1)
+                        Rectangle(texture=tex, pos=(-draw_w / 2, -draw_h / 2), size=(draw_w, draw_h))
+                        PopMatrix()
+                except Exception:
+                    pass
+
+
+def add_gate_tag_if_missing(container, gate_name):
+    """Add a GateTag to `container` if one isn't already present."""
+    try:
+        # If any child already looks like a GateTag, skip
+        for child in getattr(container, "children", []):
+            try:
+                if getattr(child, "gate_label", None) is not None:
+                    return
+            except Exception:
+                continue
+        gt = GateTag(gate_name)
+        gt.size_hint_x = None
+        gt.width = 36
+        gt.size_hint_y = None
+        gt.height = getattr(container, "height", 64) or 64
+        container.add_widget(gt, index=0)
+        # Bind height so tag follows row height
+        try:
+            container.bind(height=lambda inst, val: setattr(gt, "height", val))
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
@@ -887,8 +1026,8 @@ class SubstationApp(App):
         self.sync_onedrive_btn = StatusButton(
             text=S["MESSAGES"].get("SYNC_ONEDRIVE_BUTTON", "Συγχρονισμός OneDrive"),
             size_hint=(None, None),
-            height=30,
-            width=170,
+            height=34,
+            width=210,
             font_size="12sp",
             text_color=(1, 1, 1, 1),
         )
@@ -904,6 +1043,11 @@ class SubstationApp(App):
         self.app_info_btn.bind(on_press=self.show_app_info_popup)
         top_bar.add_widget(self.app_info_btn)
         layout.add_widget(top_bar)
+        try:
+            # Accept files dragged onto the window (Windows: .msg/.eml supported)
+            Window.bind(on_dropfile=self._on_drop_file)
+        except Exception:
+            pass
 
         self.show_btn = IconButton(
             text=S["MESSAGES"].get("SHOW_DB_BUTTON", "Προβολή βάσης υποσταθμών"), icon_type="database", theme=self.theme
@@ -1229,6 +1373,73 @@ class SubstationApp(App):
             "show_message_popup": show_message_popup,
         }
         return _m(self, ui, file_path)
+
+    def _on_drop_file(self, window, file_path):
+        """Handle files dropped onto the app window.
+
+        Supports .eml directly and attempts to convert .msg (Outlook) to .eml
+        using Outlook COM when running on Windows.
+        """
+        try:
+            if isinstance(file_path, (bytes, bytearray)):
+                path = file_path.decode("utf-8", errors="ignore")
+            else:
+                path = str(file_path)
+            path = os.path.normpath(path)
+            if not path:
+                return
+
+            # Some drop events provide a URI like file:///C:/...
+            if path.startswith("file://"):
+                path = path[7:]
+
+            if os.path.isdir(path):
+                # import all .eml files in folder
+                for fn in os.listdir(path):
+                    if fn.lower().endswith(".eml"):
+                        fp = os.path.join(path, fn)
+                        try:
+                            self._import_maintenance_from_email_file(fp)
+                        except Exception:
+                            continue
+                return
+
+            if not os.path.exists(path):
+                return
+
+            ext = os.path.splitext(path)[1].lower()
+            if ext == ".eml":
+                try:
+                    self._import_maintenance_from_email_file(path)
+                except Exception as exc:
+                    show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), f"Αποτυχία εισαγωγής .eml:\n{exc}")
+                return
+
+            if ext == ".msg" and sys.platform == "win32":
+                try:
+                    import tempfile
+                    import time
+                    import win32com.client
+
+                    outlook = win32com.client.Dispatch("Outlook.Application")
+                    namespace = outlook.GetNamespace("MAPI")
+                    # Open .msg as shared item
+                    item = namespace.OpenSharedItem(path)
+                    ts = int(time.time() * 1000)
+                    temp_eml = os.path.join(tempfile.gettempdir(), f"drag_import_{ts}.eml")
+                    # olRFC822 = 5 -> save as RFC822 (.eml)
+                    item.SaveAs(temp_eml, 5)
+                    if os.path.exists(temp_eml):
+                        self._import_maintenance_from_email_file(temp_eml)
+                except Exception as exc:
+                    show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), f"Αποτυχία μετατροπής .msg:\n{exc}")
+                return
+
+        except Exception as exc:
+            try:
+                show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), f"Σφάλμα επεξεργασίας drag-drop:\n{exc}")
+            except Exception:
+                pass
 
     def _show_import_maintenance_pdf_dialog(self, parent_popup=None):
         from maintenance import _show_import_maintenance_pdf_dialog as _m
@@ -5104,7 +5315,7 @@ class SubstationApp(App):
                 # Location button (clickable) - do not display raw URL; center the button
                 if location:
                     btn_holder = BoxLayout(size_hint_x=0.17)
-                    btn_holder.add_widget(Widget())
+                    btn_holder.add_widget(globals()["Widget"]())
                     location_btn = Button(
                         text=S["MESSAGES"].get("GOOGLE_MAPS_LINK", "Google Maps Link"),
                         size_hint=(None, None),
@@ -5114,7 +5325,7 @@ class SubstationApp(App):
                     )
                     location_btn.bind(on_press=lambda x, url=location: webbrowser.open(url))
                     btn_holder.add_widget(location_btn)
-                    btn_holder.add_widget(Widget())
+                    btn_holder.add_widget(globals()["Widget"]())
                     sub_row_layout.add_widget(btn_holder)
                 else:
                     lbl_loc = Label(text=S["MESSAGES"]["DASH"], size_hint_x=0.17)
@@ -5184,9 +5395,9 @@ class SubstationApp(App):
                 actions_container = BoxLayout(size_hint_x=0.32, spacing=6)
                 # monogram occupies the left portion (matching header 0.12 / 0.32)
                 mono_portion = BoxLayout(size_hint_x=0.375)
-                mono_portion.add_widget(Widget())
+                mono_portion.add_widget(globals()["Widget"]())
                 mono_portion.add_widget(monogram_btn)
-                mono_portion.add_widget(Widget())
+                mono_portion.add_widget(globals()["Widget"]())
                 actions_container.add_widget(mono_portion)
 
                 # small action buttons on the right portion
@@ -5572,6 +5783,9 @@ class SubstationApp(App):
                                 minimum_height=elem_layout.setter("height")
                             )
 
+                            # Add a small vertical GateTag at the left of the row
+                            add_gate_tag_if_missing(elem_layout, gate_name)
+
                             elem_label = Label(
                                 text=elem_text, size_hint=(0.75, None), markup=True
                             )
@@ -5579,15 +5793,35 @@ class SubstationApp(App):
                             elem_label.bind(
                                 width=lambda instance, value: setattr(
                                     instance, "text_size", (value, None)
-                                ),
-                                texture_size=lambda instance, value: (
-                                    setattr(instance, "height", max(70, value[1] + 10)),
-                                    setattr(
-                                        elem_layout, "height", max(70, value[1] + 10)
-                                    ),
-                                ),
+                                )
                             )
+
+                            # Add separator line after each element
+                            from kivy.uix.widget import Widget
+                            from kivy.graphics import Color, Rectangle
+                            class SeparatorLine(Widget):
+                                def __init__(self, **kwargs):
+                                    super().__init__(**kwargs)
+                                    self.size_hint_y = None
+                                    self.size_hint_x = 1
+                                    # give some vertical space and draw a thin line centered
+                                    self.height = 8
+                                    self._thickness = 2
+                                    with self.canvas:
+                                        Color(0.7, 0.7, 0.7, 1)
+                                        self._rect = Rectangle(pos=(self.x, self.y + (self.height - self._thickness) / 2), size=(self.width, self._thickness))
+                                    self.bind(pos=self._update_rect, size=self._update_rect)
+
+                                def _update_rect(self, *args):
+                                    try:
+                                        self._rect.pos = (self.x, self.y + (self.height - self._thickness) / 2)
+                                        self._rect.size = (self.width, self._thickness)
+                                    except Exception:
+                                        pass
+
+                            add_gate_tag_if_missing(elem_layout, gate_name)
                             elem_layout.add_widget(elem_label)
+                            # Note: separator will be added to the parent `grid` after the element row
 
                             # Button container (icon-only buttons: manual, history, view, edit, delete)
                             btn_box = BoxLayout(size_hint_x=0.25, spacing=6)
@@ -5652,17 +5886,18 @@ class SubstationApp(App):
                             elem_layout.add_widget(btn_box)
 
                             grid.add_widget(elem_layout)
+                            # full-width separator after the element row
+                            grid.add_widget(SeparatorLine())
                 else:
-                    no_elem_label = Label(
-                        text="   " + S["MESSAGES"]["NO_ELEMENTS_PAREN"], size_hint_y=None, height=30
-                    )
-                    grid.add_widget(no_elem_label)
-
-                # Add spacing between substations
-                spacing_widget = Label(text="", size_hint_y=None, height=30)
-                grid.add_widget(spacing_widget)
-        else:
-            empty_label = Label(text=S["MESSAGES"]["EMPTY_DB"], size_hint_y=None, height=40)
+                            elem_label = Label(
+                                text=elem_text, size_hint=(0.75, None), markup=True
+                            )
+                            # Enable text wrapping and automatic height calculation
+                            elem_label.bind(
+                                width=lambda instance, value: setattr(instance, "text_size", (value, None))
+                            )
+                            elem_layout.add_widget(elem_label)
+            empty_label = Label(text="", size_hint_y=None, height=10)
             grid.add_widget(empty_label)
 
         scroll.add_widget(grid)
@@ -11121,10 +11356,28 @@ class SubstationApp(App):
 
                     checkbox.bind(active=_on_checkbox_active)
 
+
                     elements_container.add_widget(elem_box)
 
-                    spacing = Label(text="", size_hint_y=None, height=5)
-                    elements_container.add_widget(spacing)
+                    # Add a visible separator line using Canvas
+                    from kivy.uix.widget import Widget
+                    from kivy.graphics import Color, Rectangle
+                    class SeparatorLine(Widget):
+                        def __init__(self, **kwargs):
+                            super().__init__(**kwargs)
+                            self.size_hint_y = None
+                            self.height = 2
+                            with self.canvas:
+                                Color(0.7, 0.7, 0.7, 1)
+                                Rectangle(pos=self.pos, size=(self.width, 2))
+                            self.bind(pos=self._update_rect, size=self._update_rect)
+                        def _update_rect(self, *args):
+                            self.canvas.clear()
+                            with self.canvas:
+                                Color(0.7, 0.7, 0.7, 1)
+                                Rectangle(pos=self.pos, size=(self.width, 2))
+
+                    elements_container.add_widget(SeparatorLine())
 
                     # Update existing element_widgets entry instead of overwriting
                     element_widgets.setdefault(elem_id, {})
