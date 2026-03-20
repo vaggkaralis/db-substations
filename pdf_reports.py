@@ -37,6 +37,124 @@ def _fs_path(path: str) -> str:
         return "\\\\?\\UNC\\" + abs_path[2:]
     return "\\\\?\\" + abs_path
 
+
+def _safe_filename_component(value: str) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "")).strip()
+    text = "".join(ch for ch in text if ch.isalnum() or ch in {"-", "_", " "})
+    text = "_".join(text.split())
+    return text or "checklist"
+
+
+def generate_preparation_checklist_pdf(checklist_state, categories, metadata=None, output_path=None):
+    if not _HAS_REPORTLAB:
+        raise RuntimeError("Το ReportLab δεν είναι διαθέσιμο για δημιουργία PDF checklist.")
+
+    metadata = metadata or {}
+    state = checklist_state if isinstance(checklist_state, dict) else {}
+    selected_categories = state.get("selected_categories") or []
+    item_values = state.get("items") if isinstance(state.get("items"), dict) else {}
+
+    if output_path is None:
+        reports_dir = os.path.join(os.path.dirname(__file__), "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        title_part = _safe_filename_component(metadata.get("maintenance_name") or metadata.get("title") or "preparation_checklist")
+        date_part = _safe_filename_component(metadata.get("date_time") or datetime.now().strftime("%Y-%m-%d_%H-%M"))
+        output_path = os.path.join(reports_dir, f"{title_part}_{date_part}_checklist.pdf")
+
+    generator = MaintenanceReportGenerator(None)
+    font_name = getattr(generator, "greek_font", "Helvetica")
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "ChecklistTitle",
+        parent=styles["Title"],
+        fontName=font_name,
+        fontSize=16,
+        leading=20,
+        alignment=TA_CENTER,
+        spaceAfter=10,
+    )
+    heading_style = ParagraphStyle(
+        "ChecklistHeading",
+        parent=styles["Heading2"],
+        fontName=font_name,
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor("#17324d"),
+        spaceBefore=8,
+        spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        "ChecklistBody",
+        parent=styles["BodyText"],
+        fontName=font_name,
+        fontSize=10,
+        leading=13,
+        alignment=TA_LEFT,
+    )
+
+    story = [Paragraph("Checklist προετοιμασίας εργασίας", title_style)]
+
+    metadata_lines = []
+    if metadata.get("maintenance_name"):
+        metadata_lines.append(f"Συντήρηση: {metadata['maintenance_name']}")
+    if metadata.get("substation_name"):
+        metadata_lines.append(f"Υποσταθμός: {metadata['substation_name']}")
+    if metadata.get("maintenance_type"):
+        metadata_lines.append(f"Τύπος: {metadata['maintenance_type']}")
+    if metadata.get("date_time"):
+        metadata_lines.append(f"Ημερομηνία: {metadata['date_time']}")
+
+    for line in metadata_lines:
+        story.append(Paragraph(line, body_style))
+
+    if metadata_lines:
+        story.append(Spacer(1, 6))
+
+    visible_categories = [
+        category for category in categories
+        if category.get("key") in selected_categories
+    ]
+
+    if not visible_categories:
+        story.append(Paragraph("Δεν έχουν επιλεγεί κατηγορίες checklist.", body_style))
+    else:
+        for category in visible_categories:
+            category_key = category.get("key")
+            story.append(Paragraph(category.get("label") or category_key or "Κατηγορία", heading_style))
+
+            table_rows = [[
+                Paragraph("Κατάσταση", body_style),
+                Paragraph("Ενέργεια", body_style),
+            ]]
+            for item in category.get("items", []):
+                checked = bool(item_values.get(category_key, {}).get(item.get("key"), False))
+                table_rows.append([
+                    Paragraph("Ναι" if checked else "Οχι", body_style),
+                    Paragraph(str(item.get("label") or item.get("key") or "-"), body_style),
+                ])
+
+            table = Table(table_rows, colWidths=[28 * mm, 150 * mm], repeatRows=1)
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dde6ef")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("FONTNAME", (0, 0), (-1, -1), font_name),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("LEADING", (0, 0), (-1, -1), 11),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 8))
+
+    doc = SimpleDocTemplate(_fs_path(output_path), pagesize=A4)
+    doc.build(story)
+    return output_path
+
 # Canonical breaker element names
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
 ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")

@@ -178,9 +178,22 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             end_datetime TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'Requested',
             notes TEXT,
+            request_file_path TEXT,
+            storage_folder_path TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(substation_id) REFERENCES substations(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS isolation_request_elements (
+            id INTEGER PRIMARY KEY,
+            request_id INTEGER NOT NULL,
+            element_id INTEGER NOT NULL,
+            FOREIGN KEY(request_id) REFERENCES isolation_requests(id) ON DELETE CASCADE,
+            FOREIGN KEY(element_id) REFERENCES elements(id) ON DELETE CASCADE,
+            UNIQUE(request_id, element_id)
         )
     """)
 
@@ -516,6 +529,16 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             cursor.execute("ALTER TABLE maintenance ADD COLUMN responsible_id INTEGER")
         except Exception:
             pass
+    if "isolation_request_id" not in maint_columns:
+        try:
+            cursor.execute("ALTER TABLE maintenance ADD COLUMN isolation_request_id INTEGER")
+        except Exception:
+            pass
+    if "preparation_checklist_json" not in maint_columns:
+        try:
+            cursor.execute("ALTER TABLE maintenance ADD COLUMN preparation_checklist_json TEXT")
+        except Exception:
+            pass
 
     # People table migrations
     cursor.execute("PRAGMA table_info(people)")
@@ -846,6 +869,35 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             )
         except Exception:
             pass
+
+    cursor.execute("PRAGMA table_info(isolation_requests)")
+    isolation_columns = [column[1] for column in cursor.fetchall()]
+    if "request_file_path" not in isolation_columns:
+        try:
+            cursor.execute('ALTER TABLE isolation_requests ADD COLUMN request_file_path TEXT')
+        except Exception:
+            pass
+    if "storage_folder_path" not in isolation_columns:
+        try:
+            cursor.execute('ALTER TABLE isolation_requests ADD COLUMN storage_folder_path TEXT')
+        except Exception:
+            pass
+
+    try:
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_isolation_request ON maintenance(isolation_request_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_isolation_request_elements_request ON isolation_request_elements(request_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_isolation_request_elements_element ON isolation_request_elements(element_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_isolation_requests_substation_dates ON isolation_requests(substation_id, start_datetime, end_datetime)"
+        )
+    except Exception:
+        pass
 
     conn.commit()
     return conn

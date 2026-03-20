@@ -42,6 +42,12 @@ from email_eml_parser import parse_eml_file
 from pdf_parser import parse_pdf_file
 from import_wizard import ColumnMappingPopup, DataValidationPopup
 from model_management import show_models_management
+from maintenance_checklists import (
+    build_state,
+    get_categories,
+    infer_category_keys_from_elements,
+    normalize_state,
+)
 from onedrive_hybrid_storage import (
     ensure_maintenance_folders,
     delete_maintenance_folders,
@@ -382,6 +388,10 @@ class SubstationApp(App):
         self.root_layout = BoxLayout(orientation="vertical")
         Window.bind(on_key_down=self._handle_tab_navigation)
         Window.bind(on_request_close=self._handle_request_close)
+        try:
+            Window.bind(on_drop_file=self._handle_window_drop_file)
+        except Exception:
+            pass
 
         self.loading_label = Label(text=S["MESSAGES"]["LOADING"], font_size="22sp")
         self.root_layout.add_widget(self.loading_label)
@@ -946,6 +956,16 @@ class SubstationApp(App):
         buttons_layout.add_widget(right_col)
         layout.add_widget(buttons_layout)
 
+        layout.add_widget(
+            Label(
+                text="Σύρετε αρχεία .eml ή .pdf στο παράθυρο για γρήγορη εισαγωγή.",
+                size_hint_y=None,
+                height=24,
+                font_size="11sp",
+                color=(0.35, 0.35, 0.35, 1),
+            )
+        )
+
         selected_db_path = get_db_path() or DB_PATH
         self.conn = init_db(selected_db_path)
         self.db_path = os.path.abspath(selected_db_path)
@@ -1288,6 +1308,16 @@ class SubstationApp(App):
                     if self._tokens_match(candidate, name_tokens):
                         return sub_id, sub_name
 
+        if len(tokens) <= 4:
+            try:
+                from maintenance_email_importer import _match_substation_in_text
+
+                shared_match = _match_substation_in_text(self.conn, text)
+                if shared_match:
+                    return shared_match["id"], shared_match["name"]
+            except Exception:
+                pass
+
         return None
 
     def _match_person_by_sender(self, sender_name: str, people):
@@ -1398,6 +1428,84 @@ class SubstationApp(App):
             "parse_eml_file": parse_eml_file,
         }
         return _m(self, ui, payload, forced_substation)
+
+    def _normalize_dropped_file_path(self, file_path):
+        if isinstance(file_path, bytes):
+            for encoding in ("utf-8", "mbcs", "latin-1"):
+                try:
+                    file_path = file_path.decode(encoding)
+                    break
+                except Exception:
+                    continue
+        normalized = str(file_path or "").strip().strip('"')
+        if normalized.startswith("{") and normalized.endswith("}"):
+            normalized = normalized[1:-1]
+        return os.path.normpath(normalized) if normalized else ""
+
+    def _show_dropped_email_import_popup(self, file_path):
+        popup = Popup(title="Εισαγωγή από μεταφορά e-mail", size_hint=(0.55, 0.35))
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        layout.add_widget(
+            Label(
+                text=f"Επιλέξτε πώς θα εισαχθεί το αρχείο:\n{os.path.basename(file_path)}",
+                halign="center",
+                valign="middle",
+            )
+        )
+
+        buttons = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        maintenance_btn = Button(text="Ως συντήρηση")
+        maintenance_btn.bind(
+            on_press=lambda _x: (popup.dismiss(), self._import_maintenance_from_email_file(file_path))
+        )
+        buttons.add_widget(maintenance_btn)
+
+        isolation_btn = Button(text="Ως απομόνωση")
+        isolation_btn.bind(
+            on_press=lambda _x: (popup.dismiss(), self._import_isolation_from_email_file(file_path))
+        )
+        buttons.add_widget(isolation_btn)
+        layout.add_widget(buttons)
+
+        cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Άκυρο"), size_hint_y=None, height=45)
+        cancel_btn.bind(on_press=popup.dismiss)
+        layout.add_widget(cancel_btn)
+
+        popup.content = layout
+        popup.open()
+
+    def _handle_window_drop_file(self, _window, file_path, *_args):
+        if not getattr(self, "conn", None):
+            return False
+
+        normalized_path = self._normalize_dropped_file_path(file_path)
+        if not normalized_path:
+            return False
+        if not os.path.isfile(normalized_path):
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                f"Το μεταφερόμενο αρχείο δεν είναι προσβάσιμο:\n{normalized_path}",
+            )
+            return True
+
+        ext = os.path.splitext(normalized_path)[1].lower()
+        if ext == ".eml":
+            self._show_dropped_email_import_popup(normalized_path)
+            return True
+        if ext == ".pdf":
+            self._import_maintenance_from_pdf_file(normalized_path)
+            return True
+
+        show_message_popup(
+            S["TITLES"].get("ERROR", "Σφάλμα"),
+            "Υποστηρίζεται μεταφορά μόνο για αρχεία .eml και .pdf.",
+        )
+        return True
+
+    def _import_isolation_from_email_file(self, file_path, status="Requested"):
+        from isolation_ui import import_isolation_request_from_eml as _f
+
+        return _f(self, file_path, status=status)
 
     def _prompt_substation_selection(self, substations, payload):
         popup = Popup(title=S["MESSAGES"].get("PROMPT_SUBSTATION_NOT_FOUND_TITLE", "Ο υποσταθμός δε βρέθηκε"), size_hint=(0.7, 0.5))
@@ -8860,6 +8968,277 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
+    def _maintenance_type_requires_checklist(self, maintenance_type):
+        return maintenance_type in {
+            "Επαναληπτική συντήρηση",
+            "Βλάβη",
+            "Recurring maintenance",
+            "Fault",
+        }
+
+    def _checklist_has_content(self, checklist_state):
+        state = normalize_state(checklist_state)
+        if state.get("selected_categories"):
+            return True
+        return any(
+            any(items.values())
+            for items in (state.get("items") or {}).values()
+        )
+
+    def _summarize_preparation_checklist_state(self, checklist_state, maintenance_type=None):
+        state = normalize_state(checklist_state)
+        if not self._maintenance_type_requires_checklist(maintenance_type) and not self._checklist_has_content(state):
+            return "Το checklist προετοιμασίας δεν χρησιμοποιείται για αυτόν τον τύπο συντήρησης."
+
+        selected_categories = state.get("selected_categories") or []
+        if not selected_categories:
+            return "Δεν έχει συμπληρωθεί checklist προετοιμασίας."
+
+        total_items = 0
+        completed_items = 0
+        for category_key in selected_categories:
+            category_items = state.get("items", {}).get(category_key, {})
+            total_items += len(category_items)
+            completed_items += sum(1 for value in category_items.values() if value)
+
+        if total_items:
+            return f"{len(selected_categories)} κατηγορίες | {completed_items}/{total_items} βήματα ολοκληρωμένα"
+        return f"{len(selected_categories)} κατηγορίες επιλεγμένες"
+
+    def _get_maintenance_element_rows_for_checklist(self, maintenance_id):
+        c = self.conn.cursor()
+        c.execute(
+            """
+            SELECT e.id, e.element_type, e.name
+            FROM maintenance_elements me
+            JOIN elements e ON e.id = me.element_id
+            WHERE me.maintenance_id = ?
+            ORDER BY e.name
+            """,
+            (maintenance_id,),
+        )
+        return c.fetchall()
+
+    def _export_preparation_checklist_pdf(self, checklist_state, maintenance_type=None, metadata=None):
+        from pdf_reports import generate_preparation_checklist_pdf
+
+        state = normalize_state(checklist_state)
+        if not self._checklist_has_content(state):
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                "Δεν υπάρχει συμπληρωμένο checklist για εξαγωγή.",
+            )
+            return None
+
+        pdf_path = generate_preparation_checklist_pdf(
+            state,
+            get_categories(),
+            metadata={
+                "maintenance_type": maintenance_type,
+                **(metadata or {}),
+            },
+        )
+
+        def _open_pdf():
+            try:
+                if sys.platform == "win32":
+                    os.startfile(pdf_path)
+                elif sys.platform == "darwin":
+                    subprocess.call(["open", pdf_path])
+                else:
+                    subprocess.call(["xdg-open", pdf_path])
+            except Exception:
+                pass
+
+        show_message_popup(
+            S["TITLES"].get("SUCCESS", "Επιτυχία"),
+            S["MESSAGES"].get("PDF_CREATED", "Το PDF δημιουργήθηκε:\n{path}").format(path=pdf_path),
+            callback=_open_pdf,
+        )
+        return pdf_path
+
+    def _show_preparation_checklist_popup(
+        self,
+        maintenance_type=None,
+        element_rows=None,
+        initial_state=None,
+        maintenance_id=None,
+        on_save_callback=None,
+    ):
+        metadata = {}
+        if maintenance_id is not None:
+            c = self.conn.cursor()
+            c.execute(
+                """
+                SELECT m.name, m.date_time, m.maintenance_type, s.name, m.preparation_checklist_json
+                FROM maintenance m
+                JOIN substations s ON s.id = m.substation_id
+                WHERE m.id = ?
+                LIMIT 1
+                """,
+                (maintenance_id,),
+            )
+            row = c.fetchone()
+            if not row:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("MAINTENANCE_NOT_FOUND", "Η συντήρηση δεν βρέθηκε."),
+                )
+                return
+
+            metadata = {
+                "maintenance_name": row[0],
+                "date_time": row[1],
+                "maintenance_type": row[2],
+                "substation_name": row[3],
+            }
+            if maintenance_type is None:
+                maintenance_type = row[2]
+            if initial_state is None:
+                try:
+                    initial_state = json.loads(row[4]) if row[4] else None
+                except Exception:
+                    initial_state = None
+
+        if element_rows is None and maintenance_id is not None:
+            element_rows = self._get_maintenance_element_rows_for_checklist(maintenance_id)
+
+        checklist_categories = get_categories()
+        checklist_state = normalize_state(initial_state)
+        checklist_user_touched = [self._checklist_has_content(checklist_state)]
+
+        if not checklist_user_touched[0]:
+            inferred_keys = infer_category_keys_from_elements(self, element_rows or [])
+            if inferred_keys:
+                default_state = build_state(inferred_keys, checklist_state)
+                checklist_state["selected_categories"] = default_state["selected_categories"]
+                checklist_state["items"] = default_state["items"]
+
+        popup = Popup(title="Checklist προετοιμασίας", size_hint=(0.78, 0.9))
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        summary_label = Label(
+            text=self._summarize_preparation_checklist_state(checklist_state, maintenance_type),
+            size_hint_y=None,
+            height=28,
+        )
+        main_layout.add_widget(summary_label)
+
+        if metadata.get("maintenance_name"):
+            main_layout.add_widget(
+                Label(
+                    text=f"Συντήρηση: {metadata['maintenance_name']}",
+                    size_hint_y=None,
+                    height=26,
+                )
+            )
+
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        checklist_container = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=5)
+        checklist_container.bind(minimum_height=checklist_container.setter("height"))
+        scroll.add_widget(checklist_container)
+        main_layout.add_widget(scroll)
+
+        def refresh_summary_label():
+            summary_label.text = self._summarize_preparation_checklist_state(checklist_state, maintenance_type)
+
+        def render_checklists(*_args):
+            checklist_container.clear_widgets()
+            if not self._maintenance_type_requires_checklist(maintenance_type) and not self._checklist_has_content(checklist_state):
+                checklist_container.add_widget(
+                    Label(
+                        text="Το checklist προετοιμασίας χρησιμοποιείται κυρίως για επαναληπτική συντήρηση ή βλάβη.",
+                        size_hint_y=None,
+                        height=30,
+                    )
+                )
+                refresh_summary_label()
+                return
+
+            for category in checklist_categories:
+                category_key = category["key"]
+                category_row = BoxLayout(size_hint_y=None, height=34, spacing=5)
+                category_checkbox = CheckBox(
+                    active=category_key in checklist_state["selected_categories"],
+                    size_hint_x=None,
+                    width=36,
+                )
+                category_row.add_widget(category_checkbox)
+                category_row.add_widget(Label(text=category["label"], halign="left", valign="middle"))
+                checklist_container.add_widget(category_row)
+
+                def _toggle_category(_cb, active, key=category_key):
+                    checklist_user_touched[0] = True
+                    if active and key not in checklist_state["selected_categories"]:
+                        checklist_state["selected_categories"].append(key)
+                    if not active and key in checklist_state["selected_categories"]:
+                        checklist_state["selected_categories"].remove(key)
+                    render_checklists()
+
+                category_checkbox.bind(active=_toggle_category)
+
+                if category_key not in checklist_state["selected_categories"]:
+                    continue
+
+                category_items = checklist_state["items"].setdefault(category_key, {})
+                for item in category.get("items", []):
+                    item_key = item["key"]
+                    item_row = BoxLayout(size_hint_y=None, height=30, spacing=5, padding=[24, 0, 0, 0])
+                    item_checkbox = CheckBox(
+                        active=bool(category_items.get(item_key, False)),
+                        size_hint_x=None,
+                        width=36,
+                    )
+                    item_row.add_widget(item_checkbox)
+                    item_row.add_widget(Label(text=item["label"], halign="left", valign="middle"))
+                    checklist_container.add_widget(item_row)
+
+                    def _toggle_item(_cb, active, cat_key=category_key, itm_key=item_key):
+                        checklist_user_touched[0] = True
+                        checklist_state["items"].setdefault(cat_key, {})[itm_key] = bool(active)
+                        refresh_summary_label()
+
+                    item_checkbox.bind(active=_toggle_item)
+
+            refresh_summary_label()
+
+        button_row = BoxLayout(size_hint_y=None, height=46, spacing=8)
+        export_btn = Button(text="PDF checklist", size_hint_x=0.34)
+        save_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"), size_hint_x=0.33)
+        close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_x=0.33)
+        button_row.add_widget(export_btn)
+        button_row.add_widget(save_btn)
+        button_row.add_widget(close_btn)
+        main_layout.add_widget(button_row)
+
+        def _save_checklist(_instance=None):
+            normalized_state = normalize_state(checklist_state)
+            if maintenance_id is not None:
+                c = self.conn.cursor()
+                c.execute(
+                    "UPDATE maintenance SET preparation_checklist_json=? WHERE id=?",
+                    (json.dumps(normalized_state, ensure_ascii=False), maintenance_id),
+                )
+                self.conn.commit()
+            if on_save_callback:
+                on_save_callback(normalized_state)
+            popup.dismiss()
+
+        def _export_checklist(_instance=None):
+            self._export_preparation_checklist_pdf(
+                checklist_state,
+                maintenance_type=maintenance_type,
+                metadata=metadata,
+            )
+
+        export_btn.bind(on_press=_export_checklist)
+        save_btn.bind(on_press=_save_checklist)
+        close_btn.bind(on_press=popup.dismiss)
+
+        render_checklists()
+        popup.content = main_layout
+        popup.open()
+
     def show_maintenance_menu(
         self,
         instance=None,
@@ -8895,11 +9274,17 @@ class SubstationApp(App):
         responsible_person_id = None
         prefill_data = prefill_data or {}
         prefill_attachment_paths = prefill_data.get("attachment_paths") or []
+        linked_isolation_request_id = prefill_data.get("linked_isolation_request_id")
+        preparation_checklist_state = normalize_state(
+            prefill_data.get("preparation_checklist_state")
+        )
 
         if maintenance_id:
             c.execute(
                 """
-                SELECT substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id, onedrive_media_folder_link
+                SELECT substation_id, name, date_time, overall_comments, maintenance_type,
+                       user_name, responsible_id, onedrive_media_folder_link,
+                       isolation_request_id, preparation_checklist_json
                 FROM maintenance
                 WHERE id = ?
             """,
@@ -8922,6 +9307,14 @@ class SubstationApp(App):
             )
             maintenance_people = c.fetchall()
             responsible_person_id = maintenance_record[6]
+            linked_isolation_request_id = maintenance_record[8]
+            if maintenance_record[9]:
+                try:
+                    preparation_checklist_state = normalize_state(
+                        json.loads(maintenance_record[9])
+                    )
+                except Exception:
+                    preparation_checklist_state = normalize_state(None)
             if not responsible_person_id:
                 for pid, role in maintenance_people:
                     if role == "responsible":
@@ -9020,8 +9413,87 @@ class SubstationApp(App):
         
         content_layout.add_widget(substation_row)
 
+        current_element_rows = []
+        isolation_options_by_label = {}
+
+        content_layout.add_widget(
+            Label(text="Συνδεδεμένη Απομόνωση:", size_hint_y=None, height=35)
+        )
+        isolation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        isolation_spinner = Spinner(
+            text="Χωρίς σύνδεση",
+            values=["Χωρίς σύνδεση"],
+            size_hint_x=0.72,
+            sync_height=True,
+        )
+        open_isolation_btn = Button(text="Άνοιγμα", size_hint_x=0.28)
+        isolation_row.add_widget(isolation_spinner)
+        isolation_row.add_widget(open_isolation_btn)
+        content_layout.add_widget(isolation_row)
+
+        def refresh_isolation_links(substation_name, preferred_request_id=None):
+            nonlocal linked_isolation_request_id
+            substation_id = substation_map.get(substation_name)
+            isolation_options_by_label.clear()
+            isolation_options_by_label["Χωρίς σύνδεση"] = None
+            values = ["Χωρίς σύνδεση"]
+
+            if substation_id:
+                c.execute(
+                    """
+                    SELECT id, start_datetime, end_datetime, status
+                    FROM isolation_requests
+                    WHERE substation_id = ?
+                    ORDER BY start_datetime DESC
+                    LIMIT 5
+                    """,
+                    (substation_id,),
+                )
+                for req_id, start_dt, end_dt, status in c.fetchall():
+                    label = f"#{req_id} | {start_dt} - {end_dt} | {status}"
+                    isolation_options_by_label[label] = req_id
+                    values.append(label)
+
+            isolation_spinner.values = values
+            target_id = preferred_request_id if preferred_request_id is not None else linked_isolation_request_id
+            selected_label = "Χωρίς σύνδεση"
+            for label, req_id in isolation_options_by_label.items():
+                if req_id == target_id:
+                    selected_label = label
+                    break
+            isolation_spinner.text = selected_label
+            linked_isolation_request_id = isolation_options_by_label.get(selected_label)
+
+        def open_linked_isolation(_instance=None):
+            selected_request_id = isolation_options_by_label.get(isolation_spinner.text)
+            if not selected_request_id:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    "Δεν έχει επιλεγεί απομόνωση.",
+                )
+                return
+            try:
+                from isolation_ui import show_isolation_request_details
+
+                popup.dismiss()
+                show_isolation_request_details(self, selected_request_id, None)
+            except Exception as exc:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Αποτυχία ανοίγματος απομόνωσης:\n{exc}",
+                )
+
+        open_isolation_btn.bind(on_press=open_linked_isolation)
+
+        def _on_isolation_change(_inst, value):
+            nonlocal linked_isolation_request_id
+            linked_isolation_request_id = isolation_options_by_label.get(value)
+
+        isolation_spinner.bind(text=_on_isolation_change)
+
         def _on_select_substation(sub_name):
             substation_input.text = sub_name
+            refresh_isolation_links(sub_name)
             load_elements(sub_name)  # Reload elements when substation changes
 
         def select_substation(*_args):
@@ -9060,6 +9532,67 @@ class SubstationApp(App):
         
         maintenance_type_spinner.bind(text=on_maintenance_type_change)
         content_layout.add_widget(maintenance_type_spinner)
+
+        checklist_state = normalize_state(preparation_checklist_state)
+        checklist_user_touched = [
+            self._checklist_has_content(checklist_state)
+        ]
+
+        def _maintenance_requires_checklist():
+            return self._maintenance_type_requires_checklist(maintenance_type_spinner.text)
+
+        def _set_default_checklist_categories():
+            if checklist_user_touched[0]:
+                return
+            inferred_keys = infer_category_keys_from_elements(self, current_element_rows)
+            if inferred_keys:
+                state = build_state(inferred_keys, checklist_state)
+                checklist_state["selected_categories"] = state["selected_categories"]
+                checklist_state["items"] = state["items"]
+
+        def refresh_checklist_summary(*_args):
+            checklist_summary_label.text = self._summarize_preparation_checklist_state(
+                checklist_state,
+                maintenance_type_spinner.text,
+            )
+            open_checklist_btn.disabled = not (
+                _maintenance_requires_checklist() or self._checklist_has_content(checklist_state)
+            )
+
+        def _apply_checklist_state(updated_state):
+            normalized_state = normalize_state(updated_state)
+            checklist_state["selected_categories"] = normalized_state["selected_categories"]
+            checklist_state["items"] = normalized_state["items"]
+            checklist_user_touched[0] = self._checklist_has_content(checklist_state)
+            refresh_checklist_summary()
+
+        def open_checklist_editor(_instance=None):
+            _set_default_checklist_categories()
+            self._show_preparation_checklist_popup(
+                maintenance_type=maintenance_type_spinner.text,
+                element_rows=current_element_rows,
+                initial_state=checklist_state,
+                on_save_callback=_apply_checklist_state,
+            )
+
+        content_layout.add_widget(
+            Label(text="Checklist προετοιμασίας:", size_hint_y=None, height=35)
+        )
+        checklist_summary_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+        checklist_summary_label = Label(
+            text=self._summarize_preparation_checklist_state(checklist_state, maintenance_type_spinner.text),
+            halign="left",
+            valign="middle",
+            size_hint_x=0.7,
+        )
+        checklist_summary_label.bind(size=lambda inst, _val: setattr(inst, "text_size", inst.size))
+        open_checklist_btn = Button(text="Άνοιγμα checklist", size_hint_x=0.3)
+        open_checklist_btn.bind(on_press=open_checklist_editor)
+        checklist_summary_row.add_widget(checklist_summary_label)
+        checklist_summary_row.add_widget(open_checklist_btn)
+        content_layout.add_widget(checklist_summary_row)
+
+        maintenance_type_spinner.bind(text=lambda *_args: refresh_checklist_summary())
 
         # Date/Time (auto-filled with current)
         from datetime import datetime
@@ -9363,6 +9896,9 @@ class SubstationApp(App):
                 (substation_id,),
             )
             elements = c.fetchall()
+            current_element_rows[:] = elements
+            _set_default_checklist_categories()
+            refresh_checklist_summary()
 
             if not elements:
                 elements_container.add_widget(
@@ -10750,7 +11286,9 @@ class SubstationApp(App):
                                 measurement_toggle.active = True
 
         # Load initial elements
+        refresh_isolation_links(substation_input.text, linked_isolation_request_id)
         load_elements(substation_input.text)
+        refresh_checklist_summary()
 
         # Update elements when substation changes (via selection callback)
 
@@ -10834,11 +11372,19 @@ class SubstationApp(App):
                 substation_input.text, maintenance_date
             )
             responsible_id = people_map.get(responsible_spinner.text)
+            linked_isolation_id_to_save = isolation_options_by_label.get(
+                isolation_spinner.text
+            )
+            checklist_json = None
+            if _maintenance_requires_checklist() or self._checklist_has_content(checklist_state):
+                checklist_json = json.dumps(
+                    normalize_state(checklist_state), ensure_ascii=False
+                )
 
             if maintenance_id:
                 c.execute(
                     """UPDATE maintenance
-                       SET substation_id=?, name=?, date_time=?, overall_comments=?, maintenance_type=?, user_name=?, responsible_id=?, onedrive_media_folder_link=?
+                       SET substation_id=?, name=?, date_time=?, overall_comments=?, maintenance_type=?, user_name=?, responsible_id=?, onedrive_media_folder_link=?, isolation_request_id=?, preparation_checklist_json=?
                        WHERE id=?""",
                     (
                         substation_id,
@@ -10849,6 +11395,8 @@ class SubstationApp(App):
                         user_name,
                         responsible_id,
                         onedrive_media_link.text.strip() or None,
+                        linked_isolation_id_to_save,
+                        checklist_json,
                         maintenance_id,
                     ),
                 )
@@ -10862,7 +11410,7 @@ class SubstationApp(App):
                 )
             else:
                 c.execute(
-                    "INSERT INTO maintenance (substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id, onedrive_media_folder_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO maintenance (substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id, onedrive_media_folder_link, isolation_request_id, preparation_checklist_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         substation_id,
                         maintenance_name,
@@ -10872,6 +11420,8 @@ class SubstationApp(App):
                         user_name,
                         responsible_id,
                         onedrive_media_link.text.strip() or None,
+                        linked_isolation_id_to_save,
+                        checklist_json,
                     ),
                 )
                 maintenance_id = c.lastrowid
@@ -11194,6 +11744,8 @@ class SubstationApp(App):
                     "maintenance_type": maintenance_type,
                     "user_name": user_name,
                     "responsible_id": responsible_id,
+                    "isolation_request_id": linked_isolation_id_to_save,
+                    "preparation_checklist_json": checklist_json,
                     "elements": elements_data
                 }
                 self._append_change_log("insert", "maintenance", maintenance_data)
@@ -11308,7 +11860,8 @@ class SubstationApp(App):
 
         c.execute(
             """
-            SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type
+            SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type,
+                   m.preparation_checklist_json
             FROM maintenance m
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
@@ -11627,7 +12180,7 @@ class SubstationApp(App):
             else:
                 info_label.text = ""
 
-            for maint_id, maint_name, date_time, overall_comments, onedrive_media_folder_link, maintenance_type in records_to_show:
+            for maint_id, maint_name, date_time, overall_comments, onedrive_media_folder_link, maintenance_type, preparation_checklist_json in records_to_show:
                 elements = elements_by_maint.get(maint_id, [])
                 card = BoxLayout(orientation="vertical", size_hint_y=None, padding=8, spacing=6)
                 card.bind(minimum_height=card.setter("height"))
@@ -11704,6 +12257,26 @@ class SubstationApp(App):
                             f"Άγνωστος τύπος συμβάντος: {maint_type}"
                         )
 
+                def make_checklist_handler(m_id, maint_type, raw_checklist_json):
+                    has_saved_checklist = bool(raw_checklist_json)
+                    if not self._maintenance_type_requires_checklist(maint_type) and not has_saved_checklist:
+                        return None
+
+                    def _handler(_instance=None):
+                        initial_state = None
+                        if raw_checklist_json:
+                            try:
+                                initial_state = json.loads(raw_checklist_json)
+                            except Exception:
+                                initial_state = None
+                        self._show_preparation_checklist_popup(
+                            maintenance_type=maint_type,
+                            maintenance_id=m_id,
+                            initial_state=initial_state,
+                        )
+
+                    return _handler
+
                 def make_view_handler(m_id):
                     return lambda x: self.show_maintenance_full_report(m_id, popup)
 
@@ -11728,6 +12301,7 @@ class SubstationApp(App):
                 view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
                 # Edit button
                 edit_btn = IconOnlyButton(icon_type="edit", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
+                checklist_btn = IconOnlyButton(icon_type="book", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35), tooltip="Checklist")
                 # Email button
                 email_btn = IconOnlyButton(icon_type="email", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(35, 35))
                 # Delete button
@@ -11737,11 +12311,16 @@ class SubstationApp(App):
                 email_btn.bind(on_press=make_email_handler(maint_id))
                 edit_btn.bind(on_press=make_edit_handler(maint_id, popup, maintenance_type, elements))
                 view_btn.bind(on_press=make_view_handler(maint_id))
+                checklist_handler = make_checklist_handler(maint_id, maintenance_type, preparation_checklist_json)
+                if checklist_handler is not None:
+                    checklist_btn.bind(on_press=checklist_handler)
                 # Add buttons in the correct order: folder (if any), then eye, then others
                 if folder_btn:
                     header.add_widget(folder_btn)
                 header.add_widget(view_btn)
                 header.add_widget(edit_btn)
+                if checklist_handler is not None:
+                    header.add_widget(checklist_btn)
                 header.add_widget(email_btn)
                 header.add_widget(delete_btn)
                 card.add_widget(header)

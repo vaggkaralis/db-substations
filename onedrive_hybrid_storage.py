@@ -45,6 +45,7 @@ _DIR_INTERCONNECTIONS = "Διασυνδέσεις"
 _DIR_MAINTENANCE = "Συντηρήσεις"
 _DIR_FAULTS = "Βλάβες"
 _DIR_INSPECTIONS = "Επιθεωρήσεις"
+_DIR_ISOLATIONS = "Απομονώσεις"
 _DIR_DGA_PARTS = ("Φυσικοχημικές", "Αεριοχρωματογραφία")
 
 _DIR_MEDIA = "Φωτογραφίες_Video"
@@ -558,6 +559,39 @@ def _copy_media_to_targets(source_paths: Iterable[str], target_folders: Iterable
     return copied
 
 
+def copy_files_to_folder(source_paths: Iterable[str], target_folder: str | None) -> int:
+    if not target_folder:
+        return 0
+
+    copied = 0
+    target = str(target_folder).strip()
+    if not target:
+        return 0
+
+    for src in source_paths or []:
+        if not src:
+            continue
+        try:
+            src_path = Path(src)
+            if not src_path.exists() or not src_path.is_file():
+                continue
+
+            os.makedirs(_win_path(target), exist_ok=True)
+            dest = Path(target) / src_path.name
+            base = dest.stem
+            ext = dest.suffix
+            idx = 1
+            while dest.exists():
+                dest = Path(target) / f"{base}_{idx}{ext}"
+                idx += 1
+            shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
+            copied += 1
+        except Exception:
+            continue
+
+    return copied
+
+
 def _collect_gate_buckets(conn, element_ids: Iterable[int]) -> list[tuple[str, str]]:
     ids = [int(x) for x in (element_ids or []) if x is not None]
     if not ids:
@@ -614,6 +648,62 @@ def ensure_substation_structure(conn, substation_id: int, *, db_path: str | None
         "shared_root": shared_root,
         "substation_name": substation_name,
         "substation_root": substation_root,
+    }
+
+
+def ensure_isolation_request_storage(
+    conn,
+    *,
+    request_id: int,
+    substation_id: int,
+    start_datetime: str,
+    attachment_paths: Iterable[str] | None = None,
+    db_path: str | None = None,
+) -> dict:
+    base = ensure_substation_structure(conn, substation_id, db_path=db_path)
+    substation_root = base["substation_root"]
+    substation_name = base["substation_name"]
+
+    try:
+        dt = datetime.strptime(start_datetime, "%Y-%m-%d %H:%M")
+        slug_date = dt.strftime("%Y%m%d_%H%M")
+    except Exception:
+        slug_date = _slug(start_datetime or "unknown", fallback="unknown")
+
+    queue_payload = {
+        "kind": "ensure_isolation_structure",
+        "request_id": request_id,
+        "substation_id": substation_id,
+        "created_at": datetime.now().isoformat(),
+    }
+
+    isolation_root = os.path.join(substation_root, _DIR_ISOLATIONS)
+    instance_root = os.path.join(
+        isolation_root,
+        f"ISO_{slug_date}_{_slug(substation_name, fallback='substation')}_{request_id}",
+    )
+    attachments_root = os.path.join(instance_root, "Αίτηση")
+
+    _ensure_dir(isolation_root, queue_payload=queue_payload)
+    _ensure_dir(instance_root, queue_payload=queue_payload)
+    _ensure_dir(attachments_root, queue_payload=queue_payload)
+
+    copy_files_to_folder(attachment_paths or [], attachments_root)
+
+    stored_files = []
+    try:
+        stored_files = [
+            os.path.join(attachments_root, name)
+            for name in sorted(os.listdir(attachments_root))
+            if os.path.isfile(os.path.join(attachments_root, name))
+        ]
+    except Exception:
+        stored_files = []
+
+    return {
+        "storage_folder": instance_root,
+        "attachments_folder": attachments_root,
+        "stored_files": stored_files,
     }
 
 

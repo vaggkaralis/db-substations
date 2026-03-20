@@ -79,6 +79,15 @@ def iter_substation_name_candidates(substation_name: str):
     """Extract all candidate names from a substation entry (main name + aliases in parentheses)."""
     if not substation_name:
         return []
-    candidates = [substation_name]
-    candidates.extend(re.findall(r"\(([^)]+)\)", substation_name))
+    candidates = []
+
+    def _append_candidate(value: str):
+        cleaned = re.sub(r"\s+", " ", value or "").strip(" ,-")
+        if cleaned and cleaned not in candidates:
+            candidates.append(cleaned)
+
+    _append_candidate(substation_name)
+    _append_candidate(re.sub(r"\s*\([^)]*\)", "", substation_name))
+    for alias in re.findall(r"\(([^)]+)\)", substation_name):
+        _append_candidate(alias)
     return candidates
