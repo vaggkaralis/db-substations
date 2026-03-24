@@ -241,6 +241,13 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             )
         except Exception:
             pass
+    # Ensure a uniqueness index exists to prevent logical duplicate maintenance rows
+    try:
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_fingerprint ON maintenance(substation_id, date_time, maintenance_type, user_name)"
+        )
+    except Exception:
+        pass
 
     # Add breaker_category column to elements table
     cursor.execute("PRAGMA table_info(elements)")

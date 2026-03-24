@@ -1,10 +1,20 @@
+"""Main application runtime and startup orchestration."""
+
+# Ensure Kivy does not print verbose INFO logs to the console by setting
+# environment variables before any module importing Kivy runs.
+import os as _env
+_env.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
+_env.environ.setdefault('KIVY_LOG_LEVEL', 'warning')
+
 import json
+
 import json
 import os
 import re
 import shutil
 import sqlite3
 import sys
+import logging
 import subprocess
 import unicodedata
 import webbrowser
@@ -120,6 +130,8 @@ except Exception:
         def __init__(self, *a, **k):
             pass
 
+# No temporary early log file in main repository; rely on normal logging setup.
+
     App = _StubWidget
     BoxLayout = _StubWidget
     Button = _StubWidget
@@ -188,11 +200,26 @@ except Exception:
     def Translate(*a, **k):
         return None
     import logging
-    logging.basicConfig()
+    logging.basicConfig(level=logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("PIL.PngImagePlugin").setLevel(logging.WARNING)
+    # Reduce Kivy startup noise (most info-level Kivy logs are noisy in terminal)
+    try:
+        logging.getLogger("kivy").setLevel(logging.WARNING)
+        logging.getLogger("kivy_deps").setLevel(logging.WARNING)
+    except Exception:
+        pass
 from validation import (PEOPLE_ROLES, filter_people_for_maintenance,
                         group_people_by_category)
+
+# Prevent Kivy from emitting console INFO logs during import/startup by
+# setting environment variables before Kivy is imported below.
+try:
+    import os as _os_for_kivy_env
+    _os_for_kivy_env.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
+    _os_for_kivy_env.environ.setdefault('KIVY_LOG_LEVEL', 'warning')
+except Exception:
+    pass
 
 # Gate color manager (consistent colors across the app)
 GATE_COLOR_PALETTE = [
@@ -346,16 +373,59 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
 
             # Special handling for maintenance rows which may embed elements
             if table == "maintenance":
-                # Insert maintenance fields that exist in the schema
-                maint_cols = [
-                    r[1] for r in cur.execute("PRAGMA table_info(maintenance)")
-                ]
+                # Defensive insertion: avoid creating duplicate maintenance rows.
+                # If payload provides an `id` that already exists, reuse it.
+                # Otherwise try to find an existing record by fingerprint
+                # (substation_id, date_time, maintenance_type, user_name).
+                maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
                 maint_keys = [k for k in data.keys() if k in maint_cols]
-                placeholders = ",".join(["?"] * len(maint_keys))
-                sql = f"INSERT INTO maintenance ({','.join(maint_keys)}) VALUES ({placeholders})"
-                cur.execute(sql, [data[k] for k in maint_keys])
-                maintenance_id = cur.lastrowid
 
+                existing_id = None
+                payload_id = data.get("id")
+                if payload_id is not None:
+                    try:
+                        cur.execute("SELECT id FROM maintenance WHERE id = ?", (payload_id,))
+                        row = cur.fetchone()
+                        if row:
+                            existing_id = row[0]
+                            logging.debug("apply_change_log_to_db: maintenance id %s already exists, skipping insert", payload_id)
+                    except Exception:
+                        logging.exception("Error checking existing maintenance id %s", payload_id)
+
+                if existing_id is None:
+                    # Try fingerprint match
+                    try:
+                        f_sub = data.get("substation_id")
+                        f_dt = data.get("date_time")
+                        f_type = data.get("maintenance_type")
+                        f_user = data.get("user_name")
+                        if f_sub is not None and f_dt is not None and f_type is not None:
+                            cur.execute(
+                                "SELECT id FROM maintenance WHERE substation_id=? AND date_time=? AND maintenance_type=? AND user_name=? LIMIT 1",
+                                (f_sub, f_dt, f_type, f_user),
+                            )
+                            row = cur.fetchone()
+                            if row:
+                                existing_id = row[0]
+                                logging.info("apply_change_log_to_db: found existing maintenance by fingerprint, id=%s", existing_id)
+                    except Exception:
+                        logging.exception("Error checking maintenance fingerprint")
+
+                if existing_id is None:
+                    # No existing row found; perform insert
+                    if not maint_keys:
+                        # Nothing to insert
+                        conn.commit()
+                        continue
+                    placeholders = ",".join(["?"] * len(maint_keys))
+                    sql = f"INSERT INTO maintenance ({','.join(maint_keys)}) VALUES ({placeholders})"
+                    cur.execute(sql, [data[k] for k in maint_keys])
+                    maintenance_id = cur.lastrowid
+                    logging.info("apply_change_log_to_db: inserted maintenance id=%s", maintenance_id)
+                else:
+                    maintenance_id = existing_id
+
+                # Attach elements (skip duplicates) and update element maintenance_date
                 elements = data.get("elements") or []
                 seen_element_ids = set()
                 for elem in elements:
@@ -363,7 +433,6 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                     elem_comments = elem.get("element_comments") or elem.get("comments")
                     if not elem_id:
                         continue
-                    # Skip duplicates within one payload entry.
                     if elem_id in seen_element_ids:
                         continue
                     seen_element_ids.add(elem_id)
@@ -378,7 +447,6 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                         """,
                         (maintenance_id, elem_id, elem_comments, maintenance_id, elem_id),
                     )
-                    # Update element maintenance_date if provided
                     if data.get("date_time") and elem_id:
                         cur.execute(
                             "UPDATE elements SET maintenance_date=? WHERE id=?",
@@ -815,8 +883,8 @@ class SubstationApp(App):
         content.add_widget(sync_section)
         content.add_widget(sync_hint)
         
-        # --- Step 3: Backup Root Path ---
-        backup_section = BoxLayout(orientation="vertical", size_hint_y=None, height=100, spacing=5)
+        # --- Step 3: Backup Root Path (fixed) ---
+        backup_section = BoxLayout(orientation="vertical", size_hint_y=None, height=70, spacing=5)
         backup_title = Label(
             text="3. Φάκελος Αντιγράφων (Backup Root)",
             size_hint_y=None,
@@ -824,26 +892,18 @@ class SubstationApp(App):
             bold=True,
         )
         backup_section.add_widget(backup_title)
-        
+
         backup_default = resolve_backup_root(_wizard_db_path)
-        backup_input = TextInput(
-            text=backup_default or "",
-            multiline=False,
-            size_hint_y=None,
-            height=35,
-        )
-        backup_section.add_widget(backup_input)
-        
-        backup_hint = Label(
-            text="Όπου θα αποθηκεύονται τα αντίγραφα ασφαλείας (προεπιλογή: backups_auto/)",
+        backup_info = Label(
+            text=f"Προεπιλεγμένος φάκελος αντιγράφων: {backup_default}",
             size_hint_y=None,
             height=20,
             color=(0.5, 0.5, 0.5, 1),
             font_size="10sp",
             markup=True,
         )
+        backup_section.add_widget(backup_info)
         content.add_widget(backup_section)
-        content.add_widget(backup_hint)
         
         # --- Step 4: Language ---
         lang_section = BoxLayout(orientation="vertical", size_hint_y=None, height=80, spacing=5)
@@ -889,7 +949,7 @@ class SubstationApp(App):
         interval_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=10)
         interval_row.add_widget(Label(text="Διάστημα (λεπτά):", size_hint_x=0.4))
         interval_input = TextInput(
-            text=str(int(get_app_setting("sync_auto_cycle_minutes", 60))),
+            text=str(int(get_app_setting("sync_auto_cycle_minutes", 15))),
             multiline=False,
             size_hint_x=0.3,
             input_filter="int",
@@ -912,7 +972,6 @@ class SubstationApp(App):
             # Validate and save all settings
             db_text = (db_input.text or "").strip()
             sync_text = (sync_input.text or "").strip()
-            backup_text = (backup_input.text or "").strip()
             
             # Validate database path
             if db_text:
@@ -942,23 +1001,7 @@ class SubstationApp(App):
                     )
                     return
             
-            # Validate and create backup path
-            if backup_text:
-                if os.path.exists(backup_text) and not os.path.isdir(backup_text):
-                    show_message_popup(
-                        S["TITLES"].get("ERROR", "Σφάλμα"),
-                        "Το backup path δείχνει σε αρχείο, όχι φάκελο."
-                    )
-                    return
-                try:
-                    os.makedirs(backup_text, exist_ok=True)
-                    set_app_setting("backup_root_path", os.path.abspath(backup_text))
-                except OSError as e:
-                    show_message_popup(
-                        S["TITLES"].get("ERROR", "Σφάλμα"),
-                        f"Δεν ήταν δυνατή η δημιουργία του φακέλου backup:\n{str(e)}"
-                    )
-                    return
+            # backup_root_path is fixed to the default (next to DB); user cannot change it here.
             
             # Save language
             selected_lang = "el" if lang_spinner.text == "Ελληνικά" else "en"
@@ -966,9 +1009,9 @@ class SubstationApp(App):
             
             # Save auto-sync settings
             try:
-                interval_minutes = max(1, int((interval_input.text or "").strip() or "60"))
+                interval_minutes = max(1, int((interval_input.text or "").strip() or "15"))
             except Exception:
-                interval_minutes = 60
+                interval_minutes = 15
             
             set_app_setting("sync_auto_cycle_enabled", bool(autosync_chk.active))
             set_app_setting("sync_auto_cycle_minutes", interval_minutes)
@@ -1042,6 +1085,7 @@ class SubstationApp(App):
         )
         self.app_info_btn.bind(on_press=self.show_app_info_popup)
         top_bar.add_widget(self.app_info_btn)
+        # drag-drop handler bound (no visual debug indicator)
         layout.add_widget(top_bar)
         try:
             # Accept files dragged onto the window (Windows: .msg/.eml supported)
@@ -1118,7 +1162,12 @@ class SubstationApp(App):
         self._sync_attention_needed = False  # Probe detected work that user deferred
         self._check_previous_sync_issues()  # Check for rejected/conflict files
         self._run_startup_sync_cycle()
-        Clock.schedule_interval(self._run_periodic_sync_cycle, 60)
+        try:
+            interval_minutes = int(get_app_setting("sync_auto_cycle_minutes", 15))
+        except Exception:
+            interval_minutes = 15
+        # Schedule periodic probe using minutes setting (converted to seconds).
+        Clock.schedule_interval(self._run_periodic_sync_cycle, int(interval_minutes) * 60)
         self._update_sync_button_status()
 
         # Ensure people name columns exist and are populated (migration)
@@ -1381,17 +1430,39 @@ class SubstationApp(App):
         using Outlook COM when running on Windows.
         """
         try:
-            if isinstance(file_path, (bytes, bytearray)):
-                path = file_path.decode("utf-8", errors="ignore")
+            # Received drop; continue to decode path and import if valid
+            # Try several decodings to handle Outlook/Windows encodings
+            raw = file_path
+            path = None
+            if isinstance(raw, (bytes, bytearray)):
+                for enc in ("utf-8", "mbcs", "utf-16le", "latin-1"):
+                    try:
+                        s = raw.decode(enc)
+                    except Exception:
+                        continue
+                    s = s.strip('\x00').strip().strip('"')
+                    if s:
+                        path = s
+                        break
             else:
-                path = str(file_path)
+                path = str(raw)
+
+            if not path:
+                # Nothing decoded — cannot proceed
+                return
+
+            # Normalize common URI prefixes
+            path = path.replace('\r', '').replace('\n', '').strip()
+            if path.startswith("file:///"):
+                path = path[8:]
+            elif path.startswith("file://"):
+                path = path[7:]
+            # Strip surrounding <> sometimes present
+            if path.startswith("<") and path.endswith(">"):
+                path = path[1:-1]
             path = os.path.normpath(path)
             if not path:
                 return
-
-            # Some drop events provide a URI like file:///C:/...
-            if path.startswith("file://"):
-                path = path[7:]
 
             if os.path.isdir(path):
                 # import all .eml files in folder
@@ -1405,6 +1476,7 @@ class SubstationApp(App):
                 return
 
             if not os.path.exists(path):
+                # Received path does not exist locally — ignore
                 return
 
             ext = os.path.splitext(path)[1].lower()
@@ -2119,7 +2191,7 @@ class SubstationApp(App):
                 "1) Από τις Ρυθμίσεις, ορίστε πρώτα τη Διαδρομή Βάσης Δεδομένων (db_path).\n"
                 "2) Για το sync_root_path: αφήστε κενό για προεπιλογή (δίπλα στη βάση: sync_exchange) ή επιλέξτε φάκελο στο OneDrive.\n"
                 "3) Δεν χρειάζεται χειροκίνητη δημιουργία υποφακέλων· η εφαρμογή τους δημιουργεί αυτόματα.\n"
-                "4) Κρατήστε ενεργό τον Αυτόματο συγχρονισμό και ορίστε διάστημα (λεπτά).\n"
+                "4) Κρατήστε ενεργό τον Αυτόματο συγχρονισμό και ορίστε διάστημα (λεπτά) — προεπιλογή 15.\n"
                 "5) Στην εκκίνηση γίνεται άμεσος συγχρονισμός, ενώ υπάρχει και χειροκίνητη επιλογή από το μενού εισαγωγής.",
             )
             show_message_popup(
@@ -2139,7 +2211,7 @@ class SubstationApp(App):
             Label(text=S["MESSAGES"].get("SYNC_INTERVAL_MINUTES_LABEL", "Διάστημα αυτόματου συγχρονισμού (λεπτά):"), size_hint_x=0.7)
         )
         interval_input = TextInput(
-            text=str(int(get_app_setting("sync_auto_cycle_minutes", 60))),
+            text=str(int(get_app_setting("sync_auto_cycle_minutes", 15))),
             multiline=False,
             size_hint_x=0.3,
         )
@@ -2178,7 +2250,7 @@ class SubstationApp(App):
         retention_days_row.add_widget(retention_days_input)
         content.add_widget(retention_days_row)
 
-        default_shared_relative = "\\Κοινή Βάση Υποσταθμών"
+        
 
         sync_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=5)
         sync_root_row.add_widget(
@@ -2187,18 +2259,25 @@ class SubstationApp(App):
         sync_root_default = resolve_sync_root(self.db_path)
         sync_root_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
         sync_root_input = TextInput(
-            text=str(sync_root_default),
+            text=str(get_app_setting("sync_root_path", sync_root_default) or sync_root_default),
             multiline=False,
-            readonly=True,
+            readonly=False,
             size_hint_x=1.0,
             height=35,
         )
         sync_root_input_row.add_widget(sync_root_input)
+        sync_root_reset_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
+
+        def _reset_sync_root(*_args):
+            sync_root_input.text = ""
+
+        sync_root_reset_btn.bind(on_press=_reset_sync_root)
+        sync_root_input_row.add_widget(sync_root_reset_btn)
         sync_root_row.add_widget(sync_root_input_row)
         sync_root_hint = Label(
             text=S["MESSAGES"].get(
                 "SYNC_ROOT_PATH_HINT",
-                "Το sync_root_path ορίζεται κεντρικά. Εδώ ρυθμίζετε μόνο το σχετικό onedrive_shared_root_path.",
+                "Το sync_root_path είναι το μοναδικό ρυθμιζόμενο μονοπάτι (απόλυτο path).",
             ),
             size_hint_y=None,
             height=20,
@@ -2207,80 +2286,19 @@ class SubstationApp(App):
         sync_root_row.add_widget(sync_root_hint)
         content.add_widget(sync_root_row)
 
-        shared_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=5)
-        shared_root_row.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "ONEDRIVE_SHARED_ROOT_PATH_LABEL",
-                    "Φάκελος κοινών δεδομένων OneDrive (Κοινή Βάση Υποσταθμών):",
-                ),
-                size_hint_y=None,
-                height=20,
-            )
-        )
-        stored_shared_root = str(get_app_setting("onedrive_shared_root_path", "") or "").strip()
-        shared_root_display = stored_shared_root or default_shared_relative
-        shared_root_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
-        shared_root_input = TextInput(
-            text=shared_root_display,
-            multiline=False,
-            size_hint_x=0.95,
-            height=35,
-        )
-        shared_root_input_row.add_widget(shared_root_input)
-        shared_root_reset_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-
-        def _reset_shared_root(*_args):
-            shared_root_input.text = ""
-
-        shared_root_reset_btn.bind(on_press=_reset_shared_root)
-        shared_root_input_row.add_widget(shared_root_reset_btn)
-        shared_root_row.add_widget(shared_root_input_row)
-        shared_root_hint = Label(
-            text=S["MESSAGES"].get(
-                "ONEDRIVE_SHARED_ROOT_PATH_HINT",
-                "Σχετικό με το sync_root_path. Παράδειγμα: \\Κοινή Βάση Υποσταθμών",
-            ),
-            size_hint_y=None,
-            height=20,
-            color=(0.5, 0.5, 0.5, 1),
-        )
-        shared_root_row.add_widget(shared_root_hint)
-        content.add_widget(shared_root_row)
+        # Shared root is fixed (relative to sync_root) and not configurable in settings UI.
 
         content.add_widget(Widget(size_hint_y=None, height=15))
 
-        backup_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=5)
-        backup_root_row.add_widget(
-            Label(text=S["MESSAGES"].get("BACKUP_ROOT_PATH_LABEL", "Φάκελος backup_root_path:"), size_hint_y=None, height=20)
-        )
+        # Backup folder is fixed and not configurable in settings UI - show as read-only label
         backup_root_default = resolve_backup_root(self.db_path)
-        backup_root_input_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=35, spacing=5)
-        backup_root_input = TextInput(
-            text=str(get_app_setting("backup_root_path", backup_root_default) or backup_root_default),
-            multiline=False,
-            size_hint_x=0.95,
-            height=35,
+        backup_root_row = BoxLayout(orientation="vertical", size_hint_y=None, height=45, spacing=5)
+        backup_root_row.add_widget(
+            Label(text=S["MESSAGES"].get("BACKUP_ROOT_PATH_LABEL", "Φάκελος backup_root_path:"), size_hint_y=None, height=18)
         )
-        backup_root_input_row.add_widget(backup_root_input)
-        backup_root_reset_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-
-        def _reset_backup_root(*_args):
-            backup_root_input.text = ""
-
-        backup_root_reset_btn.bind(on_press=_reset_backup_root)
-        backup_root_input_row.add_widget(backup_root_reset_btn)
-        backup_root_row.add_widget(backup_root_input_row)
-        backup_root_hint = Label(
-            text=S["MESSAGES"].get(
-                "BACKUP_ROOT_PATH_HINT",
-                "Κενό = προεπιλογή (δίπλα στη βάση: backups_auto)",
-            ),
-            size_hint_y=None,
-            height=20,
-            color=(0.5, 0.5, 0.5, 1),
+        backup_root_row.add_widget(
+            Label(text=str(backup_root_default), size_hint_y=None, height=20, color=(0.2, 0.2, 0.2, 1))
         )
-        backup_root_row.add_widget(backup_root_hint)
         content.add_widget(backup_root_row)
 
         scroll.add_widget(content)
@@ -2351,13 +2369,32 @@ class SubstationApp(App):
                         # Will restart at the end of this function
                         pass
 
-            shared_root_text = (shared_root_input.text or "").strip()
-            backup_root_text = (backup_root_input.text or "").strip()
+            sync_root_text = (sync_root_input.text or "").strip()
 
             default_sync_root = resolve_sync_root(self.db_path)
             default_backup_root = resolve_backup_root(self.db_path)
 
-            # sync_root_path is managed centrally; keep read-only in this dialog.
+            # Validate and save sync_root_path (user-editable here)
+            if sync_root_text:
+                if os.path.exists(sync_root_text) and not os.path.isdir(sync_root_text):
+                    show_message_popup(
+                        S["TITLES"]["ERROR"],
+                        f"Το sync_root_path δείχνει σε αρχείο, όχι φάκελο:\n{sync_root_text}\n\nΠαρακαλώ διορθώστε τη ρύθμιση."
+                    )
+                    return
+                if not os.path.exists(sync_root_text):
+                    try:
+                        os.makedirs(sync_root_text)
+                    except OSError as e:
+                        show_message_popup(
+                            S["TITLES"]["ERROR"],
+                            f"Αδυναμία δημιουργίας φακέλου sync_root_path:\n\n{sync_root_text}\n\nΣφάλμα: {str(e)}"
+                        )
+                        return
+                set_app_setting("sync_root_path", os.path.abspath(sync_root_text))
+            else:
+                clear_app_setting("sync_root_path")
+
             if os.path.exists(default_sync_root) and not os.path.isdir(default_sync_root):
                 show_message_popup(
                     S["TITLES"]["ERROR"],
@@ -2374,87 +2411,17 @@ class SubstationApp(App):
                     )
                     return
 
-            if shared_root_text:
-                raw_shared = os.path.expandvars(os.path.expanduser(shared_root_text))
-                rooted_relative = shared_root_text.startswith("\\") or shared_root_text.startswith("/")
-                shared_relative = ""
+            # onedrive shared root is fixed (relative to sync_root) and not configurable here.
 
-                if rooted_relative:
-                    shared_relative = shared_root_text.lstrip("\\/").strip()
-                elif os.path.isabs(raw_shared):
-                    shared_abs = os.path.abspath(raw_shared)
-                    sync_abs = os.path.abspath(default_sync_root)
-                    try:
-                        common = os.path.commonpath([sync_abs, shared_abs])
-                    except ValueError:
-                        common = ""
-                    if os.path.normcase(common) != os.path.normcase(sync_abs):
-                        show_message_popup(
-                            S["TITLES"]["ERROR"],
-                            "Το onedrive_shared_root_path πρέπει να είναι σχετικό με το sync_root_path ή απόλυτο path κάτω από αυτό.",
-                        )
-                        return
-                    shared_relative = os.path.relpath(shared_abs, sync_abs).strip("\\/")
-                else:
-                    shared_relative = raw_shared.strip("\\/")
-
-                if not shared_relative:
-                    shared_relative = default_shared_relative.lstrip("\\/")
-
-                shared_target_abs = os.path.join(default_sync_root, shared_relative)
-                if os.path.exists(shared_target_abs) and not os.path.isdir(shared_target_abs):
-                    show_message_popup(
-                        S["TITLES"]["ERROR"],
-                        f"Το onedrive_shared_root_path δείχνει σε αρχείο, όχι φάκελο:\n{shared_target_abs}\n\nΠαρακαλώ επιλέξτε φάκελο."
-                    )
-                    return
-                if not os.path.exists(shared_target_abs):
-                    try:
-                        os.makedirs(shared_target_abs)
-                    except OSError as e:
-                        show_message_popup(
-                            S["TITLES"]["ERROR"],
-                            f"Αδυναμία δημιουργίας φακέλου onedrive_shared_root_path:\n\n{shared_target_abs}\n\nΣφάλμα: {str(e)}"
-                        )
-                        return
-                shared_setting_value = "\\" + shared_relative.replace("/", "\\")
-                set_app_setting("onedrive_shared_root_path", shared_setting_value)
-            else:
-                clear_app_setting("onedrive_shared_root_path")
-
-            if backup_root_text:
-                # Check if it's an existing file (not directory)
-                if os.path.exists(backup_root_text) and not os.path.isdir(backup_root_text):
-                    show_message_popup(
-                        S["TITLES"]["ERROR"],
-                        f"Το backup_root_path δείχνει σε αρχείο, όχι φάκελο:\n{backup_root_text}\n\nΠαρακαλώ επιλέξτε φάκελο."
-                    )
-                    return
-                # Create directory only if it doesn't exist
-                if not os.path.exists(backup_root_text):
-                    try:
-                        os.makedirs(backup_root_text)
-                    except OSError as e:
-                        show_message_popup(
-                            S["TITLES"]["ERROR"],
-                            f"Αδυναμία δημιουργίας φακέλου backup_root_path:\n\n{backup_root_text}\n\nΣφάλμα: {str(e)}"
-                        )
-                        return
-                set_app_setting("backup_root_path", os.path.abspath(backup_root_text))
-            else:
-                clear_app_setting("backup_root_path")
+            # backup_root_path is fixed and not configurable from this dialog.
+            # Use resolve_backup_root(self.db_path) to determine the location.
 
             set_app_setting("sync_auto_cycle_minutes", interval_minutes)
             set_app_setting("backup_hot_keep", hot_keep)
             set_app_setting("sync_retention_enabled", True)
             set_app_setting("sync_retention_days", retention_days)
 
-            if shared_root_text:
-                normalized_shared = str(get_app_setting("onedrive_shared_root_path", "") or "").strip()
-                if normalized_shared == default_shared_relative:
-                    clear_app_setting("onedrive_shared_root_path")
-            if backup_root_text and os.path.abspath(backup_root_text) == os.path.abspath(default_backup_root):
-                clear_app_setting("backup_root_path")
+            # Do not clear or set backup_root_path here; it's fixed to the default.
 
             # Only show language restart message if language actually changed
             current_lang = get_current_language()
@@ -4788,6 +4755,38 @@ class SubstationApp(App):
             except Exception:
                 pass
 
+    def _acknowledge_startup_probe(self, probe: dict | None):
+        """Persist the given probe as the acknowledged baseline so prompts are deferred.
+
+        This is used when the user explicitly 'skips' a sync prompt to avoid
+        re-prompting immediately for the same differences.
+        """
+        try:
+            state = self._load_startup_sync_state() or {}
+            last_run = state.get("last_run") or {"sync_processed": 0, "sync_accepted": 0, "sync_conflicts": 0}
+            self._save_startup_sync_state(
+                {
+                    "state_version": 1,
+                    "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                    "last_probe": probe or {},
+                    "last_run": last_run,
+                }
+            )
+            # If the shared root is missing we should keep attention flagged
+            # so the UI shows the sync button as needing attention; otherwise
+            # clear the attention flag to avoid immediate re-prompting.
+            try:
+                shared_root_exists = True
+                if probe and isinstance(probe, dict):
+                    shared_root_exists = bool(probe.get("shared_root_exists", True))
+                self._sync_attention_needed = not shared_root_exists
+            except Exception:
+                self._sync_attention_needed = False
+            self._last_sync_cycle_ts = datetime.now().timestamp()
+            self._update_sync_button_status()
+        except Exception:
+            logging.exception("Failed to acknowledge startup probe")
+
     def _scan_sync_payload_dir(self, dir_path):
         """Return file count and latest mtime for .json/.jsonl files in a sync folder."""
         count = 0
@@ -6626,6 +6625,10 @@ class SubstationApp(App):
                 self._sync_attention_needed = False
             finally:
                 try:
+                    self._sync_in_progress = False
+                except Exception:
+                    pass
+                try:
                     if progress_ui:
                         progress_ui["popup"].dismiss()
                 except Exception:
@@ -6634,6 +6637,9 @@ class SubstationApp(App):
 
         def _run_manual_sync(_dt):
             try:
+                # Avoid starting manual sync if another sync is running
+                if getattr(self, "_sync_in_progress", False):
+                    return
                 if progress_ui:
                     _update_manual_progress(
                         5,
@@ -6641,6 +6647,11 @@ class SubstationApp(App):
                         S["MESSAGES"].get("SYNC_PROGRESS_PREPARE", "Προετοιμασία συγχρονισμού..."),
                     )
                 import threading
+
+                try:
+                    self._sync_in_progress = True
+                except Exception:
+                    pass
 
                 def _worker():
                     worker_conn = None
@@ -6814,7 +6825,7 @@ class SubstationApp(App):
                     self._update_sync_button_status()
                     self._show_startup_sync_prompt_popup(
                         on_sync=lambda: self._run_startup_sync_cycle(force=True),
-                        on_skip=_defer_startup_sync,
+                        on_skip=lambda: self._acknowledge_startup_probe(current_probe),
                         summary_text=self._build_startup_probe_summary(current_probe, previous_probe),
                     )
                     return
@@ -6876,69 +6887,10 @@ class SubstationApp(App):
                     except Exception:
                         logging.exception("Failed to sync substation folder structures at startup")
 
-                    # Generate missing PDF reports for existing maintenance records
-                    try:
-                        def _report_progress(operation, substation, current, total):
-                            self._update_startup_progress(
-                                progress_ui,
-                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
-                                substation,
-                                current,
-                                total,
-                            )
-                        
-                        report_result = regenerate_maintenance_reports(
-                            startup_conn,
-                            db_path=self.db_path,
-                            quiet=True,
-                            progress_callback=_report_progress,
-                        )
-                        logging.info(
-                            "Maintenance reports: total=%s generated=%s skipped=%s failed=%s",
-                            report_result.get("total", 0),
-                            report_result.get("generated", 0),
-                            report_result.get("skipped", 0),
-                            report_result.get("failed", 0),
-                        )
-                    except Exception:
-                        logging.exception("Failed to regenerate maintenance reports at startup")
-
-                    # Relink existing file/folder assets into DB when missing.
-                    try:
-                        def _relink_progress(operation, substation, current, total):
-                            self._update_startup_progress(
-                                progress_ui,
-                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
-                                substation,
-                                current,
-                                total,
-                            )
-                        
-                        relink_result = relink_existing_maintenance_assets(
-                            startup_conn,
-                            db_path=self.db_path,
-                            progress_callback=_relink_progress,
-                        )
-                        logging.info(
-                            "Asset relink: media_linked=%s reports_linked=%s reports_already=%s reports_missing=%s",
-                            relink_result.get("media_linked", 0),
-                            relink_result.get("reports_linked", 0),
-                            relink_result.get("reports_already", 0),
-                            relink_result.get("reports_missing", 0),
-                        )
-                    except Exception:
-                        logging.exception("Failed to relink existing maintenance assets at startup")
-
-                    try:
-                        startup_conn.commit()
-                    except Exception:
-                        logging.exception("Failed to commit startup link/report updates")
-
-                    # Store results for main thread access via closure
+                    # Store intermediate results for main thread access
                     results["sync_result"] = sync_result
-                    results["report_result"] = report_result
-                    results["relink_result"] = relink_result
 
+                    # First apply incoming sync changes so DB reflects remote updates
                     try:
                         run_result = run_sync_cycle(
                             startup_conn,
@@ -6950,6 +6902,91 @@ class SubstationApp(App):
                         results["run_result"] = run_result
                     except Exception:
                         logging.exception("Failed to run sync cycle at startup")
+
+                    # After applying sync changes, regenerate reports and relink assets
+                    try:
+                        def _report_progress(operation, substation, current, total):
+                            self._update_startup_progress(
+                                progress_ui,
+                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
+                                substation,
+                                current,
+                                total,
+                            )
+
+                        report_result = regenerate_maintenance_reports(
+                            startup_conn,
+                            db_path=self.db_path,
+                            quiet=True,
+                            progress_callback=_report_progress,
+                        )
+                        results["report_result"] = report_result
+                        logging.info(
+                            "Maintenance reports: total=%s generated=%s skipped=%s failed=%s",
+                            report_result.get("total", 0),
+                            report_result.get("generated", 0),
+                            report_result.get("skipped", 0),
+                            report_result.get("failed", 0),
+                        )
+                    except Exception:
+                        logging.exception("Failed to regenerate maintenance reports at startup")
+
+                    try:
+                        def _relink_progress(operation, substation, current, total):
+                            self._update_startup_progress(
+                                progress_ui,
+                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
+                                substation,
+                                current,
+                                total,
+                            )
+
+                        relink_result = relink_existing_maintenance_assets(
+                            startup_conn,
+                            db_path=self.db_path,
+                            progress_callback=_relink_progress,
+                        )
+                        results["relink_result"] = relink_result
+                        logging.info(
+                            "Asset relink: media_linked=%s reports_linked=%s reports_already=%s reports_missing=%s",
+                            relink_result.get("media_linked", 0),
+                            relink_result.get("reports_linked", 0),
+                            relink_result.get("reports_already", 0),
+                            relink_result.get("reports_missing", 0),
+                        )
+                    except Exception:
+                        logging.exception("Failed to relink existing maintenance assets at startup")
+
+                    try:
+                        def _final_sync_progress(operation, substation, current, total):
+                            self._update_startup_progress(
+                                progress_ui,
+                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
+                                substation,
+                                current,
+                                total,
+                            )
+
+                        final_sync_result = sync_all_substation_structures(
+                            startup_conn,
+                            db_path=self.db_path,
+                            quiet=True,
+                            progress_callback=_final_sync_progress,
+                        )
+                        results["final_sync_result"] = final_sync_result
+                        logging.info(
+                            "Post-generation folder prune: total=%s synced=%s failed=%s",
+                            final_sync_result.get("total", 0),
+                            final_sync_result.get("synced", 0),
+                            final_sync_result.get("failed", 0),
+                        )
+                    except Exception:
+                        logging.exception("Failed to prune empty folders at startup")
+
+                    try:
+                        startup_conn.commit()
+                    except Exception:
+                        logging.exception("Failed to commit startup link/report updates")
 
                 finally:
                     try:
@@ -6988,10 +7025,13 @@ class SubstationApp(App):
                     progress_popup.dismiss()
                 except Exception:
                     pass
-                
+                # Mark sync as finished
+                try:
+                    self._sync_in_progress = False
+                except Exception:
+                    pass
                 self._sync_attention_needed = False
                 self._last_sync_cycle_ts = datetime.now().timestamp()
-                
                 sync_result = results["sync_result"] or {}
                 report_result = results["report_result"] or {}
                 relink_result = results["relink_result"] or {}
@@ -7083,6 +7123,11 @@ class SubstationApp(App):
                     except Exception:
                         logging.exception("Failed to persist startup sync probe state")
 
+            try:
+                # Mark sync as in-progress so other triggers won't start overlapping runs
+                self._sync_in_progress = True
+            except Exception:
+                pass
             # Start worker thread (daemon so it doesn't block app exit)
             worker_thread = threading.Thread(target=_startup_worker, daemon=True)
             worker_thread.start()
@@ -7112,41 +7157,67 @@ class SubstationApp(App):
 
                     # If differences detected, prompt the user.
                     if probe_changed:
-                        def _do_periodic_sync():
-                            from sync_service import run_sync_cycle
-                            result = run_sync_cycle(
-                                self.conn,
-                                db_path=self.db_path,
-                                actor="scheduler",
-                                create_backup_on_change=True,
-                                hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
-                            )
-                            try:
-                                q = process_hybrid_queue(self.db_path, max_jobs=120)
-                            except Exception:
-                                logging.exception("Hybrid queue processing failed in scheduler")
-                            if result and result.get("sync", {}).get("processed", 0) > 0:
-                                self._show_sync_notification(result)
-                            self._sync_attention_needed = False
+                        # If a sync is already running, defer prompting.
+                        if getattr(self, "_sync_in_progress", False):
+                            self._sync_attention_needed = True
                             self._update_sync_button_status()
-                            # Refresh probe state after sync.
-                            try:
-                                post_probe = self._compute_startup_sync_probe(resolve_sync_root(self.db_path))
-                                self._save_startup_sync_state({
-                                    "state_version": 1,
-                                    "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                                    "last_probe": post_probe,
-                                    "last_run": {"sync_processed": 0, "sync_accepted": 0, "sync_conflicts": 0},
-                                })
-                            except Exception:
-                                pass
+                            return
+                        def _do_periodic_sync():
+                            # Run scheduler sync in background to avoid blocking UI
+                            def _worker():
+                                try:
+                                    try:
+                                        self._sync_in_progress = True
+                                    except Exception:
+                                        pass
+                                    # update last sync timestamp to avoid re-triggering
+                                    try:
+                                        self._last_sync_cycle_ts = datetime.now().timestamp()
+                                    except Exception:
+                                        pass
+                                    from sync_service import run_sync_cycle
+
+                                    result = run_sync_cycle(
+                                        self.conn,
+                                        db_path=self.db_path,
+                                        actor="scheduler",
+                                        create_backup_on_change=True,
+                                        hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+                                    )
+                                    try:
+                                        q = process_hybrid_queue(self.db_path, max_jobs=120)
+                                    except Exception:
+                                        logging.exception("Hybrid queue processing failed in scheduler")
+                                    if result and result.get("sync", {}).get("processed", 0) > 0:
+                                        # schedule UI notification on main thread
+                                        Clock.schedule_once(lambda dt: self._show_sync_notification(result), 0)
+                                    # Refresh probe state after sync.
+                                    try:
+                                        post_probe = self._compute_startup_sync_probe(resolve_sync_root(self.db_path))
+                                        self._save_startup_sync_state({
+                                            "state_version": 1,
+                                            "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                                            "last_probe": post_probe,
+                                            "last_run": {"sync_processed": 0, "sync_accepted": 0, "sync_conflicts": 0},
+                                        })
+                                    except Exception:
+                                        logging.exception("Failed to persist startup sync probe state after scheduler run")
+                                finally:
+                                    try:
+                                        self._sync_in_progress = False
+                                    except Exception:
+                                        pass
+
+                            import threading
+                            t = threading.Thread(target=_worker, daemon=True)
+                            t.start()
 
                         # Show periodic sync prompt.
                         self._sync_attention_needed = True
                         self._update_sync_button_status()
                         self._show_startup_sync_prompt_popup(
                             on_sync=_do_periodic_sync,
-                            on_skip=lambda: self._update_sync_button_status(),
+                            on_skip=lambda: self._acknowledge_startup_probe(current_probe),
                             summary_text=self._build_startup_probe_summary(current_probe, previous_probe),
                         )
                         return

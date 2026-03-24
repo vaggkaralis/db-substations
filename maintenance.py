@@ -120,6 +120,7 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
 
     import_pdf_btn.bind(on_press=_on_import_pdf)
     buttons_row.add_widget(import_pdf_btn)
+    
     layout.add_widget(buttons_row)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.25)

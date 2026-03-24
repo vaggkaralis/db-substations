@@ -155,6 +155,7 @@ def show_import_isolation_request(app, parent_popup=None):
     email_btn = Button(text="Από e-mail (.eml)")
     email_btn.bind(on_press=lambda _x: (popup.dismiss(), _import_from_eml(app, parent_popup, status_spinner.text)))
     buttons.add_widget(email_btn)
+    
     layout.add_widget(buttons)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=45)
@@ -439,7 +440,7 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     start_default = (
         request_record[3]
         if request_record
-        else prefill_data.get("start_datetime") or datetime.now().strftime("%Y-%m-%d %H:%M")
+        else prefill_data.get("start_datetime") or datetime.now().strftime("%Y-%m-%d 09:00")
     )
     start_input = TextInput(text=start_default, hint_text="YYYY-MM-DD HH:MM", multiline=False, size_hint_y=None, height=35)
     content.add_widget(start_input)
@@ -453,7 +454,7 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     end_default = (
         request_record[4]
         if request_record
-        else prefill_data.get("end_datetime") or (datetime.now() + timedelta(hours=4)).strftime("%Y-%m-%d %H:%M")
+        else prefill_data.get("end_datetime") or datetime.now().strftime("%Y-%m-%d 14:00")
     )
     end_input = TextInput(text=end_default, hint_text="YYYY-MM-DD HH:MM", multiline=False, size_hint_y=None, height=35)
     content.add_widget(end_input)

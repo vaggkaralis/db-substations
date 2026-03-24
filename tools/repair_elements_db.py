@@ -11,7 +11,7 @@ import random
 import sqlite3
 import sys
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 DB = sys.argv[1] if len(sys.argv) > 1 else "substations_backup.db"
 

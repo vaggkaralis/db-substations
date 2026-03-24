@@ -15,7 +15,6 @@ import re
 import unicodedata
 from collections import defaultdict
 
-import pyodbc
 
 
 def normalize_text(value):
@@ -76,9 +75,12 @@ def build_access_asset_gate_maps(accdb_path):
         "tx_name": defaultdict(set),
     }
 
-    conn = pyodbc.connect(
-        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};" + f"DBQ={accdb_path};"
-    )
+    try:
+        import pyodbc
+    except Exception:
+        raise RuntimeError("pyodbc is required to read Access databases; install it or avoid calling this function")
+
+    conn = pyodbc.connect(r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};" + f"DBQ={accdb_path};")
     try:
         cursor = conn.cursor()
         rows = cursor.execute("SELECT * FROM qryAssetBySubstation").fetchall()

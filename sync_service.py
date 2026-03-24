@@ -3,6 +3,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,11 +86,10 @@ def resolve_sync_root(db_path: str | None = None) -> str:
 
 
 def resolve_backup_root(db_path: str | None = None) -> str:
-    configured = get_app_setting("backup_root_path", None)
-    if configured:
-        return os.path.abspath(configured)
-    effective_db = resolve_db_path(db_path)
-    return os.path.join(os.path.dirname(effective_db), "backups_auto")
+    # Backup root is fixed relative to the application executable directory
+    # (where the binary or Python interpreter is located).
+    app_dir = os.path.dirname(sys.executable) if getattr(sys, "executable", None) else os.getcwd()
+    return os.path.join(os.path.abspath(app_dir), "backups_auto")
 
 
 def ensure_sync_tree(sync_root: str) -> dict[str, str]:

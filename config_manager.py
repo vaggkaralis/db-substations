@@ -18,7 +18,6 @@ _PATH_SETTING_KEYS = (
     "db_path",
     "sync_root_path",
     "backup_root_path",
-    "onedrive_shared_root_path",
 )
 
 
@@ -66,6 +65,10 @@ def _default_settings() -> dict:
         "backup_root_path": "backups_auto",
         "sync_auto_cycle_enabled": True,
         "sync_auto_cycle_minutes": 60,
+        # PDF normalization settings
+        "pdf_normalize_async": False,
+        # Size threshold in KB above which normalization may be performed asynchronously
+        "pdf_normalize_size_threshold_kb": 1024,
         "sync_backup_on_change": True,
         "backup_hot_keep": 3,
         "setup_wizard_completed": False,
@@ -93,45 +96,12 @@ def _resolve_path_value(value: str | None) -> str | None:
     expanded = os.path.expandvars(os.path.expanduser(text))
     if os.path.isabs(expanded):
         return os.path.abspath(expanded)
-    # Resolve relative paths against the directory that contains the active
     # settings file (project root in dev, %LOCALAPPDATA%/… in production).
     settings_dir = os.path.dirname(os.path.abspath(SETTINGS_FILE))
     return os.path.abspath(os.path.join(settings_dir, expanded))
 
 
-def _normalize_onedrive_shared_root_value(value, settings: dict) -> str | None:
-    """Persist onedrive_shared_root_path as a rooted-relative segment.
 
-    Stored format: "\\Some Folder" (always relative to sync_root_path).
-    """
-    if value is None:
-        return None
-
-    text = str(value).strip()
-    if not text:
-        return None
-
-    if text.startswith("\\") or text.startswith("/"):
-        rel = text.lstrip("\\/").strip()
-        return ("\\" + rel.replace("/", "\\")) if rel else None
-
-    expanded = os.path.expandvars(os.path.expanduser(text))
-    if os.path.isabs(expanded):
-        abs_value = os.path.abspath(expanded)
-        sync_abs = _resolve_path_value(settings.get("sync_root_path"))
-        if sync_abs:
-            try:
-                common = os.path.commonpath([sync_abs, abs_value])
-            except ValueError:
-                common = ""
-            if os.path.normcase(common) == os.path.normcase(sync_abs):
-                rel = os.path.relpath(abs_value, sync_abs).strip("\\/")
-                return ("\\" + rel.replace("/", "\\")) if rel else None
-        rel = os.path.basename(abs_value.rstrip("\\/"))
-        return ("\\" + rel) if rel else None
-
-    rel = expanded.strip("\\/")
-    return ("\\" + rel.replace("/", "\\")) if rel else None
 
 
 def _normalize_settings(settings: dict) -> tuple[dict, bool]:
@@ -361,10 +331,7 @@ def set_app_setting(key: str, value) -> bool:
     """
     try:
         settings = _load_app_settings()
-        if key == "onedrive_shared_root_path":
-            settings[key] = _normalize_onedrive_shared_root_value(value, settings)
-        else:
-            settings[key] = value
+        settings[key] = value
         _save_app_settings(settings)
         return True
     except Exception:

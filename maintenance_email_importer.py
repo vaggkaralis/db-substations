@@ -871,8 +871,40 @@ def create_maintenance_from_email(
         )
 
         c = conn.cursor()
-        c.execute(insert_sql, values)
-        maintenance_id = c.lastrowid
+        # Defensive check: avoid creating duplicate maintenance from repeated emails
+        existing_mid = None
+        try:
+            # match by fingerprint: substation_id, date_time, maintenance_type, user_name
+            mtype = None
+            if "maintenance_type" in maint_cols:
+                mtype = infer_maintenance_type_from_subject(subject, default_type="Email")
+            uname = sender_name or sender_email
+            if mtype is not None:
+                c.execute(
+                    "SELECT id FROM maintenance WHERE substation_id=? AND date_time=? AND maintenance_type=? AND user_name=? LIMIT 1",
+                    (substation["id"], date_time_value, mtype, uname),
+                )
+                row = c.fetchone()
+                if row:
+                    existing_mid = row[0]
+            # Fallback: match by substation + date_time
+            if existing_mid is None:
+                c.execute(
+                    "SELECT id FROM maintenance WHERE substation_id=? AND date_time=? LIMIT 1",
+                    (substation["id"], date_time_value),
+                )
+                row = c.fetchone()
+                if row:
+                    existing_mid = row[0]
+
+        except Exception:
+            existing_mid = None
+
+        if existing_mid:
+            maintenance_id = existing_mid
+        else:
+            c.execute(insert_sql, values)
+            maintenance_id = c.lastrowid
 
         if responsible_id:
             try:

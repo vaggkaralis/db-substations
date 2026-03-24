@@ -11,7 +11,7 @@ from maintenance_email_importer import (DEFAULT_DB_PATH,
                                         create_maintenance_from_email)
 from popups import ask_open_file
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 
 def main():

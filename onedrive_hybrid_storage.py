@@ -75,7 +75,10 @@ def _maintenance_root_relative_path(maintenance_type: str | None) -> str:
 def _gate_relative_path_from_gate_key(gate_key: str | None) -> str:
     text = (gate_key or "").strip().lower()
     if text.startswith("interconnections:"):
-        return os.path.join(_DIR_INTERCONNECTIONS, text.split(":", 1)[1] or "")
+        # Map legacy interconnection gate_key into the corresponding gate folder
+        val = text.split(":", 1)[1] or ""
+        bucket = _bucket_for_gate(val)
+        return _gate_relative_path(bucket)
     if text.startswith("gate:"):
         return _gate_relative_path(("gate", text.split(":", 1)[1] or "unknown"))
     return _DIR_GATE_UNKNOWN
@@ -259,18 +262,23 @@ def resolve_shared_root(db_path: str | None = None) -> str:
     else:
         sync_base = os.getcwd()
 
-    configured = get_app_setting("onedrive_shared_root_path", None)
-    rel = _normalize_shared_root_relative(configured, sync_base)
+    # Shared root is a fixed relative folder under sync_root
+    rel = _DEFAULT_SHARED_ROOT_NAME
     return os.path.abspath(os.path.join(sync_base, rel))
 
 
 def _bucket_for_gate(gate_value: str | None) -> tuple[str, str]:
-    gate = (gate_value or "").strip().upper().replace(" ", "")
+    # Normalize and map interconnection pairs into the first-digit gate.
+    gate = (gate_value or "").strip().lower().replace(" ", "")
 
-    if "1-2" in gate:
-        return ("interconnections", "1-2")
-    if "2-3" in gate:
-        return ("interconnections", "2-3")
+    # Handle explicit interconnection pairs (accept either ordering)
+    if "1-2" in gate or "2-1" in gate:
+        return ("gate", "1")
+    if "2-3" in gate or "3-2" in gate:
+        return ("gate", "2")
+    # Normalize 1-3 and 3-1 to gate 3 (user expects 1-3 -> 3-1 -> Gate 3)
+    if "3-1" in gate or "1-3" in gate:
+        return ("gate", "3")
 
     match = re.search(r"([123])", gate)
     if match:
@@ -281,8 +289,6 @@ def _bucket_for_gate(gate_value: str | None) -> tuple[str, str]:
 
 def _gate_relative_path(bucket: tuple[str, str]) -> str:
     kind, value = bucket
-    if kind == "interconnections":
-        return os.path.join(_DIR_INTERCONNECTIONS, value)
     if value in {"1", "2", "3"}:
         return {
             "1": _DIR_GATE_1,
@@ -592,10 +598,137 @@ def copy_files_to_folder(source_paths: Iterable[str], target_folder: str | None)
     return copied
 
 
+_REPORT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx"}
+
+
+def _distribute_attachments_and_register(
+    conn,
+    source_paths: Iterable[str],
+    created_rows: list[dict],
+    maintenance_id: int,
+    element_ids: Iterable[int],
+):
+    """Copy attachments to media or reports folders and register report paths.
+
+    - Media files (images/videos) are copied to each `media_folder` in `created_rows`.
+    - Report files (pdf/doc/xls) are copied into per-element report subfolders
+      and persisted via `upsert_maintenance_report_path` for each element in
+      `element_ids` that belongs to the same gate bucket.
+
+    Returns: (copied_media_count, copied_reports_count)
+    """
+    copied_media = 0
+    copied_reports = 0
+
+    # Normalize created_rows by gate_key for quick lookup
+    rows_by_gate = {r["gate_key"]: r for r in (created_rows or [])}
+
+    # Map element_id -> (gate_key, element_type)
+    elem_map = {}
+    try:
+        if element_ids:
+            placeholders = ",".join(["?"] * len(element_ids))
+            cur = conn.cursor()
+            cur.execute(f"SELECT id, gate, element_type FROM elements WHERE id IN ({placeholders})", tuple(element_ids))
+            for row in cur.fetchall() or []:
+                eid = row[0]
+                gate = row[1] or ""
+                etype = row[2] or ""
+                bucket = _bucket_for_gate(gate)
+                gate_key = f"{bucket[0]}:{bucket[1]}"
+                elem_map[eid] = (gate_key, etype)
+    except Exception:
+        elem_map = {}
+
+    # Targets for media copying
+    media_targets = [r["media_folder"] for r in (created_rows or []) if r.get("media_folder")]
+
+    for src in source_paths or []:
+        if not src:
+            continue
+        try:
+            src_path = Path(src)
+            if not src_path.exists() or not src_path.is_file():
+                continue
+
+            suffix = src_path.suffix.lower()
+            if suffix in _REPORT_EXTENSIONS:
+                # Copy into per-element report subfolders when possible
+                if elem_map:
+                    for eid, (gate_key, etype) in elem_map.items():
+                        target_row = rows_by_gate.get(gate_key) or (created_rows[0] if created_rows else None)
+                        if not target_row:
+                            continue
+                        reports_root = target_row.get("reports_folder")
+                        subname = _report_subfolder_name_for_element(etype)
+                        subfolder = os.path.join(reports_root, subname)
+                        os.makedirs(_win_path(subfolder), exist_ok=True)
+                        dest = Path(subfolder) / src_path.name
+                        base = dest.stem
+                        ext = dest.suffix
+                        idx = 1
+                        while dest.exists():
+                            dest = Path(subfolder) / f"{base}_{idx}{ext}"
+                            idx += 1
+                        shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
+                        copied_reports += 1
+                        try:
+                            upsert_maintenance_report_path(
+                                conn,
+                                maintenance_id=maintenance_id,
+                                element_id=int(eid),
+                                report_path=str(dest),
+                                report_type=ext.lstrip(".") or "pdf",
+                            )
+                        except Exception:
+                            pass
+                else:
+                    # No element mapping: copy into a generic reports_other of the first row
+                    # NOTE: by design we DO NOT register a DB row for generic reports
+                    # (element_id=0) to avoid creating placeholder entries without
+                    # a proper element mapping. Files are still copied for manual
+                    # inspection in the shared folder.
+                    if created_rows:
+                        target_row = created_rows[0]
+                        reports_root = target_row.get("reports_folder")
+                        subfolder = os.path.join(reports_root, _DIR_REPORTS_OTHER)
+                        os.makedirs(_win_path(subfolder), exist_ok=True)
+                        dest = Path(subfolder) / src_path.name
+                        base = dest.stem
+                        ext = dest.suffix
+                        idx = 1
+                        while dest.exists():
+                            dest = Path(subfolder) / f"{base}_{idx}{ext}"
+                            idx += 1
+                        shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
+                        copied_reports += 1
+            else:
+                # Media file — copy to all media targets
+                for target in media_targets:
+                    try:
+                        os.makedirs(_win_path(target), exist_ok=True)
+                        dest = Path(target) / src_path.name
+                        base = dest.stem
+                        ext = dest.suffix
+                        idx = 1
+                        while dest.exists():
+                            dest = Path(target) / f"{base}_{idx}{ext}"
+                            idx += 1
+                        shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
+                        copied_media += 1
+                    except Exception:
+                        continue
+        except Exception:
+            continue
+
+    return copied_media, copied_reports
+
+
 def _collect_gate_buckets(conn, element_ids: Iterable[int]) -> list[tuple[str, str]]:
     ids = [int(x) for x in (element_ids or []) if x is not None]
     if not ids:
-        return []
+        # No specific elements provided: default to a generic unknown gate bucket
+        return [("gate", "unknown")]
     placeholders = ",".join(["?"] * len(ids))
     cur = conn.cursor()
     cur.execute(f"SELECT gate FROM elements WHERE id IN ({placeholders})", ids)
@@ -733,6 +866,89 @@ def _prune_empty_dir(path: str, *, stop_at: str | None = None) -> None:
         current = parent
 
 
+def _is_same_or_child_path(path: str | None, parent: str | None) -> bool:
+    if not path or not parent:
+        return False
+    try:
+        abs_path = os.path.normcase(os.path.abspath(path))
+        abs_parent = os.path.normcase(os.path.abspath(parent))
+    except Exception:
+        return False
+    return abs_path == abs_parent or abs_path.startswith(abs_parent + os.sep)
+
+
+def _has_duplicated_substation_segment(path: str | None, *, shared_root: str) -> bool:
+    if not path:
+        return False
+    try:
+        rel = os.path.relpath(os.path.abspath(path), os.path.abspath(shared_root))
+        parts = [part for part in rel.split(os.sep) if part and part != "."]
+    except Exception:
+        return False
+    return len(parts) >= 2 and os.path.normcase(parts[0]) == os.path.normcase(parts[1])
+
+
+def _normalize_storage_row_paths(
+    *,
+    shared_root: str,
+    substation_root: str,
+    maintenance_root: str,
+    instance_name: str,
+    existing_instance: str | None,
+    existing_media: str | None,
+    existing_reports: str | None,
+) -> dict[str, str]:
+    canonical_instance = os.path.join(maintenance_root, instance_name)
+    canonical_reports = os.path.join(canonical_instance, _DIR_REPORTS)
+    canonical_media = os.path.join(canonical_instance, _DIR_MEDIA)
+
+    existing_instance = _remap_legacy_shared_root(existing_instance, shared_root)
+    existing_media = _remap_legacy_shared_root(existing_media, shared_root)
+    existing_reports = _remap_legacy_shared_root(existing_reports, shared_root)
+
+    use_existing_instance = False
+    if existing_instance:
+        try:
+            instance_parent = os.path.dirname(os.path.abspath(existing_instance))
+            use_existing_instance = (
+                os.path.normcase(instance_parent) == os.path.normcase(os.path.abspath(maintenance_root))
+                and _is_same_or_child_path(existing_instance, substation_root)
+                and not _has_duplicated_substation_segment(existing_instance, shared_root=shared_root)
+            )
+        except Exception:
+            use_existing_instance = False
+
+    instance_root = existing_instance if use_existing_instance else canonical_instance
+
+    use_existing_reports = False
+    if existing_reports:
+        try:
+            use_existing_reports = (
+                os.path.normcase(os.path.basename(os.path.abspath(existing_reports))) == os.path.normcase(_DIR_REPORTS)
+                and os.path.normcase(os.path.dirname(os.path.abspath(existing_reports))) == os.path.normcase(os.path.abspath(instance_root))
+                and not _has_duplicated_substation_segment(existing_reports, shared_root=shared_root)
+            )
+        except Exception:
+            use_existing_reports = False
+
+    use_existing_media = False
+    if existing_media:
+        try:
+            use_existing_media = (
+                os.path.normcase(os.path.basename(os.path.abspath(existing_media))) == os.path.normcase(_DIR_MEDIA)
+                and os.path.normcase(os.path.dirname(os.path.abspath(existing_media))) == os.path.normcase(os.path.abspath(instance_root))
+                and not _has_duplicated_substation_segment(existing_media, shared_root=shared_root)
+            )
+        except Exception:
+            use_existing_media = False
+
+    return {
+        "instance_folder": instance_root,
+        "reports_folder": existing_reports if use_existing_reports else canonical_reports,
+        "media_folder": existing_media if use_existing_media else canonical_media,
+    }
+
+
 def _merge_tree_into(src: str, dst: str) -> None:
     """Merge a source directory tree into destination without data loss."""
     if not os.path.isdir(src):
@@ -813,18 +1029,18 @@ def _reconcile_legacy_gate_root_folders(substation_root: str) -> None:
         ("Gate_2", _DIR_GATE_2),
         ("Gate_3", _DIR_GATE_3),
         ("Gate_unknown", _DIR_GATE_UNKNOWN),
-        (os.path.join("Interconnections", "1-2"), os.path.join(_DIR_INTERCONNECTIONS, "1-2")),
-        (os.path.join("Interconnections", "2-3"), os.path.join(_DIR_INTERCONNECTIONS, "2-3")),
+        # Map legacy interconnection children into the corresponding gate folders
+        (os.path.join("Interconnections", "1-2"), os.path.join(_DIR_GATE_1)),
+        (os.path.join("Interconnections", "2-3"), os.path.join(_DIR_GATE_2)),
+        (os.path.join("Interconnections", "1-3"), os.path.join(_DIR_GATE_3)),
+        (os.path.join("Interconnections", "3-1"), os.path.join(_DIR_GATE_3)),
     ]
     for src_rel, dst_rel in pairs:
         src = os.path.join(substation_root, src_rel)
         dst = os.path.join(substation_root, dst_rel)
         _merge_legacy_path(src, dst)
-
-    _merge_legacy_path(
-        os.path.join(substation_root, "Interconnections"),
-        os.path.join(substation_root, _DIR_INTERCONNECTIONS),
-    )
+    # Any remaining top-level legacy 'Interconnections' can be removed if empty
+    # after children have been migrated; leave explicit removal to pruning logic.
 
 
 def _reconcile_legacy_gate_children(gate_root: str) -> None:
@@ -869,8 +1085,8 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
         gate_root = os.path.join(substation_root, gate_rel)
         _reconcile_legacy_gate_children(gate_root)
         _ensure_dir(gate_root, queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
-        _ensure_dir(os.path.join(gate_root, _DIR_MAINTENANCE), queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
-        # NOTE: Inspections and DGA folders created on-demand when actually used
+        # NOTE: Maintenance, inspection and DGA folders are created on-demand
+        # when content is actually written. This avoids empty shared folders.
         _prune_empty_dir(
             os.path.join(gate_root, _DIR_MAINTENANCE, _DIR_FAULTS),
             stop_at=os.path.join(gate_root, _DIR_MAINTENANCE),
@@ -885,14 +1101,12 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
         _DIR_GATE_2,
         _DIR_GATE_3,
         _DIR_GATE_UNKNOWN,
-        os.path.join(_DIR_INTERCONNECTIONS, "1-2"),
-        os.path.join(_DIR_INTERCONNECTIONS, "2-3"),
         "Gate_1",
         "Gate_2",
         "Gate_3",
         "Gate_unknown",
-        os.path.join("Interconnections", "1-2"),
-        os.path.join("Interconnections", "2-3"),
+        # Legacy interconnection folders are migrated into gate folders; no separate
+        # Interconnections candidates are needed here.
     ]
     for rel in known_candidates:
         if rel in active_rel:
@@ -931,6 +1145,61 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
             except Exception:
                 pass
 
+    # Prune empty maintenance folders under any gate roots to avoid leaving
+    # an empty 'Συντηρήσεις' directory when no instances/reports/media exist.
+    try:
+        for name in os.listdir(substation_root):
+            gate_candidate = os.path.join(substation_root, name)
+            if not os.path.isdir(gate_candidate):
+                continue
+            maintenance_candidate = os.path.join(gate_candidate, _DIR_MAINTENANCE)
+            if os.path.isdir(maintenance_candidate) and _is_dir_empty(maintenance_candidate):
+                try:
+                    os.rmdir(maintenance_candidate)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Additionally, remove empty gate roots (e.g. 'ΠΥΛΗ 2') when they contain
+    # no files and no meaningful subfolders. This handles cases where a gate
+    # folder was created but never populated.
+    try:
+        for name in os.listdir(substation_root):
+            gate_dir = os.path.join(substation_root, name)
+            if not os.path.isdir(gate_dir):
+                continue
+
+            # Consider gate roots and the Interconnections parent
+            norm = name.strip().lower()
+            if not (norm.startswith(_DIR_GATE_1.split()[0].lower()) or norm.startswith('πυλη') or norm == _DIR_INTERCONNECTIONS.lower()):
+                continue
+
+            # Walk the tree to see if any files exist or any non-empty directories
+            has_content = False
+            for root, dirs, files in os.walk(gate_dir):
+                if files:
+                    has_content = True
+                    break
+                for d in dirs:
+                    dpath = os.path.join(root, d)
+                    if not _is_dir_empty(dpath):
+                        has_content = True
+                        break
+                if has_content:
+                    break
+
+            if not has_content:
+                try:
+                    shutil.rmtree(gate_dir)
+                except Exception:
+                    try:
+                        os.rmdir(gate_dir)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
     return {
         "created_or_ensured": created,
         "removed_empty": removed,
@@ -948,6 +1217,7 @@ def ensure_maintenance_folders(
     date_time: str,
     element_ids: Iterable[int],
     attachment_paths: Iterable[str] | None = None,
+    persist_storage_rows: bool = False,
     db_path: str | None = None,
 ) -> dict:
     base = ensure_substation_structure(conn, substation_id, db_path=db_path)
@@ -996,9 +1266,9 @@ def ensure_maintenance_folders(
         media_folder = row[2] if isinstance(row, (tuple, list)) else row["media_folder"]
         reports_folder = row[3] if isinstance(row, (tuple, list)) else row["reports_folder"]
         existing_by_gate_key[gate_key] = {
-            "instance_folder": _remap_legacy_shared_root(instance_folder, shared_root),
-            "media_folder": _remap_legacy_shared_root(media_folder, shared_root),
-            "reports_folder": _remap_legacy_shared_root(reports_folder, shared_root),
+            "instance_folder": instance_folder,
+            "media_folder": media_folder,
+            "reports_folder": reports_folder,
         }
 
     created_rows = []
@@ -1031,26 +1301,29 @@ def ensure_maintenance_folders(
         # Prevents empty folder clutter in OneDrive
 
         existing = existing_by_gate_key.get(gate_key) or {}
-        instance_root = existing.get("instance_folder") or os.path.join(
-            maintenance_root, instance_name
+        normalized_paths = _normalize_storage_row_paths(
+            shared_root=shared_root,
+            substation_root=substation_root,
+            maintenance_root=maintenance_root,
+            instance_name=instance_name,
+            existing_instance=existing.get("instance_folder"),
+            existing_media=existing.get("media_folder"),
+            existing_reports=existing.get("reports_folder"),
         )
-        reports_root = existing.get("reports_folder") or os.path.join(
-            instance_root, _DIR_REPORTS
-        )
+        instance_root = normalized_paths["instance_folder"]
+        reports_root = normalized_paths["reports_folder"]
         reports_breakers_hv = os.path.join(reports_root, _DIR_REPORTS_BREAKERS_HV)
         reports_breakers_mv = os.path.join(reports_root, _DIR_REPORTS_BREAKERS_MV)
         reports_transformers = os.path.join(reports_root, _DIR_REPORTS_TRANSFORMERS)
         reports_other = os.path.join(reports_root, _DIR_REPORTS_OTHER)
-        media_root = existing.get("media_folder") or os.path.join(
-            instance_root, _DIR_MEDIA
-        )
+        media_root = normalized_paths["media_folder"]
 
-        _ensure_dir(instance_root, queue_payload=queue_payload)
-        _ensure_dir(reports_root, queue_payload=queue_payload)
-        _ensure_dir(media_root, queue_payload=queue_payload)
-
-        # NOTE: Report subfolders are created ON-DEMAND in report_sync.py when reports are actually generated.
-        # This prevents empty folder clutter in OneDrive for maintenances where no reports are created.
+        # Defer creating the instance/reports/media folders until an actual
+        # file is written. Copy routines _distribute_attachments_and_register
+        # and copy_files_to_folder create their target folders as needed.
+        # NOTE: Report subfolders are created ON-DEMAND in report_sync.py when
+        # reports are actually generated. This avoids leaving empty folders
+        # in the shared OneDrive tree for maintenances with no files.
 
         media_targets.append(media_root)
         created_rows.append(
@@ -1063,37 +1336,60 @@ def ensure_maintenance_folders(
             }
         )
 
-    copied_count = _copy_media_to_targets(attachment_paths or [], media_targets)
+    try:
+        copied_media, copied_reports = _distribute_attachments_and_register(
+            conn, attachment_paths or [], created_rows, maintenance_id, element_ids
+        )
+    except Exception:
+        copied_media = _copy_media_to_targets(attachment_paths or [], media_targets)
+        copied_reports = 0
 
     cur = conn.cursor()
-    for row in created_rows:
-        cur.execute(
-            """
-            INSERT INTO maintenance_storage_paths
-            (maintenance_id, gate_key, gate_folder, instance_folder, media_folder, reports_folder, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(maintenance_id, gate_key) DO UPDATE SET
-                gate_folder=excluded.gate_folder,
-                instance_folder=excluded.instance_folder,
-                media_folder=excluded.media_folder,
-                reports_folder=excluded.reports_folder
-            """,
-            (
-                maintenance_id,
-                row["gate_key"],
-                row["gate_folder"],
-                row["instance_folder"],
-                row["media_folder"],
-                row["reports_folder"],
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            ),
-        )
 
-    primary_media = created_rows[0]["media_folder"] if created_rows else None
+    # If nothing was copied and there were no pre-existing storage rows,
+    # avoid inserting placeholder DB rows unless the caller explicitly needs
+    # persisted storage targets for later report generation.
+    total_copied = (copied_media or 0) + (copied_reports or 0)
+    if total_copied == 0 and not existing_rows and not persist_storage_rows:
+        for row in created_rows:
+            try:
+                # Remove the instance folder tree if it's empty (prune up to substation root)
+                instance_folder = row.get("instance_folder")
+                if instance_folder:
+                    _prune_empty_dir(instance_folder, stop_at=os.path.dirname(instance_folder))
+            except Exception:
+                continue
+        primary_media = None
+    else:
+        for row in created_rows:
+            cur.execute(
+                """
+                INSERT INTO maintenance_storage_paths
+                (maintenance_id, gate_key, gate_folder, instance_folder, media_folder, reports_folder, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(maintenance_id, gate_key) DO UPDATE SET
+                    gate_folder=excluded.gate_folder,
+                    instance_folder=excluded.instance_folder,
+                    media_folder=excluded.media_folder,
+                    reports_folder=excluded.reports_folder
+                """,
+                (
+                    maintenance_id,
+                    row["gate_key"],
+                    row["gate_folder"],
+                    row["instance_folder"],
+                    row["media_folder"],
+                    row["reports_folder"],
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+
+        primary_media = created_rows[0]["media_folder"] if created_rows else None
     return {
         "primary_media_folder": primary_media,
         "folders": created_rows,
-        "copied_media_count": copied_count,
+        "copied_media_count": copied_media,
+        "copied_reports_count": copied_reports,
         "instance_name": instance_name,
     }
 
@@ -1124,6 +1420,62 @@ def get_transformer_report_targets(
         (maintenance_id, gate_key),
     )
     rows = cur.fetchall() or []
+
+    if not rows:
+        # Shared folder may have been wiped. Rebuild storage-path metadata on
+        # demand so report generation can recreate the canonical folder tree
+        # without leaving empty directories behind.
+        try:
+            cur.execute(
+                """
+                SELECT substation_id, name, maintenance_type, date_time
+                FROM maintenance
+                WHERE id=?
+                """,
+                (maintenance_id,),
+            )
+            maintenance_row = cur.fetchone()
+            if maintenance_row:
+                substation_id = maintenance_row[0] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["substation_id"]
+                maintenance_name = maintenance_row[1] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["name"]
+                maintenance_type = maintenance_row[2] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["maintenance_type"]
+                date_time = maintenance_row[3] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["date_time"]
+
+                cur.execute(
+                    """
+                    SELECT e.id
+                    FROM maintenance_elements me
+                    JOIN elements e ON e.id = me.element_id
+                    WHERE me.maintenance_id=?
+                    """,
+                    (maintenance_id,),
+                )
+                element_ids = [r[0] if isinstance(r, (tuple, list)) else r["id"] for r in (cur.fetchall() or [])]
+
+                ensure_maintenance_folders(
+                    conn,
+                    maintenance_id=maintenance_id,
+                    substation_id=substation_id,
+                    maintenance_name=maintenance_name,
+                    maintenance_type=maintenance_type,
+                    date_time=date_time,
+                    element_ids=element_ids,
+                    attachment_paths=[],
+                    persist_storage_rows=True,
+                    db_path=db_path,
+                )
+
+                cur.execute(
+                    """
+                    SELECT reports_folder
+                    FROM maintenance_storage_paths
+                    WHERE maintenance_id=? AND gate_key=?
+                    """,
+                    (maintenance_id, gate_key),
+                )
+                rows = cur.fetchall() or []
+        except Exception:
+            rows = []
 
     if not rows:
         cur.execute(
@@ -2091,6 +2443,7 @@ def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: b
                     date_time=date_time,
                     element_ids=[element_id],
                     attachment_paths=[],
+                    persist_storage_rows=True,
                     db_path=db_path,
                 )
             except Exception:

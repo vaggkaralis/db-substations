@@ -3,7 +3,7 @@ import logging
 import sqlite3
 import sys
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 name = sys.argv[1] if len(sys.argv) > 1 else 'Ρ-15'
 sub = sys.argv[2] if len(sys.argv) > 2 else None

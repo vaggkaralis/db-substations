@@ -7,7 +7,7 @@ import sqlite3
 from settings import DB_PATH
 from strings_proxy import STRINGS as S
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 # derive canonical breaker element names from centralized strings when available
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")

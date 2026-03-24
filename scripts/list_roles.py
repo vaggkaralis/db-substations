@@ -3,7 +3,7 @@ import os
 import sqlite3
 
 # configure basic logging for script usage
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 # default DB
 candidates = [

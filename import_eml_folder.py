@@ -10,7 +10,7 @@ from email_eml_parser import parse_eml_file
 from maintenance_email_importer import (DEFAULT_DB_PATH,
                                         create_maintenance_from_email)
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 
 def _iter_eml_files(folder, recursive):

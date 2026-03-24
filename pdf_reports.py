@@ -23,6 +23,33 @@ except Exception:
 import json
 import logging
 import os
+import tempfile
+import uuid
+import threading
+import queue
+from config_manager import get_app_setting
+
+
+def _normalize_pdf_file(path: str) -> bool:
+    """If `pikepdf` is available, reopen and re-save the PDF to normalize filters.
+
+    Returns True if normalization ran successfully, False otherwise.
+    """
+    try:
+        import pikepdf
+    except Exception:
+        logging.debug("pikepdf not available; skipping PDF normalization for %s", path)
+        return False
+    try:
+        # Open and re-save (linearize) to normalize filter chains (removes ASCII85, etc.)
+        # allow_overwriting_input lets pikepdf write back to the same filename
+        with pikepdf.Pdf.open(path, allow_overwriting_input=True) as pdf:
+            pdf.save(path, linearize=True)
+        logging.info("PDF normalization succeeded: %s", path)
+        return True
+    except Exception:
+        logging.exception("PDF normalization failed for %s", path)
+        return False
 import unicodedata
 from datetime import datetime
 
@@ -36,6 +63,121 @@ def _fs_path(path: str) -> str:
     if abs_path.startswith("\\\\"):
         return "\\\\?\\UNC\\" + abs_path[2:]
     return "\\\\?\\" + abs_path
+
+
+def _temp_pdf_path(final_path: str) -> str:
+    """Return a temp file path in the same directory as final_path."""
+    d = os.path.dirname(final_path) or os.getcwd()
+    # ensure dir exists
+    os.makedirs(_fs_path(d), exist_ok=True)
+    name = os.path.basename(final_path)
+    # include uuid to avoid collisions
+    tmp_name = f".{name}.tmp.{uuid.uuid4().hex}.pdf"
+    return os.path.join(d, tmp_name)
+
+
+def _finalize_pdf(temp_path: str, final_path: str) -> None:
+    """Decide whether to normalize synchronously or asynchronously and
+    move the temp PDF into its final location. Behavior is automatic:
+
+    - If `pikepdf` is not available, simply move the file into place.
+    - If available and file size < threshold -> normalize synchronously then move.
+    - If available and file size >= threshold -> move into place quickly and
+      enqueue the final path for background normalization.
+
+    Threshold is read from `pdf_normalize_size_threshold_kb` in app settings.
+    """
+    try:
+        fs_temp = _fs_path(temp_path)
+        fs_final = _fs_path(final_path)
+
+        # Ensure parent exists
+        parent = os.path.dirname(fs_final)
+        os.makedirs(parent, exist_ok=True)
+
+        try:
+            size_kb = os.path.getsize(fs_temp) // 1024
+        except Exception:
+            size_kb = 0
+
+        threshold_kb = int(get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024)
+
+        # Check pikepdf availability
+        try:
+            import pikepdf  # type: ignore
+            has_pike = True
+        except Exception:
+            has_pike = False
+
+        if not has_pike:
+            # No normalization available; move into place atomically
+            try:
+                os.replace(fs_temp, fs_final)
+            except Exception:
+                try:
+                    os.rename(fs_temp, fs_final)
+                except Exception:
+                    logging.exception("Failed to move PDF %s -> %s", fs_temp, fs_final)
+            return
+
+        # If file is large, move into place and enqueue for background normalization
+        if size_kb >= threshold_kb:
+            try:
+                os.replace(fs_temp, fs_final)
+            except Exception:
+                try:
+                    os.rename(fs_temp, fs_final)
+                except Exception:
+                    logging.exception("Failed to move PDF (large) %s -> %s", fs_temp, fs_final)
+            try:
+                _pdf_norm_queue.put(fs_final)
+            except Exception:
+                logging.exception("Failed to enqueue PDF normalization for %s", fs_final)
+            return
+
+        # Small file: normalize synchronously then move into place
+        try:
+            _normalize_pdf_file(fs_temp)
+        except Exception:
+            logging.exception("Synchronous PDF normalization failed for %s", fs_temp)
+
+        try:
+            os.replace(fs_temp, fs_final)
+        except Exception:
+            try:
+                os.rename(fs_temp, fs_final)
+            except Exception:
+                logging.exception("Failed to move PDF after normalization %s -> %s", fs_temp, fs_final)
+
+    finally:
+        try:
+            os.chmod(final_path, 0o666)
+        except Exception:
+            pass
+
+
+# Background normalization queue and worker
+_pdf_norm_queue = queue.Queue()
+
+def _pdf_norm_worker():
+    while True:
+        path = _pdf_norm_queue.get()
+        try:
+            logging.debug("pdf-norm-worker: picked up job for %s", path)
+            # Attempt normalization; _normalize_pdf_file handles missing pikepdf
+            ok = _normalize_pdf_file(path)
+            if ok:
+                logging.info("pdf-norm-worker: normalized %s", path)
+            else:
+                logging.warning("pdf-norm-worker: normalization skipped/failed for %s", path)
+        except Exception:
+            logging.exception("pdf-norm-worker: unexpected error while normalizing %s", path)
+        finally:
+            _pdf_norm_queue.task_done()
+
+# Start worker thread as daemon
+_pdf_norm_thread = threading.Thread(target=_pdf_norm_worker, daemon=True, name="pdf-norm-worker")
+_pdf_norm_thread.start()
 
 
 def _safe_filename_component(value: str) -> str:
@@ -151,8 +293,10 @@ def generate_preparation_checklist_pdf(checklist_state, categories, metadata=Non
             story.append(table)
             story.append(Spacer(1, 8))
 
-    doc = SimpleDocTemplate(_fs_path(output_path), pagesize=A4)
+    temp_path = _temp_pdf_path(output_path)
+    doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4)
     doc.build(story)
+    _finalize_pdf(temp_path, output_path)
     return output_path
 
 # Canonical breaker element names
@@ -165,11 +309,11 @@ class MaintenanceReportGenerator:
 
     def __init__(self, conn):
         self.conn = conn
-        logging.info("%s", "\n" + "=" * 80)
-        logging.info("PDF REPORT GENERATOR INITIALIZATION")
-        logging.info("%s", "=" * 80)
+        logging.debug("%s", "\n" + "=" * 80)
+        logging.debug("PDF REPORT GENERATOR INITIALIZATION")
+        logging.debug("%s", "=" * 80)
         self.setup_fonts()
-        logging.info("%s", "=" * 80 + "\n")
+        logging.debug("%s", "=" * 80 + "\n")
 
     def setup_fonts(self):
         """Setup fonts for Greek text support"""
@@ -207,14 +351,52 @@ class MaintenanceReportGenerator:
             for font_path in font_paths:
                 if os.path.exists(font_path):
                     try:
-                        # Register font WITHOUT asciiReadable to preserve Unicode characters
+                        # Register base font (embeds the TTF when possible)
                         pdfmetrics.registerFont(TTFont("GreekFont", font_path))
 
-                        # Also register font family for bold/italic support
+                        # Attempt to find and register bold/italic variants adjacent to the base font
+                        base_dir = os.path.dirname(font_path)
+                        base_name = os.path.splitext(os.path.basename(font_path))[0]
+                        registered_variants = {}
+
+                        def _try_variant(suffix, label):
+                            candidates = [
+                                f"{base_name}{suffix}.ttf",
+                                f"{base_name}-{suffix}.ttf",
+                                f"{base_name}{suffix}.TTF",
+                            ]
+                            # Helpful explicit candidates for DejaVu
+                            if base_name.lower().startswith("dejavusans"):
+                                if "bold" in suffix.lower():
+                                    candidates.insert(0, "DejaVuSans-Bold.ttf")
+                                if "italic" in suffix.lower() or "oblique" in suffix.lower():
+                                    candidates.insert(0, "DejaVuSans-Oblique.ttf")
+                            for cand in candidates:
+                                cand_path = os.path.join(base_dir, cand)
+                                if os.path.exists(cand_path):
+                                    try:
+                                        name = f"GreekFont{label}"
+                                        pdfmetrics.registerFont(TTFont(name, cand_path))
+                                        registered_variants[label] = name
+                                        logging.debug("Registered font variant %s -> %s", label, cand_path)
+                                        return True
+                                    except Exception:
+                                        logging.exception("Failed to register font variant %s at %s", label, cand_path)
+                            return False
+
+                        _try_variant("-Bold", "Bold")
+                        _try_variant("-Italic", "Italic")
+
+                        # Register family with available variants
                         try:
-                            registerFontFamily("GreekFont", normal="GreekFont")
+                            fam_kwargs = {"normal": "GreekFont"}
+                            if "Bold" in registered_variants:
+                                fam_kwargs["bold"] = registered_variants["Bold"]
+                            if "Italic" in registered_variants:
+                                fam_kwargs["italic"] = registered_variants["Italic"]
+                            registerFontFamily("GreekFont", **fam_kwargs)
                         except Exception:
-                            pass
+                            logging.debug("Could not register font family variants; continuing with base font")
 
                         self.greek_font = "GreekFont"
                         font_name = (
@@ -222,8 +404,8 @@ class MaintenanceReportGenerator:
                             if font_path == bundled_font
                             else os.path.basename(font_path)
                         )
-                        logging.info("Using font for Greek text: %s", font_name)
-                        logging.info("   Path: %s", font_path)
+                        logging.debug("Using font for Greek text: %s", font_name)
+                        logging.debug("   Path: %s", font_path)
                         return
                     except Exception:
                         logging.exception('Failed to register %s', font_path)
@@ -943,13 +1125,11 @@ class MaintenanceReportGenerator:
         )
         story.append(footer)
 
-        # Build PDF
+        # Build PDF to temp and finalize (automatic normalization/move)
+        temp_path = _temp_pdf_path(output_path)
+        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
         doc.build(story)
-        # Ensure file is readable by all users (fix Acrobat Reader access denied)
-        try:
-            os.chmod(output_path, 0o666)
-        except Exception:
-            pass
+        _finalize_pdf(temp_path, output_path)
 
     def _generate_oil_report(
         self, output_path, maintenance_data, element_data, measurements
@@ -1003,13 +1183,11 @@ class MaintenanceReportGenerator:
         )
         story.append(footer)
 
-        # Build PDF
+        # Build PDF to temp and finalize (automatic normalization/move)
+        temp_path = _temp_pdf_path(output_path)
+        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
         doc.build(story)
-        # Ensure file is readable by all users (fix Acrobat Reader access denied)
-        try:
-            os.chmod(output_path, 0o666)
-        except Exception:
-            pass
+        _finalize_pdf(temp_path, output_path)
 
     def _generate_vacuum_report(
         self, output_path, maintenance_data, element_data, measurements
@@ -1063,13 +1241,11 @@ class MaintenanceReportGenerator:
         )
         story.append(footer)
 
-        # Build PDF
+        # Build PDF to temp and finalize (automatic normalization/move)
+        temp_path = _temp_pdf_path(output_path)
+        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
         doc.build(story)
-        # Ensure file is readable by all users (fix Acrobat Reader access denied)
-        try:
-            os.chmod(output_path, 0o666)
-        except Exception:
-            pass
+        _finalize_pdf(temp_path, output_path)
 
 
 def generate_maintenance_report(conn, maintenance_id, element_id, output_path=None):
@@ -1145,15 +1321,49 @@ class InspectionReportGenerator:
             for font_path in font_paths:
                 if os.path.exists(font_path):
                     try:
-                        pdfmetrics.registerFont(
-                            TTFont("GreekFontInspection", font_path)
-                        )
+                        pdfmetrics.registerFont(TTFont("GreekFontInspection", font_path))
+
+                        base_dir = os.path.dirname(font_path)
+                        base_name = os.path.splitext(os.path.basename(font_path))[0]
+                        registered_variants = {}
+
+                        def _try_variant(suffix, label):
+                            candidates = [
+                                f"{base_name}{suffix}.ttf",
+                                f"{base_name}-{suffix}.ttf",
+                                f"{base_name}{suffix}.TTF",
+                            ]
+                            if base_name.lower().startswith("dejavusans"):
+                                if "bold" in suffix.lower():
+                                    candidates.insert(0, "DejaVuSans-Bold.ttf")
+                                if "italic" in suffix.lower() or "oblique" in suffix.lower():
+                                    candidates.insert(0, "DejaVuSans-Oblique.ttf")
+                            for cand in candidates:
+                                cand_path = os.path.join(base_dir, cand)
+                                if os.path.exists(cand_path):
+                                    try:
+                                        name = f"GreekFontInspection{label}"
+                                        pdfmetrics.registerFont(TTFont(name, cand_path))
+                                        registered_variants[label] = name
+                                        logging.debug("Registered inspection font variant %s -> %s", label, cand_path)
+                                        return True
+                                    except Exception:
+                                        logging.exception("Failed to register inspection font variant %s at %s", label, cand_path)
+                            return False
+
+                        _try_variant("-Bold", "Bold")
+                        _try_variant("-Italic", "Italic")
+
                         try:
-                            registerFontFamily(
-                                "GreekFontInspection", normal="GreekFontInspection"
-                            )
+                            fam_kwargs = {"normal": "GreekFontInspection"}
+                            if "Bold" in registered_variants:
+                                fam_kwargs["bold"] = registered_variants["Bold"]
+                            if "Italic" in registered_variants:
+                                fam_kwargs["italic"] = registered_variants["Italic"]
+                            registerFontFamily("GreekFontInspection", **fam_kwargs)
                         except Exception:
-                            pass
+                            logging.debug("Could not register inspection font family variants; proceeding with base font")
+
                         self.greek_font = "GreekFontInspection"
                         return
                     except Exception:
@@ -1513,7 +1723,39 @@ class InspectionReportGenerator:
         )
         story.append(footer)
 
+        temp_path = _temp_pdf_path(output_path)
+        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=15 * mm, bottomMargin=15 * mm)
         doc.build(story)
+        async_flag = bool(get_app_setting("pdf_normalize_async", False))
+        try:
+            file_size_kb = os.path.getsize(_fs_path(temp_path)) // 1024
+        except Exception:
+            file_size_kb = 0
+        threshold_kb = int(get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024)
+        if async_flag and file_size_kb >= threshold_kb:
+            try:
+                os.replace(_fs_path(temp_path), _fs_path(output_path))
+            except Exception:
+                try:
+                    os.rename(_fs_path(temp_path), _fs_path(output_path))
+                except Exception:
+                    pass
+            try:
+                _pdf_norm_queue.put(_fs_path(output_path))
+            except Exception:
+                pass
+        else:
+            try:
+                _normalize_pdf_file(temp_path)
+            except Exception:
+                pass
+            try:
+                os.replace(_fs_path(temp_path), _fs_path(output_path))
+            except Exception:
+                try:
+                    os.rename(_fs_path(temp_path), _fs_path(output_path))
+                except Exception:
+                    pass
         return output_path
 
 
@@ -1691,7 +1933,39 @@ class SF6LeakReportGenerator:
         )
 
         story.append(table)
+        temp_path = _temp_pdf_path(output_path)
+        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4)
         doc.build(story)
+        async_flag = bool(get_app_setting("pdf_normalize_async", False))
+        try:
+            file_size_kb = os.path.getsize(_fs_path(temp_path)) // 1024
+        except Exception:
+            file_size_kb = 0
+        threshold_kb = int(get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024)
+        if async_flag and file_size_kb >= threshold_kb:
+            try:
+                os.replace(_fs_path(temp_path), _fs_path(output_path))
+            except Exception:
+                try:
+                    os.rename(_fs_path(temp_path), _fs_path(output_path))
+                except Exception:
+                    pass
+            try:
+                _pdf_norm_queue.put(_fs_path(output_path))
+            except Exception:
+                pass
+        else:
+            try:
+                _normalize_pdf_file(temp_path)
+            except Exception:
+                pass
+            try:
+                os.replace(_fs_path(temp_path), _fs_path(output_path))
+            except Exception:
+                try:
+                    os.rename(_fs_path(temp_path), _fs_path(output_path))
+                except Exception:
+                    pass
         return output_path
 
 

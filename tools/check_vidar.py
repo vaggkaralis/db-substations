@@ -3,7 +3,7 @@ import os
 import sqlite3
 import sys
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 DB = 'substations_backup.db'
 if not os.path.exists(DB):

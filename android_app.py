@@ -858,9 +858,28 @@ class SubstationAndroidApp(App):
             if not self._auto_load_saved_db():
                 Clock.schedule_once(self.load_substations, 0.5)
                 Clock.schedule_once(self._run_startup_sync, 1.0)
+                try:
+                    from config_manager import get_app_setting
+                    minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)
+                except Exception:
+                    minutes = 15
+                # Schedule periodic silent startup-sync checks using minutes setting
+                try:
+                    Clock.schedule_interval(lambda dt: self._run_startup_sync(dt), int(minutes) * 60)
+                except Exception:
+                    pass
             else:
                 Clock.schedule_once(self.load_substations, 0.5)
                 Clock.schedule_once(self._run_startup_sync, 1.0)
+                try:
+                    from config_manager import get_app_setting
+                    minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)
+                except Exception:
+                    minutes = 15
+                try:
+                    Clock.schedule_interval(lambda dt: self._run_startup_sync(dt), int(minutes) * 60)
+                except Exception:
+                    pass
 
             Logger.info("APP: UI build completed successfully")
             return main_layout
@@ -1647,6 +1666,19 @@ class SubstationAndroidApp(App):
                 color=(0.5, 0.5, 0.5, 1),
                 valign='top'
             ))
+            # Warning/info label about Android sync limitations (content URIs / SAF)
+            warning_label = Label(
+                text=(
+                    "Σημείωση: Η εφαρμογή Android δεν περιλαμβάνει άμεση ενσωμάτωση OneDrive/SAF. "
+                    "Ο φάκελος πρέπει να είναι προσβάσιμος ως συνηθισμένο σύστημα αρχείων. "
+                    "Content URIs (content://...) δεν υποστηρίζονται — το Αυτόματο συγχρονισμό θα απενεργοποιηθεί αν ορίσετε τέτοιο URI."
+                ),
+                size_hint_y=None,
+                height=48,
+                color=(0.6, 0.2, 0.2, 1),
+                valign='top'
+            )
+            path_row.add_widget(warning_label)
             layout.add_widget(path_row)
             
             # Buttons (aligned at top of popup)
@@ -1654,9 +1686,26 @@ class SubstationAndroidApp(App):
             
             save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
             def _save(*_):
+                # If user set a content URI, disable auto-sync and inform the user.
+                try:
+                    from android_sync_utils import is_content_uri
+                except Exception:
+                    def is_content_uri(x):
+                        return str(x or "").startswith("content://")
+
+                path_text = (path_input.text or "").strip()
+                if path_text and is_content_uri(path_text):
+                    set_app_setting("sync_auto_cycle_enabled", False)
+                    set_app_setting("sync_root_path", path_text)
+                    p.dismiss()
+                    show_message_popup(
+                        S.get("TITLES", {}).get("INFO", "Πληροφορία"),
+                        "Ορίσατε URI περιεχομένου (content://...). Το Αυτόματο συγχρονισμό απενεργοποιήθηκε επειδή το app δεν υποστηρίζει αυτόνομο cloud-API/SAF.")
+                    return
+
                 set_app_setting("sync_auto_cycle_enabled", bool(sync_chk.active))
-                if path_input.text.strip():
-                    set_app_setting("sync_root_path", path_input.text.strip())
+                if path_text:
+                    set_app_setting("sync_root_path", path_text)
                 else:
                     set_app_setting("sync_root_path", None)
                 p.dismiss()

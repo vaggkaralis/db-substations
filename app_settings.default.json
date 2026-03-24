@@ -4,8 +4,10 @@
   "sync_root_path": "sync_exchange",
   "backup_root_path": "backups_auto",
   "sync_auto_cycle_enabled": true,
-  "sync_auto_cycle_minutes": 60,
+  "sync_auto_cycle_minutes": 15,
   "sync_backup_on_change": true,
   "backup_hot_keep": 3,
-  "setup_wizard_completed": false
+  "setup_wizard_completed": false,
+  "pdf_normalize_async": false,
+  "pdf_normalize_size_threshold_kb": 1024
 }

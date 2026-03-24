@@ -9,6 +9,7 @@ Handles:
 """
 import os
 import sqlite3
+import hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -307,41 +308,268 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
     - Reports that are missing
     - Empty folders that should be cleaned up
     """
-    # Ensure row factory is set
+    from onedrive_hybrid_storage import (
+        get_transformer_report_targets,
+        _report_subfolder_name_for_element,
+        _canonical_report_filename,
+    )
+
     original_row_factory = conn.row_factory
     conn.row_factory = sqlite3.Row
-    
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT COUNT(*) as cnt FROM maintenance_report_paths")
-    total_tracked = cursor.fetchone()["cnt"]
-    
-    cursor.execute("""
-        SELECT maintenance_id, element_id, report_path
-        FROM maintenance_report_paths
-        WHERE report_type = 'pdf'
-    """)
-    
-    report_rows = cursor.fetchall()
-    existing = 0
-    missing = 0
-    missing_reports = []
-    
-    for row in report_rows:
-        m_id, e_id, path = row["maintenance_id"], row["element_id"], row["report_path"]
-        if os.path.exists(path):
-            existing += 1
-        else:
-            missing += 1
-            missing_reports.append((m_id, e_id, path))
-    
-    # Restore original row_factory
-    conn.row_factory = original_row_factory
-    
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) as cnt
+            FROM maintenance_report_paths
+            WHERE report_type = 'pdf'
+            """
+        )
+        total_tracked = cursor.fetchone()["cnt"]
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) as cnt
+            FROM maintenance_report_paths mrp
+            LEFT JOIN maintenance_elements me
+              ON me.maintenance_id = mrp.maintenance_id AND me.element_id = mrp.element_id
+            WHERE mrp.report_type = 'pdf' AND me.maintenance_id IS NULL
+            """
+        )
+        orphan_tracked = cursor.fetchone()["cnt"]
+
+        cursor.execute(
+            """
+            SELECT DISTINCT
+                m.id as maintenance_id,
+                me.element_id,
+                e.name as element_name,
+                e.gate,
+                e.element_type,
+                s.name as substation_name,
+                mrp.report_path as tracked_path
+            FROM maintenance m
+            JOIN maintenance_elements me ON me.maintenance_id = m.id
+            JOIN elements e ON e.id = me.element_id
+            JOIN substations s ON s.id = m.substation_id
+            LEFT JOIN maintenance_report_paths mrp
+              ON mrp.maintenance_id = m.id AND mrp.element_id = me.element_id AND mrp.report_type = 'pdf'
+            ORDER BY m.id DESC, me.element_id
+            """
+        )
+        rows = cursor.fetchall()
+
+        existing = 0
+        missing = 0
+        stale_tracked = 0
+        missing_reports = []
+
+        for row in rows:
+            maintenance_id = row["maintenance_id"]
+            element_id = row["element_id"]
+            tracked_path = row["tracked_path"]
+            tracked_exists = bool(tracked_path) and os.path.exists(_fs_path(tracked_path))
+
+            if tracked_exists:
+                existing += 1
+                continue
+
+            targets = get_transformer_report_targets(
+                conn,
+                maintenance_id=maintenance_id,
+                gate_value=row["gate"],
+                db_path=db_path,
+            )
+
+            canonical_exists = False
+            canonical_path = None
+            for reports_root in targets[:1]:
+                subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(row["element_type"]))
+                canonical_path = os.path.join(
+                    subfolder,
+                    _canonical_report_filename(row["substation_name"], row["element_name"], maintenance_id),
+                )
+                if os.path.exists(_fs_path(canonical_path)):
+                    canonical_exists = True
+                    break
+
+                tight_name = f"M{maintenance_id}_E{element_id}_{hashlib.sha1((str(row['substation_name']) + '|' + str(row['element_name'])).encode('utf-8')).hexdigest()[:8]}.pdf"
+                tight_path = os.path.join(subfolder, tight_name)
+                if os.path.exists(_fs_path(tight_path)):
+                    canonical_exists = True
+                    canonical_path = tight_path
+                    break
+
+            if canonical_exists:
+                existing += 1
+                if tracked_path:
+                    stale_tracked += 1
+            else:
+                missing += 1
+                missing_reports.append((maintenance_id, element_id, tracked_path or canonical_path))
+
+        return {
+            "total_tracked": total_tracked,
+            "current_pairs": len(rows),
+            "existing_files": existing,
+            "missing_files": missing,
+            "stale_tracked_rows": stale_tracked,
+            "orphan_tracked_rows": orphan_tracked,
+            "missing_details": missing_reports[:10],
+            "status": "OK" if missing == 0 else f"WARN: {missing} missing reports",
+        }
+    finally:
+        conn.row_factory = original_row_factory
+
+
+def export_missing_reports(conn, *, db_path: str | None = None, limit: int | None = None, progress_callback=None) -> dict:
+    """
+    Generate and store reports for maintenance-element pairs that are not
+    currently tracked in `maintenance_report_paths`. Uses
+    `safe_generate_and_store_report` to ensure proper folder creation and DB
+    registration.
+
+    Args:
+        conn: DB connection
+        db_path: optional db path used for shared root resolution
+        limit: optional maximum number of reports to generate
+        progress_callback: optional callable(operation, current, total)
+
+    Returns summary dict with counts and sample errors.
+    """
+    from onedrive_hybrid_storage import get_transformer_report_targets
+    from pdf_reports import generate_maintenance_report as _gen_dummy  # noqa: F401
+    from report_sync import safe_generate_and_store_report
+
+    cur = conn.cursor()
+
+    # Find maintenance-element pairs that don't have a tracked PDF
+    q = """
+        SELECT m.id as maintenance_id, me.element_id, e.gate
+        FROM maintenance m
+        JOIN maintenance_elements me ON me.maintenance_id = m.id
+        JOIN elements e ON e.id = me.element_id
+        LEFT JOIN maintenance_report_paths mrp ON mrp.maintenance_id = m.id AND mrp.element_id = me.element_id AND mrp.report_type='pdf'
+        WHERE mrp.id IS NULL
+        ORDER BY m.id
+    """
+    cur.execute(q)
+    rows = cur.fetchall() or []
+
+    total = len(rows)
+    if limit:
+        rows = rows[:limit]
+
+    generated = 0
+    skipped = 0
+    errors = []
+
+    for idx, row in enumerate(rows, start=1):
+        maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        element_id = row[1] if isinstance(row, (tuple, list)) else row["element_id"]
+        gate_value = row[2] if isinstance(row, (tuple, list)) else row["gate"]
+
+        if progress_callback and idx % 5 == 0:
+            try:
+                progress_callback(operation="Exporting reports", current=idx, total=total)
+            except Exception:
+                pass
+
+        try:
+            result = safe_generate_and_store_report(
+                conn,
+                maintenance_id=maintenance_id,
+                element_id=element_id,
+                gate_value=gate_value,
+                db_path=db_path,
+            )
+            if result.get("success"):
+                generated += 1
+            else:
+                # If prompting required (existing file), treat as skipped
+                if result.get("action_taken") == "prompt_user":
+                    skipped += 1
+                else:
+                    errors.append((maintenance_id, element_id, result.get("message")))
+        except Exception as exc:
+            errors.append((maintenance_id, element_id, str(exc)))
+
     return {
-        "total_tracked": total_tracked,
-        "existing_files": existing,
-        "missing_files": missing,
-        "missing_details": missing_reports[:10],  # First 10 for summary
-        "status": "OK" if missing == 0 else f"WARN: {missing} missing reports",
+        "total_candidates": total,
+        "processed": len(rows),
+        "generated": generated,
+        "skipped": skipped,
+        "errors": errors[:20],
+    }
+
+
+def ensure_all_reports_and_prune(conn, *, db_path: str | None = None, batch_size: int = 100, progress_callback=None, dry_run: bool = False) -> dict:
+    """
+    Orchestrate full report export and folder cleanup.
+
+    Steps:
+      1. Ensure gate folders for each substation reflect current elements.
+      2. Export missing reports in batches using `export_missing_reports`.
+      3. Re-run gate sync to prune empty maintenance/gate folders.
+
+    Returns a summary dict with counts and errors.
+    """
+    from onedrive_hybrid_storage import sync_substation_gate_folders, resolve_shared_root
+
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM substations ORDER BY id")
+    subs = [r[0] for r in (cur.fetchall() or [])]
+
+    total_generated = 0
+    total_processed = 0
+    all_errors = []
+
+    # Step 1: ensure gate folders for all substations (this also prunes empty gates)
+    for sid in subs:
+        try:
+            if not dry_run:
+                sync_substation_gate_folders(conn, sid, db_path=db_path)
+        except Exception:
+            # Non-fatal; continue
+            pass
+
+    # Step 2: export missing reports in batches until none remain
+    while True:
+        try:
+            res = export_missing_reports(conn, db_path=db_path, limit=batch_size, progress_callback=progress_callback)
+        except Exception as exc:
+            all_errors.append(str(exc))
+            break
+
+        total_processed += res.get("processed", 0)
+        total_generated += res.get("generated", 0)
+        if res.get("errors"):
+            all_errors.extend([str(e) for e in res.get("errors")])
+
+        # Stop when no more candidates processed in this batch
+        if res.get("processed", 0) == 0:
+            break
+
+        # If running dry_run, only one batch
+        if dry_run:
+            break
+
+    # Step 3: re-sync to prune any empty folders that may remain
+    for sid in subs:
+        try:
+            if not dry_run:
+                sync_substation_gate_folders(conn, sid, db_path=db_path)
+        except Exception:
+            pass
+
+    shared_root = resolve_shared_root(db_path)
+
+    return {
+        "substations_processed": len(subs),
+        "total_processed": total_processed,
+        "total_generated": total_generated,
+        "errors": all_errors[:50],
+        "shared_root": shared_root,
     }

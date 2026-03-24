@@ -285,7 +285,15 @@ def parse_eml_file(path: str):
     body = _extract_body(msg)
     attachment_paths = _extract_media_attachment_paths(msg)
 
+    headers = {
+        "subject": subject,
+        "from": sender_raw,
+        "date": date_header or "",
+        "to": (msg.get("to") or "").strip(),
+    }
+
     return {
+        "headers": headers,
         "subject": subject,
         "body": body,
         "sender_name": sender_name,
