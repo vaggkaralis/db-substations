@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import tempfile
+import math
 from functools import lru_cache
 from datetime import datetime
 
@@ -73,6 +74,158 @@ _PHYSCHEM_UNIT_OVERRIDES = {
     "dielectric_strength": "KV",
     "loss_factor": "",
     "surface_tension": "mN/m",
+}
+
+_DGA_SEVERITY_ORDER = {"ok": 0, "warn": 1, "bad": 2}
+_RATIO_METHOD_MIN_TOTAL_PPM = 100.0
+_DUVAL_TRIANGLE_MIN_TOTAL_PPM = 100.0
+
+_RATIO_RULES = [
+    {
+        "code": "PD",
+        "label": "Partial discharge",
+        "severity": "warn",
+        "summary": "Pattern matches partial discharge / corona.",
+        "root_cause": "Electrical partial discharges inside gas voids or weak insulation clearances.",
+        "predicate": lambda ratios: (
+            ratios.get("ch4_h2") is not None
+            and ratios.get("c2h2_c2h4") is not None
+            and ratios.get("c2h4_c2h6") is not None
+            and ratios["ch4_h2"] < 0.1
+            and ratios["c2h2_c2h4"] < 0.1
+            and ratios["c2h4_c2h6"] < 1.0
+        ),
+    },
+    {
+        "code": "T1",
+        "label": "Thermal fault T1",
+        "severity": "warn",
+        "summary": "Pattern matches low-temperature thermal fault.",
+        "root_cause": "Localized overheating typically below 300 C, often linked to hot spots, poor cooling, or mild oil overheating.",
+        "predicate": lambda ratios: (
+            ratios.get("ch4_h2") is not None
+            and ratios.get("c2h2_c2h4") is not None
+            and ratios.get("c2h4_c2h6") is not None
+            and ratios["ch4_h2"] > 1.0
+            and ratios["c2h2_c2h4"] < 0.1
+            and ratios["c2h4_c2h6"] < 1.0
+        ),
+    },
+    {
+        "code": "T2",
+        "label": "Thermal fault T2",
+        "severity": "bad",
+        "summary": "Pattern matches medium-temperature thermal fault.",
+        "root_cause": "Sustained overheating roughly in the 300-700 C range, often involving oil decomposition and accelerated insulation aging.",
+        "predicate": lambda ratios: (
+            ratios.get("ch4_h2") is not None
+            and ratios.get("c2h2_c2h4") is not None
+            and ratios.get("c2h4_c2h6") is not None
+            and ratios["ch4_h2"] > 1.0
+            and ratios["c2h2_c2h4"] < 0.1
+            and 1.0 <= ratios["c2h4_c2h6"] <= 3.0
+        ),
+    },
+    {
+        "code": "T3",
+        "label": "Thermal fault T3",
+        "severity": "bad",
+        "summary": "Pattern matches high-temperature thermal fault.",
+        "root_cause": "Severe overheating above about 700 C, commonly linked to intense oil cracking, metal hot spots, or major cooling failure.",
+        "predicate": lambda ratios: (
+            ratios.get("ch4_h2") is not None
+            and ratios.get("c2h2_c2h4") is not None
+            and ratios.get("c2h4_c2h6") is not None
+            and ratios["ch4_h2"] > 1.0
+            and ratios["c2h2_c2h4"] < 0.1
+            and ratios["c2h4_c2h6"] > 3.0
+        ),
+    },
+    {
+        "code": "D1",
+        "label": "Discharge fault D1",
+        "severity": "bad",
+        "summary": "Pattern matches low-energy discharge.",
+        "root_cause": "Sparking or intermittent electrical discharge, often at bad contacts, floating potentials, or deteriorated connections.",
+        "predicate": lambda ratios: (
+            ratios.get("ch4_h2") is not None
+            and ratios.get("c2h2_c2h4") is not None
+            and ratios.get("c2h4_c2h6") is not None
+            and 0.1 <= ratios["ch4_h2"] <= 1.0
+            and 0.1 <= ratios["c2h2_c2h4"] < 3.0
+            and ratios["c2h4_c2h6"] > 1.0
+        ),
+    },
+    {
+        "code": "D2",
+        "label": "Discharge fault D2",
+        "severity": "bad",
+        "summary": "Pattern matches high-energy discharge / arcing.",
+        "root_cause": "Severe arcing or high-energy electrical breakdown with significant acetylene production and acute failure risk.",
+        "predicate": lambda ratios: (
+            ratios.get("ch4_h2") is not None
+            and ratios.get("c2h2_c2h4") is not None
+            and ratios.get("c2h4_c2h6") is not None
+            and 0.1 <= ratios["ch4_h2"] <= 1.0
+            and ratios["c2h2_c2h4"] >= 3.0
+            and ratios["c2h4_c2h6"] > 1.0
+        ),
+    },
+]
+
+_DUVAL_TRIANGLE_1_ZONES = {
+    "PD": [(0.98, 0.02, 0.00), (0.98, 0.00, 0.02), (1.00, 0.00, 0.00)],
+    "T1": [(0.80, 0.00, 0.20), (0.87, 0.00, 0.13), (0.98, 0.00, 0.02), (0.98, 0.02, 0.00), (0.80, 0.02, 0.18)],
+    "T2": [(0.50, 0.00, 0.50), (0.80, 0.00, 0.20), (0.80, 0.02, 0.18), (0.50, 0.10, 0.40)],
+    "T3": [(0.00, 0.00, 1.00), (0.50, 0.00, 0.50), (0.50, 0.10, 0.40), (0.00, 0.15, 0.85)],
+    "D1": [(0.00, 0.15, 0.85), (0.50, 0.10, 0.40), (0.80, 0.02, 0.18), (0.98, 0.02, 0.00), (0.35, 0.65, 0.00), (0.00, 0.65, 0.35)],
+    "D2": [(0.00, 0.65, 0.35), (0.35, 0.65, 0.00), (0.00, 1.00, 0.00)],
+    "DT": [(0.00, 0.15, 0.85), (0.00, 0.65, 0.35), (0.50, 0.10, 0.40)],
+}
+
+_DIAGNOSTIC_DETAILS = {
+    "PD": {
+        "label": "Partial discharge",
+        "severity": "warn",
+        "summary": "The gas pattern points to partial discharge activity.",
+        "root_cause": "Likely corona, void discharge, or weak local insulation clearances.",
+    },
+    "D1": {
+        "label": "Low-energy discharge",
+        "severity": "bad",
+        "summary": "The gas pattern points to low-energy electrical discharge.",
+        "root_cause": "Likely sparking, bad contacts, or floating potentials.",
+    },
+    "D2": {
+        "label": "High-energy discharge",
+        "severity": "bad",
+        "summary": "The gas pattern points to high-energy discharge / arcing.",
+        "root_cause": "Likely arcing or major electrical breakdown with immediate reliability risk.",
+    },
+    "T1": {
+        "label": "Thermal fault T1",
+        "severity": "warn",
+        "summary": "The gas pattern points to low-temperature thermal stress.",
+        "root_cause": "Likely mild overheating, hot spots, or reduced cooling effectiveness.",
+    },
+    "T2": {
+        "label": "Thermal fault T2",
+        "severity": "bad",
+        "summary": "The gas pattern points to medium-temperature thermal stress.",
+        "root_cause": "Likely sustained overheating and accelerated oil/paper degradation.",
+    },
+    "T3": {
+        "label": "Thermal fault T3",
+        "severity": "bad",
+        "summary": "The gas pattern points to severe high-temperature overheating.",
+        "root_cause": "Likely intense oil cracking, metal hot spots, or severe cooling failure.",
+    },
+    "DT": {
+        "label": "Mixed thermal/electrical fault",
+        "severity": "bad",
+        "summary": "The gas pattern points to combined thermal and electrical fault activity.",
+        "root_cause": "Likely simultaneous overheating and discharge phenomena requiring detailed inspection.",
+    },
 }
 
 
@@ -164,6 +317,311 @@ def _matches_rule(value, rule):
         elif value >= hi:
             return False
     return True
+
+
+def _severity_max(left: str, right: str) -> str:
+    return left if _DGA_SEVERITY_ORDER.get(left, 0) >= _DGA_SEVERITY_ORDER.get(right, 0) else right
+
+
+def _ratio_value(num, den):
+    if num is None or den is None or den <= 0:
+        return None
+    return num / den
+
+
+def _format_ratio_number(value):
+    if value is None:
+        return "-"
+    return f"{float(value):.4g}"
+
+
+def _ternary_to_cartesian(ch4_frac, c2h2_frac, c2h4_frac):
+    return (
+        c2h4_frac + (0.5 * c2h2_frac),
+        (math.sqrt(3.0) / 2.0) * c2h2_frac,
+    )
+
+
+def _point_on_segment(point, start, end, eps=1e-9):
+    px, py = point
+    x1, y1 = start
+    x2, y2 = end
+    cross = abs((py - y1) * (x2 - x1) - (px - x1) * (y2 - y1))
+    if cross > eps:
+        return False
+    dot = (px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)
+    if dot < -eps:
+        return False
+    sq_len = (x2 - x1) ** 2 + (y2 - y1) ** 2
+    if dot - sq_len > eps:
+        return False
+    return True
+
+
+def _point_in_polygon(point, polygon):
+    inside = False
+    for idx in range(len(polygon)):
+        start = polygon[idx]
+        end = polygon[(idx + 1) % len(polygon)]
+        if _point_on_segment(point, start, end):
+            return True
+        x1, y1 = start
+        x2, y2 = end
+        intersects = ((y1 > point[1]) != (y2 > point[1])) and (
+            point[0] < (x2 - x1) * (point[1] - y1) / ((y2 - y1) or 1e-12) + x1
+        )
+        if intersects:
+            inside = not inside
+    return inside
+
+
+def _build_diagnostic_result(method_key, method_label, code, reasoning, *, confidence="medium"):
+    details = _DIAGNOSTIC_DETAILS.get(code, {})
+    summary = details.get("summary") or "DGA diagnostic pattern detected."
+    root_cause = details.get("root_cause") or "Potential abnormal transformer fault pattern."
+    return {
+        "method": method_key,
+        "method_label": method_label,
+        "status": details.get("severity", "warn"),
+        "code": code,
+        "label": details.get("label") or code,
+        "summary": summary,
+        "root_cause": root_cause,
+        "reasoning": reasoning,
+        "confidence": confidence,
+        "display_summary": f"{method_label}: {details.get('label') or code} - {summary}",
+    }
+
+
+def analyze_dga_diagnostics(values):
+    gases = {
+        key: _safe_float(values.get(key))
+        for key in ("h2", "c2h2", "c2h4", "c2h6", "co", "co2", "ch4", "o2", "n2")
+    }
+
+    ratios = {
+        "ch4_h2": _ratio_value(gases["ch4"], gases["h2"]),
+        "c2h2_c2h4": _ratio_value(gases["c2h2"], gases["c2h4"]),
+        "c2h4_c2h6": _ratio_value(gases["c2h4"], gases["c2h6"]),
+        "co2_co": _ratio_value(gases["co2"], gases["co"]),
+        "o2_n2": _ratio_value(gases["o2"], gases["n2"]),
+        "c2h2_h2": _ratio_value(gases["c2h2"], gases["h2"]),
+    }
+
+    findings = []
+    overall_level = "ok"
+    primary = None
+
+    ratio_total = sum(gases[key] or 0.0 for key in ("h2", "ch4", "c2h2", "c2h4", "c2h6"))
+    ratio_diag = {
+        "method": "iec_60599_ratios",
+        "method_label": "IEC 60599 / Rogers ratios",
+        "status": "ok",
+        "code": None,
+        "label": "No abnormal ratio diagnosis",
+        "summary": "No abnormal IEC 60599 / Rogers ratio diagnosis.",
+        "root_cause": "No standards-based ratio fault pattern detected.",
+        "reasoning": [],
+        "confidence": "low",
+        "display_summary": "IEC 60599 / Rogers ratios: no abnormal diagnosis.",
+        "insufficient_data": False,
+    }
+    if ratio_total < _RATIO_METHOD_MIN_TOTAL_PPM:
+        ratio_diag.update(
+            {
+                "status": "ok",
+                "label": "Insufficient data",
+                "summary": "Key combustible gas total is too low for reliable ratio diagnosis.",
+                "root_cause": "Use trend data or repeat sampling before drawing conclusions from ratios.",
+                "reasoning": [
+                    f"H2+CH4+C2H2+C2H4+C2H6 = {_format_ratio_number(ratio_total)} ppm < {_format_ratio_number(_RATIO_METHOD_MIN_TOTAL_PPM)} ppm"
+                ],
+                "display_summary": "IEC 60599 / Rogers ratios: insufficient gas volume for reliable diagnosis.",
+                "insufficient_data": True,
+            }
+        )
+    else:
+        for rule in _RATIO_RULES:
+            if rule["predicate"](ratios):
+                ratio_diag = _build_diagnostic_result(
+                    "iec_60599_ratios",
+                    "IEC 60599 / Rogers ratios",
+                    rule["code"],
+                    [
+                        f"CH4/H2 = {_format_ratio_number(ratios['ch4_h2'])}",
+                        f"C2H2/C2H4 = {_format_ratio_number(ratios['c2h2_c2h4'])}",
+                        f"C2H4/C2H6 = {_format_ratio_number(ratios['c2h4_c2h6'])}",
+                    ],
+                    confidence="medium",
+                )
+                break
+        else:
+            ratio_diag.update(
+                {
+                    "label": "Inconclusive ratio pattern",
+                    "summary": "The ratios do not fall cleanly inside one IEC 60599 / Rogers class.",
+                    "root_cause": "Possible mixed fault, early-stage fault, or measurement set outside the standard decision table.",
+                    "reasoning": [
+                        f"CH4/H2 = {_format_ratio_number(ratios['ch4_h2'])}",
+                        f"C2H2/C2H4 = {_format_ratio_number(ratios['c2h2_c2h4'])}",
+                        f"C2H4/C2H6 = {_format_ratio_number(ratios['c2h4_c2h6'])}",
+                    ],
+                    "display_summary": "IEC 60599 / Rogers ratios: inconclusive / mixed pattern.",
+                }
+            )
+
+    duval_diag = {
+        "method": "duval_triangle_1",
+        "method_label": "Duval Triangle 1",
+        "status": "ok",
+        "code": None,
+        "label": "No abnormal Duval diagnosis",
+        "summary": "No abnormal Duval Triangle 1 diagnosis.",
+        "root_cause": "No ternary fault zone assigned.",
+        "reasoning": [],
+        "confidence": "low",
+        "display_summary": "Duval Triangle 1: no abnormal diagnosis.",
+        "insufficient_data": False,
+        "coordinates": None,
+    }
+    ch4 = gases["ch4"] or 0.0
+    c2h2 = gases["c2h2"] or 0.0
+    c2h4 = gases["c2h4"] or 0.0
+    duval_total = ch4 + c2h2 + c2h4
+    if duval_total < _DUVAL_TRIANGLE_MIN_TOTAL_PPM:
+        duval_diag.update(
+            {
+                "label": "Insufficient data",
+                "summary": "CH4, C2H2, and C2H4 total is too low for stable Duval Triangle classification.",
+                "root_cause": "Repeat sampling or trend analysis is recommended before trusting a ternary diagnosis.",
+                "reasoning": [
+                    f"CH4+C2H2+C2H4 = {_format_ratio_number(duval_total)} ppm < {_format_ratio_number(_DUVAL_TRIANGLE_MIN_TOTAL_PPM)} ppm"
+                ],
+                "display_summary": "Duval Triangle 1: insufficient gas volume for reliable diagnosis.",
+                "insufficient_data": True,
+            }
+        )
+    elif duval_total > 0:
+        ch4_frac = ch4 / duval_total
+        c2h2_frac = c2h2 / duval_total
+        c2h4_frac = c2h4 / duval_total
+        point = _ternary_to_cartesian(ch4_frac, c2h2_frac, c2h4_frac)
+        zone_code = None
+        for candidate in ("PD", "D2", "DT", "D1", "T3", "T2", "T1"):
+            polygon = [_ternary_to_cartesian(*vertex) for vertex in _DUVAL_TRIANGLE_1_ZONES[candidate]]
+            if _point_in_polygon(point, polygon):
+                zone_code = candidate
+                break
+        duval_diag["coordinates"] = {
+            "ch4_pct": round(ch4_frac * 100.0, 3),
+            "c2h2_pct": round(c2h2_frac * 100.0, 3),
+            "c2h4_pct": round(c2h4_frac * 100.0, 3),
+        }
+        if zone_code:
+            duval_diag = _build_diagnostic_result(
+                "duval_triangle_1",
+                "Duval Triangle 1",
+                zone_code,
+                [
+                    f"CH4={round(ch4_frac * 100.0, 2)}%",
+                    f"C2H2={round(c2h2_frac * 100.0, 2)}%",
+                    f"C2H4={round(c2h4_frac * 100.0, 2)}%",
+                ],
+                confidence="medium",
+            )
+            duval_diag["coordinates"] = {
+                "ch4_pct": round(ch4_frac * 100.0, 3),
+                "c2h2_pct": round(c2h2_frac * 100.0, 3),
+                "c2h4_pct": round(c2h4_frac * 100.0, 3),
+            }
+        else:
+            duval_diag.update(
+                {
+                    "label": "Inconclusive Duval point",
+                    "summary": "The normalized point does not sit clearly inside a Duval Triangle 1 zone.",
+                    "root_cause": "Possible mixed fault or boundary-condition case requiring trend review.",
+                    "reasoning": [
+                        f"CH4={round(ch4_frac * 100.0, 2)}%",
+                        f"C2H2={round(c2h2_frac * 100.0, 2)}%",
+                        f"C2H4={round(c2h4_frac * 100.0, 2)}%",
+                    ],
+                    "display_summary": "Duval Triangle 1: inconclusive / boundary condition.",
+                }
+            )
+
+    paper_diag = None
+    co = gases["co"]
+    co2 = gases["co2"]
+    if co is not None and co > 0 and co2 is not None:
+        paper_ratio = co2 / co
+        if paper_ratio < 3.0:
+            paper_diag = {
+                "method": "co2_co_ratio",
+                "method_label": "CO2/CO ratio",
+                "status": "bad",
+                "code": "CELLULOSE_SEVERE",
+                "label": "Severe cellulose degradation indication",
+                "summary": "CO2/CO ratio is below the accepted paper-aging threshold.",
+                "root_cause": "Possible severe paper overheating, oxidation, or cellulose decomposition.",
+                "reasoning": [f"CO2/CO = {_format_ratio_number(paper_ratio)} < 3"],
+                "confidence": "medium",
+                "display_summary": "CO2/CO ratio: severe cellulose degradation indication.",
+            }
+        elif paper_ratio < 10.0:
+            paper_diag = {
+                "method": "co2_co_ratio",
+                "method_label": "CO2/CO ratio",
+                "status": "warn",
+                "code": "CELLULOSE_WATCH",
+                "label": "Cellulose aging watch",
+                "summary": "CO2/CO ratio suggests possible paper aging or early cellulose degradation.",
+                "root_cause": "Paper insulation may be under thermal stress and should be trended.",
+                "reasoning": [f"CO2/CO = {_format_ratio_number(paper_ratio)} between 3 and 10"],
+                "confidence": "medium",
+                "display_summary": "CO2/CO ratio: watch cellulose condition.",
+            }
+
+    for diag in (ratio_diag, duval_diag, paper_diag):
+        if not diag:
+            continue
+        if diag.get("code"):
+            findings.append(diag)
+            overall_level = _severity_max(overall_level, diag.get("status", "ok"))
+            if primary is None or _DGA_SEVERITY_ORDER.get(diag.get("status", "ok"), 0) > _DGA_SEVERITY_ORDER.get(primary.get("status", "ok"), 0):
+                primary = diag
+
+    consensus = None
+    ratio_code = ratio_diag.get("code")
+    duval_code = duval_diag.get("code")
+    if ratio_code and duval_code:
+        if ratio_code == duval_code:
+            consensus = {
+                "status": _severity_max(ratio_diag.get("status", "ok"), duval_diag.get("status", "ok")),
+                "summary": f"IEC 60599 / Rogers and Duval Triangle 1 both indicate {ratio_code}.",
+                "reasoning": [
+                    ratio_diag.get("display_summary"),
+                    duval_diag.get("display_summary"),
+                ],
+            }
+            overall_level = _severity_max(overall_level, consensus["status"])
+        else:
+            consensus = {
+                "status": "warn",
+                "summary": "IEC 60599 / Rogers and Duval Triangle 1 do not fully agree.",
+                "reasoning": [ratio_diag.get("display_summary"), duval_diag.get("display_summary")],
+            }
+            overall_level = _severity_max(overall_level, "warn")
+
+    return {
+        "ratios": ratios,
+        "ratio_method": ratio_diag,
+        "duval_triangle_1": duval_diag,
+        "paper_condition": paper_diag,
+        "findings": findings,
+        "consensus": consensus,
+        "primary": primary,
+        "overall_level": overall_level,
+    }
 
 
 def _row_limit_rules(ws, section, row):
@@ -371,13 +829,17 @@ def evaluate_dga_limits(values, template_path):
     elif warnings:
         overall = "warn"
 
+    diagnostics = analyze_dga_diagnostics(values)
+    overall = _severity_max(overall, diagnostics.get("overall_level", "ok"))
+
     return {
-        "is_problematic": bool(problems),
-        "has_warnings": bool(warnings),
+        "is_problematic": bool(problems) or diagnostics.get("overall_level") == "bad",
+        "has_warnings": bool(warnings) or diagnostics.get("overall_level") in {"warn", "bad"},
         "overall_level": overall,
         "checks": checks,
         "warnings": warnings,
         "problems": problems,
+        "diagnostics": diagnostics,
         "metadata": metadata,
     }
 

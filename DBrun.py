@@ -13959,6 +13959,42 @@ class SubstationApp(App):
         remaining = max(0, len(bad_entries) - max_bad) + max(0, len(warn_entries) - max_warn)
         if remaining > 0:
             chunks.append(S["MESSAGES"].get("DGA_MORE_FMT", "+{remaining} ακόμη").format(remaining=remaining))
+
+        diagnostics = (evaluation.get("diagnostics") or {}) if isinstance(evaluation, dict) else {}
+        primary = diagnostics.get("primary") or {}
+        consensus = diagnostics.get("consensus") or {}
+        findings = diagnostics.get("findings") or []
+
+        def _diag_color(level):
+            if level == "bad":
+                return "ff4d4d"
+            if level == "warn":
+                return "ffcc33"
+            return "66cc66"
+
+        if primary.get("display_summary"):
+            chunks.append(
+                f"[color={_diag_color(primary.get('status', 'ok'))}]"
+                f"{primary.get('display_summary')}[/color]"
+            )
+
+        if consensus.get("summary"):
+            chunks.append(
+                f"[color={_diag_color(consensus.get('status', 'warn'))}]"
+                f"{consensus.get('summary')}[/color]"
+            )
+
+        shown_diag = 0
+        for finding in findings:
+            if shown_diag >= 2:
+                break
+            if primary and finding.get("method") == primary.get("method"):
+                continue
+            chunks.append(
+                f"[color={_diag_color(finding.get('status', 'ok'))}]"
+                f"{finding.get('display_summary') or finding.get('summary') or finding.get('label') or '-'}[/color]"
+            )
+            shown_diag += 1
         return "\n".join(chunks)
 
     def show_problematic_dga_measurements(self, parent_popup=None):
@@ -14777,8 +14813,79 @@ class SubstationApp(App):
                     _rl.text = ""
                     _rl._bg_color_inst.rgba = _RATIO_BG_IDLE
 
+            _preview_values = {
+                "h2": h2.text.strip(),
+                "c2h2": c2h2.text.strip(),
+                "c2h4": c2h4.text.strip(),
+                "c2h6": c2h6.text.strip(),
+                "co": co.text.strip(),
+                "co2": co2.text.strip(),
+                "ch4": ch4.text.strip(),
+                "o2": o2.text.strip(),
+                "c3h8": c3h8.text.strip(),
+                "n2": n2.text.strip(),
+                "h2o": h2o.text.strip(),
+            }
+            _evaluation = self._evaluate_dga_values(_preview_values)
+            _diagnostics = _evaluation.get("diagnostics") or {}
+            _primary = _diagnostics.get("primary") or {}
+            _consensus = _diagnostics.get("consensus") or {}
+            _overall = _evaluation.get("overall_level", "ok")
+            _diag_color = {
+                "ok": "66cc66",
+                "warn": "ffcc33",
+                "bad": "ff4d4d",
+            }.get(_overall, "66cc66")
+            _summary_bits = []
+            if _primary.get("display_summary"):
+                _summary_bits.append(_primary.get("display_summary"))
+            elif _consensus.get("summary"):
+                _summary_bits.append(_consensus.get("summary"))
+            else:
+                _summary_bits.append(S["MESSAGES"].get("DGA_DIAG_PREVIEW_EMPTY", "Συμπληρώστε επαρκείς τιμές αερίων για διάγνωση IEC 60599 / Duval."))
+            if _consensus.get("summary") and _primary.get("display_summary"):
+                _summary_bits.append(_consensus.get("summary"))
+            diagnostic_summary_label.text = f"[color={_diag_color}]" + "\n".join(_summary_bits) + "[/color]"
+
+            _reasoning = []
+            for _entry in (_primary, _diagnostics.get("paper_condition") or {}):
+                if not _entry:
+                    continue
+                _root = _entry.get("root_cause")
+                if _root:
+                    _reasoning.append(_root)
+            if not _reasoning and _primary.get("reasoning"):
+                _reasoning = [" | ".join(_primary.get("reasoning") or [])]
+            diagnostic_reason_label.text = "\n".join(_reasoning[:2])
+
         for _gi in _ratio_inputs.values():
             _gi.bind(text=_update_ratios)
+
+        add_section(
+            S["MESSAGES"].get("DGA_SECTION_DIAGNOSIS_LABEL", "Διάγνωση DGA"),
+            S["MESSAGES"].get("DGA_SECTION_DIAGNOSIS_STANDARD", "IEC 60599 / Rogers ratios / Duval Triangle 1"),
+        )
+        diagnostic_summary_label = Label(
+            text="",
+            markup=True,
+            size_hint_y=None,
+            height=54,
+            halign="left",
+            valign="middle",
+        )
+        diagnostic_summary_label.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+        content.add_widget(diagnostic_summary_label)
+        diagnostic_reason_label = Label(
+            text="",
+            markup=False,
+            size_hint_y=None,
+            height=54,
+            halign="left",
+            valign="top",
+        )
+        diagnostic_reason_label.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+        content.add_widget(diagnostic_reason_label)
+
         _update_ratios()
 
         add_section(dga_sections.get("physchem") or S["MESSAGES"].get("DGA_SECTION_PHYSCHEM_LABEL", "Φυσικοχημικές Μετρήσεις"), S["MESSAGES"].get("DGA_SECTION_PHYSCHEM_STANDARD", "IEC 60422"))
@@ -15093,7 +15200,7 @@ class SubstationApp(App):
                     loss_factor,
                     surface_tension,
                 ) = row
-                row_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=80, padding=4, spacing=4)
+                row_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=118, padding=4, spacing=4)
 
                 evaluation = self._evaluate_dga_values(
                     {
@@ -15133,6 +15240,17 @@ class SubstationApp(App):
                 info_line.text = f"{status_badge}  {info_line.text}"
                 info_line.markup = True
                 row_layout.add_widget(info_line)
+
+                diag_line = Label(
+                    text=self._format_dga_problem_summary(evaluation, max_bad=1, max_warn=1),
+                    markup=True,
+                    size_hint_y=None,
+                    height=36,
+                    halign="left",
+                    valign="top",
+                )
+                diag_line.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+                row_layout.add_widget(diag_line)
 
                 btns = BoxLayout(size_hint_y=None, height=38, spacing=6)
 
