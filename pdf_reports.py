@@ -13,8 +13,9 @@ try:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.pdfmetrics import registerFontFamily
     from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate,
-                                    Spacer, Table, TableStyle)
+    from reportlab.platypus import (HRFlowable, Image, Paragraph,
+                                    SimpleDocTemplate, Spacer, Table,
+                                    TableStyle)
 
     _HAS_REPORTLAB = True
 except Exception:
