@@ -8,8 +8,25 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if db_path is None:
         db_path = DB_PATH
     """Initialize SQLite connection, ensure tables exist, and apply lightweight migrations."""
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
+
+    try:
+        cursor.execute("PRAGMA foreign_keys = ON")
+    except Exception:
+        pass
+    try:
+        cursor.execute("PRAGMA busy_timeout = 30000")
+    except Exception:
+        pass
+    try:
+        cursor.execute("PRAGMA journal_mode = WAL")
+    except Exception:
+        pass
+    try:
+        cursor.execute("PRAGMA synchronous = NORMAL")
+    except Exception:
+        pass
 
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, adoption_date TEXT)"
@@ -88,6 +105,21 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
             FOREIGN KEY(element_id) REFERENCES elements(id) ON DELETE CASCADE,
             UNIQUE(maintenance_id, element_id, report_type)
+        )
+    """)
+
+    # Maintenance-level summary reports, one per maintenance folder bucket.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS maintenance_overview_report_paths (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER NOT NULL,
+            gate_key TEXT NOT NULL,
+            report_type TEXT NOT NULL DEFAULT 'pdf_overview',
+            report_path TEXT NOT NULL,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+            UNIQUE(maintenance_id, gate_key, report_type)
         )
     """)
 
@@ -280,6 +312,9 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             "CREATE INDEX IF NOT EXISTS idx_maintenance_report_paths_maint_elem ON maintenance_report_paths(maintenance_id, element_id, report_type)"
         )
         cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_maintenance_overview_report_paths_maint_gate ON maintenance_overview_report_paths(maintenance_id, gate_key, report_type)"
+        )
+        cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_dga_maintenance_element ON dga_measurements(maintenance_id, element_id)"
         )
         cursor.execute(
@@ -299,6 +334,67 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_substations_name ON substations(name)"
+        )
+    except Exception:
+        pass
+
+    # Protect maintenance_report_paths from drifting away from the actual
+    # maintenance-element pairs and clean them up automatically if the pair is removed.
+    try:
+        cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_maintenance_report_paths_require_pair_insert
+            BEFORE INSERT ON maintenance_report_paths
+            FOR EACH ROW
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM maintenance_elements me
+                WHERE me.maintenance_id = NEW.maintenance_id
+                  AND me.element_id = NEW.element_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'maintenance_report_paths requires matching maintenance_elements row');
+            END;
+        """)
+        cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_maintenance_report_paths_require_pair_update
+            BEFORE UPDATE OF maintenance_id, element_id ON maintenance_report_paths
+            FOR EACH ROW
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM maintenance_elements me
+                WHERE me.maintenance_id = NEW.maintenance_id
+                  AND me.element_id = NEW.element_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'maintenance_report_paths requires matching maintenance_elements row');
+            END;
+        """)
+        cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_maintenance_report_paths_cleanup_after_pair_delete
+            AFTER DELETE ON maintenance_elements
+            FOR EACH ROW
+            BEGIN
+                DELETE FROM maintenance_report_paths
+                WHERE maintenance_id = OLD.maintenance_id
+                  AND element_id = OLD.element_id;
+            END;
+        """)
+    except Exception:
+        pass
+
+    # Opportunistically clean existing stale report rows so startup/sync does not
+    # continue carrying forward orphaned maintenance-element report links.
+    try:
+        cursor.execute(
+            """
+            DELETE FROM maintenance_report_paths
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM maintenance_elements me
+                WHERE me.maintenance_id = maintenance_report_paths.maintenance_id
+                  AND me.element_id = maintenance_report_paths.element_id
+            )
+            """
         )
     except Exception:
         pass

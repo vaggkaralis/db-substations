@@ -23,6 +23,7 @@ except Exception:
 import json
 import logging
 import os
+import subprocess
 import tempfile
 import uuid
 import threading
@@ -49,6 +50,134 @@ def _normalize_pdf_file(path: str) -> bool:
         return True
     except Exception:
         logging.exception("PDF normalization failed for %s", path)
+        return False
+
+
+def _reset_windows_acl(path: str) -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        completed = subprocess.run(
+            ["icacls", str(path), "/inheritance:e"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        if completed.returncode != 0:
+            logging.debug("icacls inheritance restore failed for %s: %s", path, completed.stdout or completed.stderr)
+        completed = subprocess.run(
+            ["icacls", str(path), "/reset"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        if completed.returncode != 0:
+            logging.debug("icacls reset failed for %s: %s", path, completed.stdout or completed.stderr)
+            return False
+        return True
+    except Exception:
+        logging.debug("ACL reset failed for %s", path, exc_info=True)
+        return False
+
+
+def _rewrite_pdf_in_place(path: str) -> bool:
+    """Rewrite a PDF via a sibling temp file so the final file inherits clean metadata."""
+    try:
+        import pikepdf
+    except Exception:
+        return False
+
+    fs_path = _fs_path(path)
+    temp_path = _temp_pdf_path(fs_path)
+    try:
+        with pikepdf.Pdf.open(fs_path) as pdf:
+            pdf.save(temp_path, linearize=True)
+        os.replace(_fs_path(temp_path), fs_path)
+        return True
+    except Exception:
+        logging.debug("Temp rewrite failed for %s", fs_path, exc_info=True)
+        try:
+            if os.path.exists(_fs_path(temp_path)):
+                os.remove(_fs_path(temp_path))
+        except Exception:
+            pass
+        return False
+
+
+def is_pdf_readable(path: str, *, min_size: int = 32) -> bool:
+    """Return True when a PDF exists, has a valid header, and can be parsed.
+
+    If `pikepdf` is unavailable, fall back to a lightweight header/size check.
+    """
+    try:
+        fs_path = _fs_path(path)
+        if not os.path.exists(fs_path):
+            return False
+        if os.path.getsize(fs_path) < min_size:
+            return False
+        with open(fs_path, "rb") as handle:
+            if handle.read(5) != b"%PDF-":
+                return False
+        try:
+            import pikepdf
+        except Exception:
+            return True
+        with pikepdf.Pdf.open(fs_path) as pdf:
+            len(pdf.pages)
+        return True
+    except Exception:
+        return False
+
+
+def repair_pdf_access(path: str, *, normalize_existing: bool = True) -> bool:
+    """Best-effort repair for existing PDFs so external readers can open them.
+
+    This clears restrictive filesystem attributes and optionally re-saves the
+    PDF through `pikepdf` to normalize older/generated files in place.
+    """
+    try:
+        fs_path = _fs_path(path)
+        if not os.path.exists(fs_path):
+            return False
+
+        # Fast path for sync/report scans: avoid rewriting PDFs that already
+        # parse correctly and have a valid header.
+        if is_pdf_readable(fs_path):
+            return True
+
+        try:
+            os.chmod(fs_path, 0o666)
+        except Exception:
+            pass
+
+        if os.name == "nt":
+            try:
+                import ctypes
+
+                FILE_ATTRIBUTE_NORMAL = 0x80
+                ctypes.windll.kernel32.SetFileAttributesW(str(fs_path), FILE_ATTRIBUTE_NORMAL)
+            except Exception:
+                pass
+
+        _reset_windows_acl(fs_path)
+
+        if normalize_existing:
+            try:
+                if not _rewrite_pdf_in_place(fs_path):
+                    _normalize_pdf_file(fs_path)
+            except Exception:
+                logging.debug("Existing PDF normalization failed for %s", fs_path, exc_info=True)
+
+        _reset_windows_acl(fs_path)
+
+        return is_pdf_readable(fs_path)
+    except Exception:
         return False
 import unicodedata
 from datetime import datetime
@@ -151,9 +280,131 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
 
     finally:
         try:
-            os.chmod(final_path, 0o666)
+            # Set permissive mode on the filesystem-resolved path. Use the
+            # Windows-long-path form when available to avoid "path too long"
+            # errors. Also attempt to clear read-only/hidden attributes on
+            # Windows so external readers (Acrobat) can open the file.
+            try:
+                os.chmod(fs_final, 0o666)
+            except Exception:
+                try:
+                    os.chmod(final_path, 0o666)
+                except Exception:
+                    pass
+
+            if os.name == "nt":
+                try:
+                    import ctypes
+
+                    FILE_ATTRIBUTE_NORMAL = 0x80
+                    # Use wide-char API to clear attributes
+                    ctypes.windll.kernel32.SetFileAttributesW(str(final_path), FILE_ATTRIBUTE_NORMAL)
+                except Exception:
+                    try:
+                        ctypes.windll.kernel32.SetFileAttributesW(str(fs_final), FILE_ATTRIBUTE_NORMAL)
+                    except Exception:
+                        pass
+                try:
+                    _reset_windows_acl(fs_final)
+                except Exception:
+                    pass
         except Exception:
             pass
+
+
+    def set_pdf_title(path: str, title: str) -> bool:
+        """Set the internal PDF Title metadata to `title` using pikepdf.
+
+        Returns True on success, False otherwise. If pikepdf is not available,
+        this is a no-op and returns False.
+        """
+        try:
+            import pikepdf
+        except Exception:
+            return False
+        try:
+            fs = _fs_path(path)
+            with pikepdf.Pdf.open(fs, allow_overwriting_input=True) as pdf:
+                info = pdf.open_metadata()
+                info['/Title'] = str(title)
+                pdf.save(fs)
+            return True
+        except Exception:
+            logging.debug("Failed to set PDF Title for %s", path, exc_info=True)
+            return False
+
+
+    def move_pdf_preserve_title(src: str, dest: str) -> bool:
+        """Move a PDF from `src` to `dest`, preserving or copying the internal
+        Title metadata from the original into the destination file.
+
+        Safest-effort: will attempt to normalize via pikepdf, set metadata, move
+        atomically, and finally reset ACLs. Returns True on success.
+        """
+        try:
+            fs_src = _fs_path(src)
+            fs_dest = _fs_path(dest)
+            if not os.path.exists(fs_src):
+                return False
+
+            # Read original title where possible
+            orig_title = None
+            try:
+                import pikepdf
+                with pikepdf.Pdf.open(fs_src) as pdf:
+                    try:
+                        meta = pdf.open_metadata()
+                        orig_title = meta.get('/Title')
+                    except Exception:
+                        orig_title = None
+            except Exception:
+                orig_title = None
+
+            # Ensure dest dir exists
+            os.makedirs(os.path.dirname(fs_dest), exist_ok=True)
+
+            # Try a temp rewrite into destination directory to ensure clean metadata
+            tmp = _temp_pdf_path(fs_dest)
+            try:
+                try:
+                    import pikepdf
+                    with pikepdf.Pdf.open(fs_src) as pdf:
+                        if orig_title:
+                            info = pdf.open_metadata()
+                            info['/Title'] = str(orig_title)
+                        pdf.save(tmp, linearize=True)
+                except Exception:
+                    # Fallback to simple copy when pikepdf is not available
+                    import shutil
+                    shutil.copyfile(fs_src, tmp)
+
+                # Move temp into final place
+                try:
+                    os.replace(tmp, fs_dest)
+                except Exception:
+                    os.rename(tmp, fs_dest)
+
+                # Clear restrictive attributes / ACLs
+                try:
+                    os.chmod(fs_dest, 0o666)
+                except Exception:
+                    pass
+                try:
+                    _reset_windows_acl(fs_dest)
+                except Exception:
+                    pass
+
+                return True
+            finally:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
+
+        except Exception:
+            logging.exception("Failed to move PDF %s -> %s", src, dest)
+            return False
 
 
 # Background normalization queue and worker
@@ -624,7 +875,17 @@ class MaintenanceReportGenerator:
             "CustomSubtitle",
             parent=styles["Normal"],
             fontSize=14,
-            spaceAfter=20,
+            spaceAfter=6,
+            alignment=TA_CENTER,
+            fontName=self.greek_font,
+        )
+
+        meta_style = ParagraphStyle(
+            "CustomMeta",
+            parent=styles["Normal"],
+            fontSize=8.5,
+            textColor=colors.HexColor("#5f6b7a"),
+            spaceAfter=16,
             alignment=TA_CENTER,
             fontName=self.greek_font,
         )
@@ -638,6 +899,10 @@ class MaintenanceReportGenerator:
         subtitle = Paragraph(
             self.normalize_text(subtitle_text.format(substation=substation_name)), subtitle_style
         )
+        meta = Paragraph(
+            self.normalize_text("Εσωτερική χρήση ΔΕΔΔΗΕ | Παραγόμενο εταιρικό έγγραφο συντήρησης"),
+            meta_style,
+        )
 
         # Prefer to let _get_logo_flowable decide unit sizes so module can be
         # imported even when reportlab (and `mm`) is not available.
@@ -645,7 +910,7 @@ class MaintenanceReportGenerator:
         if logo:
             logo.hAlign = "RIGHT"
             header_table = Table(
-                [[[title, subtitle], logo]], colWidths=[140 * mm, 40 * mm]
+                [[[title, subtitle, meta], logo]], colWidths=[140 * mm, 40 * mm]
             )
             header_table.setStyle(
                 TableStyle(
@@ -663,6 +928,7 @@ class MaintenanceReportGenerator:
         else:
             story.append(title)
             story.append(subtitle)
+            story.append(meta)
 
         story.append(Spacer(1, 12))
 
@@ -694,6 +960,41 @@ class MaintenanceReportGenerator:
             return Image(logo_path, width=img_width * scale, height=img_height * scale)
         except Exception:
             return None
+
+    def _create_official_footer(self, *, document_kind: str) -> list:
+        styles = getSampleStyleSheet()
+        note_style = ParagraphStyle(
+            "OfficialFooterNote",
+            parent=styles["Normal"],
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor("#5f6b7a"),
+            alignment=TA_CENTER,
+            fontName=self.greek_font,
+        )
+        time_style = ParagraphStyle(
+            "OfficialFooterTime",
+            parent=note_style,
+            fontSize=7.5,
+            textColor=colors.HexColor("#7a8594"),
+        )
+        return [
+            Spacer(1, 18),
+            HRFlowable(width="100%", color=colors.HexColor("#c9d1db"), thickness=0.7, spaceBefore=0, spaceAfter=6),
+            Paragraph(
+                self.normalize_text(
+                    f"{document_kind} - Το παρόν έγγραφο παράγεται από το εταιρικό σύστημα DB Substations της ΔΕΔΔΗΕ και αποτυπώνει τα καταχωρημένα δεδομένα της συγκεκριμένης συντήρησης. Απαιτείται έλεγχος και υπογραφή από το αρμόδιο προσωπικό όπου προβλέπεται."
+                ),
+                note_style,
+            ),
+            Spacer(1, 4),
+            Paragraph(
+                self.normalize_text(
+                    f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                ),
+                time_style,
+            ),
+        ]
 
     def _create_info_table(self, element_data, maintenance_data):
         """Create general information table"""
@@ -1107,23 +1408,7 @@ class MaintenanceReportGenerator:
         story.extend(comments)
 
         # Footer
-        story.append(Spacer(1, 20))
-        styles = getSampleStyleSheet()
-        footer_style = ParagraphStyle(
-            "Footer",
-            parent=styles["Normal"],
-            fontSize=8,
-            textColor=colors.grey,
-            alignment=TA_CENTER,
-            fontName=self.greek_font,
-        )
-        footer = Paragraph(
-            self.normalize_text(
-                f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-            ),
-            footer_style,
-        )
-        story.append(footer)
+        story.extend(self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη SF6"))
 
         # Build PDF to temp and finalize (automatic normalization/move)
         temp_path = _temp_pdf_path(output_path)
@@ -1165,23 +1450,7 @@ class MaintenanceReportGenerator:
         story.extend(comments)
 
         # Footer
-        story.append(Spacer(1, 20))
-        styles = getSampleStyleSheet()
-        footer_style = ParagraphStyle(
-            "Footer",
-            parent=styles["Normal"],
-            fontSize=8,
-            textColor=colors.grey,
-            alignment=TA_CENTER,
-            fontName=self.greek_font,
-        )
-        footer = Paragraph(
-            self.normalize_text(
-                f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-            ),
-            footer_style,
-        )
-        story.append(footer)
+        story.extend(self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη ελαίου"))
 
         # Build PDF to temp and finalize (automatic normalization/move)
         temp_path = _temp_pdf_path(output_path)
@@ -1223,23 +1492,7 @@ class MaintenanceReportGenerator:
         story.extend(comments)
 
         # Footer
-        story.append(Spacer(1, 20))
-        styles = getSampleStyleSheet()
-        footer_style = ParagraphStyle(
-            "Footer",
-            parent=styles["Normal"],
-            fontSize=8,
-            textColor=colors.grey,
-            alignment=TA_CENTER,
-            fontName=self.greek_font,
-        )
-        footer = Paragraph(
-            self.normalize_text(
-                f"Δημιουργήθηκε: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-            ),
-            footer_style,
-        )
-        story.append(footer)
+        story.extend(self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη κενού"))
 
         # Build PDF to temp and finalize (automatic normalization/move)
         temp_path = _temp_pdf_path(output_path)
@@ -1280,6 +1533,204 @@ def generate_maintenance_report(conn, maintenance_id, element_id, output_path=No
     return generator.generate_maintenance_report(
         maintenance_id, element_id, output_path
     )
+
+
+def generate_maintenance_overview_report(conn, maintenance_id, output_path=None):
+    """Generate a maintenance-level summary PDF covering all linked elements."""
+    if not _HAS_REPORTLAB:
+        raise RuntimeError("Το ReportLab δεν είναι διαθέσιμο για δημιουργία συνολικού PDF συντήρησης.")
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+         SELECT m.id, m.date_time, m.name, m.maintenance_type, m.overall_comments, m.user_name,
+             s.name, s.location, s.division, p.name
+        FROM maintenance m
+        JOIN substations s ON s.id = m.substation_id
+         LEFT JOIN people p ON p.id = m.responsible_id
+        WHERE m.id = ?
+        """,
+        (maintenance_id,),
+    )
+    maintenance = cursor.fetchone()
+    if not maintenance:
+        raise ValueError(f"Maintenance record {maintenance_id} not found")
+
+    (
+        maint_id,
+        date_time,
+        maintenance_name,
+        maintenance_type,
+        overall_comments,
+        user_name,
+        substation_name,
+        location,
+        division,
+        responsible_name,
+    ) = maintenance
+
+    cursor.execute(
+        """
+        SELECT e.name, e.element_type, e.gate, e.breaker_category, me.element_comments
+        FROM maintenance_elements me
+        JOIN elements e ON e.id = me.element_id
+        WHERE me.maintenance_id = ?
+        ORDER BY e.gate, e.element_type, e.name
+        """,
+        (maintenance_id,),
+    )
+    elements = cursor.fetchall() or []
+
+    if output_path is None:
+        reports_dir = os.path.join(os.path.dirname(__file__), "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        output_path = os.path.join(reports_dir, f"maintenance_{maintenance_id}_overview.pdf")
+
+    generator = MaintenanceReportGenerator(conn)
+    font_name = getattr(generator, "greek_font", "Helvetica")
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "MaintenanceOverviewTitle",
+        parent=styles["Title"],
+        fontName=font_name,
+        fontSize=16,
+        leading=20,
+        alignment=TA_CENTER,
+        spaceAfter=10,
+    )
+    section_style = ParagraphStyle(
+        "MaintenanceOverviewSection",
+        parent=styles["Heading2"],
+        fontName=font_name,
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor("#17324d"),
+        spaceBefore=8,
+        spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        "MaintenanceOverviewBody",
+        parent=styles["BodyText"],
+        fontName=font_name,
+        fontSize=9,
+        leading=12,
+        alignment=TA_LEFT,
+    )
+    small_style = ParagraphStyle(
+        "MaintenanceOverviewSmall",
+        parent=body_style,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#5f6b7a"),
+    )
+
+    logo = generator._get_logo_flowable(max_width=30 * mm, max_height=22 * mm)
+    header_left = [
+        Paragraph(generator.normalize_text("ΔΕΔΔΗΕ"), title_style),
+        Paragraph(generator.normalize_text("Συνοπτική Αναφορά Συντήρησης"), section_style),
+        Paragraph(generator.normalize_text(f"Κωδικός εγγράφου: M{maintenance_id}"), small_style),
+    ]
+    header_table = Table(
+        [[header_left, logo or Spacer(1, 1)]],
+        colWidths=[145 * mm, 35 * mm],
+    )
+    header_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+
+    summary_rows = [
+        ["Υποσταθμός", substation_name or "-", "Ημερομηνία", date_time or "-"],
+        ["Συντήρηση", maintenance_name or "-", "Τύπος", maintenance_type or "-"],
+        ["Υπεύθυνος", responsible_name or user_name or "-", "Τομέας", division or "-"],
+        ["Τοποθεσία", location or "-", "Στοιχεία", str(len(elements))],
+    ]
+    summary_table = Table(summary_rows, colWidths=[28 * mm, 62 * mm, 28 * mm, 62 * mm])
+    summary_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#17324d")),
+                ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#17324d")),
+                ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
+                ("TEXTCOLOR", (2, 0), (2, -1), colors.white),
+                ("FONTNAME", (0, 0), (-1, -1), font_name),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#c9d1db")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+
+    story = [
+        header_table,
+        Spacer(1, 10),
+        summary_table,
+        Spacer(1, 10),
+    ]
+
+    story.append(Paragraph(generator.normalize_text("Συνολικά Σχόλια"), section_style))
+    story.append(Paragraph(generator.normalize_text(overall_comments or "-"), body_style))
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph(generator.normalize_text("Στοιχεία Συνδεδεμένων Στοιχείων"), section_style))
+
+    # Render each element as a small block (name/type/gate/category) followed
+    # by its comments. This avoids extremely tall single table cells which
+    # ReportLab cannot split across pages when a single cell's content exceeds
+    # the page frame.
+    for element_name, element_type, gate, breaker_category, element_comments in elements:
+        element_table = Table(
+            [[
+                Paragraph(generator.normalize_text(f"<b>{element_name or '-'}</b>"), body_style),
+                Paragraph(generator.normalize_text(element_type or "-"), body_style),
+                Paragraph(generator.normalize_text(gate or "-"), body_style),
+                Paragraph(generator.normalize_text(breaker_category or "-"), body_style),
+            ]],
+            colWidths=[58 * mm, 54 * mm, 28 * mm, 40 * mm],
+        )
+        element_table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#d7dee7")),
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f6f8fb")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story.append(element_table)
+        if element_comments:
+            max_chars = 4000
+            comment_text = element_comments
+            if isinstance(comment_text, str) and len(comment_text) > max_chars:
+                comment_text = comment_text[:max_chars] + "\n... (truncated)"
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(generator.normalize_text(f"<b>Σχόλια:</b> {comment_text}"), body_style))
+        story.append(Spacer(1, 6))
+
+    story.extend(generator._create_official_footer(document_kind="Συνοπτική αναφορά συντήρησης"))
+
+    temp_path = _temp_pdf_path(output_path)
+    doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+    doc.build(story)
+    _finalize_pdf(temp_path, output_path)
+    return output_path
 
 
 class InspectionReportGenerator:

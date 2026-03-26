@@ -143,6 +143,40 @@ def _summarize_change_file(file_path: str) -> dict:
     }
 
 
+def _refresh_maintenance_dates(cur, substation_id, element_ids) -> None:
+    unique_ids = sorted({int(x) for x in (element_ids or []) if x is not None})
+    for element_id in unique_ids:
+        cur.execute(
+            """
+            SELECT m.date_time
+            FROM maintenance m
+            JOIN maintenance_elements me ON me.maintenance_id = m.id
+            WHERE me.element_id = ?
+            ORDER BY m.date_time DESC
+            LIMIT 1
+            """,
+            (element_id,),
+        )
+        row = cur.fetchone()
+        new_date = row[0] if row else None
+        cur.execute(
+            "UPDATE elements SET maintenance_date=? WHERE id=?",
+            (new_date, element_id),
+        )
+
+    if substation_id is not None:
+        cur.execute(
+            "SELECT MAX(date_time) FROM maintenance WHERE substation_id=?",
+            (substation_id,),
+        )
+        row = cur.fetchone()
+        new_sub_date = row[0] if row and row[0] else None
+        cur.execute(
+            "UPDATE substations SET last_maintenance=? WHERE id=?",
+            (new_sub_date, substation_id),
+        )
+
+
 def _apply_change_log_to_db(
     conn: sqlite3.Connection,
     file_path: str,
@@ -185,12 +219,101 @@ def _apply_change_log_to_db(
             table = obj.get("table")
             data = obj.get("data") or {}
 
-            if op != "insert":
-                continue
-
             if table == "maintenance":
-                # Check if maintenance record exists (by id field)
                 maint_id = data.get("id")
+                if op == "delete":
+                    if not maint_id:
+                        conflicts += 1
+                        continue
+                    cur.execute("SELECT substation_id FROM maintenance WHERE id=?", (maint_id,))
+                    row = cur.fetchone()
+                    if not row:
+                        already_applied += 1
+                        continue
+                    substation_id = row[0] if isinstance(row, (tuple, list)) else row["substation_id"]
+                    cur.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
+                    affected_elements = [r[0] if isinstance(r, (tuple, list)) else r["element_id"] for r in (cur.fetchall() or [])]
+                    try:
+                        from onedrive_hybrid_storage import delete_maintenance_folders
+
+                        delete_maintenance_folders(conn, maint_id)
+                    except Exception:
+                        pass
+                    cur.execute("DELETE FROM maintenance_people WHERE maintenance_id=?", (maint_id,))
+                    cur.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
+                    cur.execute("DELETE FROM maintenance WHERE id=?", (maint_id,))
+                    _refresh_maintenance_dates(cur, substation_id, affected_elements)
+                    conn.commit()
+                    accepted += 1
+                    continue
+
+                if op == "update":
+                    if not maint_id:
+                        conflicts += 1
+                        continue
+                    cur.execute("SELECT substation_id FROM maintenance WHERE id=?", (maint_id,))
+                    row = cur.fetchone()
+                    if not row:
+                        op = "insert"
+                    else:
+                        existing_substation_id = row[0] if isinstance(row, (tuple, list)) else row["substation_id"]
+                        maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
+                        update_keys = [k for k in data.keys() if k in maint_cols and k != "id"]
+                        if update_keys:
+                            assignments = ",".join([f"{key}=?" for key in update_keys])
+                            cur.execute(
+                                f"UPDATE maintenance SET {assignments} WHERE id=?",
+                                [data[key] for key in update_keys] + [maint_id],
+                            )
+                        try:
+                            from onedrive_hybrid_storage import invalidate_maintenance_reports, prune_stale_dga_measurements
+
+                            invalidate_maintenance_reports(conn, maint_id, delete_files=True)
+                        except Exception:
+                            pass
+                        cur.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
+                        previous_element_ids = [r[0] if isinstance(r, (tuple, list)) else r["element_id"] for r in (cur.fetchall() or [])]
+                        cur.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
+                        elements = data.get("elements") or []
+                        seen_element_ids = set()
+                        new_element_ids = []
+                        for elem in elements:
+                            elem_id = elem.get("element_id") or elem.get("id")
+                            elem_comments = elem.get("element_comments") or elem.get("comments")
+                            if not elem_id or elem_id in seen_element_ids:
+                                continue
+                            seen_element_ids.add(elem_id)
+                            new_element_ids.append(elem_id)
+                            cur.execute(
+                                "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+                                (maint_id, elem_id, elem_comments),
+                            )
+                            if data.get("date_time"):
+                                cur.execute(
+                                    "UPDATE elements SET maintenance_date=? WHERE id=?",
+                                    (data.get("date_time"), elem_id),
+                                )
+                        try:
+                            prune_stale_dga_measurements(
+                                conn,
+                                maintenance_id=maint_id,
+                                valid_element_ids=new_element_ids,
+                            )
+                        except Exception:
+                            pass
+                        _refresh_maintenance_dates(
+                            cur,
+                            data.get("substation_id", existing_substation_id),
+                            previous_element_ids + new_element_ids,
+                        )
+                        conn.commit()
+                        accepted += 1
+                        continue
+
+                if op != "insert":
+                    continue
+
+                # Check if maintenance record exists (by id field)
                 if maint_id:
                     existence = _record_exists_with_data(cur, "maintenance", maint_id, data)
                     if existence == "identical":
@@ -287,7 +410,7 @@ def _apply_change_log_to_db(
     return (accepted, already_applied, conflicts)
 
 
-def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "desktop") -> dict:
+def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "desktop", progress_callback=None) -> dict:
     """
     Process all change files in the sync inbox (idempotent).
     
@@ -337,7 +460,16 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
     conflicts = 0
     file_summaries: list[dict] = []
 
-    for original_name, src in files:
+    for idx, (original_name, src) in enumerate(files):
+        # Report per-file progress when a callback is available
+        try:
+            if progress_callback and len(files) > 0:
+                try:
+                    progress_callback(operation="Processing incoming changes", substation=None, current=idx + 1, total=len(files))
+                except Exception:
+                    pass
+        except Exception:
+            pass
         payload_summary = _summarize_change_file(src)
         file_summary = {
             "source_file": original_name,
@@ -607,12 +739,13 @@ def run_sync_cycle(
     actor: str = "desktop",
     create_backup_on_change: bool = True,
     hot_keep: int = 3,
+    progress_callback=None,
 ) -> dict:
     effective_db = resolve_db_path(db_path)
     effective_sync_root = sync_root or resolve_sync_root(effective_db)
     effective_backup_root = backup_root or resolve_backup_root(effective_db)
 
-    sync_summary = process_sync_inbox(conn, effective_sync_root, actor=actor)
+    sync_summary = process_sync_inbox(conn, effective_sync_root, actor=actor, progress_callback=progress_callback)
 
     retention_enabled = bool(get_app_setting("sync_retention_enabled", True))
     retention_days = int(get_app_setting("sync_retention_days", 60) or 60)

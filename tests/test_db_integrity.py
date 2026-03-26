@@ -90,13 +90,15 @@ def test_integrity_check_orphaned_elements():
         # Initialize proper database
         conn = init_db(tmp_path)
         cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = OFF")
         
-        # Add an element that references a non-existent substation
+        # Seed a legacy-corrupt orphan row that bypasses the runtime FK guard.
         cursor.execute("""
             INSERT INTO elements (substation_id, element_type, name) 
             VALUES (99999, 'Test Type', 'Test Element')
         """)
         conn.commit()
+        cursor.execute("PRAGMA foreign_keys = ON")
         conn.close()
         
         # Run full integrity check

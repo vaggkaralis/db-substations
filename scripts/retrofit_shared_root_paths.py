@@ -22,6 +22,8 @@ def main():
     print(f"maintenance_storage_paths updated: {stats['storage_rows_updated']}")
     print(f"maintenance media links updated: {stats['maintenance_links_updated']}")
     print(f"maintenance_report_paths updated: {stats['report_paths_updated']}")
+    print(f"maintenance_overview_report_paths updated: {stats['overview_report_paths_updated']}")
+    print(f"dga_measurements report_path updated: {stats['dga_report_paths_updated']}")
     return 0
 
 

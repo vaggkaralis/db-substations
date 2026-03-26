@@ -61,7 +61,9 @@ from maintenance_checklists import (
 from onedrive_hybrid_storage import (
     ensure_maintenance_folders,
     delete_maintenance_folders,
+    invalidate_maintenance_reports,
     process_hybrid_queue,
+    prune_stale_dga_measurements,
     resolve_shared_root,
     ensure_dga_folder,
     get_transformer_report_targets,
@@ -359,6 +361,37 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
         raise FileNotFoundError(file_path)
 
     cur = conn.cursor()
+
+    def _refresh_maintenance_dates(substation_id, element_ids):
+        unique_ids = sorted({int(x) for x in (element_ids or []) if x is not None})
+        for element_id in unique_ids:
+            cur.execute(
+                """
+                SELECT m.date_time
+                FROM maintenance m
+                JOIN maintenance_elements me ON me.maintenance_id = m.id
+                WHERE me.element_id = ?
+                ORDER BY m.date_time DESC
+                LIMIT 1
+                """,
+                (element_id,),
+            )
+            row = cur.fetchone()
+            new_date = row[0] if row else None
+            cur.execute(
+                "UPDATE elements SET maintenance_date=? WHERE id=?",
+                (new_date, element_id),
+            )
+
+        if substation_id is not None:
+            cur.execute("SELECT MAX(date_time) FROM maintenance WHERE substation_id=?", (substation_id,))
+            row = cur.fetchone()
+            new_sub_date = row[0] if row and row[0] else None
+            cur.execute(
+                "UPDATE substations SET last_maintenance=? WHERE id=?",
+                (new_sub_date, substation_id),
+            )
+
     with open(file_path, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -368,11 +401,91 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
             op = obj.get("operation")
             table = obj.get("table")
             data = obj.get("data") or {}
-            if op != "insert":
-                continue
 
             # Special handling for maintenance rows which may embed elements
             if table == "maintenance":
+                maintenance_id = data.get("id")
+                if op == "delete":
+                    if not maintenance_id:
+                        continue
+                    cur.execute("SELECT substation_id FROM maintenance WHERE id=?", (maintenance_id,))
+                    row = cur.fetchone()
+                    if not row:
+                        conn.commit()
+                        continue
+                    substation_id = row[0]
+                    cur.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+                    affected_elements = [r[0] for r in (cur.fetchall() or [])]
+                    try:
+                        delete_maintenance_folders(conn, maintenance_id)
+                    except Exception:
+                        pass
+                    cur.execute("DELETE FROM maintenance_people WHERE maintenance_id=?", (maintenance_id,))
+                    cur.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+                    cur.execute("DELETE FROM maintenance WHERE id=?", (maintenance_id,))
+                    _refresh_maintenance_dates(substation_id, affected_elements)
+                    conn.commit()
+                    continue
+
+                if op == "update":
+                    if not maintenance_id:
+                        continue
+                    cur.execute("SELECT substation_id FROM maintenance WHERE id=?", (maintenance_id,))
+                    row = cur.fetchone()
+                    if row:
+                        existing_substation_id = row[0]
+                        maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
+                        update_keys = [k for k in data.keys() if k in maint_cols and k != "id"]
+                        if update_keys:
+                            assignments = ",".join([f"{key}=?" for key in update_keys])
+                            cur.execute(
+                                f"UPDATE maintenance SET {assignments} WHERE id=?",
+                                [data[k] for k in update_keys] + [maintenance_id],
+                            )
+                        try:
+                            invalidate_maintenance_reports(conn, maintenance_id, delete_files=True)
+                        except Exception:
+                            pass
+                        cur.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+                        previous_element_ids = [r[0] for r in (cur.fetchall() or [])]
+                        cur.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+                        elements = data.get("elements") or []
+                        seen_element_ids = set()
+                        new_element_ids = []
+                        for elem in elements:
+                            elem_id = elem.get("element_id") or elem.get("id")
+                            elem_comments = elem.get("element_comments") or elem.get("comments")
+                            if not elem_id or elem_id in seen_element_ids:
+                                continue
+                            seen_element_ids.add(elem_id)
+                            new_element_ids.append(elem_id)
+                            cur.execute(
+                                "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+                                (maintenance_id, elem_id, elem_comments),
+                            )
+                            if data.get("date_time"):
+                                cur.execute(
+                                    "UPDATE elements SET maintenance_date=? WHERE id=?",
+                                    (data.get("date_time"), elem_id),
+                                )
+                        try:
+                            prune_stale_dga_measurements(
+                                conn,
+                                maintenance_id=maintenance_id,
+                                valid_element_ids=new_element_ids,
+                            )
+                        except Exception:
+                            pass
+                        _refresh_maintenance_dates(
+                            data.get("substation_id", existing_substation_id),
+                            previous_element_ids + new_element_ids,
+                        )
+                        conn.commit()
+                        continue
+
+                if op != "insert":
+                    continue
+
                 # Defensive insertion: avoid creating duplicate maintenance rows.
                 # If payload provides an `id` that already exists, reuse it.
                 # Otherwise try to find an existing record by fingerprint
@@ -381,7 +494,7 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                 maint_keys = [k for k in data.keys() if k in maint_cols]
 
                 existing_id = None
-                payload_id = data.get("id")
+                payload_id = maintenance_id
                 if payload_id is not None:
                     try:
                         cur.execute("SELECT id FROM maintenance WHERE id = ?", (payload_id,))
@@ -6240,6 +6353,42 @@ class SubstationApp(App):
         from changelog import import_android_changes_from_file as _f
         return _f(self, file_path)
 
+    def _sync_assets_need_repair(self, conn_override=None):
+        work_conn = conn_override if conn_override is not None else self.conn
+        try:
+            from report_sync import (
+                verify_maintenance_overview_report_synchronization,
+                verify_report_synchronization,
+            )
+
+            report_status = verify_report_synchronization(work_conn, db_path=self.db_path)
+            overview_status = verify_maintenance_overview_report_synchronization(
+                work_conn,
+                db_path=self.db_path,
+            )
+            needs_repair = any(
+                int(status.get(key, 0) or 0) > 0
+                for status, key in (
+                    (report_status, "missing_files"),
+                    (report_status, "stale_tracked_rows"),
+                    (report_status, "orphan_tracked_rows"),
+                    (overview_status, "missing_files"),
+                    (overview_status, "stale_tracked_rows"),
+                )
+            )
+            return {
+                "needs_repair": bool(needs_repair),
+                "report_status": report_status,
+                "overview_status": overview_status,
+            }
+        except Exception as exc:
+            logging.exception("Failed to verify sync report health")
+            return {
+                "needs_repair": True,
+                "report_status": {"status": f"ERROR: {exc}"},
+                "overview_status": {"status": f"ERROR: {exc}"},
+            }
+
     def process_sync_inbox_now(self, progress_callback=None, conn_override=None, show_report=True):
         last_progress = [0]
 
@@ -6319,6 +6468,12 @@ class SubstationApp(App):
             "failed": 0,
             "remaining": 0,
         }
+        asset_health = {
+            "needs_repair": True,
+            "report_status": {},
+            "overview_status": {},
+        }
+        stage_errors = []
         try:
             exported_count = len(getattr(self, "_pending_changes", []) or [])
             if exported_count > 0:
@@ -6335,7 +6490,28 @@ class SubstationApp(App):
         backup_on_change = bool(get_app_setting("sync_backup_on_change", True))
 
         _notify_progress(
-            25,
+            10,
+            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+            S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
+        )
+        try:
+            structure_progress = _stage_progress_callback(
+                10,
+                24,
+                S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
+            )
+            structure_result = sync_all_substation_structures(
+                work_conn,
+                db_path=self.db_path,
+                quiet=True,
+                progress_callback=structure_progress,
+            )
+        except Exception as exc:
+            logging.exception("Failed to sync shared OneDrive folder structures during manual sync")
+            stage_errors.append(f"Συγχρονισμός δομής φακέλων: {exc}")
+
+        _notify_progress(
+            26,
             S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
             S["MESSAGES"].get("SYNC_PROGRESS_INBOX", "Επεξεργασία εισερχομένων αλλαγών..."),
         )
@@ -6348,77 +6524,93 @@ class SubstationApp(App):
         )
         retention = summary.get("retention") or {}
 
-        # Reconcile the shared OneDrive folder structure and missing reports.
-        _notify_progress(
-            50,
-            S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
-            S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
-        )
-        try:
-            structure_progress = _stage_progress_callback(
-                50,
-                62,
-                S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
-            )
-            structure_result = sync_all_substation_structures(
-                work_conn,
-                db_path=self.db_path,
-                quiet=True,
-                progress_callback=structure_progress,
-            )
-        except Exception:
-            logging.exception("Failed to sync shared OneDrive folder structures during manual sync")
+        sync_changes = int(((summary.get("sync") or {}).get("accepted", 0) or 0))
+        needs_asset_repair = bool(exported_count > 0 or sync_changes > 0)
+        if not needs_asset_repair:
+            try:
+                asset_health = self._sync_assets_need_repair(conn_override=work_conn)
+                needs_asset_repair = bool(asset_health.get("needs_repair"))
+            except Exception as exc:
+                logging.exception("Failed to verify report synchronization health during manual sync")
+                stage_errors.append(f"Έλεγχος υγείας αναφορών: {exc}")
+                needs_asset_repair = True
 
         _notify_progress(
-            62,
+            38,
             S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
             S["MESSAGES"].get("SYNC_PROGRESS_REPORTS", "Αναγέννηση αναφορών συντήρησης..."),
         )
-        try:
-            reports_progress = _stage_progress_callback(
-                62,
-                86,
-                S["MESSAGES"].get("SYNC_PROGRESS_REPORTS", "Αναγέννηση αναφορών συντήρησης..."),
-            )
-            report_result = regenerate_maintenance_reports(
-                work_conn,
-                db_path=self.db_path,
-                quiet=True,
-                progress_callback=reports_progress,
-            )
-        except Exception:
-            logging.exception("Failed to regenerate maintenance reports during manual sync")
+        if needs_asset_repair:
+            try:
+                reports_progress = _stage_progress_callback(
+                    38,
+                    80,
+                    S["MESSAGES"].get("SYNC_PROGRESS_REPORTS", "Αναγέννηση αναφορών συντήρησης..."),
+                )
+                report_result = regenerate_maintenance_reports(
+                    work_conn,
+                    db_path=self.db_path,
+                    quiet=True,
+                    progress_callback=reports_progress,
+                )
+            except Exception as exc:
+                logging.exception("Failed to regenerate maintenance reports during manual sync")
+                stage_errors.append(f"Αναγέννηση αναφορών συντήρησης: {exc}")
 
-        # Also reconcile shared-folder assets (images/reports) into DB links.
         _notify_progress(
-            86,
+            80,
             S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
             S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."),
         )
-        try:
-            relink_progress = _stage_progress_callback(
-                86,
-                94,
-                S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."),
-            )
-            relink_result = relink_existing_maintenance_assets(
-                work_conn,
-                db_path=self.db_path,
-                progress_callback=relink_progress,
-            )
-        except Exception:
-            logging.exception("Failed to relink shared OneDrive assets during manual sync")
+        if needs_asset_repair:
+            try:
+                relink_progress = _stage_progress_callback(
+                    80,
+                    90,
+                    S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."),
+                )
+                relink_result = relink_existing_maintenance_assets(
+                    work_conn,
+                    db_path=self.db_path,
+                    progress_callback=relink_progress,
+                )
+            except Exception as exc:
+                logging.exception("Failed to relink shared OneDrive assets during manual sync")
+                stage_errors.append(f"Σύνδεση αρχείων και αναφορών: {exc}")
+
+            if sync_changes > 0:
+                _notify_progress(
+                    90,
+                    S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
+                    S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
+                )
+                try:
+                    final_sync_progress = _stage_progress_callback(
+                        90,
+                        97,
+                        S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."),
+                    )
+                    sync_all_substation_structures(
+                        work_conn,
+                        db_path=self.db_path,
+                        quiet=True,
+                        progress_callback=final_sync_progress,
+                    )
+                except Exception as exc:
+                    logging.exception("Failed to prune empty folders during manual sync")
+                    stage_errors.append(f"Τελικός καθαρισμός φακέλων: {exc}")
 
         # Retry queued hybrid jobs (folder creation retries).
         _notify_progress(
-            95,
+            97,
             S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."),
             S["MESSAGES"].get("SYNC_PROGRESS_QUEUE", "Επεξεργασία ουράς εργασιών..."),
         )
         try:
             queue_result = process_hybrid_queue(self.db_path, max_jobs=120)
-        except Exception:
+        except Exception as exc:
             logging.exception("Failed to process hybrid queue during manual sync")
+            stage_errors.append(f"Επεξεργασία ουράς εργασιών: {exc}")
 
         _notify_progress(
             98,
@@ -6513,6 +6705,13 @@ class SubstationApp(App):
                 f"failed={int(queue_result.get('failed', 0) or 0)}, "
                 f"remaining={int(queue_result.get('remaining', 0) or 0)}"
             )
+
+        if stage_errors:
+            lines.extend([
+                "",
+                "[b][color=c62828]Στάδια με σφάλματα[/color][/b]",
+            ])
+            lines.extend(f"• {entry}" for entry in stage_errors)
 
         lines.extend(self._build_sync_file_summary_lines(sync, max_files=6))
 
@@ -6842,7 +7041,48 @@ class SubstationApp(App):
                 "relink_result": None,
                 "run_result": None,
                 "queue_result": None,
+                "asset_health": {"needs_repair": True, "report_status": {}, "overview_status": {}},
+                "stage_errors": [],
             }
+
+            last_startup_progress = [0]
+
+            def _notify_startup_progress(percent, detail="", force=False):
+                try:
+                    target = max(last_startup_progress[0], min(100, int(percent or 0)))
+                    if not force:
+                        target = min(target, last_startup_progress[0] + 3)
+                        if target >= 100:
+                            target = 99
+                    last_startup_progress[0] = target
+                except Exception:
+                    target = int(percent or 0)
+                self._update_startup_progress(
+                    progress_ui,
+                    S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
+                    detail,
+                    target,
+                    100,
+                )
+
+            def _startup_stage_progress_callback(start_pct, end_pct, default_detail):
+                span = max(0, end_pct - start_pct)
+
+                def _cb(operation=None, substation=None, current=None, total=None, **_kwargs):
+                    try:
+                        current_value = int(current or 0)
+                        total_value = int(total or 0)
+                        # Smooth progress when there are very few items to process
+                        # so a single-file inbox doesn't immediately jump to the stage end.
+                        denom = max(total_value, 12)
+                        ratio = (current_value / denom) if denom > 0 else 0.0
+                    except Exception:
+                        ratio = 0.0
+                    percent = start_pct + int(span * max(0.0, min(1.0, ratio)))
+                    detail = substation or operation or default_detail
+                    _notify_startup_progress(percent, detail)
+
+                return _cb
             
             # Define the heavy work to run in background thread
             def _startup_worker():
@@ -6861,17 +7101,32 @@ class SubstationApp(App):
                     ensure_sync_tree(sync_root)
                     ensure_backup_tree(backup_root)
 
+                    # Ensure a human-visible reference folder structure exists
+                    try:
+                        from onedrive_hybrid_storage import resolve_shared_root, ensure_reference_structure
+
+                        shared_root = resolve_shared_root(self.db_path)
+                        ensure_reference_structure(shared_root)
+                    except Exception:
+                        logging.exception("Failed to ensure reference folder structure in shared root")
+
+                    _notify_startup_progress(
+                        5,
+                        S["MESSAGES"].get("SYNC_PROGRESS_PREPARE", "Preparing synchronization..."),
+                    )
+
                     # Ensure folder structure for all substations with elements
                     try:
-                        def _sync_progress(operation, substation, current, total):
-                            self._update_startup_progress(
-                                progress_ui,
-                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
-                                substation,
-                                current,
-                                total,
-                            )
-                        
+                        _notify_startup_progress(
+                            10,
+                            S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Synchronizing folder structure..."),
+                        )
+                        _sync_progress = _startup_stage_progress_callback(
+                            10,
+                            24,
+                            S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Synchronizing folder structure..."),
+                        )
+
                         sync_result = sync_all_substation_structures(
                             startup_conn,
                             db_path=self.db_path,
@@ -6892,101 +7147,142 @@ class SubstationApp(App):
 
                     # First apply incoming sync changes so DB reflects remote updates
                     try:
+                        _notify_startup_progress(
+                            26,
+                            S["MESSAGES"].get("SYNC_PROGRESS_INBOX", "Processing incoming changes..."),
+                        )
+                        _inbox_progress = _startup_stage_progress_callback(
+                            26,
+                            36,
+                            S["MESSAGES"].get("SYNC_PROGRESS_INBOX", "Processing incoming changes..."),
+                        )
                         run_result = run_sync_cycle(
                             startup_conn,
                             db_path=self.db_path,
                             actor="startup",
                             create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
                             hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+                            progress_callback=_inbox_progress,
                         )
                         results["run_result"] = run_result
                     except Exception:
                         logging.exception("Failed to run sync cycle at startup")
 
-                    # After applying sync changes, regenerate reports and relink assets
-                    try:
-                        def _report_progress(operation, substation, current, total):
-                            self._update_startup_progress(
-                                progress_ui,
-                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
-                                substation,
-                                current,
-                                total,
+                    sync_changes = int((((results.get("run_result") or {}).get("sync") or {}).get("accepted", 0) or 0))
+                    needs_asset_repair = bool(sync_changes > 0)
+                    if not needs_asset_repair:
+                        try:
+                            asset_health = self._sync_assets_need_repair(conn_override=startup_conn)
+                            results["asset_health"] = asset_health
+                            needs_asset_repair = bool(asset_health.get("needs_repair"))
+                        except Exception as exc:
+                            logging.exception("Failed to verify report synchronization health at startup")
+                            results["stage_errors"].append(f"Έλεγχος υγείας αναφορών: {exc}")
+                            needs_asset_repair = True
+
+                    if needs_asset_repair:
+                        try:
+                            _notify_startup_progress(
+                                38,
+                                S["MESSAGES"].get("SYNC_PROGRESS_REPORTS", "Regenerating maintenance reports..."),
+                            )
+                            _report_progress = _startup_stage_progress_callback(
+                                38,
+                                80,
+                                S["MESSAGES"].get("SYNC_PROGRESS_REPORTS", "Regenerating maintenance reports..."),
                             )
 
-                        report_result = regenerate_maintenance_reports(
-                            startup_conn,
-                            db_path=self.db_path,
-                            quiet=True,
-                            progress_callback=_report_progress,
-                        )
-                        results["report_result"] = report_result
-                        logging.info(
-                            "Maintenance reports: total=%s generated=%s skipped=%s failed=%s",
-                            report_result.get("total", 0),
-                            report_result.get("generated", 0),
-                            report_result.get("skipped", 0),
-                            report_result.get("failed", 0),
-                        )
-                    except Exception:
-                        logging.exception("Failed to regenerate maintenance reports at startup")
+                            report_result = regenerate_maintenance_reports(
+                                startup_conn,
+                                db_path=self.db_path,
+                                quiet=True,
+                                progress_callback=_report_progress,
+                            )
+                            results["report_result"] = report_result
+                            logging.info(
+                                "Maintenance reports: total=%s generated=%s skipped=%s failed=%s",
+                                report_result.get("total", 0),
+                                report_result.get("generated", 0),
+                                report_result.get("skipped", 0),
+                                report_result.get("failed", 0),
+                            )
+                        except Exception as exc:
+                            logging.exception("Failed to regenerate maintenance reports at startup")
+                            results["stage_errors"].append(f"Αναγέννηση αναφορών συντήρησης: {exc}")
 
-                    try:
-                        def _relink_progress(operation, substation, current, total):
-                            self._update_startup_progress(
-                                progress_ui,
-                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
-                                substation,
-                                current,
-                                total,
+                        try:
+                            _notify_startup_progress(
+                                80,
+                                S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Linking files and reports..."),
+                            )
+                            _relink_progress = _startup_stage_progress_callback(
+                                80,
+                                90,
+                                S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Linking files and reports..."),
                             )
 
-                        relink_result = relink_existing_maintenance_assets(
-                            startup_conn,
-                            db_path=self.db_path,
-                            progress_callback=_relink_progress,
+                            relink_result = relink_existing_maintenance_assets(
+                                startup_conn,
+                                db_path=self.db_path,
+                                progress_callback=_relink_progress,
+                            )
+                            results["relink_result"] = relink_result
+                            logging.info(
+                                "Asset relink: media_linked=%s reports_linked=%s reports_already=%s reports_missing=%s",
+                                relink_result.get("media_linked", 0),
+                                relink_result.get("reports_linked", 0),
+                                relink_result.get("reports_already", 0),
+                                relink_result.get("reports_missing", 0),
+                            )
+                        except Exception as exc:
+                            logging.exception("Failed to relink existing maintenance assets at startup")
+                            results["stage_errors"].append(f"Σύνδεση αρχείων και αναφορών: {exc}")
+                    else:
+                        _notify_startup_progress(
+                            90,
+                            S["MESSAGES"].get("SYNC_PROGRESS_ASSETS", "Linking files and reports..."),
                         )
-                        results["relink_result"] = relink_result
-                        logging.info(
-                            "Asset relink: media_linked=%s reports_linked=%s reports_already=%s reports_missing=%s",
-                            relink_result.get("media_linked", 0),
-                            relink_result.get("reports_linked", 0),
-                            relink_result.get("reports_already", 0),
-                            relink_result.get("reports_missing", 0),
-                        )
-                    except Exception:
-                        logging.exception("Failed to relink existing maintenance assets at startup")
 
                     try:
-                        def _final_sync_progress(operation, substation, current, total):
-                            self._update_startup_progress(
-                                progress_ui,
-                                S["MESSAGES"].get("STARTUP_SYNC_DATA_ONEDRIVE", "Synchronizing data with OneDrive..."),
-                                substation,
-                                current,
-                                total,
+                        if needs_asset_repair and sync_changes > 0:
+                            _notify_startup_progress(
+                                90,
+                                S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Synchronizing folder structure..."),
+                            )
+                            _final_sync_progress = _startup_stage_progress_callback(
+                                90,
+                                97,
+                                S["MESSAGES"].get("SYNC_PROGRESS_STRUCTURE", "Synchronizing folder structure..."),
                             )
 
-                        final_sync_result = sync_all_substation_structures(
-                            startup_conn,
-                            db_path=self.db_path,
-                            quiet=True,
-                            progress_callback=_final_sync_progress,
-                        )
-                        results["final_sync_result"] = final_sync_result
-                        logging.info(
-                            "Post-generation folder prune: total=%s synced=%s failed=%s",
-                            final_sync_result.get("total", 0),
-                            final_sync_result.get("synced", 0),
-                            final_sync_result.get("failed", 0),
-                        )
-                    except Exception:
+                            final_sync_result = sync_all_substation_structures(
+                                startup_conn,
+                                db_path=self.db_path,
+                                quiet=True,
+                                progress_callback=_final_sync_progress,
+                            )
+                            results["final_sync_result"] = final_sync_result
+                            logging.info(
+                                "Post-generation folder prune: total=%s synced=%s failed=%s",
+                                final_sync_result.get("total", 0),
+                                final_sync_result.get("synced", 0),
+                                final_sync_result.get("failed", 0),
+                            )
+                        else:
+                            results["final_sync_result"] = {"total": 0, "synced": 0, "failed": 0, "skipped": 0}
+                    except Exception as exc:
                         logging.exception("Failed to prune empty folders at startup")
+                        results["stage_errors"].append(f"Τελικός καθαρισμός φακέλων: {exc}")
 
                     try:
                         startup_conn.commit()
-                    except Exception:
+                    except Exception as exc:
                         logging.exception("Failed to commit startup link/report updates")
+                        results["stage_errors"].append(f"Αποθήκευση αλλαγών startup sync: {exc}")
+
+                except Exception as exc:
+                    logging.exception("Unhandled startup sync worker failure")
+                    results["stage_errors"].append(f"Απρόβλεπτο σφάλμα worker: {exc}")
 
                 finally:
                     try:
@@ -6997,6 +7293,10 @@ class SubstationApp(App):
 
                 # Retry deferred hybrid folder jobs (local-first queue worker).
                 try:
+                    _notify_startup_progress(
+                        97,
+                        S["MESSAGES"].get("SYNC_PROGRESS_QUEUE", "Processing queued jobs..."),
+                    )
                     q = process_hybrid_queue(self.db_path, max_jobs=120)
                     results["queue_result"] = q
                     if q.get("processed", 0) > 0:
@@ -7007,14 +7307,21 @@ class SubstationApp(App):
                             q.get("failed", 0),
                             q.get("remaining", 0),
                         )
-                except Exception:
+                except Exception as exc:
                     logging.exception("Hybrid queue processing failed at startup")
+                    results["stage_errors"].append(f"Επεξεργασία ουράς εργασιών: {exc}")
                     results["queue_result"] = {
                         "processed": 0,
                         "succeeded": 0,
                         "failed": 0,
                         "remaining": 0,
                     }
+
+                _notify_startup_progress(
+                    100,
+                    S["MESSAGES"].get("SYNC_PROGRESS_FINALIZE", "Finalizing synchronization..."),
+                    force=True,
+                )
 
                 # Schedule completion on UI thread
                 Clock.schedule_once(lambda dt: _finish_startup(), 0)
@@ -7037,6 +7344,7 @@ class SubstationApp(App):
                 relink_result = results["relink_result"] or {}
                 run_result = results["run_result"]
                 queue_result = results["queue_result"] or {}
+                stage_errors = results.get("stage_errors") or []
 
                 startup_sync = (run_result or {}).get("sync", {})
                 startup_accepted = int(startup_sync.get("accepted", 0) or 0)
@@ -7086,6 +7394,13 @@ class SubstationApp(App):
                             f"failed={int(queue_result.get('failed', 0) or 0)}, "
                             f"remaining={int(queue_result.get('remaining', 0) or 0)}"
                         )
+
+                    if stage_errors:
+                        lines.extend([
+                            "",
+                            "[b][color=c62828]Στάδια με σφάλματα[/color][/b]",
+                        ])
+                        lines.extend(f"• {entry}" for entry in stage_errors)
 
                     try:
                         self._show_rich_sync_report(
@@ -11692,6 +12007,13 @@ class SubstationApp(App):
             maintenance_date = datetime_input.text.strip()
             maintenance_type = maintenance_type_spinner.text
             user_name = ""
+            previous_element_ids = []
+            if maintenance_id:
+                c.execute(
+                    "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+                    (maintenance_id,),
+                )
+                previous_element_ids = [row[0] for row in (c.fetchall() or [])]
             maintenance_name = self._build_maintenance_name(
                 substation_input.text, maintenance_date
             )
@@ -11724,6 +12046,10 @@ class SubstationApp(App):
                         maintenance_id,
                     ),
                 )
+                try:
+                    invalidate_maintenance_reports(self.conn, maintenance_id, delete_files=True)
+                except Exception:
+                    logging.exception("Failed to invalidate maintenance PDFs for maintenance %s", maintenance_id)
                 c.execute(
                     "DELETE FROM maintenance_people WHERE maintenance_id=?",
                     (maintenance_id,),
@@ -12019,6 +12345,16 @@ class SubstationApp(App):
                 (maintenance_date, substation_id),
             )
 
+            if maintenance_id:
+                try:
+                    prune_stale_dga_measurements(
+                        self.conn,
+                        maintenance_id=maintenance_id,
+                        valid_element_ids=[elem_id for elem_id, _widgets in selected_elements],
+                    )
+                except Exception:
+                    logging.exception("Failed to prune stale DGA measurements for maintenance %s", maintenance_id)
+
             # Ensure hybrid OneDrive/local folder structure before commit.
             # If folder creation fails, maintenance creation must be blocked.
             try:
@@ -12050,29 +12386,31 @@ class SubstationApp(App):
                 )
                 return
 
-            # Track change for desktop sync (only for new maintenance records)
-            if not maintenance_record:
-                elements_data = []
-                for elem_id, widgets in selected_elements:
-                    elements_data.append({
-                        "element_id": elem_id,
-                        "element_comments": widgets["comments"].text.strip()
-                    })
-                
-                maintenance_data = {
-                    "id": maintenance_id,
-                    "substation_id": substation_id,
-                    "name": maintenance_name,
-                    "date_time": maintenance_date,
-                    "overall_comments": overall_comments.text.strip(),
-                    "maintenance_type": maintenance_type,
-                    "user_name": user_name,
-                    "responsible_id": responsible_id,
-                    "isolation_request_id": linked_isolation_id_to_save,
-                    "preparation_checklist_json": checklist_json,
-                    "elements": elements_data
-                }
-                self._append_change_log("insert", "maintenance", maintenance_data)
+            elements_data = []
+            for elem_id, widgets in selected_elements:
+                elements_data.append({
+                    "element_id": elem_id,
+                    "element_comments": widgets["comments"].text.strip()
+                })
+
+            maintenance_data = {
+                "id": maintenance_id,
+                "substation_id": substation_id,
+                "name": maintenance_name,
+                "date_time": maintenance_date,
+                "overall_comments": overall_comments.text.strip(),
+                "maintenance_type": maintenance_type,
+                "user_name": user_name,
+                "responsible_id": responsible_id,
+                "isolation_request_id": linked_isolation_id_to_save,
+                "preparation_checklist_json": checklist_json,
+                "elements": elements_data,
+            }
+            self._append_change_log(
+                "update" if maintenance_record else "insert",
+                "maintenance",
+                maintenance_data,
+            )
 
             self.conn.commit()
             popup.dismiss()
@@ -12176,6 +12514,23 @@ class SubstationApp(App):
     ):
         """Show maintenance history for a specific substation with element filter."""
         font_kwargs = self._get_ui_font_kwargs()
+        # Warn if any elements map to an unknown gate (ΠΥΛΗ Άγνωστη)
+        try:
+            from onedrive_hybrid_storage import _bucket_for_gate
+            cur2 = self.conn.cursor()
+            cur2.execute("SELECT id, name, gate FROM elements WHERE substation_id=?", (substation_id,))
+            rows = cur2.fetchall() or []
+            unknowns = [r for r in rows if _bucket_for_gate(r[2])[1] == 'unknown']
+            if unknowns:
+                show_message_popup(
+                    S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                    S["MESSAGES"].get(
+                        "UNKNOWN_GATE_ELEMENTS_WARNING",
+                        f"Υπάρχουν {len(unknowns)} στοιχεία με άγνωστη πύλη στο υποσταθμό {substation_name}. Ελέγξτε και διορθώστε την τιμή 'Πύλη' στη φόρμα του στοιχείου.",
+                    ),
+                )
+        except Exception:
+            pass
         history_limit = 80
         c = self.conn.cursor()
 
@@ -15008,6 +15363,8 @@ class SubstationApp(App):
             (new_sub_date, substation_id),
         )
 
+        self._append_change_log("delete", "maintenance", {"id": maintenance_id})
+
         self.conn.commit()
         parent_popup.dismiss()
 
@@ -15115,6 +15472,8 @@ class SubstationApp(App):
             "UPDATE substations SET last_maintenance=? WHERE id=?",
             (new_sub_date, substation_id),
         )
+
+        self._append_change_log("delete", "maintenance", {"id": maintenance_id})
 
         self.conn.commit()
 

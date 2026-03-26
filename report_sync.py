@@ -13,6 +13,8 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 
+from pdf_reports import repair_pdf_access
+
 
 def _fs_path(path: str) -> str:
     abs_path = os.path.abspath(path)
@@ -55,7 +57,7 @@ def get_or_prompt_report_path(
         # Get element type for subfolder determination
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT element_type, name FROM elements WHERE id = ?",
+            "SELECT element_type, name, breaker_category FROM elements WHERE id = ?",
             (element_id,)
         )
         element_row = cursor.fetchone()
@@ -66,7 +68,8 @@ def get_or_prompt_report_path(
                 "action": None,
             }
         
-        elem_type, elem_name = element_row
+        elem_type, elem_name = (element_row[0], element_row[1]) if isinstance(element_row, (tuple, list)) else (element_row["element_type"], element_row["name"])
+        breaker_category = element_row[2] if isinstance(element_row, (tuple, list)) else element_row["breaker_category"]
         safe_name = elem_name.replace("/", "-").replace("\\", "-").replace(":", "-")
         
         # Get the proper report target folder from storage layer
@@ -90,7 +93,7 @@ def get_or_prompt_report_path(
         # Get element-specific subfolder
         subfolder = os.path.join(
             reports_root,
-            _report_subfolder_name_for_element(elem_type)
+            _report_subfolder_name_for_element(elem_type, breaker_category)
         )
         
         # Get substation name for new naming convention
@@ -107,7 +110,12 @@ def get_or_prompt_report_path(
         # Construct canonical filename
         canonical_path = os.path.join(
             subfolder,
-            _canonical_report_filename(substation_name, elem_name, maintenance_id),
+            _canonical_report_filename(
+                substation_name,
+                elem_name,
+                maintenance_id,
+                parent_dir=subfolder,
+            ),
         )
         
         # Check if file exists in database (should exist in shared folder)
@@ -119,7 +127,7 @@ def get_or_prompt_report_path(
             verify_exists=False,
         )
         
-        file_exists = os.path.exists(_fs_path(canonical_path))
+        file_exists = repair_pdf_access(canonical_path)
         db_path_matches = existing_db_path == canonical_path
         
         shared_root = resolve_shared_root(db_path)
@@ -142,6 +150,173 @@ def get_or_prompt_report_path(
         }
 
 
+def ensure_maintenance_overview_reports(
+    conn,
+    *,
+    maintenance_id: int,
+    db_path: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """Ensure maintenance-level overview PDF exists in each reports root."""
+    from onedrive_hybrid_storage import (
+        _canonical_overview_report_filename,
+        get_maintenance_overview_targets,
+        get_maintenance_overview_report_path,
+        upsert_maintenance_overview_report_path,
+    )
+    from pdf_reports import generate_maintenance_overview_report as gen_overview_report
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT m.id, s.name
+        FROM maintenance m
+        JOIN substations s ON s.id = m.substation_id
+        WHERE m.id = ?
+        """,
+        (maintenance_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return {"generated": 0, "updated": 0, "skipped": 0, "errors": [f"Maintenance {maintenance_id} not found"]}
+
+    substation_name = row[1] if isinstance(row, (tuple, list)) else row["name"]
+    targets = get_maintenance_overview_targets(conn, maintenance_id=maintenance_id, db_path=db_path)
+
+    generated = 0
+    updated = 0
+    skipped = 0
+    errors = []
+
+    for target in targets:
+        gate_key = target["gate_key"]
+        reports_root = target["reports_root"]
+        path = os.path.join(
+            reports_root,
+            _canonical_overview_report_filename(
+                substation_name,
+                maintenance_id,
+                parent_dir=reports_root,
+            ),
+        )
+        tracked = get_maintenance_overview_report_path(
+            conn,
+            maintenance_id=maintenance_id,
+            gate_key=gate_key,
+            verify_exists=False,
+        )
+        file_exists = repair_pdf_access(path)
+
+        if file_exists and not overwrite:
+            upsert_maintenance_overview_report_path(
+                conn,
+                maintenance_id=maintenance_id,
+                gate_key=gate_key,
+                report_path=path,
+            )
+            skipped += 1
+            continue
+
+        try:
+            os.makedirs(_fs_path(reports_root), exist_ok=True)
+            generated_path = gen_overview_report(conn, maintenance_id, output_path=path)
+            if not os.path.exists(_fs_path(generated_path)):
+                raise FileNotFoundError(generated_path)
+            if os.path.getsize(_fs_path(generated_path)) < 1000:
+                raise RuntimeError(f"Overview PDF too small: {generated_path}")
+            upsert_maintenance_overview_report_path(
+                conn,
+                maintenance_id=maintenance_id,
+                gate_key=gate_key,
+                report_path=generated_path,
+            )
+            if tracked:
+                updated += 1
+            else:
+                generated += 1
+        except Exception as exc:
+            errors.append(f"maintenance {maintenance_id} gate {gate_key}: {exc}")
+
+    conn.commit()
+    return {"generated": generated, "updated": updated, "skipped": skipped, "errors": errors[:20]}
+
+
+def verify_maintenance_overview_report_synchronization(conn, *, db_path: str | None = None) -> dict:
+    """Check whether maintenance overview PDFs exist for each reports root."""
+    from onedrive_hybrid_storage import (
+        _canonical_overview_report_filename,
+        get_maintenance_overview_report_path,
+        get_maintenance_overview_targets,
+    )
+
+    original_row_factory = conn.row_factory
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT m.id AS maintenance_id, s.name AS substation_name
+            FROM maintenance m
+            JOIN substations s ON s.id = m.substation_id
+            ORDER BY m.id DESC
+            """
+        )
+        rows = cursor.fetchall() or []
+
+        existing = 0
+        missing = 0
+        stale_tracked = 0
+        missing_details = []
+
+        for row in rows:
+            maintenance_id = row["maintenance_id"]
+            substation_name = row["substation_name"]
+            targets = get_maintenance_overview_targets(
+                conn,
+                maintenance_id=maintenance_id,
+                db_path=db_path,
+            )
+            for target in targets:
+                gate_key = target["gate_key"]
+                reports_root = target["reports_root"]
+                tracked_path = get_maintenance_overview_report_path(
+                    conn,
+                    maintenance_id=maintenance_id,
+                    gate_key=gate_key,
+                    verify_exists=False,
+                )
+                canonical_path = os.path.join(
+                    reports_root,
+                    _canonical_overview_report_filename(
+                        substation_name,
+                        maintenance_id,
+                        parent_dir=reports_root,
+                    ),
+                )
+
+                if tracked_path and repair_pdf_access(tracked_path):
+                    existing += 1
+                    continue
+                if repair_pdf_access(canonical_path):
+                    existing += 1
+                    if tracked_path and tracked_path != canonical_path:
+                        stale_tracked += 1
+                    continue
+
+                missing += 1
+                missing_details.append((maintenance_id, gate_key, tracked_path or canonical_path))
+
+        return {
+            "existing_files": existing,
+            "missing_files": missing,
+            "stale_tracked_rows": stale_tracked,
+            "missing_details": missing_details[:10],
+            "status": "OK" if missing == 0 else f"WARN: {missing} missing overview reports",
+        }
+    finally:
+        conn.row_factory = original_row_factory
+
+
 def safe_generate_and_store_report(
     conn,
     *,
@@ -150,6 +325,8 @@ def safe_generate_and_store_report(
     gate_value: str | None = None,
     db_path: str | None = None,
     user_prompted_action: str | None = None,
+    allow_existing_without_prompt: bool = False,
+    ensure_overview: bool = True,
 ) -> dict:
     """
     Generate a maintenance report and store path in database.
@@ -196,7 +373,7 @@ def safe_generate_and_store_report(
         subfolder = path_info["subfolder"]
         
         # If file exists and user didn't choose action, return info for caller to prompt
-        if file_exists and user_prompted_action is None:
+        if file_exists and user_prompted_action is None and not allow_existing_without_prompt:
             return {
                 "success": False,
                 "path": report_path,
@@ -207,6 +384,37 @@ def safe_generate_and_store_report(
         
         # Determine what to do
         action = user_prompted_action or ("replace" if file_exists else "create")
+
+        if file_exists and allow_existing_without_prompt:
+            try:
+                upsert_maintenance_report_path(
+                    conn,
+                    maintenance_id=maintenance_id,
+                    element_id=element_id,
+                    report_type="pdf",
+                    report_path=report_path,
+                )
+                if ensure_overview:
+                    ensure_maintenance_overview_reports(
+                        conn,
+                        maintenance_id=maintenance_id,
+                        db_path=db_path,
+                        overwrite=False,
+                    )
+                conn.commit()
+                return {
+                    "success": True,
+                    "path": report_path,
+                    "message": f"Existing report registered at {report_path}",
+                    "action_taken": "tracked_existing",
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "path": report_path,
+                    "message": f"Failed to register existing report:\n{str(e)}",
+                    "action_taken": "error",
+                }
         
         if action == "open":
             # Just return the existing path
@@ -272,6 +480,13 @@ def safe_generate_and_store_report(
                 report_type="pdf",
                 report_path=generated_path,
             )
+            if ensure_overview:
+                ensure_maintenance_overview_reports(
+                    conn,
+                    maintenance_id=maintenance_id,
+                    db_path=db_path,
+                    overwrite=True,
+                )
             conn.commit()
         except Exception as e:
             return {
@@ -348,6 +563,7 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
                 e.name as element_name,
                 e.gate,
                 e.element_type,
+                e.breaker_category,
                 s.name as substation_name,
                 mrp.report_path as tracked_path
             FROM maintenance m
@@ -370,7 +586,7 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
             maintenance_id = row["maintenance_id"]
             element_id = row["element_id"]
             tracked_path = row["tracked_path"]
-            tracked_exists = bool(tracked_path) and os.path.exists(_fs_path(tracked_path))
+            tracked_exists = bool(tracked_path) and repair_pdf_access(tracked_path)
 
             if tracked_exists:
                 existing += 1
@@ -386,18 +602,23 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
             canonical_exists = False
             canonical_path = None
             for reports_root in targets[:1]:
-                subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(row["element_type"]))
+                subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(row["element_type"], row["breaker_category"]))
                 canonical_path = os.path.join(
                     subfolder,
-                    _canonical_report_filename(row["substation_name"], row["element_name"], maintenance_id),
+                    _canonical_report_filename(
+                        row["substation_name"],
+                        row["element_name"],
+                        maintenance_id,
+                        parent_dir=subfolder,
+                    ),
                 )
-                if os.path.exists(_fs_path(canonical_path)):
+                if repair_pdf_access(canonical_path):
                     canonical_exists = True
                     break
 
                 tight_name = f"M{maintenance_id}_E{element_id}_{hashlib.sha1((str(row['substation_name']) + '|' + str(row['element_name'])).encode('utf-8')).hexdigest()[:8]}.pdf"
                 tight_path = os.path.join(subfolder, tight_name)
-                if os.path.exists(_fs_path(tight_path)):
+                if repair_pdf_access(tight_path):
                     canonical_exists = True
                     canonical_path = tight_path
                     break
@@ -439,20 +660,23 @@ def export_missing_reports(conn, *, db_path: str | None = None, limit: int | Non
 
     Returns summary dict with counts and sample errors.
     """
-    from onedrive_hybrid_storage import get_transformer_report_targets
+    from onedrive_hybrid_storage import delete_orphaned_maintenance_report_paths, retrofit_shared_root_paths
     from pdf_reports import generate_maintenance_report as _gen_dummy  # noqa: F401
-    from report_sync import safe_generate_and_store_report
+    from report_sync import ensure_maintenance_overview_reports, safe_generate_and_store_report
 
     cur = conn.cursor()
 
-    # Find maintenance-element pairs that don't have a tracked PDF
+    delete_orphaned_maintenance_report_paths(conn)
+    retrofit_shared_root_paths(conn, db_path=db_path, dry_run=False)
+
+    # Inspect every maintenance-element pair so a wiped shared folder can be
+    # regenerated even when stale DB rows already exist.
     q = """
-        SELECT m.id as maintenance_id, me.element_id, e.gate
+        SELECT m.id as maintenance_id, me.element_id, e.gate, mrp.report_path
         FROM maintenance m
         JOIN maintenance_elements me ON me.maintenance_id = m.id
         JOIN elements e ON e.id = me.element_id
         LEFT JOIN maintenance_report_paths mrp ON mrp.maintenance_id = m.id AND mrp.element_id = me.element_id AND mrp.report_type='pdf'
-        WHERE mrp.id IS NULL
         ORDER BY m.id
     """
     cur.execute(q)
@@ -465,11 +689,18 @@ def export_missing_reports(conn, *, db_path: str | None = None, limit: int | Non
     generated = 0
     skipped = 0
     errors = []
+    touched_maintenance_ids = set()
 
     for idx, row in enumerate(rows, start=1):
         maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
         element_id = row[1] if isinstance(row, (tuple, list)) else row["element_id"]
         gate_value = row[2] if isinstance(row, (tuple, list)) else row["gate"]
+        tracked_path = row[3] if isinstance(row, (tuple, list)) else row["report_path"]
+
+        if tracked_path and repair_pdf_access(tracked_path):
+            skipped += 1
+            touched_maintenance_ids.add(maintenance_id)
+            continue
 
         if progress_callback and idx % 5 == 0:
             try:
@@ -484,9 +715,12 @@ def export_missing_reports(conn, *, db_path: str | None = None, limit: int | Non
                 element_id=element_id,
                 gate_value=gate_value,
                 db_path=db_path,
+                allow_existing_without_prompt=True,
+                ensure_overview=False,
             )
             if result.get("success"):
                 generated += 1
+                touched_maintenance_ids.add(maintenance_id)
             else:
                 # If prompting required (existing file), treat as skipped
                 if result.get("action_taken") == "prompt_user":
@@ -496,12 +730,33 @@ def export_missing_reports(conn, *, db_path: str | None = None, limit: int | Non
         except Exception as exc:
             errors.append((maintenance_id, element_id, str(exc)))
 
+    all_maintenance_ids = {
+        row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        for row in rows
+    }
+
+    overview_generated = 0
+    overview_errors = []
+    for maintenance_id in sorted(all_maintenance_ids):
+        try:
+            overview_res = ensure_maintenance_overview_reports(
+                conn,
+                maintenance_id=maintenance_id,
+                db_path=db_path,
+                overwrite=False,
+            )
+            overview_generated += overview_res.get("generated", 0) + overview_res.get("updated", 0)
+            overview_errors.extend(overview_res.get("errors", []))
+        except Exception as exc:
+            overview_errors.append(f"maintenance {maintenance_id}: {exc}")
+
     return {
         "total_candidates": total,
         "processed": len(rows),
         "generated": generated,
+        "overview_generated": overview_generated,
         "skipped": skipped,
-        "errors": errors[:20],
+        "errors": (errors + overview_errors)[:20],
     }
 
 

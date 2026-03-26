@@ -10,6 +10,12 @@ def test_elements_breaker_category_constraint(tmp_path):
     conn = init_db(str(db_path))
     cur = conn.cursor()
 
+    cur.execute(
+        "INSERT INTO substations (id, name) VALUES (?, ?)",
+        (1, "Test Substation"),
+    )
+    conn.commit()
+
     cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='elements'")
     sql = cur.fetchone()[0] or ""
     assert 'CHECK' in sql or 'TRIM(breaker_category' in sql
