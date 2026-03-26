@@ -1450,6 +1450,65 @@ class MaintenanceReportGenerator:
         comments = self._create_comments_section(maintenance_data[3], measurements[0])
         story.extend(comments)
 
+        # Attempt to include a brief DGA diagnostics block when a recent DGA
+        # measurement exists for this maintenance/element.
+        try:
+            from dga_reports import analyze_dga_diagnostics
+            cur = self.conn.cursor()
+            # Look for latest DGA measurement for this element in the same maintenance
+            cur.execute(
+                """
+                SELECT h2, c2h2, c2h4, c2h6, co, co2, ch4, o2, c3h8, n2, h2o, measurement_date
+                FROM dga_measurements
+                WHERE maintenance_id = ? AND element_id = ?
+                ORDER BY measurement_date DESC, created_at DESC
+                LIMIT 1
+                """,
+                (maintenance_data[0], element_data[0]),
+            )
+            row = cur.fetchone()
+            if row:
+                vals = {
+                    "h2": row[0],
+                    "c2h2": row[1],
+                    "c2h4": row[2],
+                    "c2h6": row[3],
+                    "co": row[4],
+                    "co2": row[5],
+                    "ch4": row[6],
+                    "o2": row[7],
+                    "c3h8": row[8],
+                    "n2": row[9],
+                    "h2o": row[10],
+                }
+                diag = analyze_dga_diagnostics(vals)
+                if diag:
+                    styles = getSampleStyleSheet()
+                    body_style = ParagraphStyle(
+                        "DgaDiag",
+                        parent=styles["BodyText"],
+                        fontName=self.greek_font,
+                        fontSize=9,
+                        leading=11,
+                    )
+                    story.append(Spacer(1, 8))
+                    story.append(Paragraph(self.normalize_text("DGA Diagnostics (latest measurement):"), body_style))
+                    primary = diag.get("primary") or {}
+                    consensus = diag.get("consensus") or {}
+                    findings = diag.get("findings") or []
+                    if primary.get("display_summary"):
+                        story.append(Paragraph(self.normalize_text(primary.get("display_summary")), body_style))
+                    if consensus and consensus.get("summary"):
+                        story.append(Paragraph(self.normalize_text(consensus.get("summary")), body_style))
+                    # Add up to two findings
+                    for f in findings[:2]:
+                        line = f"{f.get('label') or f.get('code')}: {f.get('summary') or ''}"
+                        story.append(Paragraph(self.normalize_text(line), body_style))
+                    story.append(Spacer(1, 6))
+        except Exception:
+            # Non-fatal: do not break PDF generation if diagnostics fail
+            pass
+
         # Footer
         story.extend(self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη ελαίου"))
 

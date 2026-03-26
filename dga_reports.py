@@ -938,5 +938,62 @@ def generate_dga_excel_report(template_path: str, output_path: str, payload: dic
     if notes:
         ws["C52"] = notes
 
+    # Append diagnostics sheet with standards-based interpretation
+    try:
+        # Compute diagnostics from payload values (best-effort)
+        diag = None
+        try:
+            diag = analyze_dga_diagnostics(payload)
+        except Exception:
+            diag = None
+
+        # Create a Diagnostics sheet summarizing findings for human readers
+        diag_sheet = wb.create_sheet("Diagnostics")
+        diag_sheet["A1"] = "DGA Diagnostics Summary"
+        row = 2
+        if diag is None:
+            diag_sheet[f"A{row}"] = "Diagnostics: unavailable"
+        else:
+            # Primary
+            primary = diag.get("primary") or {}
+            consensus = diag.get("consensus") or {}
+            findings = diag.get("findings") or []
+
+            diag_sheet[f"A{row}"] = "Overall level"
+            diag_sheet[f"B{row}"] = diag.get("overall_level") or "ok"
+            row += 1
+
+            diag_sheet[f"A{row}"] = "Primary diagnosis"
+            diag_sheet[f"B{row}"] = primary.get("display_summary") or "-"
+            row += 1
+
+            if consensus and consensus.get("summary"):
+                diag_sheet[f"A{row}"] = "Consensus"
+                diag_sheet[f"B{row}"] = consensus.get("summary")
+                row += 1
+
+            if findings:
+                diag_sheet[f"A{row}"] = "Findings"
+                row += 1
+                diag_sheet[f"A{row}"] = "Code"
+                diag_sheet[f"B{row}"] = "Label"
+                diag_sheet[f"C{row}"] = "Status"
+                diag_sheet[f"D{row}"] = "Summary"
+                diag_sheet[f"E{row}"] = "Root cause / Reasoning"
+                row += 1
+                for f in findings:
+                    diag_sheet[f"A{row}"] = f.get("code")
+                    diag_sheet[f"B{row}"] = f.get("label")
+                    diag_sheet[f"C{row}"] = f.get("status")
+                    diag_sheet[f"D{row}"] = f.get("summary")
+                    reasoning = "; ".join(f.get("reasoning") or [])
+                    root = f.get("root_cause") or ""
+                    diag_sheet[f"E{row}"] = root + (" - " + reasoning if reasoning else "")
+                    row += 1
+
+    except Exception:
+        # Non-fatal: if diagnostics writing fails, continue saving the Excel
+        pass
+
     wb.save(output_path)
     return output_path
