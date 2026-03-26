@@ -65,6 +65,11 @@ def show_maintenance_menu_popup(app, ui):
     history_btn.bind(on_press=lambda x: (menu_popup.dismiss(), app.show_maintenance_history(None)))
     layout.add_widget(history_btn)
 
+    # Measurements history (global) - opens a list of measurement instances
+    meas_btn = Button(text=S["MESSAGES"].get("MEASUREMENTS_HISTORY_LABEL", "Ιστορικό Μετρήσεων"), size_hint_y=None, height=60)
+    meas_btn.bind(on_press=lambda x: (menu_popup.dismiss(), app.show_measurements_history(parent_popup=menu_popup)))
+    layout.add_widget(meas_btn)
+
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=60)
     cancel_btn.bind(on_press=menu_popup.dismiss)
     layout.add_widget(cancel_btn)

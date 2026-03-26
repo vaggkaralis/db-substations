@@ -15351,6 +15351,227 @@ class SubstationApp(App):
         popup.content = main_layout
         popup.open()
 
+    def show_measurements_history(self, parent_popup=None):
+        """Show a global measurements history (DGA measurements) with filters.
+
+        Features:
+        - Substation filter (All + per-substation spinner)
+        - Checkbox to show only failed/problematic DGA measurements
+        - Icon-only buttons: open folder, view report, edit, delete
+        """
+        c = self.conn.cursor()
+        # Load distinct substations for filter
+        c.execute("SELECT id, name FROM substations ORDER BY name")
+        substations = c.fetchall()
+
+        # Load all DGA measurement rows joined with element and maintenance info
+        c.execute(
+            """
+            SELECT dm.id, dm.maintenance_id, dm.element_id, e.name, e.serial_number, e.manufacturer,
+                   dm.substation_id, s.name AS substation_name,
+                   dm.measurement_date, dm.sampling_date, dm.report_path, dm.created_at,
+                   dm.h2, dm.c2h2, dm.c2h4, dm.c2h6, dm.co, dm.co2, dm.ch4, dm.o2, dm.c3h8, dm.n2, dm.h2o,
+                   dm.density, dm.humidity, dm.dielectric_strength, dm.loss_factor, dm.surface_tension
+            FROM dga_measurements dm
+            LEFT JOIN elements e ON dm.element_id = e.id
+            LEFT JOIN substations s ON dm.substation_id = s.id
+            ORDER BY dm.measurement_date DESC, dm.created_at DESC
+            """
+        )
+        rows = c.fetchall()
+
+        Popup = globals().get("Popup")
+        BoxLayout = globals().get("BoxLayout")
+        GridLayout = globals().get("GridLayout")
+        ScrollView = globals().get("ScrollView")
+        Label = globals().get("Label")
+        Spinner = globals().get("Spinner")
+        CheckBox = globals().get("CheckBox")
+
+        popup = Popup(title=S["MESSAGES"].get("MEASUREMENTS_HISTORY_LABEL", "Measurements History"), size_hint=(0.94, 0.9))
+        main = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        # Filter row: label with selected substation, 'Επιλογή' button, then 'Ολα' button
+        controls = BoxLayout(size_hint_y=None, height=42, spacing=8)
+        selected_sub = {"id": None, "name": S["MESSAGES"].get("ALL_LABEL", "(All)")}
+        selected_substation_label = Label(text=selected_sub["name"], halign="left", valign="middle")
+        selected_substation_label.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
+
+        select_substation_btn = globals().get("Button")(text=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"), size_hint_x=0.25)
+        all_btn = globals().get("Button")(text=S["MESSAGES"].get("ALL_LABEL", "(All)"), size_hint_x=0.15)
+        controls.add_widget(selected_substation_label)
+        controls.add_widget(select_substation_btn)
+        controls.add_widget(all_btn)
+
+        # Only failed checkbox
+        only_failed_box = BoxLayout(size_hint_x=0.35)
+        only_cb = CheckBox(size_hint=(None, None), size=(28, 28))
+        # ensure contrast on white background
+        try:
+            only_cb.color = (0.0, 0.2, 0.6, 1)
+        except Exception:
+            pass
+        only_failed_box.add_widget(Label(text=S["MESSAGES"].get("ONLY_FAILED_LABEL", "Only failed"), size_hint_x=0.7))
+        only_failed_box.add_widget(only_cb)
+        controls.add_widget(only_failed_box)
+
+        main.add_widget(controls)
+
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        content = GridLayout(cols=1, spacing=6, size_hint_y=None)
+        content.bind(minimum_height=content.setter("height"))
+
+        def render_rows():
+            content.clear_widgets()
+            sel_sub = selected_sub.get("id")
+
+            for row in rows:
+                (
+                    dga_id,
+                    maintenance_id,
+                    element_id,
+                    element_name,
+                    serial,
+                    manufacturer,
+                    sub_id,
+                    sub_name,
+                    meas_date,
+                    samp_date,
+                    rpt_path,
+                    created_at,
+                    h2,
+                    c2h2,
+                    c2h4,
+                    c2h6,
+                    co,
+                    co2,
+                    ch4,
+                    o2,
+                    c3h8,
+                    n2,
+                    h2o,
+                    density,
+                    humidity,
+                    dielectric_strength,
+                    loss_factor,
+                    surface_tension,
+                ) = row
+
+                if sel_sub and sel_sub != sub_id:
+                    continue
+
+                evaluation = self._evaluate_dga_values({
+                    "h2": h2,
+                    "c2h2": c2h2,
+                    "c2h4": c2h4,
+                    "c2h6": c2h6,
+                    "co": co,
+                    "co2": co2,
+                    "ch4": ch4,
+                    "o2": o2,
+                    "c3h8": c3h8,
+                    "n2": n2,
+                    "h2o": h2o,
+                    "density": density,
+                    "humidity": humidity,
+                    "dielectric_strength": dielectric_strength,
+                    "loss_factor": loss_factor,
+                    "surface_tension": surface_tension,
+                })
+
+                if only_cb.active and not evaluation.get("is_problematic"):
+                    continue
+
+                row_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=110, padding=4, spacing=4)
+                badge = self._dga_level_badge(evaluation.get("overall_level", "ok"))
+                info = Label(text=f"{badge}  {sub_name} / {element_name} ({serial or '-'}) - {meas_date or '-'}", markup=True, size_hint_y=None, height=26)
+                row_layout.add_widget(info)
+
+                diag = Label(text=self._format_dga_problem_summary(evaluation, max_bad=1, max_warn=1), markup=True, size_hint_y=None, height=36)
+                diag.bind(size=lambda inst, val: setattr(inst, "text_size", (val[0], val[1])))
+                row_layout.add_widget(diag)
+
+                # action icons (folder, view, edit, delete)
+                btns = BoxLayout(size_hint_y=None, height=36, spacing=6)
+                from ui.shared import IconOnlyButton
+                import os
+
+                def _open_folder(path):
+                    folder = os.path.dirname(path) if path else None
+                    if folder and os.path.exists(folder):
+                        try:
+                            os.startfile(folder)
+                        except Exception:
+                            pass
+
+                def _open_file(path):
+                    from reports import open_file
+
+                    if path:
+                        open_file(path)
+
+                def _edit_record(did, mid, eid, ename, sid):
+                    popup.dismiss()
+                    self.show_dga_measurement_popup(
+                        maintenance_id=mid,
+                        element_id=eid,
+                        element_name=ename,
+                        substation_id=sid,
+                        substation_name=sub_name,
+                        gate_value=None,
+                        serial_number=serial,
+                        manufacturer=manufacturer,
+                        dga_id=did,
+                    )
+
+                def _delete_record(did, path):
+                    self._confirm_delete_dga(did, path, popup, element_id, element_name, sub_id, sub_name, None, serial, manufacturer, maintenance_id)
+
+                folder_btn = IconOnlyButton(icon_type="folder", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(38, 36))
+                folder_btn.bind(on_press=lambda _x, p=rpt_path: _open_folder(p))
+                view_btn = IconOnlyButton(icon_type="eye", icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)), size=(38, 36))
+                view_btn.bind(on_press=lambda _x, p=rpt_path: _open_file(p))
+                edit_btn = IconOnlyButton(icon_type="edit", icon_color=(0.1, 0.6, 0.1, 1), size=(38, 36))
+                edit_btn.bind(on_press=lambda _x, did=dga_id, mid=maintenance_id, eid=element_id, ename=element_name, sid=sub_id: _edit_record(did, mid, eid, ename, sid))
+                delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(38, 36))
+                delete_btn.bind(on_press=lambda _x, did=dga_id, p=rpt_path: _delete_record(did, p))
+
+                btns.add_widget(folder_btn)
+                btns.add_widget(view_btn)
+                btns.add_widget(edit_btn)
+                btns.add_widget(delete_btn)
+
+                row_layout.add_widget(btns)
+                content.add_widget(row_layout)
+
+        render_rows()
+        scroll.add_widget(content)
+        main.add_widget(scroll)
+
+        bottom = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        close_btn = globals().get("Button")(text=S["BUTTONS"].get("CLOSE", "Close"))
+        close_btn.bind(on_press=popup.dismiss)
+        bottom.add_widget(close_btn)
+        main.add_widget(bottom)
+
+        # wire up matrix chooser and clear button
+        def _on_sub_selected(name):
+            # find id and update label
+            for sid, sname in substations:
+                if sname == name:
+                    selected_sub["id"] = sid
+                    selected_sub["name"] = name
+                    selected_substation_label.text = name
+                    break
+            render_rows()
+
+        select_substation_btn.bind(on_press=lambda *_: self._show_substation_selection_window_with_callback(popup, substations, _on_sub_selected, title=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού")))
+        all_btn.bind(on_press=lambda *_: (selected_sub.update({"id": None, "name": S["MESSAGES"].get("ALL_LABEL", "(All)")}), setattr(selected_substation_label, "text", selected_sub["name"]), render_rows()))
+        only_cb.bind(active=lambda *_: render_rows())
+
+        popup.content = main
+        popup.open()
+
     def _confirm_delete_dga(self, dga_id, report_path, parent_popup, element_id, element_name, substation_id, substation_name, gate_value, serial_number, manufacturer, maintenance_id):
         """Confirm before deleting a DGA record and its report file."""
         from reports import show_confirm
