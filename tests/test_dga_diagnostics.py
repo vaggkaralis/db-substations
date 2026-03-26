@@ -152,3 +152,34 @@ def test_app_dga_limit_failure_and_reasoning_are_reported_for_bad_case():
     assert any(item["key"] == "c2h2" for item in evaluation["problems"])
     assert "IEC 60599 / Rogers" in summary
     assert "Duval Triangle 1" in summary
+
+
+def test_app_dga_evaluation_matches_reference_d1_diagnosis():
+    app = SubstationApp()
+    values = {
+        "h2": 70.0,
+        "ch4": 35.0,
+        "c2h2": 40.0,
+        "c2h4": 25.0,
+        "c2h6": 10.0,
+        "co": 200.0,
+        "co2": 2000.0,
+        "o2": 15000.0,
+        "n2": 45000.0,
+        "c3h8": 0.0,
+        "h2o": 0.0,
+        "density": 0.89,
+        "humidity": 20.0,
+        "dielectric_strength": 50.0,
+        "loss_factor": 0.005,
+        "surface_tension": 38.0,
+    }
+
+    evaluation = app._evaluate_dga_values(values)
+    diagnostics = evaluation["diagnostics"]
+
+    assert reference_ratio_fault(values) == "D1"
+    assert reference_duval_zone(values) == "D1"
+    assert diagnostics["ratio_method"]["code"] == "D1"
+    assert diagnostics["duval_triangle_1"]["code"] == "D1"
+    assert evaluation["overall_level"] == "bad"
