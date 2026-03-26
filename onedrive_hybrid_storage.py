@@ -2341,6 +2341,9 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
     """
     cur = conn.cursor()
 
+    # Resolve shared root for this DB so we can reconcile legacy duplicate roots
+    shared_root = resolve_shared_root(db_path)
+
     # Relink media folder link on maintenance table when missing.
     cur.execute(
         """
