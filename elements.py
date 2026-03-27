@@ -5,6 +5,7 @@ while allowing incremental extraction.
 """
 
 import sqlite3
+import unicodedata
 
 from strings_proxy import STRINGS as S
 from onedrive_hybrid_storage import resolve_shared_root, sync_substation_gate_folders
@@ -13,6 +14,40 @@ from ui.shared import IconOnlyButton
 
 # Common placeholder used in multiple UI helpers
 unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+
+
+def _normalize_element_name(value):
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    text = text.replace("\u00a0", " ")
+    return " ".join(text.split())
+
+
+def _find_duplicate_element_id(conn, substation_id, raw_name, exclude_id=None):
+    normalized_name = _normalize_element_name(raw_name)
+    if not normalized_name:
+        return None
+
+    params = [substation_id]
+    sql = "SELECT id, name FROM elements WHERE substation_id=?"
+    if exclude_id is not None:
+        sql += " AND id!=?"
+        params.append(exclude_id)
+
+    cursor = conn.cursor()
+    cursor.execute(sql, params)
+    for existing_id, existing_name in cursor.fetchall():
+        if _normalize_element_name(existing_name) == normalized_name:
+            return existing_id
+    return None
+
+
+def _dismiss_popup_safely(popup):
+    if popup is None:
+        return
+    try:
+        popup.dismiss()
+    except Exception:
+        pass
 
 
 def show_add_element_popup_delegate(app, instance=None):
@@ -399,7 +434,12 @@ def show_add_element_popup(app, instance):
     # Buttons layout
     buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
+    add_state = {"busy": False, "completed": False}
+
     def add_element():
+        if add_state["busy"] or add_state["completed"]:
+            return
+        add_state["busy"] = True
         try:
             add_btn.disabled = True
         except Exception:
@@ -410,11 +450,11 @@ def show_add_element_popup(app, instance):
             substation_id = app.substations_map[substation_name]
             element_type = element_spinner.text
 
-            name_val = (
+            name_val = _normalize_element_name(
                 field_inputs["name"].text
                 if hasattr(field_inputs["name"], "text")
                 else field_inputs["name"].text
-            ).strip()
+            )
             if not name_val:
                 show_message_popup(
                     S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_ELEMENT_NAME"]
@@ -504,11 +544,8 @@ def show_add_element_popup(app, instance):
                 return
 
             c = app.conn.cursor()
-            c.execute(
-                "SELECT id FROM elements WHERE substation_id=? AND TRIM(name)=?",
-                (substation_id, name_val),
-            )
-            if c.fetchone():
+            duplicate_id = _find_duplicate_element_id(app.conn, substation_id, name_val)
+            if duplicate_id is not None:
                 show_message_popup(
                     S["TITLES"]["ERROR"],
                     S["MESSAGES"].get(
@@ -636,7 +673,8 @@ def show_add_element_popup(app, instance):
             except Exception:
                 pass
 
-            popup.dismiss()
+            add_state["completed"] = True
+            _dismiss_popup_safely(popup)
             show_message_popup(
                 S["TITLES"]["SUCCESS"],
                 S["MESSAGES"].get(
@@ -645,10 +683,12 @@ def show_add_element_popup(app, instance):
                 callback=lambda: app._display_substations(substation_name),
             )
         finally:
-            try:
-                add_btn.disabled = False
-            except Exception:
-                pass
+            add_state["busy"] = False
+            if not add_state["completed"]:
+                try:
+                    add_btn.disabled = False
+                except Exception:
+                    pass
 
     add_btn = Button(text=S["BUTTONS"]["ADD"])
     add_btn.bind(on_press=lambda x: add_element())
@@ -1502,14 +1542,19 @@ def show_edit_element_popup(
     # Buttons
     buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
+    save_state = {"busy": False, "completed": False}
+
     def save_changes():
+        if save_state["busy"] or save_state["completed"]:
+            return
+        save_state["busy"] = True
         try:
             save_btn.disabled = True
         except Exception:
             pass
 
         try:
-            name_val = field_inputs["name"].text.strip()
+            name_val = _normalize_element_name(field_inputs["name"].text)
             if not name_val:
                 show_message_popup(
                     S["TITLES"]["ERROR"],
@@ -1528,11 +1573,10 @@ def show_edit_element_popup(
                 return
 
             c = app.conn.cursor()
-            c.execute(
-                "SELECT id FROM elements WHERE substation_id=? AND TRIM(name)=? AND id!=?",
-                (substation_id, name_val, element_id),
+            duplicate_id = _find_duplicate_element_id(
+                app.conn, substation_id, name_val, exclude_id=element_id
             )
-            if c.fetchone():
+            if duplicate_id is not None:
                 show_message_popup(
                     "Σφάλμα",
                     f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
@@ -1690,10 +1734,10 @@ def show_edit_element_popup(
             except Exception:
                 pass
 
-            popup.dismiss()
-            parent_popup.dismiss()
-            if grandparent_popup:
-                grandparent_popup.dismiss()
+            save_state["completed"] = True
+            _dismiss_popup_safely(popup)
+            _dismiss_popup_safely(parent_popup)
+            _dismiss_popup_safely(grandparent_popup)
             if substation_name:
                 show_message_popup(
                     "Επιτυχία",
@@ -1707,10 +1751,12 @@ def show_edit_element_popup(
                     callback=lambda: app.show_records(None),
                 )
         finally:
-            try:
-                save_btn.disabled = False
-            except Exception:
-                pass
+            save_state["busy"] = False
+            if not save_state["completed"]:
+                try:
+                    save_btn.disabled = False
+                except Exception:
+                    pass
 
     save_btn = Button(text=S["BUTTONS"]["SAVE"])
     save_btn.bind(on_press=lambda x: save_changes())
@@ -2094,7 +2140,12 @@ def show_add_element_popup_for_substation(
 
     buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
+    add_state = {"busy": False, "completed": False}
+
     def add_element():
+        if add_state["busy"] or add_state["completed"]:
+            return
+        add_state["busy"] = True
         element_type = element_spinner.text
         values = {
             key: (
@@ -2109,8 +2160,11 @@ def show_add_element_popup_for_substation(
         ):
             values["operating_status"] = field_inputs["operating_status"].text
 
+        values["name"] = _normalize_element_name(values.get("name"))
+
         if not values.get("name"):
             show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε όνομα στοιχείου!")
+            add_state["busy"] = False
             return
 
         if element_type == app.ELEM_BREAKER_YT:
@@ -2150,27 +2204,29 @@ def show_add_element_popup_for_substation(
             show_message_popup(
                 S["TITLES"]["ERROR"], S["MESSAGES"]["PLEASE_SELECT_BREAKER_CATEGORY"]
             )
+            add_state["busy"] = False
             return
 
         try:
             maintenance_cycle_int = int(values.get("maintenance_cycle", "0") or 0)
         except ValueError:
             show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
+            add_state["busy"] = False
             return
 
         selected_substation_name = substation_spinner.text
         selected_substation_id = substation_map[selected_substation_name]
 
         c = app.conn.cursor()
-        c.execute(
-            "SELECT id FROM elements WHERE substation_id=? AND name=?",
-            (selected_substation_id, values.get("name")),
+        duplicate_id = _find_duplicate_element_id(
+            app.conn, selected_substation_id, values.get("name")
         )
-        if c.fetchone():
+        if duplicate_id is not None:
             show_message_popup(
                 "Σφάλμα",
                 f'Υπάρχει ήδη στοιχείο με όνομα "{values.get("name")}" σε αυτόν τον υποσταθμό!',
             )
+            add_state["busy"] = False
             return
 
         model_id = (
@@ -2186,33 +2242,42 @@ def show_add_element_popup_for_substation(
             else ""
         )
 
-        c.execute(
-            "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                selected_substation_id,
-                element_type,
-                values.get("name", ""),
-                (values.get("serial_number", "") or "").strip(),
-                values.get("maintenance_date", ""),
-                voltage_level_value,
-                values.get("manufacturer", ""),
-                values.get("model", ""),
-                values.get("model_version", ""),
-                values.get("installation_space", "Εσωτερικός"),
-                values.get("operating_status", "Ενεργή"),
-                maintenance_cycle_int,
-                model_id,
-                values.get("manufacture_year", ""),
-                gate_value,
-                is_main_switch,
-                breaker_category_value,
+        try:
+            c.execute(
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    None
-                    if rated_power_input.text.strip() == ""
-                    else float(rated_power_input.text.strip().replace(",", "."))
+                    selected_substation_id,
+                    element_type,
+                    values.get("name", ""),
+                    (values.get("serial_number", "") or "").strip(),
+                    values.get("maintenance_date", ""),
+                    voltage_level_value,
+                    values.get("manufacturer", ""),
+                    values.get("model", ""),
+                    values.get("model_version", ""),
+                    values.get("installation_space", "Εσωτερικός"),
+                    values.get("operating_status", "Ενεργή"),
+                    maintenance_cycle_int,
+                    model_id,
+                    values.get("manufacture_year", ""),
+                    gate_value,
+                    is_main_switch,
+                    breaker_category_value,
+                    (
+                        None
+                        if rated_power_input.text.strip() == ""
+                        else float(rated_power_input.text.strip().replace(",", "."))
+                    ),
                 ),
-            ),
-        )
+            )
+        except sqlite3.IntegrityError:
+            app.conn.rollback()
+            show_message_popup(
+                "Σφάλμα",
+                f'Υπάρχει ήδη στοιχείο με όνομα "{values.get("name")}" σε αυτόν τον υποσταθμό!',
+            )
+            add_state["busy"] = False
+            return
         element_id = c.lastrowid
 
         # Track change for desktop sync
@@ -2257,8 +2322,9 @@ def show_add_element_popup_for_substation(
         except Exception:
             pass
 
-        popup.dismiss()
-        parent_popup.dismiss()
+        add_state["completed"] = True
+        _dismiss_popup_safely(popup)
+        _dismiss_popup_safely(parent_popup)
         show_message_popup(
             "Επιτυχία",
             "Στοιχείο προστέθηκε!",
