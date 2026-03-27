@@ -1349,7 +1349,16 @@ STRINGS_EN = {
         "DB_FILE_INVALID": "Invalid database file!",
         "SYNC_SETTINGS_LABEL": "Sync / Backup Settings:",
         "SYNC_SETTINGS_HELP_BUTTON": "Sync Settings Help",
-        "SYNC_SETTINGS_HELP_TEXT": "OneDrive sync (multi-user collaboration):\n1) User A creates a shared OneDrive folder and shares it with the team.\n2) Each user syncs this folder locally using OneDrive Desktop.\n3) Set sync_root_path to your LOCAL OneDrive path (e.g. C:\\Users\\...\\OneDrive\\Shared).\n4) You can use an existing folder - no need to create a new one.\n5) OneDrive automatically syncs changes between all users in the background.\n6) The app creates required subfolders automatically.",
+        "SYNC_SETTINGS_HELP_TEXT": (
+            "OneDrive sync (multi-user collaboration):\n"
+            "1) User A creates a shared OneDrive folder and shares it with the team.\n"
+            "2) Each user syncs this folder locally using OneDrive Desktop.\n"
+            "3) Set sync_root_path to your LOCAL OneDrive path "
+            "(e.g. C:\\Users\\...\\OneDrive\\Shared).\n"
+            "4) You can use an existing folder - no need to create a new one.\n"
+            "5) OneDrive automatically syncs changes between all users in the background.\n"
+            "6) The app creates required subfolders automatically."
+        ),
         "SYNC_AUTO_ENABLED_LABEL": "Auto sync:",
         "STARTUP_SYNC_PROBE_ENABLED_LABEL": "Check differences at startup (startup probe):",
         "STARTUP_SYNC_PROMPT_ON_CHANGE_LABEL": "Prompt before syncing when differences are found:",
