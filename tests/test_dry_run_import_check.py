@@ -86,7 +86,8 @@ def test_map_columns_and_models_count():
 
     # Row 2 is a breaker missing breaker type => should count as 1
     assert missing_breakers == 1
-    # Row 2 also missing model name => counts as 1; transformer has a model, row1 has a model
+    # Row 2 also missing model name => counts as 1
+    # transformer has a model, row1 has a model
     assert missing_models == 1
 
 

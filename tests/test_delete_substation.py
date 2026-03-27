@@ -9,25 +9,47 @@ def test_delete_substation_cascades():
     # Create substation, elements, maintenance and related rows
     c.execute("INSERT INTO substations (id, name) VALUES (?,?)", (1, "S1"))
     c.execute(
-        "INSERT INTO elements (id, substation_id, element_type, name) VALUES (?,?,?,?)",
+        (
+            "INSERT INTO elements (id, substation_id, element_type, name) "
+            "VALUES (?,?,?,?)"
+        ),
         (1, 1, "Transformer", "T1"),
     )
     c.execute(
-        "INSERT INTO elements (id, substation_id, element_type, name) VALUES (?,?,?,?)",
+        (
+            "INSERT INTO elements (id, substation_id, element_type, name) "
+            "VALUES (?,?,?,?)"
+        ),
         (2, 1, "Breaker", "B1"),
     )
 
     c.execute(
-        "INSERT INTO maintenance (id, substation_id, name, date_time) VALUES (?,?,?,?)",
+        (
+            "INSERT INTO maintenance (id, substation_id, name, date_time) "
+            "VALUES (?,?,?,?)"
+        ),
         (10, 1, "M1", "2020-01-01"),
     )
     c.execute(
-        "INSERT INTO maintenance_elements (id, maintenance_id, element_id, element_comments) VALUES (?,?,?,?)",
+        (
+            "INSERT INTO maintenance_elements (id, maintenance_id, element_id, "
+            "element_comments) "
+            "VALUES (?,?,?,?)"
+        ),
         (100, 10, 1, "ok"),
     )
-    c.execute("INSERT INTO people (id, name, role) VALUES (?,?,?)", (200, "P1", "tech"))
     c.execute(
-        "INSERT INTO maintenance_people (id, maintenance_id, person_id, role) VALUES (?,?,?,?)",
+        (
+            "INSERT INTO people (id, name, role) "
+            "VALUES (?,?,?)"
+        ),
+        (200, "P1", "tech"),
+    )
+    c.execute(
+        (
+            "INSERT INTO maintenance_people (id, maintenance_id, person_id, role) "
+            "VALUES (?,?,?,?)"
+        ),
         (300, 10, 200, "crew"),
     )
 
