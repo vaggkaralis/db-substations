@@ -15,7 +15,8 @@ class _StringsProxy:
         current_language = get_current_language()
         current = self._data.get(current_language, {})
 
-        # For MESSAGES/TITLES: build merged dict from English base + current language overlay
+        # For MESSAGES/TITLES: build a merged dict from the English base
+        # plus the current language overlay
         if key in ("MESSAGES", "TITLES"):
             # Start with English as base
             en_data = self._data.get("en", {})
@@ -25,7 +26,8 @@ class _StringsProxy:
             if key in current:
                 merged.update(current[key])
 
-            # Also merge from BUTTONS as fallback (BUTTONS may contain translated messages)
+            # Also merge from BUTTONS as a fallback (BUTTONS may contain
+            # translated messages)
             # These should override English defaults
             if "BUTTONS" in current:
                 merged.update(current["BUTTONS"])

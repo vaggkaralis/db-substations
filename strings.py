@@ -1422,8 +1422,10 @@ STRINGS_EN = {
         "OPENPYXL_MISSING_EXCEL_EXPORT": "openpyxl package not found. Install it for Excel export.",
         "SF6_SUMMARY_FMT": (
             "Installed SF6 (active): {installed_sf6:.2f} kg | "
-            "Active SF6 elements: {active_elements} | Substations with SF6: {active_substations}\n"
-            "Year: {year_value} | Leakages: {total_leakage:.2f} kg | Percentage: {percentage:.2f}%"
+            "Active SF6 elements: {active_elements} | "
+            "Substations with SF6: {active_substations}\n"
+            "Year: {year_value} | Leakages: {total_leakage:.2f} kg | "
+            "Percentage: {percentage:.2f}%"
         ),
         "SF6_SUMMARY_SHEET_TITLE": "Summary",
         "SF6_SUMMARY_TOTAL_INSTALLED": "TOTAL INSTALLED AMOUNT (kg)",
