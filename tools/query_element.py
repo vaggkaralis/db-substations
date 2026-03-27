@@ -11,15 +11,21 @@ sub = sys.argv[2] if len(sys.argv) > 2 else None
 con = sqlite3.connect("substations.db")
 cur = con.cursor()
 if sub:
-    cur.execute(
-        "SELECT e.id,e.name,e.element_type,e.breaker_category,s.name FROM elements e JOIN substations s ON e.substation_id=s.id WHERE s.name LIKE ? COLLATE NOCASE AND e.name LIKE ? COLLATE NOCASE",
-        (f"%{sub}%", f"%{name}%"),
-    )
+    sql = """
+SELECT e.id, e.name, e.element_type, e.breaker_category, s.name
+FROM elements e
+JOIN substations s ON e.substation_id = s.id
+WHERE s.name LIKE ? COLLATE NOCASE
+  AND e.name LIKE ? COLLATE NOCASE
+"""
+    cur.execute(sql, (f"%{sub}%", f"%{name}%"))
 else:
-    cur.execute(
-        "SELECT id,name,element_type,breaker_category,substation_id FROM elements WHERE name LIKE ? COLLATE NOCASE",
-        (f"%{name}%",),
-    )
+    sql = """
+SELECT id, name, element_type, breaker_category, substation_id
+FROM elements
+WHERE name LIKE ? COLLATE NOCASE
+"""
+    cur.execute(sql, (f"%{name}%",))
 rows = cur.fetchall()
 if not rows:
     logging.info("No rows found")

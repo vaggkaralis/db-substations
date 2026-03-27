@@ -167,9 +167,17 @@ def main():
         reasons.append(f"pending count changed: {prev_pending} -> {curr_pending}")
     if prev_pending_latest != curr_pending_latest:
         actionable = True
-        reasons.append(
-            f"pending latest mtime changed: {datetime.fromtimestamp(prev_pending_latest) if prev_pending_latest else prev_pending_latest} -> {datetime.fromtimestamp(curr_pending_latest) if curr_pending_latest else curr_pending_latest}"
+        prev_dt = (
+            datetime.fromtimestamp(prev_pending_latest)
+            if prev_pending_latest
+            else prev_pending_latest
         )
+        curr_dt = (
+            datetime.fromtimestamp(curr_pending_latest)
+            if curr_pending_latest
+            else curr_pending_latest
+        )
+        reasons.append(f"pending latest mtime changed: {prev_dt} -> {curr_dt}")
     if not probe.get("shared_root_exists", True):
         actionable = True
         reasons.append("shared root missing")

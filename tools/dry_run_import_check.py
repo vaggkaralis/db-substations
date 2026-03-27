@@ -3,10 +3,11 @@ import sys
 
 import pandas as pd
 
-# Ensure project root is on sys.path so importers can be imported when running from tools/
+# Ensure project root is on sys.path so importers can be imported when running
+# from tools/
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from importers import _map_columns
-from strings import STRINGS as S
+from importers import _map_columns  # noqa: E402
+from strings import STRINGS as S  # noqa: E402
 
 # canonical breaker substring for heuristic checks
 ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get(
@@ -29,7 +30,8 @@ def analyze(file_path: str):
         df = all_sheets["Elements"]
         sheet = "Elements"
     else:
-        # pick first sheet that looks like elements (has Name and Element Type / Substation Name)
+        # pick first sheet that looks like elements
+        # (has Name and Element Type / Substation Name)
         sheet = None
         for name, s in all_sheets.items():
             cols = [str(c).lower().strip() for c in s.columns]
@@ -101,7 +103,8 @@ def analyze(file_path: str):
                 or "breaker" in elem_val
             ):
                 is_breaker = True
-        # fallback: if breaker column exists and other heuristics fail, assume non-breaker
+        # fallback: if breaker column exists and other heuristics fail,
+        # assume non-breaker
         if is_breaker and not br:
             missing_breaker_rows.append((idx + 2, row.to_dict()))
         mn = None
