@@ -7,11 +7,40 @@ from pdf_reports import MaintenanceReportGenerator
 def _create_pdf_schema(conn):
     cur = conn.cursor()
     # Minimal tables and columns referenced by generator
-    cur.executescript("""
-        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, division TEXT);
-        CREATE TABLE element_models (id INTEGER PRIMARY KEY, manufacturer TEXT, model_name TEXT);
-        CREATE TABLE elements (id INTEGER PRIMARY KEY, element_type TEXT, name TEXT, serial_number TEXT, manufacturer TEXT, model TEXT, breaker_category TEXT, voltage_level TEXT, gate TEXT, manufacture_year TEXT, element_model_id INTEGER);
-        CREATE TABLE maintenance (id INTEGER PRIMARY KEY, substation_id INTEGER, date_time TEXT, overall_comments TEXT, maintenance_type TEXT, user_name TEXT);
+    cur.executescript(
+        """
+        CREATE TABLE substations (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            location TEXT,
+            division TEXT
+        );
+        CREATE TABLE element_models (
+            id INTEGER PRIMARY KEY,
+            manufacturer TEXT,
+            model_name TEXT
+        );
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            element_type TEXT,
+            name TEXT,
+            serial_number TEXT,
+            manufacturer TEXT,
+            model TEXT,
+            breaker_category TEXT,
+            voltage_level TEXT,
+            gate TEXT,
+            manufacture_year TEXT,
+            element_model_id INTEGER
+        );
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT,
+            overall_comments TEXT,
+            maintenance_type TEXT,
+            user_name TEXT
+        );
         CREATE TABLE maintenance_elements (
             maintenance_id INTEGER,
             element_id INTEGER,
@@ -45,7 +74,8 @@ def _create_pdf_schema(conn):
             vidar_fb TEXT,
             vidar_fc TEXT
         );
-        """)
+        """
+    )
     conn.commit()
 
 
@@ -56,16 +86,31 @@ def test_generate_maintenance_report_smoke(tmp_path):
     cur = conn.cursor()
     # Insert minimal rows
     cur.execute(
-        "INSERT INTO substations (id, name, location, division) VALUES (1, 'S1', '', '')"
+        (
+            "INSERT INTO substations (id, name, location, division) "
+            "VALUES (1, 'S1', '', '')"
+        )
     )
     cur.execute(
-        "INSERT INTO elements (id, element_type, name, breaker_category) VALUES (1, 'type', 'E1', 'SF6')"
+        (
+            "INSERT INTO elements (id, element_type, name, breaker_category) "
+            "VALUES (1, 'type', 'E1', 'SF6')"
+        )
     )
     cur.execute(
-        "INSERT INTO maintenance (id, substation_id, date_time, overall_comments, maintenance_type, user_name) VALUES (1, 1, '2020-01-01', 'ok', 'type', 'user')"
+        (
+            "INSERT INTO maintenance "
+            "(id, substation_id, date_time, overall_comments, "
+            "maintenance_type, user_name) VALUES "
+            "(1, 1, '2020-01-01', 'ok', 'type', 'user')"
+        )
     )
     cur.execute(
-        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (1, 1, 'ok')"
+        (
+            "INSERT INTO maintenance_elements "
+            "(maintenance_id, element_id, element_comments) "
+            "VALUES (1, 1, 'ok')"
+        )
     )
     conn.commit()
 
