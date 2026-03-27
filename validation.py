@@ -33,17 +33,22 @@ def validate_gate_assignment(element_type, breaker_type, gate_value):
         # Interconnection gates are only allowed for MV interconnection breakers
         if element_type != ELEM_BREAKER_MT:
             raise ValueError(
-                "Οι πύλες σύνδεσης (π.χ. ΠΥΛΗ 1-2) επιτρέπονται μόνο για Διακόπτης ΜΤ τύπου 'Διασυνδετικός'."
+                "Οι πύλες σύνδεσης (π.χ. ΠΥΛΗ 1-2) επιτρέπονται μόνο για "
+                "Διακόπτης ΜΤ τύπου 'Διασυνδετικός'."
             )
         if breaker_type != "Διασυνδετικός":
             raise ValueError(
-                "Οι πύλες σύνδεσης (π.χ. ΠΥΛΗ 1-2) επιτρέπονται μόνο σε διασυνδετικούς διακόπτες (Τύπος: Διασυνδετικός)."
+                "Οι πύλες σύνδεσης (π.χ. ΠΥΛΗ 1-2) επιτρέπονται μόνο σε "
+                "διασυνδετικούς διακόπτες (Τύπος: Διασυνδετικός)."
             )
     return True
 
 
 def validate_breaker_category_required(element_type, breaker_category_value):
-    """Ensure breaker category is provided for circuit breakers; raise ValueError if missing."""
+    """Ensure breaker category is provided for circuit breakers.
+
+    Raise ValueError if it is missing.
+    """
     if element_type in [ELEM_BREAKER_YT, ELEM_BREAKER_MT] and (
         breaker_category_value is None or str(breaker_category_value).strip() == ""
     ):
@@ -65,7 +70,8 @@ def filter_people_for_maintenance(people_rows, responsible_person_id=None):
     ]
     crew_people = [p for p in people if canonical_role(p[2]) != "Υποστήριξη"]
 
-    # If a preselected responsible person isn't in the allowed list, prepend them so they remain selectable
+    # If a preselected responsible person isn't in the allowed list, prepend
+    # them so they remain selectable.
     if responsible_person_id and not any(
         p[0] == responsible_person_id for p in responsible_people
     ):
@@ -144,7 +150,9 @@ def group_people_by_category(people_rows):
     """Group people rows into a dict keyed by category.
 
     people_rows: iterable of (id, name, role, ...)
-    Returns Ordered dict-like mapping: {category: [rows...]}. Categories appear in order: Μηχανικοί, Τεχνικοί, Λοιπά.
+    Returns Ordered dict-like mapping: {category: [rows...]}.
+
+    Categories appear in order: Μηχανικοί, Τεχνικοί, Λοιπά.
     """
     from collections import OrderedDict
 
@@ -162,10 +170,13 @@ def group_people_by_category(people_rows):
 
 
 def canonical_role(role_value):
-    """Return the canonical role name from PEOPLE_ROLES matching the provided role_value.
+    """Return the canonical role name from PEOPLE_ROLES.
 
-    Matching prefers exact normalized equality, then normalized substring matches, in the
-    order of `PEOPLE_ROLES` so priorities are preserved.
+    Match against the provided role_value.
+
+    Matching prefers exact normalized equality, then normalized substring
+    matches, in the order of `PEOPLE_ROLES` so priorities are preserved.
+
     Returns None if no match found.
     """
     if not role_value:
