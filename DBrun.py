@@ -273,8 +273,7 @@ try:
 
     if not any(
         isinstance(handler, logging.FileHandler)
-        and getattr(handler, "baseFilename", None)
-        == os.path.abspath(_crash_log_path)
+        and getattr(handler, "baseFilename", None) == os.path.abspath(_crash_log_path)
         for handler in _root_logger.handlers
     ):
         _file_handler = logging.FileHandler(_crash_log_path, encoding="utf-8")
@@ -301,7 +300,9 @@ try:
             pass
         try:
             with open(_crash_log_path, "a", encoding="utf-8") as crash_handle:
-                traceback.print_exception(exc_type, exc_value, exc_tb, file=crash_handle)
+                traceback.print_exception(
+                    exc_type, exc_value, exc_tb, file=crash_handle
+                )
         except Exception:
             pass
         try:

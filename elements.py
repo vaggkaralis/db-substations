@@ -532,7 +532,9 @@ def show_add_element_popup(app, instance):
 
             maintenance_cycle = values.get("maintenance_cycle", "0")
             try:
-                maintenance_cycle_int = int(maintenance_cycle) if maintenance_cycle else 0
+                maintenance_cycle_int = (
+                    int(maintenance_cycle) if maintenance_cycle else 0
+                )
             except ValueError:
                 show_message_popup(
                     S["TITLES"]["ERROR"],
@@ -1569,7 +1571,9 @@ def show_edit_element_popup(
                     else 0
                 )
             except ValueError:
-                show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
+                show_message_popup(
+                    "Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!"
+                )
                 return
 
             c = app.conn.cursor()
@@ -1601,7 +1605,8 @@ def show_edit_element_popup(
                 breaker_category_value = breaker_category_spinner.text
 
             if elem_type in app.BREAKER_ELEMENT_TYPES and (
-                breaker_category_value is None or str(breaker_category_value).strip() == ""
+                breaker_category_value is None
+                or str(breaker_category_value).strip() == ""
             ):
                 show_message_popup(
                     S["TITLES"].get("ERROR", "Σφάλμα"),
@@ -1640,7 +1645,9 @@ def show_edit_element_popup(
             )
 
             try:
-                validate_gate_assignment(elem_type, breaker_type_spinner.text, gate_value)
+                validate_gate_assignment(
+                    elem_type, breaker_type_spinner.text, gate_value
+                )
             except ValueError as e:
                 show_message_popup("Σφάλμα", str(e))
                 return
@@ -1667,7 +1674,9 @@ def show_edit_element_popup(
 
             try:
                 rp_txt = rated_power_input.text.strip()
-                power_val_to_set = None if rp_txt == "" else float(rp_txt.replace(",", "."))
+                power_val_to_set = (
+                    None if rp_txt == "" else float(rp_txt.replace(",", "."))
+                )
             except Exception:
                 power_val_to_set = None
 
