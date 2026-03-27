@@ -56,7 +56,13 @@ def test_maintenance_inserts_and_updates(tmp_path):
     cur.execute("CREATE TABLE elements (id INTEGER PRIMARY KEY, maintenance_date TEXT)")
     cur.execute("CREATE TABLE maintenance (id INTEGER PRIMARY KEY, date_time TEXT)")
     cur.execute(
-        "CREATE TABLE maintenance_elements (id INTEGER PRIMARY KEY, maintenance_id INTEGER, element_id INTEGER, element_comments TEXT)"
+        (
+            "CREATE TABLE maintenance_elements ("
+            "id INTEGER PRIMARY KEY, "
+            "maintenance_id INTEGER, "
+            "element_id INTEGER, "
+            "element_comments TEXT)"
+        )
     )
     conn.commit()
 

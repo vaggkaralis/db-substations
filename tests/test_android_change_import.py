@@ -21,7 +21,10 @@ def test_android_change_import():
         )
         sub_id = cur.lastrowid
         cur.execute(
-            "INSERT INTO elements (substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?)",
+            (
+                "INSERT INTO elements (substation_id, element_type, name, "
+                "breaker_category) VALUES (?, ?, ?, ?)"
+            ),
             (sub_id, "Διακόπτης ΜΤ", "Elem1", "SF6"),
         )
         elem_id = cur.lastrowid
@@ -56,7 +59,10 @@ def test_android_change_import():
 
             # Verify maintenance inserted
             cur.execute(
-                "SELECT id, substation_id, date_time, overall_comments FROM maintenance WHERE substation_id=?",
+                (
+                    "SELECT id, substation_id, date_time, overall_comments "
+                    "FROM maintenance WHERE substation_id=?"
+                ),
                 (sub_id,),
             )
             rows = cur.fetchall()
@@ -67,7 +73,10 @@ def test_android_change_import():
 
             # Verify maintenance_elements
             cur.execute(
-                "SELECT maintenance_id, element_id, element_comments FROM maintenance_elements WHERE maintenance_id=?",
+                (
+                    "SELECT maintenance_id, element_id, element_comments "
+                    "FROM maintenance_elements WHERE maintenance_id=?"
+                ),
                 (m[0],),
             )
             elems = cur.fetchall()
