@@ -1,12 +1,16 @@
 import sqlite3
 
-from elements import _find_duplicate_element_id, _normalize_element_name
+from elements import (
+    _find_duplicate_element_id,
+    _normalize_element_name,
+)
 
 
 def _build_conn():
     conn = sqlite3.connect(":memory:")
     conn.execute(
-        "CREATE TABLE elements (id INTEGER PRIMARY KEY, substation_id INTEGER, name TEXT)"
+        "CREATE TABLE elements ("
+        "id INTEGER PRIMARY KEY, substation_id INTEGER, name TEXT)"
     )
     return conn
 

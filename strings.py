@@ -1361,10 +1361,14 @@ STRINGS_EN = {
         ),
         "SYNC_AUTO_ENABLED_LABEL": "Auto sync:",
         "STARTUP_SYNC_PROBE_ENABLED_LABEL": "Check differences at startup (startup probe):",
-        "STARTUP_SYNC_PROMPT_ON_CHANGE_LABEL": "Prompt before syncing when differences are found:",
+        "STARTUP_SYNC_PROMPT_ON_CHANGE_LABEL": (
+            "Prompt before syncing when differences are found:"
+        ),
         "STARTUP_SYNC_CHANGES_TITLE": "What changed since the last startup:",
         "SYNC_INTERVAL_MINUTES_LABEL": "Auto sync interval (minutes):",
-        "SYNC_BACKUP_ON_CHANGE_LABEL": "Create snapshot when new accepted changes exist:",
+        "SYNC_BACKUP_ON_CHANGE_LABEL": (
+            "Create snapshot when new accepted changes exist:"
+        ),
         "SYNC_HOT_KEEP_LABEL": "Hot backup snapshots to keep:",
         "SYNC_RETENTION_ENABLED_LABEL": "Auto-delete old sync files:",
         "SYNC_RETENTION_DAYS_LABEL": "Keep sync files for (days):",
@@ -1443,7 +1447,9 @@ STRINGS_EN = {
         "OPEN_FILE_NOT_FOUND": "File not found!",
         "OPEN_FILE_ERROR_TITLE": "Error",
         "OPEN_FILE_ERROR_PREFIX": "Failed to open file:\n",
-        "OPENPYXL_MISSING_EXCEL_EXPORT": "openpyxl package not found. Install it for Excel export.",
+        "OPENPYXL_MISSING_EXCEL_EXPORT": (
+            "openpyxl package not found. Install it for Excel export."
+        ),
         "SF6_SUMMARY_FMT": (
             "Installed SF6 (active): {installed_sf6:.2f} kg | "
             "Active SF6 elements: {active_elements} | "
