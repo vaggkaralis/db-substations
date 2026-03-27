@@ -6,24 +6,43 @@ from onedrive_hybrid_storage import (
     get_maintenance_report_path,
     upsert_maintenance_report_path,
 )
-from report_sync import ensure_maintenance_overview_reports, export_missing_reports
+from report_sync import (
+    ensure_maintenance_overview_reports,
+    export_missing_reports,
+)
 
 
 def _seed_sample_data(conn):
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO substations (id, name, location) VALUES (1, 'TEST SUB', 'TEST LOC')"
+        "INSERT INTO substations (id, name, location) "
+        "VALUES (1, 'TEST SUB', 'TEST LOC')"
     )
-    cur.execute("""
-        INSERT INTO elements (id, substation_id, element_type, name, gate, breaker_category)
-        VALUES (10, 1, 'Διακόπτης ΥΤ', 'Q1', 'ΠΥΛΗ 1', 'SF6')
-        """)
-    cur.execute("""
-        INSERT INTO maintenance (id, substation_id, name, date_time, maintenance_type, user_name, overall_comments)
-        VALUES (100, 1, 'Annual Maintenance', '2026-03-25 08:00:00', 'Ετήσια', 'tester', 'Overall ok')
-        """)
     cur.execute(
-        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (100, 10, 'Element ok')"
+        """
+        INSERT INTO elements
+        (id, substation_id, element_type, name, gate, breaker_category)
+        VALUES (10, 1, 'Διακόπτης ΥΤ', 'Q1', 'ΠΥΛΗ 1', 'SF6')
+        """
+    )
+    cur.execute(
+        """
+        INSERT INTO maintenance
+        (
+            id, substation_id, name, date_time,
+            maintenance_type, user_name, overall_comments
+        )
+        VALUES
+        (
+            100, 1, 'Annual Maintenance', '2026-03-25 08:00:00',
+            'Ετήσια', 'tester', 'Overall ok'
+        )
+        """
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements "
+        "(maintenance_id, element_id, element_comments) VALUES "
+        "(100, 10, 'Element ok')"
     )
     conn.commit()
 
@@ -91,7 +110,10 @@ def test_ensure_maintenance_overview_reports_tracks_each_reports_root(
     conn.execute(
         """
         INSERT INTO maintenance_storage_paths
-        (maintenance_id, gate_key, gate_folder, instance_folder, media_folder, reports_folder, created_at)
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
         VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -148,7 +170,10 @@ def test_export_missing_reports_regenerates_missing_file_even_when_db_row_exists
     conn.execute(
         """
         INSERT INTO maintenance_storage_paths
-        (maintenance_id, gate_key, gate_folder, instance_folder, media_folder, reports_folder, created_at)
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -162,7 +187,11 @@ def test_export_missing_reports_regenerates_missing_file_even_when_db_row_exists
         ),
     )
     conn.execute(
-        "INSERT INTO maintenance_report_paths (maintenance_id, element_id, report_type, report_path, created_at, updated_at) VALUES (?, ?, 'pdf', ?, 'now', 'now')",
+        (
+            "INSERT INTO maintenance_report_paths "
+            "(maintenance_id, element_id, report_type, report_path, "
+            "created_at, updated_at) VALUES (?, ?, 'pdf', ?, 'now', 'now')"
+        ),
         (100, 10, str(tmp_path / "missing.pdf")),
     )
     conn.commit()
@@ -206,7 +235,10 @@ def test_export_missing_reports_backfills_overview_when_element_pdf_already_exis
     conn.execute(
         """
         INSERT INTO maintenance_storage_paths
-        (maintenance_id, gate_key, gate_folder, instance_folder, media_folder, reports_folder, created_at)
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -220,7 +252,11 @@ def test_export_missing_reports_backfills_overview_when_element_pdf_already_exis
         ),
     )
     conn.execute(
-        "INSERT INTO maintenance_report_paths (maintenance_id, element_id, report_type, report_path, created_at, updated_at) VALUES (?, ?, 'pdf', ?, 'now', 'now')",
+        (
+            "INSERT INTO maintenance_report_paths "
+            "(maintenance_id, element_id, report_type, report_path, "
+            "created_at, updated_at) VALUES (?, ?, 'pdf', ?, 'now', 'now')"
+        ),
         (100, 10, str(tracked_pdf)),
     )
     conn.commit()
@@ -263,7 +299,10 @@ def test_ensure_maintenance_overview_reports_regenerates_invalid_existing_pdf(
     conn.execute(
         """
         INSERT INTO maintenance_storage_paths
-        (maintenance_id, gate_key, gate_folder, instance_folder, media_folder, reports_folder, created_at)
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -277,7 +316,11 @@ def test_ensure_maintenance_overview_reports_regenerates_invalid_existing_pdf(
         ),
     )
     conn.execute(
-        "INSERT INTO maintenance_overview_report_paths (maintenance_id, gate_key, report_type, report_path, created_at, updated_at) VALUES (?, ?, 'pdf_overview', ?, 'now', 'now')",
+        (
+            "INSERT INTO maintenance_overview_report_paths "
+            "(maintenance_id, gate_key, report_type, report_path, "
+            "created_at, updated_at) VALUES (?, ?, 'pdf_overview', ?, 'now', 'now')"
+        ),
         (100, "gate:1", str(reports_root / "old_overview.pdf")),
     )
     conn.commit()

@@ -117,7 +117,8 @@ def test_launch_share_intent_fallback_to_clipboard(monkeypatch, tmp_path):
 
     monkeypatch.setitem(sys.modules, "kivy.core.clipboard", DummyClipboard)
 
-    # calling should raise inside helper; caller (the append wrapper) will handle fallback
+    # calling should raise inside helper; caller (the append wrapper)
+    # will handle fallback
     try:
         app._launch_share_intent(path)
     except Exception:
