@@ -1016,7 +1016,12 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         return start_dt, end_dt
 
     def save_request():
-        nonlocal request_id, existing_attachment_path, storage_folder_path, request_record, is_new_request
+        nonlocal \
+            request_id, \
+            existing_attachment_path, \
+            storage_folder_path, \
+            request_record, \
+            is_new_request
         validated = _validate_datetimes()
         if not validated:
             return
