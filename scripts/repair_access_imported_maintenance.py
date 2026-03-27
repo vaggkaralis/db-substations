@@ -59,7 +59,9 @@ def find_existing_maintenance(conn, substation_id, element_id, date_value, descr
 
 
 def sync_maintenance_people(conn, maintenance_id, responsible_id, description):
-    conn.execute("DELETE FROM maintenance_people WHERE maintenance_id = ?", (maintenance_id,))
+    conn.execute(
+        "DELETE FROM maintenance_people WHERE maintenance_id = ?", (maintenance_id,)
+    )
     if responsible_id:
         conn.execute(
             "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, 'responsible')",
@@ -90,7 +92,9 @@ def sync_element_maintenance_date(conn, element_id):
         """,
         (element_id,),
     ).fetchone()[0]
-    conn.execute("UPDATE elements SET maintenance_date = ? WHERE id = ?", (latest, element_id))
+    conn.execute(
+        "UPDATE elements SET maintenance_date = ? WHERE id = ?", (latest, element_id)
+    )
 
 
 def sync_substation_last_maintenance(conn, substation_id):
@@ -98,7 +102,10 @@ def sync_substation_last_maintenance(conn, substation_id):
         "SELECT MAX(date_time) FROM maintenance WHERE substation_id = ?",
         (substation_id,),
     ).fetchone()[0]
-    conn.execute("UPDATE substations SET last_maintenance = ? WHERE id = ?", (latest, substation_id))
+    conn.execute(
+        "UPDATE substations SET last_maintenance = ? WHERE id = ?",
+        (latest, substation_id),
+    )
 
 
 def repair_powertrans(conn, gate_maps, report):
@@ -126,7 +133,9 @@ def repair_powertrans(conn, gate_maps, report):
             continue
 
         responsible_name = access_maintainers.get(row.get("maintainer_fk"))
-        responsible_id, _ = powertrans.map_responsible_id(responsible_name, sqlite_people)
+        responsible_id, _ = powertrans.map_responsible_id(
+            responsible_name, sqlite_people
+        )
         conn.execute(
             "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, responsible_id = ? WHERE id = ?",
             (row["date"], row["description"], responsible_id, maintenance_id),
@@ -135,7 +144,9 @@ def repair_powertrans(conn, gate_maps, report):
             "UPDATE maintenance_elements SET element_comments = ? WHERE maintenance_id = ? AND element_id = ?",
             (row["description"], maintenance_id, element["element_id"]),
         )
-        crew_ids = sync_maintenance_people(conn, maintenance_id, responsible_id, row["description"])
+        crew_ids = sync_maintenance_people(
+            conn, maintenance_id, responsible_id, row["description"]
+        )
         report["responsible_repairs"] += 1 if responsible_id else 0
         report["crew_repairs"] += len(crew_ids)
 
@@ -147,9 +158,14 @@ def repair_powertrans(conn, gate_maps, report):
         )
         desired_gate = format_gate_label(gate_number)
         if desired_gate:
-            current_gate = conn.execute("SELECT gate FROM elements WHERE id = ?", (element["element_id"],)).fetchone()[0]
+            current_gate = conn.execute(
+                "SELECT gate FROM elements WHERE id = ?", (element["element_id"],)
+            ).fetchone()[0]
             if current_gate != desired_gate:
-                conn.execute("UPDATE elements SET gate = ? WHERE id = ?", (desired_gate, element["element_id"]))
+                conn.execute(
+                    "UPDATE elements SET gate = ? WHERE id = ?",
+                    (desired_gate, element["element_id"]),
+                )
                 report["gate_updates"] += 1
 
         sync_element_maintenance_date(conn, element["element_id"])
@@ -178,7 +194,9 @@ def repair_hvcb(conn, gate_maps, report):
         if not maintenance_id:
             continue
 
-        responsible_id, _ = hvcb.map_responsible_id(row.get("access_maintainer_name"), sqlite_people)
+        responsible_id, _ = hvcb.map_responsible_id(
+            row.get("access_maintainer_name"), sqlite_people
+        )
         conn.execute(
             "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, responsible_id = ? WHERE id = ?",
             (row["date"], row["description"], responsible_id, maintenance_id),
@@ -187,7 +205,9 @@ def repair_hvcb(conn, gate_maps, report):
             "UPDATE maintenance_elements SET element_comments = ? WHERE maintenance_id = ? AND element_id = ?",
             (row["description"], maintenance_id, element["element_id"]),
         )
-        crew_ids = sync_maintenance_people(conn, maintenance_id, responsible_id, row["description"])
+        crew_ids = sync_maintenance_people(
+            conn, maintenance_id, responsible_id, row["description"]
+        )
         report["responsible_repairs"] += 1 if responsible_id else 0
         report["crew_repairs"] += len(crew_ids)
 
@@ -199,9 +219,14 @@ def repair_hvcb(conn, gate_maps, report):
         )
         desired_gate = format_gate_label(gate_number)
         if desired_gate:
-            current_gate = conn.execute("SELECT gate FROM elements WHERE id = ?", (element["element_id"],)).fetchone()[0]
+            current_gate = conn.execute(
+                "SELECT gate FROM elements WHERE id = ?", (element["element_id"],)
+            ).fetchone()[0]
             if current_gate != desired_gate:
-                conn.execute("UPDATE elements SET gate = ? WHERE id = ?", (desired_gate, element["element_id"]))
+                conn.execute(
+                    "UPDATE elements SET gate = ? WHERE id = ?",
+                    (desired_gate, element["element_id"]),
+                )
                 report["gate_updates"] += 1
 
         sync_element_maintenance_date(conn, element["element_id"])
@@ -230,7 +255,9 @@ def repair_mvcb(conn, gate_maps, report):
         if not maintenance_id:
             continue
 
-        responsible_id, _ = mvcb.map_responsible_id(row.get("access_maintainer_name"), sqlite_people)
+        responsible_id, _ = mvcb.map_responsible_id(
+            row.get("access_maintainer_name"), sqlite_people
+        )
         conn.execute(
             "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, responsible_id = ? WHERE id = ?",
             (row["date"], row["description"], responsible_id, maintenance_id),
@@ -239,7 +266,9 @@ def repair_mvcb(conn, gate_maps, report):
             "UPDATE maintenance_elements SET element_comments = ? WHERE maintenance_id = ? AND element_id = ?",
             (row["description"], maintenance_id, element["element_id"]),
         )
-        crew_ids = sync_maintenance_people(conn, maintenance_id, responsible_id, row["description"])
+        crew_ids = sync_maintenance_people(
+            conn, maintenance_id, responsible_id, row["description"]
+        )
         report["responsible_repairs"] += 1 if responsible_id else 0
         report["crew_repairs"] += len(crew_ids)
 
@@ -249,11 +278,18 @@ def repair_mvcb(conn, gate_maps, report):
             row.get("access_breaker_name"),
             row.get("access_serial"),
         )
-        desired_gate = format_gate_label(gate_number, is_interconnection=element.get("is_main_switch") == 2)
+        desired_gate = format_gate_label(
+            gate_number, is_interconnection=element.get("is_main_switch") == 2
+        )
         if desired_gate:
-            current_gate = conn.execute("SELECT gate FROM elements WHERE id = ?", (element["element_id"],)).fetchone()[0]
+            current_gate = conn.execute(
+                "SELECT gate FROM elements WHERE id = ?", (element["element_id"],)
+            ).fetchone()[0]
             if current_gate != desired_gate:
-                conn.execute("UPDATE elements SET gate = ? WHERE id = ?", (desired_gate, element["element_id"]))
+                conn.execute(
+                    "UPDATE elements SET gate = ? WHERE id = ?",
+                    (desired_gate, element["element_id"]),
+                )
                 report["gate_updates"] += 1
 
         sync_element_maintenance_date(conn, element["element_id"])

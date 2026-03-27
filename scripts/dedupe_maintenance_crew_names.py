@@ -17,7 +17,9 @@ if str(ROOT) not in sys.path:
 from settings import DB_PATH
 
 
-def _find_duplicate_stats(conn: sqlite3.Connection, substation_id: int | None = None) -> tuple[int, int]:
+def _find_duplicate_stats(
+    conn: sqlite3.Connection, substation_id: int | None = None
+) -> tuple[int, int]:
     cur = conn.cursor()
     sql = """
         WITH dup_groups AS (
@@ -46,10 +48,14 @@ def _find_duplicate_stats(conn: sqlite3.Connection, substation_id: int | None = 
     return int(groups_count or 0), int(extra_rows or 0)
 
 
-def dedupe_crew(db_path: str, substation_id: int | None = None, dry_run: bool = True) -> dict[str, int]:
+def dedupe_crew(
+    db_path: str, substation_id: int | None = None, dry_run: bool = True
+) -> dict[str, int]:
     conn = sqlite3.connect(db_path)
     try:
-        groups_before, extras_before = _find_duplicate_stats(conn, substation_id=substation_id)
+        groups_before, extras_before = _find_duplicate_stats(
+            conn, substation_id=substation_id
+        )
 
         result = {
             "duplicate_groups_before": groups_before,
@@ -92,7 +98,9 @@ def dedupe_crew(db_path: str, substation_id: int | None = None, dry_run: bool = 
 
         conn.commit()
 
-        groups_after, extras_after = _find_duplicate_stats(conn, substation_id=substation_id)
+        groups_after, extras_after = _find_duplicate_stats(
+            conn, substation_id=substation_id
+        )
         result["deleted"] = max(0, extras_before - extras_after)
         result["duplicate_groups_after"] = groups_after
         result["extra_rows_after"] = extras_after
@@ -102,13 +110,21 @@ def dedupe_crew(db_path: str, substation_id: int | None = None, dry_run: bool = 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Deduplicate repeated crew names in maintenance_people.")
+    parser = argparse.ArgumentParser(
+        description="Deduplicate repeated crew names in maintenance_people."
+    )
     parser.add_argument("--db", default=DB_PATH, help="Path to SQLite database file")
-    parser.add_argument("--substation-id", type=int, default=None, help="Optional substation id filter")
-    parser.add_argument("--apply", action="store_true", help="Apply updates (default is dry-run)")
+    parser.add_argument(
+        "--substation-id", type=int, default=None, help="Optional substation id filter"
+    )
+    parser.add_argument(
+        "--apply", action="store_true", help="Apply updates (default is dry-run)"
+    )
     args = parser.parse_args()
 
-    res = dedupe_crew(db_path=args.db, substation_id=args.substation_id, dry_run=not args.apply)
+    res = dedupe_crew(
+        db_path=args.db, substation_id=args.substation_id, dry_run=not args.apply
+    )
 
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(

@@ -64,7 +64,9 @@ def parse_ids_from_filename(filename: str):
     return None, None
 
 
-def canonical_filename(substation_name: str, element_name: str, maintenance_id: int) -> str:
+def canonical_filename(
+    substation_name: str, element_name: str, maintenance_id: int
+) -> str:
     return f"{safe_name(substation_name)}_{safe_name(element_name)}_Maintenance_M{maintenance_id}.pdf"
 
 
@@ -147,7 +149,9 @@ def fetch_maintenance_context(conn: sqlite3.Connection):
 
 def find_element_for_canonical_name(candidates, filename_lower: str):
     for row in candidates:
-        expected = canonical_filename(row["substation_name"], row["element_name"], row["maintenance_id"]).lower()
+        expected = canonical_filename(
+            row["substation_name"], row["element_name"], row["maintenance_id"]
+        ).lower()
         if expected == filename_lower:
             return row
     token_hits = []
@@ -193,11 +197,15 @@ def canonical_target_path(conn, db_path: str, row: dict, maintenance_ctx: dict) 
     if not targets:
         raise RuntimeError("No report target")
     reports_root = targets[0]
-    subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(row["element_type"]))
+    subfolder = os.path.join(
+        reports_root, _report_subfolder_name_for_element(row["element_type"])
+    )
     ensure_dir(subfolder)
     return os.path.join(
         subfolder,
-        canonical_filename(row["substation_name"], row["element_name"], row["maintenance_id"]),
+        canonical_filename(
+            row["substation_name"], row["element_name"], row["maintenance_id"]
+        ),
     )
 
 
@@ -208,7 +216,9 @@ def gather_candidates(shared_root: str):
     for dp, dns, fns in os.walk(shared_root):
         base = os.path.basename(dp)
         parts_lower = {part.lower() for part in dp.split(os.sep) if part}
-        under_fallback = any(marker.lower() in parts_lower for marker in fallback_markers)
+        under_fallback = any(
+            marker.lower() in parts_lower for marker in fallback_markers
+        )
 
         if base in fallback_markers:
             legacy_roots.append(dp)
@@ -351,7 +361,9 @@ def main() -> int:
         if b in ("_AUTO_SHORT", "_AUTO_SHORT_REPORTS"):
             auto_dirs.append(dp)
         for fn in fns:
-            if fn.lower().endswith(".pdf") and (RE_OLD_FULL.match(fn) or RE_OLD_SHORT.match(fn)):
+            if fn.lower().endswith(".pdf") and (
+                RE_OLD_FULL.match(fn) or RE_OLD_SHORT.match(fn)
+            ):
                 old_named.append(os.path.join(dp, fn))
 
     print("REMAINING_AUTO_DIRS", len(auto_dirs))

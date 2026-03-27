@@ -46,7 +46,9 @@ _APPDATA_SETTINGS_FILE = os.path.join(APP_DATA_DIR, _DEFAULT_SETTINGS_FILE_NAME)
 
 SETTINGS_FILE = os.environ.get(
     "APP_SETTINGS_PATH",
-    _PROJECT_SETTINGS_FILE if os.path.exists(_PROJECT_SETTINGS_FILE) else _APPDATA_SETTINGS_FILE,
+    _PROJECT_SETTINGS_FILE
+    if os.path.exists(_PROJECT_SETTINGS_FILE)
+    else _APPDATA_SETTINGS_FILE,
 )
 DEFAULT_TEMPLATE_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), _DEFAULT_TEMPLATE_FILE_NAME
@@ -101,9 +103,6 @@ def _resolve_path_value(value: str | None) -> str | None:
     return os.path.abspath(os.path.join(settings_dir, expanded))
 
 
-
-
-
 def _normalize_settings(settings: dict) -> tuple[dict, bool]:
     """Fill in missing keys from the default template.
 
@@ -130,7 +129,7 @@ def _normalize_settings(settings: dict) -> tuple[dict, bool]:
 
 def _load_app_settings() -> dict:
     """Load application settings from JSON file.
-    
+
     Returns:
         Dictionary with settings, or empty dict if file doesn't exist
     """
@@ -152,7 +151,7 @@ def _load_app_settings() -> dict:
 
 def _save_app_settings(settings: dict) -> None:
     """Save application settings to JSON file.
-    
+
     Args:
         settings: Dictionary of settings to save
     """
@@ -175,7 +174,7 @@ if CURRENT_LANGUAGE not in SUPPORTED_LANGUAGES:
 
 def get_current_language() -> str:
     """Get the currently selected language code.
-    
+
     Returns:
         Language code ("el" or "en")
     """
@@ -184,10 +183,10 @@ def get_current_language() -> str:
 
 def set_current_language(language: str) -> bool:
     """Set the preferred language and save to settings.
-    
+
     Args:
         language: Language code ("el" or "en")
-    
+
     Returns:
         True if successful, False otherwise
     """
@@ -204,7 +203,7 @@ def set_current_language(language: str) -> bool:
 # User session management
 def get_current_user() -> dict | None:
     """Return the current logged-in user dict with keys: id, name, role.
-    
+
     Returns:
         Dict with user info or None if no user is logged in
     """
@@ -220,12 +219,12 @@ def get_current_user() -> dict | None:
 
 def set_current_user(user_id: int, name: str, role: str) -> bool:
     """Set the current logged-in user and save to settings.
-    
+
     Args:
         user_id: Database ID of the person
         name: Full name of the person
         role: Role of the person
-    
+
     Returns:
         True if successful, False otherwise
     """
@@ -244,7 +243,7 @@ def set_current_user(user_id: int, name: str, role: str) -> bool:
 
 def clear_current_user() -> bool:
     """Clear the current logged-in user (logout).
-    
+
     Returns:
         True if successful, False otherwise
     """
@@ -261,7 +260,7 @@ def clear_current_user() -> bool:
 # Database path management
 def get_db_path() -> str | None:
     """Get the current database path setting.
-    
+
     Returns:
         Database path from app_settings.json, or None if not set (uses default)
     """
@@ -271,10 +270,10 @@ def get_db_path() -> str | None:
 
 def set_db_path(db_path: str) -> bool:
     """Save a database path setting.
-    
+
     Args:
         db_path: Full path to the database file
-    
+
     Returns:
         True if successful, False otherwise
     """
@@ -289,7 +288,7 @@ def set_db_path(db_path: str) -> bool:
 
 def clear_db_path() -> bool:
     """Clear the saved database path setting (revert to default).
-    
+
     Returns:
         True if successful, False otherwise
     """
@@ -304,6 +303,7 @@ def clear_db_path() -> bool:
 
 
 # Generic app settings helpers
+
 
 def get_app_setting(key: str, default=None):
     """Get a raw setting value by key.

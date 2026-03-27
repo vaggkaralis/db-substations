@@ -43,7 +43,9 @@ def test_normalize_reports_root_path_collapses_legacy_reports_folder(tmp_path):
     instance_root = tmp_path / "inst"
     legacy_reports = instance_root / "Αναφορές"
 
-    assert _normalize_reports_root_path(str(legacy_reports)) == os.path.abspath(instance_root)
+    assert _normalize_reports_root_path(str(legacy_reports)) == os.path.abspath(
+        instance_root
+    )
 
 
 def test_maintenance_instance_folder_name_uses_short_fallback_for_deep_gate_root():
@@ -61,11 +63,15 @@ def test_maintenance_instance_folder_name_uses_short_fallback_for_deep_gate_root
     )
 
     assert folder_name.startswith("Συντ_")
-    projected = os.path.join(gate_root, folder_name, "Αναφ_Διακόπτες ΜΤ", "Αναφ_M2405_1234567890.pdf")
+    projected = os.path.join(
+        gate_root, folder_name, "Αναφ_Διακόπτες ΜΤ", "Αναφ_M2405_1234567890.pdf"
+    )
     assert len(projected) <= 258
 
 
-def test_repair_pdf_access_skips_rewrite_when_pdf_is_already_readable(tmp_path, monkeypatch):
+def test_repair_pdf_access_skips_rewrite_when_pdf_is_already_readable(
+    tmp_path, monkeypatch
+):
     path = tmp_path / "readable.pdf"
     path.write_bytes(b"%PDF-1.4\n%fake\n")
 

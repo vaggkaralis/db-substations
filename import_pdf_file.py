@@ -7,8 +7,7 @@ import logging
 import sys
 
 from pdf_parser import parse_pdf_file
-from maintenance_email_importer import (DEFAULT_DB_PATH,
-                                        create_maintenance_from_email)
+from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
 from popups import ask_open_file
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")

@@ -11,10 +11,10 @@ def generate_interconnection_gate_labels(gate_numbers):
             labels.append(f"ΠΥΛΗ {gate_numbers[i]}-{gate_numbers[j]}")
     return labels
 
+
 import re
 import unicodedata
 from collections import defaultdict
-
 
 
 def normalize_text(value):
@@ -78,9 +78,13 @@ def build_access_asset_gate_maps(accdb_path):
     try:
         import pyodbc
     except Exception:
-        raise RuntimeError("pyodbc is required to read Access databases; install it or avoid calling this function")
+        raise RuntimeError(
+            "pyodbc is required to read Access databases; install it or avoid calling this function"
+        )
 
-    conn = pyodbc.connect(r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};" + f"DBQ={accdb_path};")
+    conn = pyodbc.connect(
+        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};" + f"DBQ={accdb_path};"
+    )
     try:
         cursor = conn.cursor()
         rows = cursor.execute("SELECT * FROM qryAssetBySubstation").fetchall()
@@ -99,21 +103,27 @@ def build_access_asset_gate_maps(accdb_path):
         if hv_name:
             gate_maps["hv_name"][(norm_substation, hv_name)].add(gate_number)
             if hv_serial:
-                gate_maps["hv_serial"][(norm_substation, hv_name, hv_serial)].add(gate_number)
+                gate_maps["hv_serial"][(norm_substation, hv_name, hv_serial)].add(
+                    gate_number
+                )
 
         tx_name = normalize_transformer_name(row[4])
         tx_serial = normalize_serial(row[6])
         if tx_name:
             gate_maps["tx_name"][(norm_substation, tx_name)].add(gate_number)
             if tx_serial:
-                gate_maps["tx_serial"][(norm_substation, tx_name, tx_serial)].add(gate_number)
+                gate_maps["tx_serial"][(norm_substation, tx_name, tx_serial)].add(
+                    gate_number
+                )
 
         mv_name = extract_breaker_code(row[8])
         mv_serial = normalize_serial(row[9])
         if mv_name:
             gate_maps["mv_name"][(norm_substation, mv_name)].add(gate_number)
             if mv_serial:
-                gate_maps["mv_serial"][(norm_substation, mv_name, mv_serial)].add(gate_number)
+                gate_maps["mv_serial"][(norm_substation, mv_name, mv_serial)].add(
+                    gate_number
+                )
 
     return gate_maps
 

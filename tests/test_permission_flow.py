@@ -61,8 +61,11 @@ def run_permission_test(simulate_granted: bool):
     # Emulate permission check behavior inside open_picker
     try:
         # Call the permission-checking logic from the file chooser branch
-        from android.permissions import (Permission, check_permission,
-                                         request_permissions)
+        from android.permissions import (
+            Permission,
+            check_permission,
+            request_permissions,
+        )
 
         needed_perms = [
             Permission.READ_EXTERNAL_STORAGE,

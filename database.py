@@ -267,7 +267,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if "is_thessaloniki" not in sub_columns:
         try:
             cursor.execute(
-                'ALTER TABLE substations ADD COLUMN is_thessaloniki INTEGER DEFAULT 0'
+                "ALTER TABLE substations ADD COLUMN is_thessaloniki INTEGER DEFAULT 0"
             )
         except Exception:
             pass
@@ -416,7 +416,9 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     # `elements` table with a CHECK constraint and migrating existing data if the
     # current table does not already have the constraint.
     try:
-        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='elements'")
+        cursor.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='elements'"
+        )
         tbl_sql_row = cursor.fetchone()
         tbl_sql = tbl_sql_row[0] if tbl_sql_row and tbl_sql_row[0] else ""
     except Exception:
@@ -433,7 +435,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             existing_cols = [r[1] for r in cursor.fetchall()]
 
             # Create new table with the desired schema and CHECK constraint
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS elements_new (
                     id INTEGER PRIMARY KEY,
                     substation_id INTEGER,
@@ -458,19 +460,41 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                     FOREIGN KEY(substation_id) REFERENCES substations(id),
                     CHECK((element_type NOT IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')) OR (breaker_category IS NOT NULL AND TRIM(breaker_category) != ''))
                 )
-            ''')
+            """)
 
             # Copy columns that exist in the old table into the new table
-            cols_to_copy = [c for c in [
-                'id','substation_id','element_type','name','serial_number','maintenance_date',
-                'voltage_level','manufacturer','model','gate','breaker_category','installation_space',
-                'operating_status','maintenance_cycle','element_model_id','manufacture_year',
-                'model_version','power_mva','is_main_switch','operations_count'
-            ] if c in existing_cols]
+            cols_to_copy = [
+                c
+                for c in [
+                    "id",
+                    "substation_id",
+                    "element_type",
+                    "name",
+                    "serial_number",
+                    "maintenance_date",
+                    "voltage_level",
+                    "manufacturer",
+                    "model",
+                    "gate",
+                    "breaker_category",
+                    "installation_space",
+                    "operating_status",
+                    "maintenance_cycle",
+                    "element_model_id",
+                    "manufacture_year",
+                    "model_version",
+                    "power_mva",
+                    "is_main_switch",
+                    "operations_count",
+                ]
+                if c in existing_cols
+            ]
 
             if cols_to_copy:
                 cols_list = ",".join(cols_to_copy)
-                cursor.execute(f"INSERT INTO elements_new ({cols_list}) SELECT {cols_list} FROM elements")
+                cursor.execute(
+                    f"INSERT INTO elements_new ({cols_list}) SELECT {cols_list} FROM elements"
+                )
 
             cursor.execute("DROP TABLE elements")
             cursor.execute("ALTER TABLE elements_new RENAME TO elements")
@@ -554,7 +578,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     # This is a standard attribute for any element; allow NULL so it can be empty.
     if "power_mva" not in elem_columns:
         try:
-            cursor.execute('ALTER TABLE elements ADD COLUMN power_mva REAL')
+            cursor.execute("ALTER TABLE elements ADD COLUMN power_mva REAL")
         except Exception:
             pass
 
@@ -595,7 +619,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     me_columns = [column[1] for column in cursor.fetchall()]
     if "data_json" not in me_columns:
         try:
-            cursor.execute('ALTER TABLE maintenance_elements ADD COLUMN data_json TEXT')
+            cursor.execute("ALTER TABLE maintenance_elements ADD COLUMN data_json TEXT")
         except Exception:
             pass
 
@@ -628,7 +652,11 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if "maintenance_type" not in maint_columns:
         try:
             cursor.execute(
-                'ALTER TABLE maintenance ADD COLUMN maintenance_type TEXT DEFAULT "' + S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση") + '"'
+                'ALTER TABLE maintenance ADD COLUMN maintenance_type TEXT DEFAULT "'
+                + S.get("MESSAGES", {}).get(
+                    "MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"
+                )
+                + '"'
             )
         except Exception:
             pass
@@ -646,12 +674,16 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             pass
     if "isolation_request_id" not in maint_columns:
         try:
-            cursor.execute("ALTER TABLE maintenance ADD COLUMN isolation_request_id INTEGER")
+            cursor.execute(
+                "ALTER TABLE maintenance ADD COLUMN isolation_request_id INTEGER"
+            )
         except Exception:
             pass
     if "preparation_checklist_json" not in maint_columns:
         try:
-            cursor.execute("ALTER TABLE maintenance ADD COLUMN preparation_checklist_json TEXT")
+            cursor.execute(
+                "ALTER TABLE maintenance ADD COLUMN preparation_checklist_json TEXT"
+            )
         except Exception:
             pass
 
@@ -972,7 +1004,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if "onedrive_manual_link" not in em_columns:
         try:
             cursor.execute(
-                'ALTER TABLE element_models ADD COLUMN onedrive_manual_link TEXT'
+                "ALTER TABLE element_models ADD COLUMN onedrive_manual_link TEXT"
             )
         except Exception:
             pass
@@ -980,7 +1012,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if "onedrive_media_folder_link" not in maint_columns:
         try:
             cursor.execute(
-                'ALTER TABLE maintenance ADD COLUMN onedrive_media_folder_link TEXT'
+                "ALTER TABLE maintenance ADD COLUMN onedrive_media_folder_link TEXT"
             )
         except Exception:
             pass
@@ -989,12 +1021,16 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     isolation_columns = [column[1] for column in cursor.fetchall()]
     if "request_file_path" not in isolation_columns:
         try:
-            cursor.execute('ALTER TABLE isolation_requests ADD COLUMN request_file_path TEXT')
+            cursor.execute(
+                "ALTER TABLE isolation_requests ADD COLUMN request_file_path TEXT"
+            )
         except Exception:
             pass
     if "storage_folder_path" not in isolation_columns:
         try:
-            cursor.execute('ALTER TABLE isolation_requests ADD COLUMN storage_folder_path TEXT')
+            cursor.execute(
+                "ALTER TABLE isolation_requests ADD COLUMN storage_folder_path TEXT"
+            )
         except Exception:
             pass
 

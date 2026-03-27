@@ -1,8 +1,10 @@
 import pytest
 
-from validation import (is_interconnection_gate,
-                        validate_breaker_category_required,
-                        validate_gate_assignment)
+from validation import (
+    is_interconnection_gate,
+    validate_breaker_category_required,
+    validate_gate_assignment,
+)
 from strings_proxy import STRINGS as S
 
 ELEM_BREAKER_YT = S["MESSAGES"].get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")

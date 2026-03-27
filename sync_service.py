@@ -47,27 +47,26 @@ def _record_exists_with_data(cur, table: str, record_id, expected_data: dict) ->
     """Check if record exists. Returns: 'none', 'identical', or 'different'."""
     if not record_id:
         return "none"
-    
+
     try:
         cur.execute(f"SELECT * FROM {table} WHERE id=?", (record_id,))
         row = cur.fetchone()
         if not row:
             return "none"
-        
+
         # Get column names
         cols = [col[0] for col in cur.description]
         existing_data = dict(zip(cols, row))
-        
+
         # Compare only the keys present in expected_data
         for key in expected_data:
             if key in existing_data:
                 if str(existing_data[key]) != str(expected_data[key]):
                     return "different"
-        
+
         return "identical"
     except Exception:
         return "none"
-
 
 
 def resolve_db_path(explicit_db_path: str | None = None) -> str:
@@ -88,7 +87,11 @@ def resolve_sync_root(db_path: str | None = None) -> str:
 def resolve_backup_root(db_path: str | None = None) -> str:
     # Backup root is fixed relative to the application executable directory
     # (where the binary or Python interpreter is located).
-    app_dir = os.path.dirname(sys.executable) if getattr(sys, "executable", None) else os.getcwd()
+    app_dir = (
+        os.path.dirname(sys.executable)
+        if getattr(sys, "executable", None)
+        else os.getcwd()
+    )
     return os.path.join(os.path.abspath(app_dir), "backups_auto")
 
 
@@ -185,29 +188,29 @@ def _apply_change_log_to_db(
 ) -> tuple[int, int, int]:
     """
     Apply changes from a JSONL file to the database (idempotent).
-    
+
     Args:
         conn: Database connection
         file_path: Path to the JSONL change file
         tracker: Optional processed files tracker dict
         filename: Filename for tracking (defaults to basename of file_path)
-    
+
     Returns:
         Tuple of (accepted, already_applied, conflicts)
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(file_path)
-    
+
     if filename is None:
         filename = os.path.basename(file_path)
-    
+
     if tracker is None:
         tracker = {}
-    
+
     accepted = 0
     already_applied = 0
     conflicts = 0
-    
+
     cur = conn.cursor()
     with open(file_path, "r", encoding="utf-8") as fh:
         for line in fh:
@@ -225,22 +228,40 @@ def _apply_change_log_to_db(
                     if not maint_id:
                         conflicts += 1
                         continue
-                    cur.execute("SELECT substation_id FROM maintenance WHERE id=?", (maint_id,))
+                    cur.execute(
+                        "SELECT substation_id FROM maintenance WHERE id=?", (maint_id,)
+                    )
                     row = cur.fetchone()
                     if not row:
                         already_applied += 1
                         continue
-                    substation_id = row[0] if isinstance(row, (tuple, list)) else row["substation_id"]
-                    cur.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
-                    affected_elements = [r[0] if isinstance(r, (tuple, list)) else r["element_id"] for r in (cur.fetchall() or [])]
+                    substation_id = (
+                        row[0]
+                        if isinstance(row, (tuple, list))
+                        else row["substation_id"]
+                    )
+                    cur.execute(
+                        "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+                        (maint_id,),
+                    )
+                    affected_elements = [
+                        r[0] if isinstance(r, (tuple, list)) else r["element_id"]
+                        for r in (cur.fetchall() or [])
+                    ]
                     try:
                         from onedrive_hybrid_storage import delete_maintenance_folders
 
                         delete_maintenance_folders(conn, maint_id)
                     except Exception:
                         pass
-                    cur.execute("DELETE FROM maintenance_people WHERE maintenance_id=?", (maint_id,))
-                    cur.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
+                    cur.execute(
+                        "DELETE FROM maintenance_people WHERE maintenance_id=?",
+                        (maint_id,),
+                    )
+                    cur.execute(
+                        "DELETE FROM maintenance_elements WHERE maintenance_id=?",
+                        (maint_id,),
+                    )
                     cur.execute("DELETE FROM maintenance WHERE id=?", (maint_id,))
                     _refresh_maintenance_dates(cur, substation_id, affected_elements)
                     conn.commit()
@@ -251,14 +272,24 @@ def _apply_change_log_to_db(
                     if not maint_id:
                         conflicts += 1
                         continue
-                    cur.execute("SELECT substation_id FROM maintenance WHERE id=?", (maint_id,))
+                    cur.execute(
+                        "SELECT substation_id FROM maintenance WHERE id=?", (maint_id,)
+                    )
                     row = cur.fetchone()
                     if not row:
                         op = "insert"
                     else:
-                        existing_substation_id = row[0] if isinstance(row, (tuple, list)) else row["substation_id"]
-                        maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
-                        update_keys = [k for k in data.keys() if k in maint_cols and k != "id"]
+                        existing_substation_id = (
+                            row[0]
+                            if isinstance(row, (tuple, list))
+                            else row["substation_id"]
+                        )
+                        maint_cols = [
+                            r[1] for r in cur.execute("PRAGMA table_info(maintenance)")
+                        ]
+                        update_keys = [
+                            k for k in data.keys() if k in maint_cols and k != "id"
+                        ]
                         if update_keys:
                             assignments = ",".join([f"{key}=?" for key in update_keys])
                             cur.execute(
@@ -266,20 +297,36 @@ def _apply_change_log_to_db(
                                 [data[key] for key in update_keys] + [maint_id],
                             )
                         try:
-                            from onedrive_hybrid_storage import invalidate_maintenance_reports, prune_stale_dga_measurements
+                            from onedrive_hybrid_storage import (
+                                invalidate_maintenance_reports,
+                                prune_stale_dga_measurements,
+                            )
 
-                            invalidate_maintenance_reports(conn, maint_id, delete_files=True)
+                            invalidate_maintenance_reports(
+                                conn, maint_id, delete_files=True
+                            )
                         except Exception:
                             pass
-                        cur.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
-                        previous_element_ids = [r[0] if isinstance(r, (tuple, list)) else r["element_id"] for r in (cur.fetchall() or [])]
-                        cur.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maint_id,))
+                        cur.execute(
+                            "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+                            (maint_id,),
+                        )
+                        previous_element_ids = [
+                            r[0] if isinstance(r, (tuple, list)) else r["element_id"]
+                            for r in (cur.fetchall() or [])
+                        ]
+                        cur.execute(
+                            "DELETE FROM maintenance_elements WHERE maintenance_id=?",
+                            (maint_id,),
+                        )
                         elements = data.get("elements") or []
                         seen_element_ids = set()
                         new_element_ids = []
                         for elem in elements:
                             elem_id = elem.get("element_id") or elem.get("id")
-                            elem_comments = elem.get("element_comments") or elem.get("comments")
+                            elem_comments = elem.get("element_comments") or elem.get(
+                                "comments"
+                            )
                             if not elem_id or elem_id in seen_element_ids:
                                 continue
                             seen_element_ids.add(elem_id)
@@ -315,15 +362,19 @@ def _apply_change_log_to_db(
 
                 # Check if maintenance record exists (by id field)
                 if maint_id:
-                    existence = _record_exists_with_data(cur, "maintenance", maint_id, data)
+                    existence = _record_exists_with_data(
+                        cur, "maintenance", maint_id, data
+                    )
                     if existence == "identical":
                         already_applied += 1
                         continue
                     elif existence == "different":
                         conflicts += 1
                         continue
-                
-                maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
+
+                maint_cols = [
+                    r[1] for r in cur.execute("PRAGMA table_info(maintenance)")
+                ]
                 maint_keys = [k for k in data.keys() if k in maint_cols]
                 if maint_keys:
                     try:
@@ -362,7 +413,13 @@ def _apply_change_log_to_db(
                                 WHERE maintenance_id = ? AND element_id = ?
                             )
                             """,
-                            (maintenance_id, elem_id, elem_comments, maintenance_id, elem_id),
+                            (
+                                maintenance_id,
+                                elem_id,
+                                elem_comments,
+                                maintenance_id,
+                                elem_id,
+                            ),
                         )
                         if data.get("date_time") and elem_id:
                             cur.execute(
@@ -372,7 +429,7 @@ def _apply_change_log_to_db(
                     except sqlite3.IntegrityError:
                         elements_ok = False
                         break
-                
+
                 if elements_ok:
                     conn.commit()
                     accepted += 1
@@ -391,12 +448,12 @@ def _apply_change_log_to_db(
                 elif existence == "different":
                     conflicts += 1
                     continue
-            
+
             cols_info = [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
             insert_keys = [k for k in data.keys() if k in cols_info]
             if not insert_keys:
                 continue
-            
+
             try:
                 placeholders = ",".join(["?"] * len(insert_keys))
                 sql = f"INSERT INTO {table} ({','.join(insert_keys)}) VALUES ({placeholders})"
@@ -406,14 +463,19 @@ def _apply_change_log_to_db(
             except sqlite3.IntegrityError:
                 conflicts += 1
                 conn.rollback()
-    
+
     return (accepted, already_applied, conflicts)
 
 
-def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "desktop", progress_callback=None) -> dict:
+def process_sync_inbox(
+    conn: sqlite3.Connection,
+    sync_root: str,
+    actor: str = "desktop",
+    progress_callback=None,
+) -> dict:
     """
     Process all change files in the sync inbox (idempotent).
-    
+
     Files are kept in place after processing. Each file is processed every time
     it's encountered, but record-level deduplication prevents duplicate insertions.
     This allows multiple users to "import" the same change file without conflicts.
@@ -436,7 +498,7 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
         if not item.lower().endswith((".json", ".jsonl")):
             continue
         files.append((item, src))
-    
+
     for item in sorted(os.listdir(accepted_dir)):
         src = os.path.join(accepted_dir, item)
         if not os.path.isfile(src):
@@ -465,7 +527,12 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
         try:
             if progress_callback and len(files) > 0:
                 try:
-                    progress_callback(operation="Processing incoming changes", substation=None, current=idx + 1, total=len(files))
+                    progress_callback(
+                        operation="Processing incoming changes",
+                        substation=None,
+                        current=idx + 1,
+                        total=len(files),
+                    )
                 except Exception:
                     pass
         except Exception:
@@ -491,10 +558,10 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
         }
 
         try:
-            file_accepted, file_already_applied, file_conflicts = _apply_change_log_to_db(
-                conn, src, tracker, original_name
+            file_accepted, file_already_applied, file_conflicts = (
+                _apply_change_log_to_db(conn, src, tracker, original_name)
             )
-            
+
             # Determine overall status
             if file_conflicts > 0:
                 event["status"] = "conflict"
@@ -518,7 +585,9 @@ def process_sync_inbox(conn: sqlite3.Connection, sync_root: str, actor: str = "d
                 event["status"] = "rejected"
                 event["reason"] = "No applicable changes found"
                 file_summary["status"] = "rejected"
-                file_summary["rejected"] = int(file_summary.get("insert_entries", 0) or 0)
+                file_summary["rejected"] = int(
+                    file_summary.get("insert_entries", 0) or 0
+                )
                 rejected += 1
                 tracker[original_name] = {
                     "status": "rejected",
@@ -691,7 +760,9 @@ def _sqlite_snapshot(db_path: str, output_path: str) -> None:
             os.remove(tmp)
 
 
-def create_snapshot(db_path: str, backup_root: str, reason: str = "scheduled", tier: str = "hot") -> str:
+def create_snapshot(
+    db_path: str, backup_root: str, reason: str = "scheduled", tier: str = "hot"
+) -> str:
     tree = ensure_backup_tree(backup_root)
     if tier not in tree:
         tier = "hot"
@@ -717,7 +788,8 @@ def prune_hot_backups(backup_root: str, keep: int = 3) -> list[str]:
     files = [
         os.path.join(hot_dir, name)
         for name in os.listdir(hot_dir)
-        if name.lower().endswith(".sqlite") and os.path.isfile(os.path.join(hot_dir, name))
+        if name.lower().endswith(".sqlite")
+        and os.path.isfile(os.path.join(hot_dir, name))
     ]
     files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
 
@@ -745,7 +817,9 @@ def run_sync_cycle(
     effective_sync_root = sync_root or resolve_sync_root(effective_db)
     effective_backup_root = backup_root or resolve_backup_root(effective_db)
 
-    sync_summary = process_sync_inbox(conn, effective_sync_root, actor=actor, progress_callback=progress_callback)
+    sync_summary = process_sync_inbox(
+        conn, effective_sync_root, actor=actor, progress_callback=progress_callback
+    )
 
     retention_enabled = bool(get_app_setting("sync_retention_enabled", True))
     retention_days = int(get_app_setting("sync_retention_days", 60) or 60)

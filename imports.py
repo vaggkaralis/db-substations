@@ -3,7 +3,14 @@ import os
 from strings_proxy import STRINGS as S
 
 
-def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["TITLES"]["IMPORT_MENU"], filetypes=None, chooser_filters=None):
+def _open_file_chooser_and_import(
+    app,
+    parent_popup,
+    import_callback,
+    title=S["TITLES"]["IMPORT_MENU"],
+    filetypes=None,
+    chooser_filters=None,
+):
     # Prefer native Windows file chooser when available; fall back to Kivy chooser.
     from popups import show_message_popup
 
@@ -14,11 +21,21 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
 
             root = _tk.Tk()
             root.withdraw()
-            ft = list(filetypes) if filetypes else [
-                (S["MESSAGES"].get("FILE_DIALOG_EXCEL_FILES", "Αρχεία Excel"), "*.xlsx *.xls"),
-                (S["MESSAGES"].get("FILE_DIALOG_CSV_FILES", "Αρχεία CSV"), "*.csv"),
-                (S["MESSAGES"].get("FILE_DIALOG_ALL_FILES", "Όλα τα αρχεία"), "*.*"),
-            ]
+            ft = (
+                list(filetypes)
+                if filetypes
+                else [
+                    (
+                        S["MESSAGES"].get("FILE_DIALOG_EXCEL_FILES", "Αρχεία Excel"),
+                        "*.xlsx *.xls",
+                    ),
+                    (S["MESSAGES"].get("FILE_DIALOG_CSV_FILES", "Αρχεία CSV"), "*.csv"),
+                    (
+                        S["MESSAGES"].get("FILE_DIALOG_ALL_FILES", "Όλα τα αρχεία"),
+                        "*.*",
+                    ),
+                ]
+            )
             file_path = _filedialog.askopenfilename(title=title, filetypes=ft)
             try:
                 root.destroy()
@@ -29,13 +46,17 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
             if not file_path:
                 return
             if not os.path.exists(file_path):
-                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"])
+                show_message_popup(
+                    S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"]
+                )
                 return
 
             try:
                 import_callback(file_path)
             except Exception as e:
-                show_message_popup(S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}")
+                show_message_popup(
+                    S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}"
+                )
                 return
 
             if parent_popup:
@@ -64,15 +85,31 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     # Path input
-    path_label = Label(text=S.get("MESSAGES", {}).get("FILE_PATH_LABEL", "Διαδρομή αρχείου:"), size_hint_y=0.1)
+    path_label = Label(
+        text=S.get("MESSAGES", {}).get("FILE_PATH_LABEL", "Διαδρομή αρχείου:"),
+        size_hint_y=0.1,
+    )
     layout.add_widget(path_label)
 
-    path_input = TextInput(hint_text=S.get("MESSAGES", {}).get("FILE_PATH_HINT", "Διαδρομή αρχείου"), size_hint_y=0.15, multiline=False)
+    path_input = TextInput(
+        hint_text=S.get("MESSAGES", {}).get("FILE_PATH_HINT", "Διαδρομή αρχείου"),
+        size_hint_y=0.15,
+        multiline=False,
+    )
     layout.add_widget(path_input)
 
     # File chooser with default path
-    layout.add_widget(Label(text=S["MESSAGES"].get("IMPORT_OR_SELECT_FROM_LIST", "Ή επιλέξτε από τη λίστα:"), size_hint_y=0.1))
-    chooser = FileChooserListView(filters=(chooser_filters or ["*.xlsx", "*.csv"]), path=os.path.dirname(__file__))
+    layout.add_widget(
+        Label(
+            text=S["MESSAGES"].get(
+                "IMPORT_OR_SELECT_FROM_LIST", "Ή επιλέξτε από τη λίστα:"
+            ),
+            size_hint_y=0.1,
+        )
+    )
+    chooser = FileChooserListView(
+        filters=(chooser_filters or ["*.xlsx", "*.csv"]), path=os.path.dirname(__file__)
+    )
     layout.add_widget(chooser)
 
     # Buttons
@@ -87,7 +124,7 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
 
         try:
             if isinstance(file_path, str):
-                file_path = file_path.strip().strip('"\'')
+                file_path = file_path.strip().strip("\"'")
         except Exception:
             pass
 
@@ -101,7 +138,9 @@ def _open_file_chooser_and_import(app, parent_popup, import_callback, title=S["T
         try:
             import_callback(file_path)
         except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}")
+            show_message_popup(
+                S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}"
+            )
             return
         popup.dismiss()
         if parent_popup:
@@ -133,7 +172,10 @@ def show_import_menu(app, instance=None):
         Popup = BoxLayout = Label = Button = object
         show_message_popup = None
 
-    menu_popup = Popup(title=S["TITLES"].get("IMPORT_MENU", "Εισαγωγή από αρχείο"), size_hint=(0.6, 0.7))
+    menu_popup = Popup(
+        title=S["TITLES"].get("IMPORT_MENU", "Εισαγωγή από αρχείο"),
+        size_hint=(0.6, 0.7),
+    )
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     try:
@@ -141,7 +183,14 @@ def show_import_menu(app, instance=None):
     except Exception:
         pass
 
-    layout.add_widget(Label(text=S["MESSAGES"].get("IMPORT_MENU_PROMPT", "Επιλέξτε τι θέλετε να εισάγετε:"), size_hint_y=0.15))
+    layout.add_widget(
+        Label(
+            text=S["MESSAGES"].get(
+                "IMPORT_MENU_PROMPT", "Επιλέξτε τι θέλετε να εισάγετε:"
+            ),
+            size_hint_y=0.15,
+        )
+    )
 
     import_buttons_row = BoxLayout(
         orientation="horizontal",
@@ -150,35 +199,57 @@ def show_import_menu(app, instance=None):
     )
 
     import_elements_btn = Button(
-        text=S["MESSAGES"].get("IMPORT_ELEMENTS_BUTTON", "Εισαγωγή Στοιχείων από Αρχείο"),
+        text=S["MESSAGES"].get(
+            "IMPORT_ELEMENTS_BUTTON", "Εισαγωγή Στοιχείων από Αρχείο"
+        ),
         size_hint_x=0.64,
     )
     import_elements_btn.halign = "center"
     import_elements_btn.valign = "middle"
-    import_elements_btn.bind(size=lambda inst, value: setattr(inst, "text_size", (value[0] - 12, value[1] - 12)))
-    import_elements_btn.bind(on_press=lambda x: _show_import_elements_from_menu(app, menu_popup))
+    import_elements_btn.bind(
+        size=lambda inst, value: setattr(
+            inst, "text_size", (value[0] - 12, value[1] - 12)
+        )
+    )
+    import_elements_btn.bind(
+        on_press=lambda x: _show_import_elements_from_menu(app, menu_popup)
+    )
     import_buttons_row.add_widget(import_elements_btn)
 
     template_elements_btn = Button(
-        text=S["MESSAGES"].get("IMPORT_TEMPLATE_ELEMENTS_BUTTON", "Δημιουργία Template Εισαγωγής"),
+        text=S["MESSAGES"].get(
+            "IMPORT_TEMPLATE_ELEMENTS_BUTTON", "Δημιουργία Template Εισαγωγής"
+        ),
         size_hint_x=0.36,
     )
     template_elements_btn.halign = "center"
     template_elements_btn.valign = "middle"
-    template_elements_btn.bind(size=lambda inst, value: setattr(inst, "text_size", (value[0] - 10, value[1] - 12)))
+    template_elements_btn.bind(
+        size=lambda inst, value: setattr(
+            inst, "text_size", (value[0] - 10, value[1] - 12)
+        )
+    )
     template_elements_btn.bind(on_press=app.create_elements_template)
     import_buttons_row.add_widget(template_elements_btn)
 
     layout.add_widget(import_buttons_row)
 
-    import_android_btn = Button(text=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"), size_hint_y=0.15)
-    import_android_btn.bind(on_press=lambda x: _show_import_android_changes_from_menu(app, menu_popup))
+    import_android_btn = Button(
+        text=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"),
+        size_hint_y=0.15,
+    )
+    import_android_btn.bind(
+        on_press=lambda x: _show_import_android_changes_from_menu(app, menu_popup)
+    )
     layout.add_widget(import_android_btn)
 
     try:
         from reports import export_full_db_ui
 
-        export_db_btn = Button(text=S["MESSAGES"].get("IMPORT_EXPORT_DB_BUTTON", "Εξαγωγή Βάσης (Excel)"), size_hint_y=0.18)
+        export_db_btn = Button(
+            text=S["MESSAGES"].get("IMPORT_EXPORT_DB_BUTTON", "Εξαγωγή Βάσης (Excel)"),
+            size_hint_y=0.18,
+        )
         export_db_btn.bind(on_press=lambda x: export_full_db_ui(app, menu_popup))
         layout.add_widget(export_db_btn)
     except Exception:
@@ -237,14 +308,19 @@ def show_import_android_changes_dialog(app, instance_or_parent_popup=None):
 
     def import_callback(file_path):
         app.import_android_changes_from_file(file_path)
+
     _open_file_chooser_and_import(
         app,
         parent_popup,
         import_callback,
         title=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"),
-        filetypes=((S["MESSAGES"].get("FILE_DIALOG_JSON_FILES", "Αρχεία JSON"), "*.json"),),
+        filetypes=(
+            (S["MESSAGES"].get("FILE_DIALOG_JSON_FILES", "Αρχεία JSON"), "*.json"),
+        ),
         chooser_filters=["*.json"],
     )
+
+
 """
 Delegating wrappers for import-related UI functions in `DBrun.py`.
 """

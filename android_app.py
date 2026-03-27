@@ -72,6 +72,7 @@ try:
     Button = importlib.import_module("kivy.uix.button").Button
     Label = importlib.import_module("kivy.uix.label").Label
     from popups import show_message_popup
+
     TextInput = importlib.import_module("kivy.uix.textinput").TextInput
     Popup = importlib.import_module("kivy.uix.popup").Popup
     ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
@@ -124,9 +125,15 @@ class SubstationAndroidApp(App):
         ],
     )
 
-    VOLTAGE_LEVELS = S.get("MESSAGES", {}).get("VOLTAGE_LEVELS", ["20 KV", "150 KV", "20/150 KV"])
-    OPERATING_STATUS = S.get("MESSAGES", {}).get("OPERATING_STATUS", ["Ενεργή", "Ανενεργή"])
-    INSTALLATION_SPACE = S.get("MESSAGES", {}).get("INSTALLATION_SPACE", ["Εσωτερικός", "Εξωτερικός"])
+    VOLTAGE_LEVELS = S.get("MESSAGES", {}).get(
+        "VOLTAGE_LEVELS", ["20 KV", "150 KV", "20/150 KV"]
+    )
+    OPERATING_STATUS = S.get("MESSAGES", {}).get(
+        "OPERATING_STATUS", ["Ενεργή", "Ανενεργή"]
+    )
+    INSTALLATION_SPACE = S.get("MESSAGES", {}).get(
+        "INSTALLATION_SPACE", ["Εσωτερικός", "Εξωτερικός"]
+    )
     ELEMENT_FIELD_DEFS = [
         {
             "key": "name",
@@ -136,21 +143,31 @@ class SubstationAndroidApp(App):
         },
         {
             "key": "serial_number",
-            "label": S.get("MESSAGES", {}).get("SERIAL_NUMBER_LABEL", "Σειριακός Αριθμός"),
+            "label": S.get("MESSAGES", {}).get(
+                "SERIAL_NUMBER_LABEL", "Σειριακός Αριθμός"
+            ),
             "type": "text",
-            "hint": S.get("MESSAGES", {}).get("SERIAL_NUMBER_HINT", "Σειριακός Αριθμός"),
+            "hint": S.get("MESSAGES", {}).get(
+                "SERIAL_NUMBER_HINT", "Σειριακός Αριθμός"
+            ),
         },
         {
             "key": "maintenance_date",
-            "label": S.get("MESSAGES", {}).get("MAINTENANCE_DATE_LABEL", "Τελευταία Συντ."),
+            "label": S.get("MESSAGES", {}).get(
+                "MAINTENANCE_DATE_LABEL", "Τελευταία Συντ."
+            ),
             "type": "text",
             "hint": S.get("MESSAGES", {}).get("MAINTENANCE_DATE_HINT", "YYYY-MM-DD"),
         },
         {
             "key": "voltage_level",
-            "label": S.get("MESSAGES", {}).get("INSTALLATION_SPACE_LABEL", "Επίπεδο Τάσης"),
+            "label": S.get("MESSAGES", {}).get(
+                "INSTALLATION_SPACE_LABEL", "Επίπεδο Τάσης"
+            ),
             "type": "text",
-            "hint": S.get("MESSAGES", {}).get("VOLTAGE_LEVELS_HINT", "π.χ. 20 KV, 150 KV"),
+            "hint": S.get("MESSAGES", {}).get(
+                "VOLTAGE_LEVELS_HINT", "π.χ. 20 KV, 150 KV"
+            ),
         },
         {
             "key": "manufacturer",
@@ -158,130 +175,217 @@ class SubstationAndroidApp(App):
             "type": "text",
             "hint": S.get("MESSAGES", {}).get("MANUFACTURER_HINT", "Κατασκευαστής"),
         },
-        {"key": "type", "label": S.get("MESSAGES", {}).get("TYPE_LABEL", "Τύπος"), "type": "text", "hint": S.get("MESSAGES", {}).get("TYPE_HINT", "Τύπος")},
+        {
+            "key": "type",
+            "label": S.get("MESSAGES", {}).get("TYPE_LABEL", "Τύπος"),
+            "type": "text",
+            "hint": S.get("MESSAGES", {}).get("TYPE_HINT", "Τύπος"),
+        },
         {
             "key": "manufacture_year",
-            "label": S.get("MESSAGES", {}).get("ELEMENT_MANUFACTURE_YEAR_LABEL", "Έτος κατασκευής"),
+            "label": S.get("MESSAGES", {}).get(
+                "ELEMENT_MANUFACTURE_YEAR_LABEL", "Έτος κατασκευής"
+            ),
             "type": "text",
             "hint": S.get("MESSAGES", {}).get("ELEMENT_MANUFACTURE_YEAR_HINT", "YYYY"),
         },
-        {"key": "model", "label": S.get("MESSAGES", {}).get("MODEL_LABEL", "Μοντέλο"), "type": "text", "hint": S.get("MESSAGES", {}).get("MODEL_HINT", "Μοντέλο")},
+        {
+            "key": "model",
+            "label": S.get("MESSAGES", {}).get("MODEL_LABEL", "Μοντέλο"),
+            "type": "text",
+            "hint": S.get("MESSAGES", {}).get("MODEL_HINT", "Μοντέλο"),
+        },
         {
             "key": "model_version",
-            "label": S.get("MESSAGES", {}).get("MODEL_VERSION_LABEL", "Έκδοση Μοντέλου"),
+            "label": S.get("MESSAGES", {}).get(
+                "MODEL_VERSION_LABEL", "Έκδοση Μοντέλου"
+            ),
             "type": "text",
             "hint": S.get("MESSAGES", {}).get("MODEL_VERSION_HINT", "Έκδοση"),
         },
         {
             "key": "operating_status",
-            "label": S.get("MESSAGES", {}).get("OPERATING_STATUS_LABEL", "Κατάσταση Λειτουργίας"),
+            "label": S.get("MESSAGES", {}).get(
+                "OPERATING_STATUS_LABEL", "Κατάσταση Λειτουργίας"
+            ),
             "type": "spinner",
             "values": OPERATING_STATUS,
         },
         {
             "key": "installation_space",
-            "label": S.get("MESSAGES", {}).get("INSTALLATION_SPACE_LABEL", "Χώρος Εγκατάστασης"),
+            "label": S.get("MESSAGES", {}).get(
+                "INSTALLATION_SPACE_LABEL", "Χώρος Εγκατάστασης"
+            ),
             "type": "spinner",
             "values": INSTALLATION_SPACE,
         },
         {
             "key": "maintenance_cycle",
-            "label": S.get("MESSAGES", {}).get("MAINTENANCE_CYCLE_LABEL", "Κύκλος Συντήρησης (μήνες)"),
+            "label": S.get("MESSAGES", {}).get(
+                "MAINTENANCE_CYCLE_LABEL", "Κύκλος Συντήρησης (μήνες)"
+            ),
             "type": "text",
             "hint": S.get("MESSAGES", {}).get("MAINTENANCE_CYCLE_HINT", "π.χ. 12"),
         },
-        {"key": "gate", "label": S.get("MESSAGES", {}).get("GATES", "Πύλη"), "type": "text", "hint": S.get("MESSAGES", {}).get("GATE_HINT", "π.χ. ΠΥΛΗ 1")},
+        {
+            "key": "gate",
+            "label": S.get("MESSAGES", {}).get("GATES", "Πύλη"),
+            "type": "text",
+            "hint": S.get("MESSAGES", {}).get("GATE_HINT", "π.χ. ΠΥΛΗ 1"),
+        },
     ]
     # Build INSPECTION_FIELDS from centralized strings to avoid duplication
     INSPECTION_FIELDS = []
     rows = S.get("MESSAGES", {}).get("INSPECTION_ROWS", [])
     # Section 1
     sec1 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"1. {sec1}"},
-        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=1, sec=sec1),
-    ])
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"1. {sec1}"},
+            S.get("MESSAGES", {})
+            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
+            .format(n=1, sec=sec1),
+        ]
+    )
     INSPECTION_FIELDS.extend(rows[0:4])
     # Section 2
-    sec2 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3", "Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"2. {sec2}"},
-        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=2, sec=sec2),
-    ])
+    sec2 = S.get("MESSAGES", {}).get(
+        "INSPECTION_SECTION_3", "Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV"
+    )
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"2. {sec2}"},
+            S.get("MESSAGES", {})
+            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
+            .format(n=2, sec=sec2),
+        ]
+    )
     INSPECTION_FIELDS.extend(rows[4:12])
     # Section 3a
     sec3a = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3A", "Υπαίθριες πύλες 20 kV")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"3α. {sec3a}"},
-        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n="3α", sec=sec3a),
-    ])
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"3α. {sec3a}"},
+            S.get("MESSAGES", {})
+            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
+            .format(n="3α", sec=sec3a),
+        ]
+    )
     INSPECTION_FIELDS.append(rows[12])
     # Section 3b
     sec3b = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3B", "Πίνακες 20 kV")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"3β. {sec3b}"},
-        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n="3β", sec=sec3b),
-    ])
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"3β. {sec3b}"},
+            S.get("MESSAGES", {})
+            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
+            .format(n="3β", sec=sec3b),
+        ]
+    )
     INSPECTION_FIELDS.extend(rows[13:15])
     # Section 4
-    sec4 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_4", "Κτίριο χειρισμών & Τ.Α.Σ.")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"4. {sec4}"},
-        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=4, sec=sec4),
-    ])
+    sec4 = S.get("MESSAGES", {}).get(
+        "INSPECTION_SECTION_4", "Κτίριο χειρισμών & Τ.Α.Σ."
+    )
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"4. {sec4}"},
+            S.get("MESSAGES", {})
+            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
+            .format(n=4, sec=sec4),
+        ]
+    )
     INSPECTION_FIELDS.extend(rows[15:18])
     # Section 5
     sec5 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_5", "Αποζεύκτες Γραμμών")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"5. {sec5}"},
-        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=5, sec=sec5),
-    ])
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"5. {sec5}"},
+            S.get("MESSAGES", {})
+            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
+            .format(n=5, sec=sec5),
+        ]
+    )
     INSPECTION_FIELDS.append(rows[18])
     # Section 6
     sec6 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_6", "PC ΧΕΙΡΙΣΜΩΝ")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"6. {sec6}"},
-        S.get("MESSAGES", {}).get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(n=6, sec=sec6),
-    ])
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"6. {sec6}"},
+            S.get("MESSAGES", {})
+            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
+            .format(n=6, sec=sec6),
+        ]
+    )
     INSPECTION_FIELDS.extend(rows[19:21])
     # Final section: opinions
     sec7 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_7", "Απόψεις")
-    INSPECTION_FIELDS.extend([
-        {"type": "section", "title": f"7. {sec7}"},
-        S.get("MESSAGES", {}).get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις"),
-    ])
+    INSPECTION_FIELDS.extend(
+        [
+            {"type": "section", "title": f"7. {sec7}"},
+            S.get("MESSAGES", {}).get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις"),
+        ]
+    )
 
     def open_local_db_picker(self):
         # Last working version: prompt for DB path and allow file selection
         self._prompt_local_db_path()
 
     def _prompt_local_db_path(self):
-        popup = Popup(title=S["MESSAGES"].get("OPEN_LOCAL_DB_TITLE", "Άνοιγμα Τοπικής Βάσης"), size_hint=(0.9, 0.4))
+        popup = Popup(
+            title=S["MESSAGES"].get("OPEN_LOCAL_DB_TITLE", "Άνοιγμα Τοπικής Βάσης"),
+            size_hint=(0.9, 0.4),
+        )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("ENTER_PATH", "Δώσε πλήρες path του αρχείου .db")))
+        layout.add_widget(
+            Label(
+                text=S.get("MESSAGES", {}).get(
+                    "ENTER_PATH", "Δώσε πλήρες path του αρχείου .db"
+                )
+            )
+        )
         default_path = ANDROID_DEFAULT_DB_PATH
-        path_input = TextInput(text=default_path, hint_text=ANDROID_DEFAULT_DB_PATH, multiline=False)
+        path_input = TextInput(
+            text=default_path, hint_text=ANDROID_DEFAULT_DB_PATH, multiline=False
+        )
         layout.add_widget(path_input)
 
         chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
-        choose_btn = Button(text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου"))
+        choose_btn = Button(
+            text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου")
+        )
         choose_btn.disabled = not (filechooser or FileChooserListView)
 
         def open_picker():
             def _selected(selection):
                 if not selection or len(selection) == 0:
-                    self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
+                    self.show_error(
+                        S["MESSAGES"].get(
+                            "PICKER_EMPTY_SELECTION",
+                            "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                        )
+                    )
                     return
                 raw_value = selection[0]
                 if raw_value is None:
-                    self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
+                    self.show_error(
+                        S["MESSAGES"].get(
+                            "PICKER_EMPTY_SELECTION",
+                            "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                        )
+                    )
                     return
                 if isinstance(raw_value, bytes):
                     selected_path = raw_value.decode("utf-8", errors="ignore")
                 else:
                     selected_path = str(raw_value)
                 if selected_path.strip().lower() in ("", "none", "null"):
-                    self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
+                    self.show_error(
+                        S["MESSAGES"].get(
+                            "PICKER_EMPTY_SELECTION",
+                            "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                        )
+                    )
                     return
                 Logger.info(f"APP: File chooser selected: {selected_path}")
                 Clock.schedule_once(
@@ -355,10 +459,12 @@ class SubstationAndroidApp(App):
             except Exception as e:
                 Logger.error(f"APP: Exception in open_picker: {str(e)}")
                 self.show_error(
-                    S.get("MESSAGES", {}).get(
+                    S.get("MESSAGES", {})
+                    .get(
                         "PICKER_OPEN_ERROR",
                         "Σφάλμα ανοίγματος επιλογέα: {err}",
-                    ).format(err=str(e))
+                    )
+                    .format(err=str(e))
                 )
 
         choose_btn.bind(on_press=lambda _x: open_picker())
@@ -377,14 +483,24 @@ class SubstationAndroidApp(App):
                 if selection:
                     raw_value = selection[0]
                     if raw_value is None:
-                        self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
+                        self.show_error(
+                            S["MESSAGES"].get(
+                                "PICKER_EMPTY_SELECTION",
+                                "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                            )
+                        )
                         return
                     if isinstance(raw_value, bytes):
                         selected_path = raw_value.decode("utf-8", errors="ignore")
                     else:
                         selected_path = str(raw_value)
                     if selected_path.strip().lower() in ("", "none", "null"):
-                        self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
+                        self.show_error(
+                            S["MESSAGES"].get(
+                                "PICKER_EMPTY_SELECTION",
+                                "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                            )
+                        )
                         return
                     Logger.info(f"APP: File list selected: {selected_path}")
                     Clock.schedule_once(
@@ -423,12 +539,20 @@ class SubstationAndroidApp(App):
     def _open_android_document_picker(self, on_selected):
         if platform != "android":
             Logger.warning("APP: SAF picker only available on Android platform")
-            self.show_error(S["MESSAGES"].get("FILECHOOSER_ANDROID_ONLY", "Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android."))
+            self.show_error(
+                S["MESSAGES"].get(
+                    "FILECHOOSER_ANDROID_ONLY",
+                    "Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.",
+                )
+            )
             return
         # Request permissions before proceeding
         try:
-            from android.permissions import (Permission, check_permission,
-                                             request_permissions)
+            from android.permissions import (
+                Permission,
+                check_permission,
+                request_permissions,
+            )
 
             needed_perms = [
                 Permission.READ_EXTERNAL_STORAGE,
@@ -439,9 +563,7 @@ class SubstationAndroidApp(App):
             if not perms_granted:
                 # Request permissions and return, user must retry after granting
                 request_permissions(needed_perms)
-                self.show_error(
-                    S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"]
-                )
+                self.show_error(S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"])
                 return
         except Exception as perm_e:
             Logger.warning(f"APP: Permission check/request failed: {str(perm_e)}")
@@ -453,7 +575,12 @@ class SubstationAndroidApp(App):
             from android import activity
         except Exception as e:
             Logger.warning(f"APP: Android SAF picker not available: {str(e)}")
-            self.show_error(S["MESSAGES"].get("FILECHOOSER_NOT_AVAILABLE", "Ο επιλογέας αρχείων δεν είναι διαθέσιμος"))
+            self.show_error(
+                S["MESSAGES"].get(
+                    "FILECHOOSER_NOT_AVAILABLE",
+                    "Ο επιλογέας αρχείων δεν είναι διαθέσιμος",
+                )
+            )
             return
 
         try:
@@ -470,36 +597,66 @@ class SubstationAndroidApp(App):
             def _activity_result(req_code, result_code, data):
                 if req_code != request_code:
                     Logger.warning("APP: Activity result request code mismatch.")
-                    self.show_error(S["MESSAGES"].get("FILECHOOSER_INTERNAL_ERROR", "Εσωτερικό σφάλμα επιλογέα αρχείων."))
+                    self.show_error(
+                        S["MESSAGES"].get(
+                            "FILECHOOSER_INTERNAL_ERROR",
+                            "Εσωτερικό σφάλμα επιλογέα αρχείων.",
+                        )
+                    )
                     return
                 activity.unbind(on_activity_result=_activity_result)
                 if result_code != Activity.RESULT_OK or data is None:
                     Logger.warning("APP: Activity result not OK or data is None.")
-                    self.show_error(S["MESSAGES"].get("FILECHOICE_CANCELLED", "Η επιλογή αρχείου απέτυχε ή ακυρώθηκε."))
+                    self.show_error(
+                        S["MESSAGES"].get(
+                            "FILECHOICE_CANCELLED",
+                            "Η επιλογή αρχείου απέτυχε ή ακυρώθηκε.",
+                        )
+                    )
                     return
                 try:
                     uri = data.getData()
                     if uri is None:
                         Logger.warning("APP: SAF picker returned None URI.")
-                        self.show_error(S["MESSAGES"].get("PICKER_EMPTY_SELECTION", "Ο επιλογέας επέστρεψε κενή επιλογή (None)."))
+                        self.show_error(
+                            S["MESSAGES"].get(
+                                "PICKER_EMPTY_SELECTION",
+                                "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                            )
+                        )
                         return
                     uri_str = uri.toString()
                     Logger.info(f"APP: SAF selected: {uri_str}")
                     on_selected([uri_str])
                 except Exception as e:
                     Logger.warning(f"APP: SAF selection failed: {str(e)}")
-                    self.show_error(S.get("MESSAGES", {}).get("FILECHOOSER_SELECT_ERROR", "Σφάλμα κατά την επιλογή αρχείου: {err}").format(err=str(e)))
+                    self.show_error(
+                        S.get("MESSAGES", {})
+                        .get(
+                            "FILECHOOSER_SELECT_ERROR",
+                            "Σφάλμα κατά την επιλογή αρχείου: {err}",
+                        )
+                        .format(err=str(e))
+                    )
 
             activity.bind(on_activity_result=_activity_result)
             current_activity = PythonActivity.mActivity
             current_activity.startActivityForResult(intent, request_code)
         except Exception as e:
             Logger.warning(f"APP: Failed to open SAF picker: {str(e)}")
-            self.show_error(S.get("MESSAGES", {}).get("PICKER_OPEN_ERROR", "Αποτυχία ανοίγματος επιλογέα αρχείων: {err}").format(err=str(e)))
+            self.show_error(
+                S.get("MESSAGES", {})
+                .get("PICKER_OPEN_ERROR", "Αποτυχία ανοίγματος επιλογέα αρχείων: {err}")
+                .format(err=str(e))
+            )
 
     def use_local_mode(self, db_path):
         if not db_path or str(db_path).strip().lower() in ("none", "null"):
-            self.show_error(S.get("MESSAGES", {}).get("NO_DB_SELECTED", "Δεν επιλέχθηκε αρχείο βάσης"))
+            self.show_error(
+                S.get("MESSAGES", {}).get(
+                    "NO_DB_SELECTED", "Δεν επιλέχθηκε αρχείο βάσης"
+                )
+            )
             return
 
         def _continue_with_path(resolved_path):
@@ -509,7 +666,9 @@ class SubstationAndroidApp(App):
             self.change_log_path = None
             self._ensure_change_log_path()
             if hasattr(self, "mode_label"):
-                self.mode_label.text = S["MESSAGES"].get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση")
+                self.mode_label.text = S["MESSAGES"].get(
+                    "MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"
+                )
             # Only load substations if DB is valid and loaded
             self.load_substations(None)
 
@@ -518,7 +677,12 @@ class SubstationAndroidApp(App):
 
                 def _on_copy_done(success, val):
                     if not success:
-                        self.show_error(S["MESSAGES"].get("IMPORT_FAILED", "Αποτυχία ανοίγματος βάσης:") + f" {val}")
+                        self.show_error(
+                            S["MESSAGES"].get(
+                                "IMPORT_FAILED", "Αποτυχία ανοίγματος βάσης:"
+                            )
+                            + f" {val}"
+                        )
                         return
                     _continue_with_path(val)
 
@@ -646,7 +810,11 @@ class SubstationAndroidApp(App):
                 label.bind(
                     texture_size=lambda inst, val: setattr(inst, "height", val[1])
                 )
-                retry_btn = Button(text=S.get("MESSAGES", {}).get("RETRY", "Ξαναδοκίμασε"), size_hint_x=None, width=140)
+                retry_btn = Button(
+                    text=S.get("MESSAGES", {}).get("RETRY", "Ξαναδοκίμασε"),
+                    size_hint_x=None,
+                    width=140,
+                )
 
                 def _on_retry(_):
                     try:
@@ -721,29 +889,27 @@ class SubstationAndroidApp(App):
             # Header with app title and logo
             Logger.info("APP: Creating header with logo")
             header_box = BoxLayout(size_hint_y=0.12, spacing=10, padding=[10, 12])
-            
+
             # Try to add logo if it exists with white background
             try:
                 from kivy.uix.image import Image
                 from kivy.graphics import Color, Rectangle
+
                 logo_path = os.path.join(os.path.dirname(__file__), "logo_deddie.png")
                 if os.path.exists(logo_path):
                     # Create container for logo with white background (wider for better visibility)
                     logo_container = BoxLayout(size_hint_x=None, width=150, padding=3)
-                    
+
                     def redraw_bg(inst, val):
                         logo_container.canvas.before.clear()
                         with logo_container.canvas.before:
                             Color(1, 1, 1, 1)  # White background
                             Rectangle(size=inst.size, pos=inst.pos)
-                    
+
                     # Bind size and pos updates to redraw background rectangle
                     logo_container.bind(size=redraw_bg, pos=redraw_bg)
-                    
-                    logo = Image(
-                        source=logo_path,
-                        size_hint_x=1
-                    )
+
+                    logo = Image(source=logo_path, size_hint_x=1)
                     if hasattr(logo, "fit_mode"):
                         logo.fit_mode = "contain"
                     logo_container.add_widget(logo)
@@ -751,54 +917,57 @@ class SubstationAndroidApp(App):
                     header_box.add_widget(logo_container)
             except Exception as e:
                 Logger.warning(f"APP: Could not load logo: {e}")
-            
+
             header_label = Label(
                 text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
                 bold=True,
-                font_size='18sp',
-                halign='left',
-                valign='middle'
+                font_size="18sp",
+                halign="left",
+                valign="middle",
             )
-            header_label.bind(size=header_label.setter('text_size'))
+            header_label.bind(size=header_label.setter("text_size"))
             header_box.add_widget(header_label)
-            
+
             # Add spacer to push settings button to the right
             spacer = BoxLayout(size_hint_x=1)  # Takes up remaining space
             header_box.add_widget(spacer)
-            
+
             # Settings button in header - use IconOnlyButton from desktop ui.shared
             try:
                 from ui.shared import IconOnlyButton
+
                 settings_btn = IconOnlyButton(
                     icon_type="settings",
                     icon_color=[0.05, 0.18, 0.36, 1],
-                    size=(60, 60)
+                    size=(60, 60),
                 )
             except Exception:
                 # Fallback: use text button if IconOnlyButton not available
-                settings_btn = Button(text="⚙", font_size='28sp', size_hint_x=None, width=60)
-            
+                settings_btn = Button(
+                    text="⚙", font_size="28sp", size_hint_x=None, width=60
+                )
+
             settings_btn.bind(on_press=lambda x: self._show_sync_settings())
             header_box.add_widget(settings_btn)
-            
+
             main_layout.add_widget(header_box)
             Logger.info("APP: Header added")
 
             # Database selection bar (cleaner, single row)
             self.db_bar = BoxLayout(size_hint_y=0.06, spacing=8, padding=[10, 0])
-            
+
             self.mode_label = Label(
                 text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Τοπική Βάση"),
                 size_hint_x=0.65,
-                font_size='14sp',
-                halign='left'
+                font_size="14sp",
+                halign="left",
             )
-            self.mode_label.bind(size=self.mode_label.setter('text_size'))
+            self.mode_label.bind(size=self.mode_label.setter("text_size"))
 
             self.local_db_btn = Button(
                 text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Επιλογή ΒΔ"),
                 size_hint_x=0.35,
-                font_size='13sp'
+                font_size="13sp",
             )
             self.local_db_btn.bind(on_press=lambda _x: self.open_local_db_picker())
 
@@ -813,59 +982,59 @@ class SubstationAndroidApp(App):
 
             # Bottom button area - reorganized for better UX
             self.buttons_container = BoxLayout(
-                orientation="vertical", size_hint_y=0.16, spacing=5, padding=[5, 0, 5, 5]
+                orientation="vertical",
+                size_hint_y=0.16,
+                spacing=5,
+                padding=[5, 0, 5, 5],
             )
-            
+
             # PRIMARY ACTIONS ROW (larger, most common actions)
             primary_row = BoxLayout(size_hint_y=0.55, spacing=8)
-            
+
             self.refresh_btn = Button(
                 text=S.get("BUTTONS", {}).get("REFRESH", "Ανανέωση"),
-                font_size='16sp',
-                bold=True
+                font_size="16sp",
+                bold=True,
             )
             self.refresh_btn.bind(on_press=self.load_substations)
             primary_row.add_widget(self.refresh_btn)
-            
+
             self.buttons_container.add_widget(primary_row)
-            
+
             # SECONDARY ACTIONS ROW (smaller, system functions)
             secondary_row = BoxLayout(size_hint_y=0.45, spacing=8)
-            
-            self.sync_btn = Button(
-                text="Sync",
-                font_size='16sp',
-                bold=True
-            )
+
+            self.sync_btn = Button(text="Sync", font_size="16sp", bold=True)
             self.sync_btn.bind(on_press=self._on_sync_button_pressed)
             secondary_row.add_widget(self.sync_btn)
 
-            self.change_log_btn = Button(
-                text="Change Log",
-                font_size='16sp',
-                bold=True
-            )
+            self.change_log_btn = Button(text="Change Log", font_size="16sp", bold=True)
             self.change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
             secondary_row.add_widget(self.change_log_btn)
-            
+
             self.buttons_container.add_widget(secondary_row)
 
             main_layout.add_widget(self.buttons_container)
             Logger.info("APP: Buttons added (reorganized layout)")
 
             # Load data after UI is rendered (prevent ANR)
-            Logger.info("APP: Scheduling load_substations and startup sync to run after UI renders")
+            Logger.info(
+                "APP: Scheduling load_substations and startup sync to run after UI renders"
+            )
             if not self._auto_load_saved_db():
                 Clock.schedule_once(self.load_substations, 0.5)
                 Clock.schedule_once(self._run_startup_sync, 1.0)
                 try:
                     from config_manager import get_app_setting
+
                     minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)
                 except Exception:
                     minutes = 15
                 # Schedule periodic silent startup-sync checks using minutes setting
                 try:
-                    Clock.schedule_interval(lambda dt: self._run_startup_sync(dt), int(minutes) * 60)
+                    Clock.schedule_interval(
+                        lambda dt: self._run_startup_sync(dt), int(minutes) * 60
+                    )
                 except Exception:
                     pass
             else:
@@ -873,11 +1042,14 @@ class SubstationAndroidApp(App):
                 Clock.schedule_once(self._run_startup_sync, 1.0)
                 try:
                     from config_manager import get_app_setting
+
                     minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)
                 except Exception:
                     minutes = 15
                 try:
-                    Clock.schedule_interval(lambda dt: self._run_startup_sync(dt), int(minutes) * 60)
+                    Clock.schedule_interval(
+                        lambda dt: self._run_startup_sync(dt), int(minutes) * 60
+                    )
                 except Exception:
                     pass
 
@@ -993,7 +1165,8 @@ class SubstationAndroidApp(App):
             LEFT JOIN element_models em ON e.element_model_id = em.id
             WHERE e.substation_id = ? AND e.operating_status != 'Ανενεργή'
             ORDER BY e.gate
-            """, (substation_id,)
+            """,
+            (substation_id,),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -1105,7 +1278,11 @@ class SubstationAndroidApp(App):
                         texture_size=lambda inst, val: setattr(inst, "height", val[1])
                     )
                     copy_btn = Button(
-                        text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής"), size_hint_x=None, width=180
+                        text=S.get("MESSAGES", {}).get(
+                            "COPY_PATH", "Αντιγραφή διαδρομής"
+                        ),
+                        size_hint_x=None,
+                        width=180,
                     )
 
                     def _copy_path(_):
@@ -1119,7 +1296,9 @@ class SubstationAndroidApp(App):
                     copy_btn.bind(on_press=_copy_path)
                     # Open folder button (Android intent when available)
                     open_btn = Button(
-                        text=S["MESSAGES"].get("OPEN_FOLDER", "Άνοιγμα φακέλου"), size_hint_x=None, width=140
+                        text=S["MESSAGES"].get("OPEN_FOLDER", "Άνοιγμα φακέλου"),
+                        size_hint_x=None,
+                        width=140,
                     )
 
                     def _open_folder(_):
@@ -1159,7 +1338,11 @@ class SubstationAndroidApp(App):
                     notice.add_widget(open_btn)
 
                     # Share button (attempt Android share intent, fallback to copy path)
-                    share_btn = Button(text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση"), size_hint_x=None, width=120)
+                    share_btn = Button(
+                        text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση"),
+                        size_hint_x=None,
+                        width=120,
+                    )
 
                     def _share_file(_):
                         # Delegate to testable helper on the app instance
@@ -1233,7 +1416,11 @@ class SubstationAndroidApp(App):
                             size_hint_y=None, height=64, spacing=10, padding=8
                         )
                         fb_copy = Button(
-                            text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής"), size_hint_x=None, width=180
+                            text=S.get("MESSAGES", {}).get(
+                                "COPY_PATH", "Αντιγραφή διαδρομής"
+                            ),
+                            size_hint_x=None,
+                            width=180,
                         )
                         fb_notice.add_widget(fb_copy)
                         try:
@@ -1306,13 +1493,20 @@ class SubstationAndroidApp(App):
                 # Collapse the whole top bar in detail screens to reclaim space.
                 self.db_bar.size_hint_y = 0.06 if visible else 0
                 self.db_bar.height = 0 if not visible else self.db_bar.height
-            if hasattr(self, "buttons_container") and self.buttons_container is not None:
+            if (
+                hasattr(self, "buttons_container")
+                and self.buttons_container is not None
+            ):
                 self.buttons_container.opacity = 1 if visible else 0
                 # Collapse the whole bottom main-menu button area in detail screens.
                 self.buttons_container.size_hint_y = 0.16 if visible else 0
-                self.buttons_container.height = 0 if not visible else self.buttons_container.height
+                self.buttons_container.height = (
+                    0 if not visible else self.buttons_container.height
+                )
                 self.buttons_container.spacing = 5 if visible else 0
-                self.buttons_container.padding = [5, 0, 5, 5] if visible else [0, 0, 0, 0]
+                self.buttons_container.padding = (
+                    [5, 0, 5, 5] if visible else [0, 0, 0, 0]
+                )
         except Exception:
             pass
 
@@ -1377,7 +1571,9 @@ class SubstationAndroidApp(App):
                 # Surface error to the user so the stack/exception is visible in-app
                 import traceback as _tb
 
-                self.show_error(f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {_tb.format_exc()}")
+                self.show_error(
+                    f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {_tb.format_exc()}"
+                )
             except Exception:
                 pass
             try:
@@ -1418,7 +1614,9 @@ class SubstationAndroidApp(App):
                 except Exception as e:
                     # Surface error to the user and then fallback to clipboard
                     try:
-                        self.show_error(f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {e}")
+                        self.show_error(
+                            f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {e}"
+                        )
                     except Exception:
                         pass
                     try:
@@ -1435,7 +1633,9 @@ class SubstationAndroidApp(App):
                         pass
 
             open_btn.bind(on_press=_on_open)
-            share_btn = Button(text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση"))
+            share_btn = Button(
+                text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση")
+            )
 
             def _on_share(_):
                 try:
@@ -1481,20 +1681,23 @@ class SubstationAndroidApp(App):
     def _on_sync_button_pressed(self, instance):
         """Handle manual sync button press."""
         if not hasattr(self, "local_db_path") or not self.local_db_path:
-            self.show_error(S.get("MESSAGES", {}).get("NO_DB", "Δεν φορτώθηκε βάση δεδομένων"))
+            self.show_error(
+                S.get("MESSAGES", {}).get("NO_DB", "Δεν φορτώθηκε βάση δεδομένων")
+            )
             return
-        
+
         # Disable button to prevent multiple clicks
         self.sync_btn.disabled = True
         self.sync_btn.text = S.get("MESSAGES", {}).get("SYNCING", "Συγχρονισμός...")
-        
+
         def _sync_worker():
             try:
                 result = self._perform_sync()
                 Clock.schedule_once(lambda dt: self._on_sync_complete(result), 0)
             except Exception as e:
-                Clock.schedule_once(lambda dt: self._on_sync_error(str(e)), 0)
-        
+                err = str(e)
+                Clock.schedule_once(lambda dt, msg=err: self._on_sync_error(msg), 0)
+
         t = threading.Thread(target=_sync_worker, daemon=True)
         t.start()
 
@@ -1504,17 +1707,18 @@ class SubstationAndroidApp(App):
             if not hasattr(self, "local_db_path") or not self.local_db_path:
                 Logger.info("SYNC: Skipping startup sync - no DB loaded yet")
                 return
-            
+
             # Check if sync is enabled
             from config_manager import get_app_setting
+
             sync_enabled = get_app_setting("sync_auto_cycle_enabled", True)
             if not sync_enabled:
                 Logger.info("SYNC: Auto-sync disabled in settings")
                 return
-            
+
             Logger.info("SYNC: Starting startup sync cycle")
             result = self._perform_sync()
-            
+
             # Show result if there were changes
             if result:
                 sync_result = result.get("sync", {})
@@ -1533,30 +1737,35 @@ class SubstationAndroidApp(App):
         """Execute the sync cycle with the desktop sync_service."""
         try:
             from sync_service import run_sync_cycle
-            from android_sync_utils import ensure_android_sync_tree, ensure_android_backup_tree, resolve_android_sync_root, resolve_android_backup_root
+            from android_sync_utils import (
+                ensure_android_sync_tree,
+                ensure_android_backup_tree,
+                resolve_android_sync_root,
+                resolve_android_backup_root,
+            )
             from config_manager import get_app_setting
-            
+
             Logger.info("SYNC: Initializing sync...")
-            
+
             # Get database path
             db_path = getattr(self, "local_db_path", None)
             if not db_path or not os.path.exists(db_path):
                 Logger.warning("SYNC: No valid database path available")
                 raise RuntimeError("Δεν φορτώθηκε βάση δεδομένων")
-            
+
             # Create database connection
             conn = sqlite3.connect(db_path)
-            
+
             sync_root = resolve_android_sync_root(db_path)
             backup_root = resolve_android_backup_root(db_path)
-            
+
             # Ensure directory trees exist
             ensure_android_sync_tree(sync_root)
             ensure_android_backup_tree(backup_root)
-            
+
             Logger.info(f"SYNC: Using sync_root: {sync_root}")
             Logger.info(f"SYNC: Using backup_root: {backup_root}")
-            
+
             # Run the sync cycle (same as desktop)
             result = run_sync_cycle(
                 conn,
@@ -1564,14 +1773,16 @@ class SubstationAndroidApp(App):
                 sync_root=sync_root,
                 backup_root=backup_root,
                 actor="android_app",
-                create_backup_on_change=bool(get_app_setting("sync_backup_on_change", True)),
+                create_backup_on_change=bool(
+                    get_app_setting("sync_backup_on_change", True)
+                ),
                 hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
             )
-            
+
             conn.close()
             Logger.info(f"SYNC: Sync cycle completed: {result}")
             return result
-            
+
         except Exception as e:
             Logger.error(f"SYNC: Error during sync: {e}")
             raise
@@ -1580,17 +1791,19 @@ class SubstationAndroidApp(App):
         """Handle successful sync completion."""
         self.sync_btn.disabled = False
         self.sync_btn.text = "Sync"
-        
+
         if not result:
-            self.show_error(S.get("MESSAGES", {}).get("SYNC_ERROR", "Σφάλμα κατά τον συγχρονισμό"))
+            self.show_error(
+                S.get("MESSAGES", {}).get("SYNC_ERROR", "Σφάλμα κατά τον συγχρονισμό")
+            )
             return
-        
+
         # Show result summary
         sync_result = result.get("sync", {})
         accepted = sync_result.get("accepted", 0)
         already_applied = sync_result.get("already_applied", 0)
         conflicts = sync_result.get("conflicts", 0)
-        
+
         if accepted > 0 or conflicts > 0:
             msg = f"Συγχρονισμός ολοκληρώθηκε\nΕισήχθησαν: {accepted}"
             if conflicts > 0:
@@ -1599,9 +1812,9 @@ class SubstationAndroidApp(App):
             msg = f"Συγχρονισμός ολοκληρώθηκε\nΌλες οι αλλαγές ήδη εφαρμοσμένες ({already_applied})"
         else:
             msg = f"Συγχρονισμός ολοκληρώθηκε\nΔεν βρέθηκαν νέες αλλαγές"
-        
+
         self.show_error(msg, is_info=True)
-        
+
         # Refresh display
         self.load_substations(None)
 
@@ -1615,57 +1828,76 @@ class SubstationAndroidApp(App):
         """Show sync settings popup for configuring sync folder."""
         try:
             from config_manager import get_app_setting, set_app_setting
-            
+
             p = Popup(
-                title=S.get("MESSAGES", {}).get("SYNC_SETTINGS", "Ρυθμίσεις Συγχρονισμού"),
-                size_hint=(0.95, 0.6)
+                title=S.get("MESSAGES", {}).get(
+                    "SYNC_SETTINGS", "Ρυθμίσεις Συγχρονισμού"
+                ),
+                size_hint=(0.95, 0.6),
             )
             layout = BoxLayout(orientation="vertical", padding=15, spacing=15)
-            
+
             # Sync enabled checkbox (aligned at top with clear spacing)
             sync_enabled_row = BoxLayout(size_hint_y=None, height=50, spacing=10)
-            sync_enabled_row.add_widget(Label(
-                text=S.get("MESSAGES", {}).get("SYNC_AUTO_ENABLED_LABEL", "Αυτόματος συγχρονισμός:"),
-                size_hint_x=0.7,
-                valign='top'
-            ))
+            sync_enabled_row.add_widget(
+                Label(
+                    text=S.get("MESSAGES", {}).get(
+                        "SYNC_AUTO_ENABLED_LABEL", "Αυτόματος συγχρονισμός:"
+                    ),
+                    size_hint_x=0.7,
+                    valign="top",
+                )
+            )
             from kivy.uix.checkbox import CheckBox
+
             sync_chk = CheckBox(
                 active=bool(get_app_setting("sync_auto_cycle_enabled", True)),
                 size_hint_x=0.3,
                 size_hint_y=None,
-                height=50
+                height=50,
             )
             sync_enabled_row.add_widget(sync_chk)
             layout.add_widget(sync_enabled_row)
-            
+
             # Sync root path display (aligned at top)
             sync_root_path = get_app_setting("sync_root_path", "")
-            path_row = BoxLayout(orientation="vertical", size_hint_y=None, height=110, spacing=8)
-            path_row.add_widget(Label(
-                text=S.get("MESSAGES", {}).get("SYNC_ROOT_PATH_LABEL", "Φάκελος Συγχρονισμού:"),
-                size_hint_y=None,
-                height=30,
-                valign='top'
-            ))
-            
+            path_row = BoxLayout(
+                orientation="vertical", size_hint_y=None, height=110, spacing=8
+            )
+            path_row.add_widget(
+                Label(
+                    text=S.get("MESSAGES", {}).get(
+                        "SYNC_ROOT_PATH_LABEL", "Φάκελος Συγχρονισμού:"
+                    ),
+                    size_hint_y=None,
+                    height=30,
+                    valign="top",
+                )
+            )
+
             from kivy.uix.textinput import TextInput
+
             path_input = TextInput(
                 text=sync_root_path,
                 multiline=False,
                 size_hint_y=None,
                 height=50,
-                padding=[10, 10, 10, 10]
+                padding=[10, 10, 10, 10],
             )
             path_row.add_widget(path_input)
-            
-            path_row.add_widget(Label(
-                text=S.get("MESSAGES", {}).get("SYNC_ROOT_PATH_HINT", "Ή αφήστε κενό για προεπιλογή (δίπλα στη ΒΔ)"),
-                size_hint_y=None,
-                height=25,
-                color=(0.5, 0.5, 0.5, 1),
-                valign='top'
-            ))
+
+            path_row.add_widget(
+                Label(
+                    text=S.get("MESSAGES", {}).get(
+                        "SYNC_ROOT_PATH_HINT",
+                        "Ή αφήστε κενό για προεπιλογή (δίπλα στη ΒΔ)",
+                    ),
+                    size_hint_y=None,
+                    height=25,
+                    color=(0.5, 0.5, 0.5, 1),
+                    valign="top",
+                )
+            )
             # Warning/info label about Android sync limitations (content URIs / SAF)
             warning_label = Label(
                 text=(
@@ -1676,20 +1908,22 @@ class SubstationAndroidApp(App):
                 size_hint_y=None,
                 height=48,
                 color=(0.6, 0.2, 0.2, 1),
-                valign='top'
+                valign="top",
             )
             path_row.add_widget(warning_label)
             layout.add_widget(path_row)
-            
+
             # Buttons (aligned at top of popup)
             btn_layout = BoxLayout(size_hint_y=None, height=60, spacing=10)
-            
+
             save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
+
             def _save(*_):
                 # If user set a content URI, disable auto-sync and inform the user.
                 try:
                     from android_sync_utils import is_content_uri
                 except Exception:
+
                     def is_content_uri(x):
                         return str(x or "").startswith("content://")
 
@@ -1700,7 +1934,8 @@ class SubstationAndroidApp(App):
                     p.dismiss()
                     show_message_popup(
                         S.get("TITLES", {}).get("INFO", "Πληροφορία"),
-                        "Ορίσατε URI περιεχομένου (content://...). Το Αυτόματο συγχρονισμό απενεργοποιήθηκε επειδή το app δεν υποστηρίζει αυτόνομο cloud-API/SAF.")
+                        "Ορίσατε URI περιεχομένου (content://...). Το Αυτόματο συγχρονισμό απενεργοποιήθηκε επειδή το app δεν υποστηρίζει αυτόνομο cloud-API/SAF.",
+                    )
                     return
 
                 set_app_setting("sync_auto_cycle_enabled", bool(sync_chk.active))
@@ -1709,19 +1944,24 @@ class SubstationAndroidApp(App):
                 else:
                     set_app_setting("sync_root_path", None)
                 p.dismiss()
-                self.show_error(S.get("MESSAGES", {}).get("SETTINGS_SAVED", "Ρυθμίσεις αποθηκεύτηκαν"), is_info=True)
-            
+                self.show_error(
+                    S.get("MESSAGES", {}).get(
+                        "SETTINGS_SAVED", "Ρυθμίσεις αποθηκεύτηκαν"
+                    ),
+                    is_info=True,
+                )
+
             save_btn.bind(on_press=_save)
             btn_layout.add_widget(save_btn)
-            
+
             close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
             close_btn.bind(on_press=p.dismiss)
             btn_layout.add_widget(close_btn)
-            
+
             layout.add_widget(btn_layout)
             p.content = layout
             p.open()
-            
+
         except Exception as e:
             Logger.error(f"SYNC: Error showing sync settings: {e}")
             self.show_error(f"Σφάλμα: {str(e)}")
@@ -1819,7 +2059,9 @@ class SubstationAndroidApp(App):
                 except Exception as buffered_err:
                     # Some Android providers can reject bulk read(buffer).
                     # Fallback to bytewise read to preserve compatibility.
-                    Logger.warning(f"APP: Buffered content copy fallback: {buffered_err}")
+                    Logger.warning(
+                        f"APP: Buffered content copy fallback: {buffered_err}"
+                    )
                     try:
                         in_stream.close()
                     except Exception:
@@ -1923,7 +2165,9 @@ class SubstationAndroidApp(App):
                 try:
                     if progress is not None:
                         Clock.schedule_once(
-                            lambda _dt: setattr(progress, "value", getattr(progress, "max", 100)),
+                            lambda _dt: setattr(
+                                progress, "value", getattr(progress, "max", 100)
+                            ),
                             0,
                         )
                 except Exception:
@@ -1950,14 +2194,20 @@ class SubstationAndroidApp(App):
             Logger.info("APP: Clearing content_layout widgets")
             self.content_layout.clear_widgets()
             Logger.info("APP: Creating loading label")
-            loading_label = Label(text=S.get("MESSAGES", {}).get("LOADING", "Φόρτωση..."), size_hint_y=1)
+            loading_label = Label(
+                text=S.get("MESSAGES", {}).get("LOADING", "Φόρτωση..."), size_hint_y=1
+            )
             self.content_layout.add_widget(loading_label)
             Logger.info("APP: Loading label added")
 
             if not self.local_db_path:
                 self.content_layout.clear_widgets()
                 self.content_layout.add_widget(
-                    Label(text=S.get("MESSAGES", {}).get("ENTER_PATH", "Επίλεξε αρχείο βάσης για να ξεκινήσεις."))
+                    Label(
+                        text=S.get("MESSAGES", {}).get(
+                            "ENTER_PATH", "Επίλεξε αρχείο βάσης για να ξεκινήσεις."
+                        )
+                    )
                 )
                 return
 
@@ -1990,7 +2240,13 @@ class SubstationAndroidApp(App):
 
         if not self.substations:
             Logger.info("APP: No substations found - showing message")
-            self.content_layout.add_widget(Label(text=S.get("MESSAGES", {}).get("NO_SUBSTATIONS", "Κανένας υποσταθμός δεν βρέθηκε")))
+            self.content_layout.add_widget(
+                Label(
+                    text=S.get("MESSAGES", {}).get(
+                        "NO_SUBSTATIONS", "Κανένας υποσταθμός δεν βρέθηκε"
+                    )
+                )
+            )
             return
 
         scroll = ScrollView()
@@ -2017,18 +2273,22 @@ class SubstationAndroidApp(App):
                 markup=True,
                 size_hint_y=None,
                 height=160,
-                font_size='16sp',
+                font_size="16sp",
                 bold=True,
-                halign='center',
-                valign='middle',
+                halign="center",
+                valign="middle",
                 padding=[5, 5],
                 background_color=(0.18, 0.34, 0.52, 1),
             )
             substation_btn.bind(
-                size=lambda inst, _size: setattr(inst, "text_size", (inst.width - 10, inst.height - 8))
+                size=lambda inst, _size: setattr(
+                    inst, "text_size", (inst.width - 10, inst.height - 8)
+                )
             )
             substation_btn.bind(
-                on_press=lambda x, sid=substation["id"]: self.show_substation_details(sid)
+                on_press=lambda x, sid=substation["id"]: self.show_substation_details(
+                    sid
+                )
             )
             grid.add_widget(substation_btn)
 
@@ -2044,7 +2304,11 @@ class SubstationAndroidApp(App):
             (s for s in self.substations if s["id"] == substation_id), None
         )
         if not substation:
-            self.show_error(S.get("MESSAGES", {}).get("SUBSTATION_NOT_FOUND", "Substation not found"))
+            self.show_error(
+                S.get("MESSAGES", {}).get(
+                    "SUBSTATION_NOT_FOUND", "Substation not found"
+                )
+            )
             return
 
         self.current_substation = substation
@@ -2058,7 +2322,9 @@ class SubstationAndroidApp(App):
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=15)
 
         # Substation header with desktop-like summary details (increased spacing for readability)
-        header_layout = BoxLayout(orientation="vertical", size_hint_y=None, height=320, spacing=14)
+        header_layout = BoxLayout(
+            orientation="vertical", size_hint_y=None, height=320, spacing=14
+        )
         name_label = Label(
             text=substation["name"],
             bold=True,
@@ -2069,7 +2335,9 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
-        name_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
+        name_label.bind(
+            size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
+        )
 
         location = substation.get("location") or "-"
         location_text = (
@@ -2095,7 +2363,9 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
-        location_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
+        location_label.bind(
+            size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
+        )
 
         adoption_label = Label(
             text=f"{S.get('MESSAGES', {}).get('ADOPTION', 'Ανάληψη')}: {adoption_text}",
@@ -2106,7 +2376,9 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
-        adoption_label.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
+        adoption_label.bind(
+            size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
+        )
 
         counts_line_1 = Label(
             text=(
@@ -2120,7 +2392,9 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
-        counts_line_1.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
+        counts_line_1.bind(
+            size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
+        )
 
         counts_line_2 = Label(
             text=(
@@ -2134,7 +2408,9 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
-        counts_line_2.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
+        counts_line_2.bind(
+            size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
+        )
 
         counts_line_3 = Label(
             text=(
@@ -2148,7 +2424,9 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
-        counts_line_3.bind(size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None)))
+        counts_line_3.bind(
+            size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
+        )
 
         header_layout.add_widget(name_label)
         header_layout.add_widget(location_label)
@@ -2179,9 +2457,9 @@ class SubstationAndroidApp(App):
 
         maint_btn = Button(
             text=S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
-            font_size='18sp',
+            font_size="18sp",
             bold=True,
-            background_color=(0.2, 0.5, 0.7, 1)
+            background_color=(0.2, 0.5, 0.7, 1),
         )
         maint_btn.bind(
             on_press=lambda x: self.show_maintenance_menu(substation_id, substation)
@@ -2190,19 +2468,21 @@ class SubstationAndroidApp(App):
 
         inspect_btn = Button(
             text=S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
-            font_size='18sp',
+            font_size="18sp",
             bold=True,
-            background_color=(0.5, 0.5, 0.2, 1)
+            background_color=(0.5, 0.5, 0.2, 1),
         )
         inspect_btn.bind(
-            on_press=lambda x: self.show_inspection_entry_popup(substation_id, substation)
+            on_press=lambda x: self.show_inspection_entry_popup(
+                substation_id, substation
+            )
         )
         actions_container.add_widget(inspect_btn)
 
         back_btn = Button(
             text="< " + S.get("BUTTONS", {}).get("BACK", "Πίσω"),
-            font_size='18sp',
-            bold=True
+            font_size="18sp",
+            bold=True,
         )
         back_btn.bind(on_press=lambda x: self.load_substations(None))
         actions_container.add_widget(back_btn)
@@ -2214,7 +2494,11 @@ class SubstationAndroidApp(App):
     def _load_substation_elements(self, substation_id, grid):
         """Load and display elements for a substation"""
         grid.clear_widgets()
-        loading_label = Label(text=S.get("MESSAGES", {}).get("LOADING_ELEMENTS", "Φόρτωση στοιχείων..."), size_hint_y=None, height=40)
+        loading_label = Label(
+            text=S.get("MESSAGES", {}).get("LOADING_ELEMENTS", "Φόρτωση στοιχείων..."),
+            size_hint_y=None,
+            height=40,
+        )
         grid.add_widget(loading_label)
 
         if self.data_mode == "local":
@@ -2224,7 +2508,11 @@ class SubstationAndroidApp(App):
                     grid.remove_widget(loading_label)
                 if not elements:
                     grid.add_widget(
-                        Label(text=S["MESSAGES"]["NO_ELEMENTS"], size_hint_y=None, height=40)
+                        Label(
+                            text=S["MESSAGES"]["NO_ELEMENTS"],
+                            size_hint_y=None,
+                            height=40,
+                        )
                     )
                     return
                 for elem in elements:
@@ -2234,87 +2522,108 @@ class SubstationAndroidApp(App):
                         height=160,
                         spacing=8,
                         padding=[10, 10],
-                        orientation="horizontal"
+                        orientation="horizontal",
                     )
 
                     # Element info (main area)
-                    info_layout = BoxLayout(orientation="vertical", size_hint_x=1, spacing=8)
-                    
+                    info_layout = BoxLayout(
+                        orientation="vertical", size_hint_x=1, spacing=8
+                    )
+
                     # Line 1: Type and name
-                    elem_type_display = elem['element_type']
+                    elem_type_display = elem["element_type"]
                     if elem.get("breaker_category"):
                         elem_type_display += f" ({elem['breaker_category']})"
-                    
+
                     line1 = Label(
                         text=f"[b]{elem['name']}[/b] - {elem_type_display}",
                         markup=True,
-                        font_size='15sp',
-                        halign='left',
-                        valign='middle',
+                        font_size="15sp",
+                        halign="left",
+                        valign="middle",
                         size_hint_y=None,
                         height=42,
                         shorten=True,
-                        shorten_from='right',
+                        shorten_from="right",
                         max_lines=1,
                     )
-                    line1.bind(size=lambda inst, _size: setattr(inst, 'text_size', (inst.width, None)))
+                    line1.bind(
+                        size=lambda inst, _size: setattr(
+                            inst, "text_size", (inst.width, None)
+                        )
+                    )
                     info_layout.add_widget(line1)
-                    
+
                     # Line 2: S/N, manufacturer, model, ID (matching desktop format)
-                    sn = elem.get('serial_number') or '-'
-                    mfr = elem.get('model_manufacturer') or elem.get('manufacturer') or '-'
-                    mdl = elem.get('model_name') or elem.get('model') or '-'
-                    elem_id = elem.get('id', 'N/A')
+                    sn = elem.get("serial_number") or "-"
+                    mfr = (
+                        elem.get("model_manufacturer")
+                        or elem.get("manufacturer")
+                        or "-"
+                    )
+                    mdl = elem.get("model_name") or elem.get("model") or "-"
+                    elem_id = elem.get("id", "N/A")
                     line2 = Label(
                         text=f"S/N: {sn} | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id})",
-                        font_size='11sp',
-                        halign='left',
-                        valign='middle',
+                        font_size="11sp",
+                        halign="left",
+                        valign="middle",
                         color=(0.7, 0.7, 0.7, 1),
                         size_hint_y=None,
                         height=36,
                         shorten=True,
-                        shorten_from='right',
+                        shorten_from="right",
                         max_lines=1,
                     )
-                    line2.bind(size=lambda inst, _size: setattr(inst, 'text_size', (inst.width, None)))
+                    line2.bind(
+                        size=lambda inst, _size: setattr(
+                            inst, "text_size", (inst.width, None)
+                        )
+                    )
                     info_layout.add_widget(line2)
-                    
+
                     # Line 3: Voltage, year, status
-                    voltage = elem.get('voltage_level', '-')
-                    year = elem.get('manufacture_year', '')
-                    status = elem.get('operating_status', '-')
-                    
+                    voltage = elem.get("voltage_level", "-")
+                    year = elem.get("manufacture_year", "")
+                    status = elem.get("operating_status", "-")
+
                     status_prefix = "[OK]" if status == "Ενεργή" else "[!]"
                     line3_text = f"{voltage}"
                     if year:
                         line3_text += f" | Έτος: {year}"
                     line3_text += f" | {status_prefix} {status}"
-                    
+
                     line3 = Label(
                         text=line3_text,
-                        font_size='12sp',
-                        halign='left',
-                        valign='top',
+                        font_size="12sp",
+                        halign="left",
+                        valign="top",
                         color=(0.6, 0.6, 0.6, 1),
                         size_hint_y=None,
                         height=34,
                         shorten=True,
-                        shorten_from='right',
+                        shorten_from="right",
                         max_lines=1,
                     )
-                    line3.bind(size=lambda inst, _size: setattr(inst, 'text_size', (inst.width, None)))
+                    line3.bind(
+                        size=lambda inst, _size: setattr(
+                            inst, "text_size", (inst.width, None)
+                        )
+                    )
                     info_layout.add_widget(line3)
-                    
+
                     elem_card.add_widget(info_layout)
 
                     # Check for manual - prefer onedrive_manual_link, fallback to manual_pdf if it's a URL
                     manual_link = (elem.get("onedrive_manual_link") or "").strip()
                     if not manual_link:
                         manual_pdf = (elem.get("manual_pdf") or "").strip()
-                        if manual_pdf and (manual_pdf.startswith("http://") or manual_pdf.startswith("https://")):
+                        if manual_pdf and (
+                            manual_pdf.startswith("http://")
+                            or manual_pdf.startswith("https://")
+                        ):
                             manual_link = manual_pdf
-                    
+
                     if manual_link:
                         try:
                             from ui.shared import IconOnlyButton
@@ -2323,12 +2632,14 @@ class SubstationAndroidApp(App):
                                 icon_type="book",
                                 icon_color=(0.2, 0.7, 0.95, 1),
                                 size=(50, 50),
-                                tooltip=S.get("MESSAGES", {}).get("TOOLTIP_MANUAL", "Manual"),
+                                tooltip=S.get("MESSAGES", {}).get(
+                                    "TOOLTIP_MANUAL", "Manual"
+                                ),
                             )
                         except Exception:
                             manual_btn = Button(
                                 text="Manual",
-                                font_size='12sp',
+                                font_size="12sp",
                                 size_hint_x=None,
                                 width=60,
                                 background_color=(0.2, 0.7, 0.95, 1),
@@ -2337,31 +2648,34 @@ class SubstationAndroidApp(App):
                             on_press=lambda x, link=manual_link: self._open_url(link)
                         )
                         elem_card.add_widget(manual_btn)
-                    
+
                     # Add maintenance history button only if element has maintenance records
-                    element_id = elem.get('id')
+                    element_id = elem.get("id")
                     if self._has_element_maintenance_history(element_id):
                         try:
                             from ui.shared import IconOnlyButton
+
                             history_btn = IconOnlyButton(
                                 icon_type="maintenance",
                                 icon_color=(0.4, 0.6, 0.8, 1),
-                                size=(50, 50)
+                                size=(50, 50),
                             )
                         except Exception:
                             # Fallback to text button if IconOnlyButton not available
                             history_btn = Button(
                                 text="History",
-                                font_size='12sp',
+                                font_size="12sp",
                                 size_hint_x=None,
                                 width=60,
-                                background_color=(0.3, 0.6, 0.8, 1)
+                                background_color=(0.3, 0.6, 0.8, 1),
                             )
                         history_btn.bind(
-                            on_press=lambda x, eid=element_id, ename=elem.get('name'): self.show_element_maintenance_history(eid, ename)
+                            on_press=lambda x, eid=element_id, ename=elem.get("name"): (
+                                self.show_element_maintenance_history(eid, ename)
+                            )
                         )
                         elem_card.add_widget(history_btn)
-                    
+
                     grid.add_widget(elem_card)
 
                     # Clear visual divider between entries for readability.
@@ -2370,11 +2684,11 @@ class SubstationAndroidApp(App):
                         size_hint_y=None,
                         height=12,
                         color=(0.4, 0.4, 0.4, 1),
-                        font_size='11sp',
-                        halign='center',
-                        valign='middle'
+                        font_size="11sp",
+                        halign="center",
+                        valign="middle",
                     )
-                    separator.bind(size=separator.setter('text_size'))
+                    separator.bind(size=separator.setter("text_size"))
                     grid.add_widget(separator)
             except Exception as e:
                 if loading_label.parent:
@@ -2386,25 +2700,52 @@ class SubstationAndroidApp(App):
 
     def show_add_substation_popup(self, instance):
         """Show popup to add a new substation"""
-        popup = Popup(title=S["MESSAGES"].get("ADD_SUBSTATION_TITLE", "Προσθήκη Υποσταθμού"), size_hint=(0.95, 0.7))
+        popup = Popup(
+            title=S["MESSAGES"].get("ADD_SUBSTATION_TITLE", "Προσθήκη Υποσταθμού"),
+            size_hint=(0.95, 0.7),
+        )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
-        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("SUBSTATION_NAME_LABEL", "Όνομα Υποσταθμού:"), size_hint_y=0.15))
-        name_input = TextInput(hint_text=S.get("MESSAGES", {}).get("SUBSTATION_NAME_HINT", "Όνομα"), size_hint_y=0.15, multiline=False)
+        layout.add_widget(
+            Label(
+                text=S.get("MESSAGES", {}).get(
+                    "SUBSTATION_NAME_LABEL", "Όνομα Υποσταθμού:"
+                ),
+                size_hint_y=0.15,
+            )
+        )
+        name_input = TextInput(
+            hint_text=S.get("MESSAGES", {}).get("SUBSTATION_NAME_HINT", "Όνομα"),
+            size_hint_y=0.15,
+            multiline=False,
+        )
         layout.add_widget(name_input)
 
         # Location input
-        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("LOC", "Τοποθεσία:"), size_hint_y=0.15))
+        layout.add_widget(
+            Label(text=S.get("MESSAGES", {}).get("LOC", "Τοποθεσία:"), size_hint_y=0.15)
+        )
         location_input = TextInput(
-            hint_text=S.get("MESSAGES", {}).get("LOC", "Τοποθεσία"), size_hint_y=0.15, multiline=False
+            hint_text=S.get("MESSAGES", {}).get("LOC", "Τοποθεσία"),
+            size_hint_y=0.15,
+            multiline=False,
         )
         layout.add_widget(location_input)
 
         # Adoption date input
-        layout.add_widget(Label(text=S.get("MESSAGES", {}).get("ADOPTION_DATE_LABEL", "Ημερομηνία Υιοθέτησης:"), size_hint_y=0.15))
+        layout.add_widget(
+            Label(
+                text=S.get("MESSAGES", {}).get(
+                    "ADOPTION_DATE_LABEL", "Ημερομηνία Υιοθέτησης:"
+                ),
+                size_hint_y=0.15,
+            )
+        )
         date_input = TextInput(
-            hint_text=S.get("MESSAGES", {}).get("DATE_HINT", "YYYY-MM-DD"), size_hint_y=0.15, multiline=False
+            hint_text=S.get("MESSAGES", {}).get("DATE_HINT", "YYYY-MM-DD"),
+            size_hint_y=0.15,
+            multiline=False,
         )
         layout.add_widget(date_input)
 
@@ -2413,7 +2754,11 @@ class SubstationAndroidApp(App):
 
         def add_substation():
             if not name_input.text.strip():
-                self.show_error(S.get("MESSAGES", {}).get("NAME_REQUIRED", "Το όνομα είναι υποχρεωτικό"))
+                self.show_error(
+                    S.get("MESSAGES", {}).get(
+                        "NAME_REQUIRED", "Το όνομα είναι υποχρεωτικό"
+                    )
+                )
                 return
 
             try:
@@ -2429,7 +2774,12 @@ class SubstationAndroidApp(App):
                     "insert", "substations", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup(S["TITLES"]["SUCCESS"], S.get("MESSAGES", {}).get("CHANGELOG_RECORDED", "Η αλλαγή καταγράφηκε στο change log."))
+                show_message_popup(
+                    S["TITLES"]["SUCCESS"],
+                    S.get("MESSAGES", {}).get(
+                        "CHANGELOG_RECORDED", "Η αλλαγή καταγράφηκε στο change log."
+                    ),
+                )
             except Exception as e:
                 Logger.error(f"APP: Failed to append substation to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -2448,7 +2798,10 @@ class SubstationAndroidApp(App):
 
     def show_add_element_popup(self, substation_id):
         """Show popup to add a new element"""
-        popup = Popup(title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"), size_hint=(0.95, 0.9))
+        popup = Popup(
+            title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"),
+            size_hint=(0.95, 0.9),
+        )
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Scrollable input area
@@ -2473,7 +2826,11 @@ class SubstationAndroidApp(App):
             return label
 
         # Element type
-        layout.add_widget(wrapped_label(S.get("MESSAGES", {}).get("ELEMENT_TYPE_LABEL", "Τύπος Στοιχείου:")))
+        layout.add_widget(
+            wrapped_label(
+                S.get("MESSAGES", {}).get("ELEMENT_TYPE_LABEL", "Τύπος Στοιχείου:")
+            )
+        )
         element_spinner = Spinner(
             text=self.ELEMENT_TYPES[0],
             values=self.ELEMENT_TYPES,
@@ -2491,15 +2848,13 @@ class SubstationAndroidApp(App):
                     text=field["values"][0],
                     values=field["values"],
                     size_hint_y=None,
-                    height=80
+                    height=80,
                 )
                 field_inputs[field["key"]] = spinner
                 layout.add_widget(spinner)
             else:
                 ti = TextInput(
-                    hint_text=field.get("hint", ""),
-                    size_hint_y=None,
-                    height=90
+                    hint_text=field.get("hint", ""), size_hint_y=None, height=90
                 )
                 field_inputs[field["key"]] = ti
                 layout.add_widget(ti)
@@ -2550,7 +2905,9 @@ class SubstationAndroidApp(App):
                     "insert", "elements", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
+                show_message_popup(
+                    S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log."
+                )
             except Exception as e:
                 Logger.error(f"APP: Failed to append element to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -2572,11 +2929,13 @@ class SubstationAndroidApp(App):
         from reports import show_confirm
 
         def do_delete():
-                try:
-                    self._append_change_log("delete", "elements", {"id": element_id})
-                    show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
-                except Exception as e:
-                    self.show_error(f"Local DB error: {str(e)}")
+            try:
+                self._append_change_log("delete", "elements", {"id": element_id})
+                show_message_popup(
+                    S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log."
+                )
+            except Exception as e:
+                self.show_error(f"Local DB error: {str(e)}")
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",
@@ -2592,11 +2951,13 @@ class SubstationAndroidApp(App):
         from reports import show_confirm
 
         def do_delete():
-                try:
-                    self._append_change_log("delete", "substations", {"id": substation_id})
-                    show_message_popup(S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log.")
-                except Exception as e:
-                    self.show_error(f"Local DB error: {str(e)}")
+            try:
+                self._append_change_log("delete", "substations", {"id": substation_id})
+                show_message_popup(
+                    S["TITLES"]["SUCCESS"], "Η αλλαγή καταγράφηκε στο change log."
+                )
+            except Exception as e:
+                self.show_error(f"Local DB error: {str(e)}")
 
         show_confirm(
             "Επιβεβαίωση Διαγραφής",
@@ -2640,8 +3001,13 @@ class SubstationAndroidApp(App):
         # Maintenance Type
         content_layout.add_widget(wrapped_label("Τύπος Συντήρησης:"))
         maint_type_spinner = Spinner(
-            text=S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"),
-            values=S.get("MESSAGES", {}).get("MAINTENANCE_TYPES", ["Επαναληπτική συντήρηση", "Βλάβη", "Φυσικοχημικές/Αεριοχρωματογραφία"]),
+            text=S.get("MESSAGES", {}).get(
+                "MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"
+            ),
+            values=S.get("MESSAGES", {}).get(
+                "MAINTENANCE_TYPES",
+                ["Επαναληπτική συντήρηση", "Βλάβη", "Φυσικοχημικές/Αεριοχρωματογραφία"],
+            ),
             size_hint_y=None,
             height=56,
         )
@@ -2662,26 +3028,30 @@ class SubstationAndroidApp(App):
         # Overall comments (rendered outside the scrolling elements list
         # so it remains visible and cannot be overlapped while elements load - auto-grow with content)
         overall_comments = TextInput(
-            hint_text=S.get("MESSAGES", {}).get("OVERALL_COMMENTS_HINT", "Γενικά σχόλια για την συντήρηση..."),
+            hint_text=S.get("MESSAGES", {}).get(
+                "OVERALL_COMMENTS_HINT", "Γενικά σχόλια για την συντήρηση..."
+            ),
             size_hint_y=None,
             height=150,
             multiline=True,
             padding=[12, 12, 12, 12],
         )
-        
+
         def _adjust_overall_comments_height(instance, value):
             try:
                 lines = max(1, instance.text.count("\n") + 1)
                 instance.height = max(150, min(400, lines * 35))
             except Exception:
                 instance.height = 150
-        
+
         overall_comments.bind(text=_adjust_overall_comments_height)
 
         # Elements section
         content_layout.add_widget(
             Label(
-                text=S.get("MESSAGES", {}).get("ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"),
+                text=S.get("MESSAGES", {}).get(
+                    "ELEMENTS_LIST_LABEL", "Στοιχεία που συντηρήθηκαν:"
+                ),
                 size_hint_y=None,
                 height=40,
                 bold=True,
@@ -2715,7 +3085,11 @@ class SubstationAndroidApp(App):
                         content_layout.remove_widget(loading_label)
                     if not elements:
                         content_layout.add_widget(
-                            Label(text=S["MESSAGES"]["NO_ELEMENTS"], size_hint_y=None, height=40)
+                            Label(
+                                text=S["MESSAGES"]["NO_ELEMENTS"],
+                                size_hint_y=None,
+                                height=40,
+                            )
                         )
                         return
                     for elem in elements:
@@ -2734,18 +3108,24 @@ class SubstationAndroidApp(App):
 
                         # Line 1: Name and type
                         elem_text = f"{elem['name']} - {elem_type_display}\n"
-                        
+
                         # Line 2: S/N, manufacturer, model, ID (matching substation view format)
-                        sn = elem.get('serial_number') or '-'
-                        mfr = elem.get('model_manufacturer') or elem.get('manufacturer') or '-'
-                        mdl = elem.get('model_name') or elem.get('model') or '-'
-                        elem_id = elem.get('id', 'N/A')
-                        elem_text += f"S/N: {sn} | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id})\n"
-                        
+                        sn = elem.get("serial_number") or "-"
+                        mfr = (
+                            elem.get("model_manufacturer")
+                            or elem.get("manufacturer")
+                            or "-"
+                        )
+                        mdl = elem.get("model_name") or elem.get("model") or "-"
+                        elem_id = elem.get("id", "N/A")
+                        elem_text += (
+                            f"S/N: {sn} | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id})\n"
+                        )
+
                         # Line 3: Voltage, year, status
-                        voltage = elem.get('voltage_level', '-')
-                        year = elem.get('manufacture_year', '')
-                        status = elem.get('operating_status', '-')
+                        voltage = elem.get("voltage_level", "-")
+                        year = elem.get("manufacture_year", "")
+                        status = elem.get("operating_status", "-")
                         status_prefix = "[OK]" if status == "Ενεργή" else "[!]"
                         elem_text += f"{voltage}"
                         if year:
@@ -2789,7 +3169,9 @@ class SubstationAndroidApp(App):
 
                         # Allow comments to expand vertically with content for better readability on mobile
                         elem_comments = TextInput(
-                            hint_text=S.get("MESSAGES", {}).get("ELEM_COMMENTS_HINT", "Σχόλια για αυτό το στοιχείο..."),
+                            hint_text=S.get("MESSAGES", {}).get(
+                                "ELEM_COMMENTS_HINT", "Σχόλια για αυτό το στοιχείο..."
+                            ),
                             size_hint_y=None,
                             height=80,
                             multiline=True,
@@ -2812,18 +3194,43 @@ class SubstationAndroidApp(App):
                         measurements_fields_container = None
                         elem_type = elem["element_type"]
                         breaker_category = elem.get("breaker_category", "")
-                        
+
                         is_breaker = elem_type in [
-                            S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"),
-                            S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"),
+                            S.get("MESSAGES", {}).get(
+                                "ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"
+                            ),
+                            S.get("MESSAGES", {}).get(
+                                "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
+                            ),
                         ]
-                        is_transformer = self._is_transformer(elem_type) and not is_breaker
+                        is_transformer = (
+                            self._is_transformer(elem_type) and not is_breaker
+                        )
                         has_measurement_form = bool(is_breaker or is_transformer)
-                        
+
                         is_sf6_breaker = is_breaker and breaker_category == "SF6"
-                        is_hv_sf6 = elem_type == S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ") and breaker_category == "SF6"
-                        is_mv_sf6 = elem_type == S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ") and breaker_category == "SF6"
-                        is_vacuum_breaker = is_breaker and breaker_category in ["Κενού", "Vacuum"] and elem_type == S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
+                        is_hv_sf6 = (
+                            elem_type
+                            == S.get("MESSAGES", {}).get(
+                                "ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"
+                            )
+                            and breaker_category == "SF6"
+                        )
+                        is_mv_sf6 = (
+                            elem_type
+                            == S.get("MESSAGES", {}).get(
+                                "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
+                            )
+                            and breaker_category == "SF6"
+                        )
+                        is_vacuum_breaker = (
+                            is_breaker
+                            and breaker_category in ["Κενού", "Vacuum"]
+                            and elem_type
+                            == S.get("MESSAGES", {}).get(
+                                "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
+                            )
+                        )
 
                         # Add measurements toggle checkbox if element has measurement form
                         if has_measurement_form:
@@ -2844,11 +3251,17 @@ class SubstationAndroidApp(App):
                                 size_hint_y=None, spacing=5, orientation="vertical"
                             )
                             measurements_fields_container.bind(
-                                minimum_height=measurements_fields_container.setter("height")
+                                minimum_height=measurements_fields_container.setter(
+                                    "height"
+                                )
                             )
 
                         # Standard breaker measurements (exclude HV SF6 breakers - they have their own form)
-                        if is_breaker and not is_hv_sf6 and measurements_fields_container:
+                        if (
+                            is_breaker
+                            and not is_hv_sf6
+                            and measurements_fields_container
+                        ):
                             measurements_fields_container.add_widget(
                                 wrapped_label("Μονώσεις (Κλειστό):")
                             )
@@ -2945,7 +3358,9 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("Μετρητής Χειρισμών:")
                             )
-                            ops_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            ops_layout = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
                             ops_layout.add_widget(
                                 Label(text="Αριθμός Χειρισμών:", size_hint_x=0.4)
                             )
@@ -2963,7 +3378,9 @@ class SubstationAndroidApp(App):
                         # Medium voltage SF6-specific measurements (added to standard breaker form)
                         if is_mv_sf6 and measurements_fields_container:
                             # SF6 Leakage
-                            leak_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            leak_layout = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
                             leak_layout.add_widget(
                                 Label(text="Διαρροή SF6 (kg):", size_hint_x=0.5)
                             )
@@ -2977,11 +3394,16 @@ class SubstationAndroidApp(App):
                             leak_layout.add_widget(mv_sf6_leak_input)
                             measurements_fields_container.add_widget(leak_layout)
                             measurements["mv_sf6_leakage_kg"] = mv_sf6_leak_input
-                            
+
                             # SF6 Leak Methodology
-                            method_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            method_layout = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
                             method_layout.add_widget(
-                                Label(text="Πλήρωση/Αντικατάσταση (Μεθοδολογία):", size_hint_x=0.5)
+                                Label(
+                                    text="Πλήρωση/Αντικατάσταση (Μεθοδολογία):",
+                                    size_hint_x=0.5,
+                                )
                             )
                             mv_sf6_method_input = TextInput(
                                 hint_text="Μεθοδολογία",
@@ -2992,28 +3414,44 @@ class SubstationAndroidApp(App):
                             )
                             method_layout.add_widget(mv_sf6_method_input)
                             measurements_fields_container.add_widget(method_layout)
-                            measurements["mv_sf6_leak_methodology"] = mv_sf6_method_input
-                            
+                            measurements["mv_sf6_leak_methodology"] = (
+                                mv_sf6_method_input
+                            )
+
                             # Quality header
                             measurements_fields_container.add_widget(
                                 wrapped_label("ΠΟΙΟΤΗΤΑ ΑΕΡΙΟΥ SF6:")
                             )
-                            
+
                             # Table header row
-                            quality_header = BoxLayout(size_hint_y=None, height=40, spacing=8)
+                            quality_header = BoxLayout(
+                                size_hint_y=None, height=40, spacing=8
+                            )
                             quality_header.add_widget(Label(text="", size_hint_x=0.15))
-                            quality_header.add_widget(Label(text="SF6/N2 (%)", size_hint_x=0.28, bold=True))
-                            quality_header.add_widget(Label(text="H2O (°C atm)", size_hint_x=0.28, bold=True))
-                            quality_header.add_widget(Label(text="SO2 (ppm)", size_hint_x=0.29, bold=True))
+                            quality_header.add_widget(
+                                Label(text="SF6/N2 (%)", size_hint_x=0.28, bold=True)
+                            )
+                            quality_header.add_widget(
+                                Label(text="H2O (°C atm)", size_hint_x=0.28, bold=True)
+                            )
+                            quality_header.add_widget(
+                                Label(text="SO2 (ppm)", size_hint_x=0.29, bold=True)
+                            )
                             measurements_fields_container.add_widget(quality_header)
-                            
+
                             # Phase rows
-                            for phase, phase_label in [("fa", "ΦΑ"), ("fb", "ΦΒ"), ("fc", "ΦΓ")]:
-                                phase_layout = BoxLayout(size_hint_y=None, height=50, spacing=8)
+                            for phase, phase_label in [
+                                ("fa", "ΦΑ"),
+                                ("fb", "ΦΒ"),
+                                ("fc", "ΦΓ"),
+                            ]:
+                                phase_layout = BoxLayout(
+                                    size_hint_y=None, height=50, spacing=8
+                                )
                                 phase_layout.add_widget(
                                     Label(text=f"{phase_label}:", size_hint_x=0.15)
                                 )
-                                
+
                                 # SF6/N2
                                 sf6n2_input = TextInput(
                                     hint_text="0.0",
@@ -3024,7 +3462,7 @@ class SubstationAndroidApp(App):
                                 )
                                 phase_layout.add_widget(sf6n2_input)
                                 measurements[f"mv_sf6_n2_{phase}"] = sf6n2_input
-                                
+
                                 # H2O
                                 h2o_input = TextInput(
                                     hint_text="0.0",
@@ -3035,7 +3473,7 @@ class SubstationAndroidApp(App):
                                 )
                                 phase_layout.add_widget(h2o_input)
                                 measurements[f"mv_h2o_{phase}"] = h2o_input
-                                
+
                                 # SO2
                                 so2_input = TextInput(
                                     hint_text="0.0",
@@ -3046,7 +3484,7 @@ class SubstationAndroidApp(App):
                                 )
                                 phase_layout.add_widget(so2_input)
                                 measurements[f"mv_so2_{phase}"] = so2_input
-                                
+
                                 measurements_fields_container.add_widget(phase_layout)
 
                         # VIDAR measurements for vacuum breakers (single row layout matching desktop)
@@ -3054,12 +3492,16 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):")
                             )
-                            
+
                             # Single row with all three phases
-                            vidar_layout = BoxLayout(size_hint_y=None, height=50, spacing=4)
-                            
+                            vidar_layout = BoxLayout(
+                                size_hint_y=None, height=50, spacing=4
+                            )
+
                             # Phase A
-                            vidar_layout.add_widget(Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15))
+                            vidar_layout.add_widget(
+                                Label(text="ΦΑ-ΦΑ:", size_hint_x=0.15)
+                            )
                             vidar_fa_input = TextInput(
                                 hint_text="0.0",
                                 size_hint_x=0.25,
@@ -3069,9 +3511,11 @@ class SubstationAndroidApp(App):
                             )
                             vidar_layout.add_widget(vidar_fa_input)
                             measurements["vidar_fa"] = vidar_fa_input
-                            
+
                             # Phase B
-                            vidar_layout.add_widget(Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15))
+                            vidar_layout.add_widget(
+                                Label(text="ΦΒ-ΦΒ:", size_hint_x=0.15)
+                            )
                             vidar_fb_input = TextInput(
                                 hint_text="0.0",
                                 size_hint_x=0.25,
@@ -3081,9 +3525,11 @@ class SubstationAndroidApp(App):
                             )
                             vidar_layout.add_widget(vidar_fb_input)
                             measurements["vidar_fb"] = vidar_fb_input
-                            
+
                             # Phase C
-                            vidar_layout.add_widget(Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15))
+                            vidar_layout.add_widget(
+                                Label(text="ΦΓ-ΦΓ:", size_hint_x=0.15)
+                            )
                             vidar_fc_input = TextInput(
                                 hint_text="0.0",
                                 size_hint_x=0.05,
@@ -3093,7 +3539,7 @@ class SubstationAndroidApp(App):
                             )
                             vidar_layout.add_widget(vidar_fc_input)
                             measurements["vidar_fc"] = vidar_fc_input
-                            
+
                             measurements_fields_container.add_widget(vidar_layout)
 
                         # High-voltage SF6-specific form (only for ΥΤ & SF6)
@@ -3102,7 +3548,9 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ")
                             )
-                            hv_ops_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            hv_ops_layout = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
                             hv_ops_layout.add_widget(
                                 Label(text="Αριθμός Χειρισμών:", size_hint_x=0.6)
                             )
@@ -3116,16 +3564,21 @@ class SubstationAndroidApp(App):
                             hv_ops_layout.add_widget(hv_ops_input)
                             measurements_fields_container.add_widget(hv_ops_layout)
                             measurements["hv_sf6_operations_count"] = hv_ops_input
-                            
+
                             # Breaker status section
                             measurements_fields_container.add_widget(
                                 wrapped_label("ΚΑΤΑΣΤΑΣΗ ΔΙΑΚΟΠΤΗ")
                             )
-                            
+
                             # Lubrication checkbox
-                            lubrication_row = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            lubrication_row = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
                             lubrication_row.add_widget(
-                                Label(text="Λίπανση μηχανισμού αρθρώσεων:", size_hint_x=0.7)
+                                Label(
+                                    text="Λίπανση μηχανισμού αρθρώσεων:",
+                                    size_hint_x=0.7,
+                                )
                             )
                             lubrication_cb = CheckBox(
                                 size_hint=(None, None),
@@ -3134,7 +3587,7 @@ class SubstationAndroidApp(App):
                             lubrication_row.add_widget(lubrication_cb)
                             measurements_fields_container.add_widget(lubrication_row)
                             measurements["hv_sf6_lubrication"] = lubrication_cb
-                            
+
                             # Leak check (free text)
                             leak_check_input = TextInput(
                                 hint_text="Έλεγχος Διαρροών Sf6",
@@ -3145,9 +3598,11 @@ class SubstationAndroidApp(App):
                             )
                             measurements_fields_container.add_widget(leak_check_input)
                             measurements["hv_sf6_leak_check"] = leak_check_input
-                            
+
                             # Refill SF6 checkbox
-                            refill_row = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            refill_row = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
                             refill_row.add_widget(
                                 Label(text="Συμπλήρωση Sf6:", size_hint_x=0.7)
                             )
@@ -3158,7 +3613,7 @@ class SubstationAndroidApp(App):
                             refill_row.add_widget(refill_cb)
                             measurements_fields_container.add_widget(refill_row)
                             measurements["hv_sf6_refill"] = refill_cb
-                            
+
                             # Synchronization check (free text)
                             synch_check_input = TextInput(
                                 hint_text="Έλεγχος ταυτοχρονισμού",
@@ -3169,7 +3624,7 @@ class SubstationAndroidApp(App):
                             )
                             measurements_fields_container.add_widget(synch_check_input)
                             measurements["hv_sf6_synch_check"] = synch_check_input
-                            
+
                             # Wash insulators (free text)
                             wash_insulators_input = TextInput(
                                 hint_text="Πλύσιμο Μονωτήρων – Έλεγχος Φθοράς",
@@ -3178,9 +3633,13 @@ class SubstationAndroidApp(App):
                                 height=50,
                                 padding=[10, 10, 10, 10],
                             )
-                            measurements_fields_container.add_widget(wash_insulators_input)
-                            measurements["hv_sf6_wash_insulators"] = wash_insulators_input
-                            
+                            measurements_fields_container.add_widget(
+                                wash_insulators_input
+                            )
+                            measurements["hv_sf6_wash_insulators"] = (
+                                wash_insulators_input
+                            )
+
                             # Corrosion check (free text)
                             corrosion_check_input = TextInput(
                                 hint_text="Έλεγχος Διάβρωσης Εξωτερικών Μεταλλικών Τμημάτων",
@@ -3189,21 +3648,33 @@ class SubstationAndroidApp(App):
                                 height=50,
                                 padding=[10, 10, 10, 10],
                             )
-                            measurements_fields_container.add_widget(corrosion_check_input)
-                            measurements["hv_sf6_corrosion_check"] = corrosion_check_input
-                            
+                            measurements_fields_container.add_widget(
+                                corrosion_check_input
+                            )
+                            measurements["hv_sf6_corrosion_check"] = (
+                                corrosion_check_input
+                            )
+
                             # Resistance measurement header
                             measurements_fields_container.add_widget(
                                 wrapped_label("Μέτρηση Αντίστασης Διαβάσεως (MΩ)")
                             )
-                            
+
                             # Resistance header row
-                            raid_header = BoxLayout(size_hint_y=None, height=40, spacing=8)
-                            raid_header.add_widget(Label(text="Α(ΦΑΣΗ)", size_hint_x=0.33))
-                            raid_header.add_widget(Label(text="Β(ΦΑΣΗ)", size_hint_x=0.33))
-                            raid_header.add_widget(Label(text="C(ΦΑΣΗ)", size_hint_x=0.34))
+                            raid_header = BoxLayout(
+                                size_hint_y=None, height=40, spacing=8
+                            )
+                            raid_header.add_widget(
+                                Label(text="Α(ΦΑΣΗ)", size_hint_x=0.33)
+                            )
+                            raid_header.add_widget(
+                                Label(text="Β(ΦΑΣΗ)", size_hint_x=0.33)
+                            )
+                            raid_header.add_widget(
+                                Label(text="C(ΦΑΣΗ)", size_hint_x=0.34)
+                            )
                             measurements_fields_container.add_widget(raid_header)
-                            
+
                             # Resistance input row
                             raid_row = BoxLayout(size_hint_y=None, height=50, spacing=8)
                             raid_a_input = TextInput(
@@ -3238,7 +3709,9 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("ΧΕΙΡΙΣΜΟΙ")
                             )
-                            satyf_layout = BoxLayout(size_hint_y=None, height=60, spacing=8)
+                            satyf_layout = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
                             satyf_layout.add_widget(
                                 Label(text="Απαριθμητής ΣΑΤΥΦ:", size_hint_x=0.5)
                             )
@@ -3257,19 +3730,39 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("1. ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ")
                             )
-                            ins_fracture = TextInput(hint_text="ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ", multiline=False, size_hint_y=None, height=50)
+                            ins_fracture = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(ins_fracture)
                             measurements["insulators_fracture_check"] = ins_fracture
-                            
-                            ins_leaks = TextInput(hint_text="ΔΙΑΡΡΟΕΣ", multiline=False, size_hint_y=None, height=50)
+
+                            ins_leaks = TextInput(
+                                hint_text="ΔΙΑΡΡΟΕΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(ins_leaks)
                             measurements["insulators_leaks"] = ins_leaks
-                            
-                            ins_cleaning = TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=50)
+
+                            ins_cleaning = TextInput(
+                                hint_text="ΚΑΘΑΡΙΣΜΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(ins_cleaning)
                             measurements["insulators_cleaning"] = ins_cleaning
-                            
-                            ins_spikes = TextInput(hint_text="ΑΚΙΔΕΣ", multiline=False, size_hint_y=None, height=50)
+
+                            ins_spikes = TextInput(
+                                hint_text="ΑΚΙΔΕΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(ins_spikes)
                             measurements["insulators_spikes"] = ins_spikes
 
@@ -3277,16 +3770,30 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("2. ΛΑΔΙΑ Μ/Σ")
                             )
-                            oil_level = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=50)
+                            oil_level = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(oil_level)
                             measurements["oil_level_check"] = oil_level
-                            
-                            oil_filling = TextInput(hint_text="ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=50)
+
+                            oil_filling = TextInput(
+                                hint_text="ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(oil_filling)
                             measurements["oil_filling"] = oil_filling
-                            
-                            silica_row = BoxLayout(size_hint_y=None, height=60, spacing=8)
-                            silica_row.add_widget(Label(text="ΣΙΛΙΚΑ:", size_hint_x=0.3))
+
+                            silica_row = BoxLayout(
+                                size_hint_y=None, height=60, spacing=8
+                            )
+                            silica_row.add_widget(
+                                Label(text="ΣΙΛΙΚΑ:", size_hint_x=0.3)
+                            )
                             silica_spinner = Spinner(
                                 text="N/A",
                                 values=["OK", "NOT OK", "N/A"],
@@ -3300,39 +3807,81 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("3. ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ")
                             )
-                            term_bolts = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ", multiline=False, size_hint_y=None, height=50)
+                            term_bolts = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(term_bolts)
                             measurements["terminals_bolt_tightness"] = term_bolts
-                            
-                            term_connectors = TextInput(hint_text="ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            term_connectors = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(term_connectors)
-                            measurements["terminals_flexible_connectors"] = term_connectors
+                            measurements["terminals_flexible_connectors"] = (
+                                term_connectors
+                            )
 
                             # 4. ΣΩΜΑ Μ/Σ (Transformer Body)
                             measurements_fields_container.add_widget(
                                 wrapped_label("4. ΣΩΜΑ Μ/Σ")
                             )
-                            body_leaks = TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ", multiline=False, size_hint_y=None, height=50)
+                            body_leaks = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(body_leaks)
                             measurements["body_oil_leaks"] = body_leaks
-                            
-                            body_sealing = TextInput(hint_text="ΣΤΕΓΑΝΟΠΟΙΗΣΗ", multiline=False, size_hint_y=None, height=50)
+
+                            body_sealing = TextInput(
+                                hint_text="ΣΤΕΓΑΝΟΠΟΙΗΣΗ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(body_sealing)
                             measurements["body_sealing"] = body_sealing
-                            
-                            body_cleaning = TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=50)
+
+                            body_cleaning = TextInput(
+                                hint_text="ΚΑΘΑΡΙΣΜΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(body_cleaning)
                             measurements["body_cleaning"] = body_cleaning
-                            
-                            body_relief = TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            body_relief = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(body_relief)
                             measurements["body_relief_valves"] = body_relief
-                            
-                            body_pressure = TextInput(hint_text="ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            body_pressure = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(body_pressure)
                             measurements["body_pressure_gauges"] = body_pressure
-                            
-                            body_bucholz = TextInput(hint_text="ΕΛΕΓΧΟΣ BUCHOLZ", multiline=False, size_hint_y=None, height=50)
+
+                            body_bucholz = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ BUCHOLZ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(body_bucholz)
                             measurements["body_bucholz"] = body_bucholz
 
@@ -3340,9 +3889,11 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("ΈΛΕΓΧΟΣ ΘΕΡΜΟΣΤΟΙΧΕΙΩΝ (°C)")
                             )
-                            
+
                             # Temperature header row
-                            temp_header = BoxLayout(size_hint_y=None, height=40, spacing=8)
+                            temp_header = BoxLayout(
+                                size_hint_y=None, height=40, spacing=8
+                            )
                             temp_header.add_widget(Label(text="", size_hint_x=0.2))
                             temp_header.add_widget(Label(text="OIL", size_hint_x=0.26))
                             temp_header.add_widget(Label(text="X1", size_hint_x=0.26))
@@ -3352,9 +3903,24 @@ class SubstationAndroidApp(App):
                             # FAN row
                             fan_row = BoxLayout(size_hint_y=None, height=50, spacing=8)
                             fan_row.add_widget(Label(text="FAN", size_hint_x=0.2))
-                            fan_oil = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            fan_x1 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            fan_x3 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
+                            fan_oil = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            fan_x1 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            fan_x3 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
                             fan_row.add_widget(fan_oil)
                             fan_row.add_widget(fan_x1)
                             fan_row.add_widget(fan_x3)
@@ -3364,11 +3930,28 @@ class SubstationAndroidApp(App):
                             measurements["temp_fan_x3"] = fan_x3
 
                             # ALARM row
-                            alarm_row = BoxLayout(size_hint_y=None, height=50, spacing=8)
+                            alarm_row = BoxLayout(
+                                size_hint_y=None, height=50, spacing=8
+                            )
                             alarm_row.add_widget(Label(text="ALARM", size_hint_x=0.2))
-                            alarm_oil = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            alarm_x1 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            alarm_x3 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
+                            alarm_oil = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            alarm_x1 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            alarm_x3 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
                             alarm_row.add_widget(alarm_oil)
                             alarm_row.add_widget(alarm_x1)
                             alarm_row.add_widget(alarm_x3)
@@ -3380,9 +3963,24 @@ class SubstationAndroidApp(App):
                             # TRIP row
                             trip_row = BoxLayout(size_hint_y=None, height=50, spacing=8)
                             trip_row.add_widget(Label(text="TRIP", size_hint_x=0.2))
-                            trip_oil = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            trip_x1 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            trip_x3 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
+                            trip_oil = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            trip_x1 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            trip_x3 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
                             trip_row.add_widget(trip_oil)
                             trip_row.add_widget(trip_x1)
                             trip_row.add_widget(trip_x3)
@@ -3395,62 +3993,149 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("5. ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ")
                             )
-                            satyf_gas_transmission = TextInput(hint_text="ΈΛΕΓΧΟΣ ΑΕΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(satyf_gas_transmission)
-                            measurements["satyf_gas_transmission_check"] = satyf_gas_transmission
-                            
-                            satyf_joints_cleaning = TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΟΣΕΩΝ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(satyf_joints_cleaning)
-                            measurements["satyf_joints_cleaning_lubrication"] = satyf_joints_cleaning
-                            
-                            satyf_gears_cleaning = TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΟΤΩΝ ΤΡΟΧΩΝ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(satyf_gears_cleaning)
-                            measurements["satyf_gears_cleaning_lubrication"] = satyf_gears_cleaning
-                            
-                            satyf_test_operations = TextInput(hint_text="ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(satyf_test_operations)
-                            measurements["satyf_test_operations"] = satyf_test_operations
-                            
-                            satyf_diverter_cracks = TextInput(hint_text="ΈΛΕΓΧΟΣ ΡΟΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(satyf_diverter_cracks)
-                            measurements["satyf_diverter_cracks_check"] = satyf_diverter_cracks
+                            satyf_gas_transmission = TextInput(
+                                hint_text="ΈΛΕΓΧΟΣ ΑΕΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                satyf_gas_transmission
+                            )
+                            measurements["satyf_gas_transmission_check"] = (
+                                satyf_gas_transmission
+                            )
+
+                            satyf_joints_cleaning = TextInput(
+                                hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΟΣΕΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                satyf_joints_cleaning
+                            )
+                            measurements["satyf_joints_cleaning_lubrication"] = (
+                                satyf_joints_cleaning
+                            )
+
+                            satyf_gears_cleaning = TextInput(
+                                hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΟΤΩΝ ΤΡΟΧΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                satyf_gears_cleaning
+                            )
+                            measurements["satyf_gears_cleaning_lubrication"] = (
+                                satyf_gears_cleaning
+                            )
+
+                            satyf_test_operations = TextInput(
+                                hint_text="ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                satyf_test_operations
+                            )
+                            measurements["satyf_test_operations"] = (
+                                satyf_test_operations
+                            )
+
+                            satyf_diverter_cracks = TextInput(
+                                hint_text="ΈΛΕΓΧΟΣ ΡΟΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                satyf_diverter_cracks
+                            )
+                            measurements["satyf_diverter_cracks_check"] = (
+                                satyf_diverter_cracks
+                            )
 
                             # 6. DIVERTER - ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ (Transfer Switch)
                             measurements_fields_container.add_widget(
                                 wrapped_label("6. DIVERTER - ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ")
                             )
-                            diverter_contacts = TextInput(hint_text="ΈΛΕΓΧΟΣ ΕΠΑΦΩΝ", multiline=False, size_hint_y=None, height=50)
+                            diverter_contacts = TextInput(
+                                hint_text="ΈΛΕΓΧΟΣ ΕΠΑΦΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(diverter_contacts)
                             measurements["diverter_contacts_check"] = diverter_contacts
-                            
-                            diverter_connections = TextInput(hint_text="ΣΥΝΔΕΣΕΙΣ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(diverter_connections)
+
+                            diverter_connections = TextInput(
+                                hint_text="ΣΥΝΔΕΣΕΙΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                diverter_connections
+                            )
                             measurements["diverter_connections"] = diverter_connections
-                            
-                            diverter_oil_change = TextInput(hint_text="ΑΛΛΑΓΗ ΛΑΔΙΩΝ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(diverter_oil_change)
+
+                            diverter_oil_change = TextInput(
+                                hint_text="ΑΛΛΑΓΗ ΛΑΔΙΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                diverter_oil_change
+                            )
                             measurements["diverter_oil_change"] = diverter_oil_change
-                            
-                            diverter_alarm = TextInput(hint_text="ΈΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ", multiline=False, size_hint_y=None, height=50)
+
+                            diverter_alarm = TextInput(
+                                hint_text="ΈΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(diverter_alarm)
-                            measurements["diverter_low_level_alarm_check"] = diverter_alarm
+                            measurements["diverter_low_level_alarm_check"] = (
+                                diverter_alarm
+                            )
 
                             # ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ohm) - Resistance Measurement
                             measurements_fields_container.add_widget(
                                 wrapped_label("ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ohm)")
                             )
-                            
+
                             # Resistance header row
-                            resist_header = BoxLayout(size_hint_y=None, height=40, spacing=8)
+                            resist_header = BoxLayout(
+                                size_hint_y=None, height=40, spacing=8
+                            )
                             resist_header.add_widget(Label(text="", size_hint_x=0.2))
-                            resist_header.add_widget(Label(text="H1-1", size_hint_x=0.4))
-                            resist_header.add_widget(Label(text="H1-2", size_hint_x=0.4))
+                            resist_header.add_widget(
+                                Label(text="H1-1", size_hint_x=0.4)
+                            )
+                            resist_header.add_widget(
+                                Label(text="H1-2", size_hint_x=0.4)
+                            )
                             measurements_fields_container.add_widget(resist_header)
 
                             # H1 row
                             h1_row = BoxLayout(size_hint_y=None, height=50, spacing=8)
-                            h1_1 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            h1_2 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
+                            h1_1 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            h1_2 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
                             h1_row.add_widget(Label(text="H1", size_hint_x=0.2))
                             h1_row.add_widget(h1_1)
                             h1_row.add_widget(h1_2)
@@ -3460,8 +4145,18 @@ class SubstationAndroidApp(App):
 
                             # H2 row
                             h2_row = BoxLayout(size_hint_y=None, height=50, spacing=8)
-                            h2_1 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            h2_2 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
+                            h2_1 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            h2_2 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
                             h2_row.add_widget(Label(text="H2", size_hint_x=0.2))
                             h2_row.add_widget(h2_1)
                             h2_row.add_widget(h2_2)
@@ -3471,8 +4166,18 @@ class SubstationAndroidApp(App):
 
                             # H3 row
                             h3_row = BoxLayout(size_hint_y=None, height=50, spacing=8)
-                            h3_1 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
-                            h3_2 = TextInput(hint_text="", multiline=False, height=50, padding=[10, 10, 10, 10])
+                            h3_1 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
+                            h3_2 = TextInput(
+                                hint_text="",
+                                multiline=False,
+                                height=50,
+                                padding=[10, 10, 10, 10],
+                            )
                             h3_row.add_widget(Label(text="H3", size_hint_x=0.2))
                             h3_row.add_widget(h3_1)
                             h3_row.add_widget(h3_2)
@@ -3484,120 +4189,273 @@ class SubstationAndroidApp(App):
                             measurements_fields_container.add_widget(
                                 wrapped_label("7. ΑΝΤΙΣΤΑΣΗΣ ΚΟΜΒΟΥ Μ/Σ")
                             )
-                            node_resistance_cleaning = TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(node_resistance_cleaning)
-                            measurements["node_resistance_cleaning"] = node_resistance_cleaning
+                            node_resistance_cleaning = TextInput(
+                                hint_text="ΚΑΘΑΡΙΣΜΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                node_resistance_cleaning
+                            )
+                            measurements["node_resistance_cleaning"] = (
+                                node_resistance_cleaning
+                            )
 
                             # 8. Μ/Σ ΤΑΣΕΟΣ (Voltage Transformer)
                             measurements_fields_container.add_widget(
                                 wrapped_label("8. Μ/Σ ΤΑΣΕΟΣ")
                             )
-                            vt_visual_check = TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=50)
+                            vt_visual_check = TextInput(
+                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(vt_visual_check)
                             measurements["vt_visual_check"] = vt_visual_check
-                            
-                            vt_leakage_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            vt_leakage_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(vt_leakage_check)
                             measurements["vt_leakage_check"] = vt_leakage_check
-                            
-                            vt_tightness_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            vt_tightness_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(vt_tightness_check)
                             measurements["vt_tightness_check"] = vt_tightness_check
-                            
-                            vt_insulation_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(vt_insulation_check)
-                            measurements["vt_insulation_resistance_check"] = vt_insulation_check
+
+                            vt_insulation_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                vt_insulation_check
+                            )
+                            measurements["vt_insulation_resistance_check"] = (
+                                vt_insulation_check
+                            )
 
                             # 9. Μ/Σ ΕΝΤΑΣΕΟΣ (Current Transformer)
                             measurements_fields_container.add_widget(
                                 wrapped_label("9. Μ/Σ ΕΝΤΑΣΕΟΣ")
                             )
-                            ct_visual_check = TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=50)
+                            ct_visual_check = TextInput(
+                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(ct_visual_check)
                             measurements["ct_visual_check"] = ct_visual_check
-                            
-                            ct_leakage_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            ct_leakage_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(ct_leakage_check)
                             measurements["ct_leakage_check"] = ct_leakage_check
-                            
-                            ct_tightness_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            ct_tightness_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(ct_tightness_check)
                             measurements["ct_tightness_check"] = ct_tightness_check
-                            
-                            ct_insulation_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(ct_insulation_check)
-                            measurements["ct_insulation_resistance_check"] = ct_insulation_check
+
+                            ct_insulation_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                ct_insulation_check
+                            )
+                            measurements["ct_insulation_resistance_check"] = (
+                                ct_insulation_check
+                            )
 
                             # 10. Μ/Σ ΕΓΧΥΣΕΟΣ (Injection Transformer)
                             measurements_fields_container.add_widget(
                                 wrapped_label("10. Μ/Σ ΕΓΧΥΣΕΟΣ")
                             )
-                            it_visual_check = TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=50)
+                            it_visual_check = TextInput(
+                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(it_visual_check)
                             measurements["it_visual_check"] = it_visual_check
-                            
-                            it_leakage_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            it_leakage_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(it_leakage_check)
                             measurements["it_leakage_check"] = it_leakage_check
-                            
-                            it_tightness_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=50)
+
+                            it_tightness_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(it_tightness_check)
                             measurements["it_tightness_check"] = it_tightness_check
-                            
-                            it_insulation_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(it_insulation_check)
-                            measurements["it_insulation_resistance_check"] = it_insulation_check
+
+                            it_insulation_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                it_insulation_check
+                            )
+                            measurements["it_insulation_resistance_check"] = (
+                                it_insulation_check
+                            )
 
                             # 11. ΑΛΕΞΙΚΕΡΑΥΝΑ (Lightning Arresters)
                             measurements_fields_container.add_widget(
                                 wrapped_label("11. ΑΛΕΞΙΚΕΡΑΥΝΑ")
                             )
-                            arr_visual_check = TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=50)
+                            arr_visual_check = TextInput(
+                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(arr_visual_check)
                             measurements["arresters_visual_check"] = arr_visual_check
-                            
-                            arr_tightness_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(arr_tightness_check)
-                            measurements["arresters_tightness_check"] = arr_tightness_check
-                            
-                            arr_insulation_check = TextInput(hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(arr_insulation_check)
-                            measurements["arresters_insulation_resistance_check"] = arr_insulation_check
+
+                            arr_tightness_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                arr_tightness_check
+                            )
+                            measurements["arresters_tightness_check"] = (
+                                arr_tightness_check
+                            )
+
+                            arr_insulation_check = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                arr_insulation_check
+                            )
+                            measurements["arresters_insulation_resistance_check"] = (
+                                arr_insulation_check
+                            )
 
                             # 12. Α/Ζ ΒΜΣ (HV Breaker)
                             measurements_fields_container.add_widget(
                                 wrapped_label("12. Α/Ζ ΒΜΣ")
                             )
-                            hv_breaker_visual = TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=50)
+                            hv_breaker_visual = TextInput(
+                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(hv_breaker_visual)
                             measurements["hv_breaker_visual_check"] = hv_breaker_visual
-                            
-                            hv_breaker_cleaning = TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(hv_breaker_cleaning)
-                            measurements["hv_breaker_cleaning_lubrication"] = hv_breaker_cleaning
-                            
-                            hv_breaker_tightness = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=50)
-                            measurements_fields_container.add_widget(hv_breaker_tightness)
-                            measurements["hv_breaker_tightness_check"] = hv_breaker_tightness
+
+                            hv_breaker_cleaning = TextInput(
+                                hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                hv_breaker_cleaning
+                            )
+                            measurements["hv_breaker_cleaning_lubrication"] = (
+                                hv_breaker_cleaning
+                            )
+
+                            hv_breaker_tightness = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
+                            measurements_fields_container.add_widget(
+                                hv_breaker_tightness
+                            )
+                            measurements["hv_breaker_tightness_check"] = (
+                                hv_breaker_tightness
+                            )
 
                             # 13. Α/Ζ ΤΑΣΕΟΣ (Voltage Breaker)
                             measurements_fields_container.add_widget(
                                 wrapped_label("13. Α/Ζ ΤΑΣΕΟΣ")
                             )
-                            vbreaker_visual = TextInput(hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", multiline=False, size_hint_y=None, height=50)
+                            vbreaker_visual = TextInput(
+                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(vbreaker_visual)
-                            measurements["voltage_breaker_visual_check"] = vbreaker_visual
-                            
-                            vbreaker_cleaning = TextInput(hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ", multiline=False, size_hint_y=None, height=50)
+                            measurements["voltage_breaker_visual_check"] = (
+                                vbreaker_visual
+                            )
+
+                            vbreaker_cleaning = TextInput(
+                                hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(vbreaker_cleaning)
-                            measurements["voltage_breaker_cleaning_lubrication"] = vbreaker_cleaning
-                            
-                            vbreaker_tightness = TextInput(hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ", multiline=False, size_hint_y=None, height=50)
+                            measurements["voltage_breaker_cleaning_lubrication"] = (
+                                vbreaker_cleaning
+                            )
+
+                            vbreaker_tightness = TextInput(
+                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                                multiline=False,
+                                size_hint_y=None,
+                                height=50,
+                            )
                             measurements_fields_container.add_widget(vbreaker_tightness)
-                            measurements["voltage_breaker_tightness_check"] = vbreaker_tightness
+                            measurements["voltage_breaker_tightness_check"] = (
+                                vbreaker_tightness
+                            )
 
                         # Toggle measurements visibility based on checkbox
-                        def toggle_measurements(cb, value, mfc=measurements_fields_container, dc=details_container):
+                        def toggle_measurements(
+                            cb,
+                            value,
+                            mfc=measurements_fields_container,
+                            dc=details_container,
+                        ):
                             if mfc is None:
                                 return
                             # Add or remove measurements container from parent
@@ -3648,7 +4506,11 @@ class SubstationAndroidApp(App):
         comments_container = BoxLayout(
             orientation="vertical", size_hint_y=None, height=160
         )
-        comments_container.add_widget(wrapped_label(S.get("MESSAGES", {}).get("OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια:")))
+        comments_container.add_widget(
+            wrapped_label(
+                S.get("MESSAGES", {}).get("OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια:")
+            )
+        )
         comments_container.add_widget(overall_comments)
         main_layout.add_widget(comments_container)
 
@@ -3715,7 +4577,9 @@ class SubstationAndroidApp(App):
                     "insert", "maintenance", {"id": temp_id, **payload}
                 )
                 popup.dismiss()
-                show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MAINTENANCE_SAVED_CHANGELOG"])
+                show_message_popup(
+                    S["TITLES"]["SUCCESS"], S["MESSAGES"]["MAINTENANCE_SAVED_CHANGELOG"]
+                )
             except Exception as e:
                 Logger.error(f"APP: Failed to append maintenance to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -3853,7 +4717,12 @@ class SubstationAndroidApp(App):
                     "insert", "inspections", {**payload, "id": temp_id}
                 )
                 popup.dismiss()
-                show_message_popup(S["TITLES"]["SUCCESS"], S.get("MESSAGES", {}).get("CHANGELOG_RECORDED", "Η αλλαγή καταγράφηκε στο change log."))
+                show_message_popup(
+                    S["TITLES"]["SUCCESS"],
+                    S.get("MESSAGES", {}).get(
+                        "CHANGELOG_RECORDED", "Η αλλαγή καταγράφηκε στο change log."
+                    ),
+                )
             except Exception as e:
                 Logger.error(f"APP: Failed to append inspection to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
@@ -3875,10 +4744,10 @@ class SubstationAndroidApp(App):
         try:
             if not self.local_db_path or not os.path.exists(self.local_db_path):
                 return False
-            
+
             conn = sqlite3.connect(self.local_db_path)
             c = conn.cursor()
-            
+
             c.execute(
                 """
                 SELECT COUNT(*) FROM maintenance_elements
@@ -3888,7 +4757,7 @@ class SubstationAndroidApp(App):
             )
             count = c.fetchone()[0]
             conn.close()
-            
+
             return count > 0
         except Exception:
             return False
@@ -3899,10 +4768,10 @@ class SubstationAndroidApp(App):
             if not self.local_db_path or not os.path.exists(self.local_db_path):
                 self.show_error("Δεν υπάρχει φορτωμένη βάση δεδομένων")
                 return
-            
+
             conn = sqlite3.connect(self.local_db_path)
             c = conn.cursor()
-            
+
             # Query all maintenances where this element was maintained
             c.execute(
                 """
@@ -3921,14 +4790,13 @@ class SubstationAndroidApp(App):
             )
             maintenance_records = c.fetchall()
             conn.close()
-            
+
             # Create popup
             popup = Popup(
-                title=f"Ιστορικό Συντηρήσεων - {element_name}",
-                size_hint=(0.95, 0.9)
+                title=f"Ιστορικό Συντηρήσεων - {element_name}", size_hint=(0.95, 0.9)
             )
             main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-            
+
             if not maintenance_records:
                 main_layout.add_widget(
                     Label(
@@ -3941,7 +4809,7 @@ class SubstationAndroidApp(App):
                 scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
                 grid = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=10)
                 grid.bind(minimum_height=grid.setter("height"))
-                
+
                 for (
                     maint_id,
                     date_time,
@@ -3960,13 +4828,10 @@ class SubstationAndroidApp(App):
                 ) in maintenance_records:
                     # Container for this maintenance record - auto-size based on content
                     maint_layout = BoxLayout(
-                        size_hint_y=None,
-                        orientation="vertical",
-                        spacing=5,
-                        padding=10
+                        size_hint_y=None, orientation="vertical", spacing=5, padding=10
                     )
                     maint_layout.bind(minimum_height=maint_layout.setter("height"))
-                    
+
                     # Header with date and type
                     header_text = f"[b]{date_time}[/b] - {substation_name}"
                     if maint_type:
@@ -3976,35 +4841,45 @@ class SubstationAndroidApp(App):
                         size_hint_y=None,
                         markup=True,
                         halign="left",
-                        valign="middle"
+                        valign="middle",
                     )
+
                     def _bind_header_size(inst):
                         inst.text_size = (inst.width, None)
                         inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
-                        inst.bind(texture_size=lambda i, s: setattr(i, "height", s[1] + 10))
+                        inst.bind(
+                            texture_size=lambda i, s: setattr(i, "height", s[1] + 10)
+                        )
+
                     _bind_header_size(header_label)
                     maint_layout.add_widget(header_label)
-                    
+
                     # OneDrive Media Link Button (if available)
                     if onedrive_media_link:
-                        onedrive_btn_layout = BoxLayout(size_hint_y=None, height=40, spacing=5)
+                        onedrive_btn_layout = BoxLayout(
+                            size_hint_y=None, height=40, spacing=5
+                        )
                         onedrive_btn = Button(
                             text="Φάκελος OneDrive",
                             size_hint_x=1,
                             background_color=(0.3, 0.6, 0.8, 1),
-                            font_size='11sp'
+                            font_size="11sp",
                         )
                         onedrive_btn.bind(
-                            on_press=lambda x, link=onedrive_media_link: self._open_url(link)
+                            on_press=lambda x, link=onedrive_media_link: self._open_url(
+                                link
+                            )
                         )
                         onedrive_btn_layout.add_widget(onedrive_btn)
                         maint_layout.add_widget(onedrive_btn_layout)
-                    
+
                     # Element-specific data
                     data_parts = []
                     if element_comments:
-                        data_parts.append(f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}")
-                    
+                        data_parts.append(
+                            f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}"
+                        )
+
                     # Add measurements if present
                     measurements = []
                     if insul_fa_gnd:
@@ -4021,30 +4896,34 @@ class SubstationAndroidApp(App):
                         measurements.append(f"FC: {contact_res_fc}")
                     if operations_count:
                         measurements.append(f"Λειτουργίες: {operations_count}")
-                    
+
                     if measurements:
                         data_parts.append(" | ".join(measurements))
-                    
+
                     if data_parts:
                         data_text = "\n".join(data_parts)
                     else:
                         data_text = "Δεν υπάρχουν συγκεκριμένα δεδομένα για το στοιχείο"
-                    
+
                     data_label = Label(
                         text=data_text,
                         size_hint_y=None,
                         markup=True,
                         halign="left",
                         valign="top",
-                        color=(0.5, 0.5, 0.5, 1)
+                        color=(0.5, 0.5, 0.5, 1),
                     )
+
                     def _bind_data_size(inst):
                         inst.text_size = (inst.width, None)
                         inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
-                        inst.bind(texture_size=lambda i, s: setattr(i, "height", s[1] + 10))
+                        inst.bind(
+                            texture_size=lambda i, s: setattr(i, "height", s[1] + 10)
+                        )
+
                     _bind_data_size(data_label)
                     maint_layout.add_widget(data_label)
-                    
+
                     # Add overall comments if present
                     if overall_comments:
                         comments_label = Label(
@@ -4052,28 +4931,38 @@ class SubstationAndroidApp(App):
                             size_hint_y=None,
                             halign="left",
                             valign="top",
-                            color=(0.6, 0.5, 0.4, 1)
+                            color=(0.6, 0.5, 0.4, 1),
                         )
+
                         def _bind_comments_size(inst):
                             inst.text_size = (inst.width, None)
-                            inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
-                            inst.bind(texture_size=lambda i, s: setattr(i, "height", s[1] + 10))
+                            inst.bind(
+                                width=lambda i, w: setattr(i, "text_size", (w, None))
+                            )
+                            inst.bind(
+                                texture_size=lambda i, s: setattr(
+                                    i, "height", s[1] + 10
+                                )
+                            )
+
                         _bind_comments_size(comments_label)
                         maint_layout.add_widget(comments_label)
-                    
+
                     grid.add_widget(maint_layout)
-                
+
                 scroll.add_widget(grid)
                 main_layout.add_widget(scroll)
-            
+
             # Close button
-            close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=0.1)
+            close_btn = Button(
+                text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=0.1
+            )
             close_btn.bind(on_press=popup.dismiss)
             main_layout.add_widget(close_btn)
-            
+
             popup.content = main_layout
             popup.open()
-            
+
         except Exception as e:
             Logger.error(f"APP: Error showing element maintenance history: {e}")
             self.show_error(f"Σφάλμα: {str(e)}")
@@ -4085,7 +4974,12 @@ class SubstationAndroidApp(App):
         def _show(dt=None):
             try:
                 from strings_proxy import STRINGS as S
-                title = S["TITLES"].get("INFO", "Πληροφορία") if is_info else S["TITLES"]["ERROR"]
+
+                title = (
+                    S["TITLES"].get("INFO", "Πληροφορία")
+                    if is_info
+                    else S["TITLES"]["ERROR"]
+                )
                 show_message_popup(title, message)
             except Exception as e:
                 Logger.error(f"APP: show_error failed to open popup: {e}")
@@ -4096,10 +4990,13 @@ class SubstationAndroidApp(App):
         """Open a URL in the default browser or app"""
         try:
             import webbrowser
+
             webbrowser.open(url)
         except Exception as e:
             Logger.error(f"APP: Failed to open URL {url}: {e}")
-            self.show_error(f"Δεν ήταν δυνατό να ανοίξει ο σύνδεσμος: {str(e)}", is_info=True)
+            self.show_error(
+                f"Δεν ήταν δυνατό να ανοίξει ο σύνδεσμος: {str(e)}", is_info=True
+            )
 
     def _launch_share_intent(self, file_path):
         """Launch Android share chooser for a file. Uses FileProvider when available.

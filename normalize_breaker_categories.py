@@ -28,7 +28,9 @@ def normalize():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     # Map legacy english to greek
-    cur.execute("UPDATE elements SET breaker_category='Ελαίου' WHERE breaker_category='Oil'")
+    cur.execute(
+        "UPDATE elements SET breaker_category='Ελαίου' WHERE breaker_category='Oil'"
+    )
     # Fill empty/null from element_models
     cur.execute(
         "UPDATE elements SET breaker_category=(SELECT breaker_category FROM element_models WHERE element_models.id=elements.element_model_id) WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_model_id IS NOT NULL"
@@ -41,9 +43,11 @@ def normalize():
         f"UPDATE elements SET breaker_category='Ελαίου' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='{ELEM_BREAKER_MT}'"
     )
     conn.commit()
-    logging.info(S["MESSAGES"].get("ROWS_UPDATED", "rows updated: %s"), conn.total_changes)
+    logging.info(
+        S["MESSAGES"].get("ROWS_UPDATED", "rows updated: %s"), conn.total_changes
+    )
     conn.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     normalize()

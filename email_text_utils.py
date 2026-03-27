@@ -47,7 +47,7 @@ def tokenize_substation_text(value: str):
 def tokens_match(left_tokens, right_tokens):
     """
     Check if two token sequences match.
-    
+
     Handles:
     - Exact matches
     - Prefix matches (e.g., "αγιος" matches "αγ" or "αζα" matches "αζας")

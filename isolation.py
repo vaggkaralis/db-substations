@@ -2,6 +2,7 @@
 Delegating wrappers for isolation requests UI in `DBrun.py`.
 """
 
+
 def show_isolation_requests_delegate(app, instance=None):
     return app.show_isolation_requests(instance)
 

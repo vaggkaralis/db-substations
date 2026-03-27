@@ -40,7 +40,9 @@ def test_process_sync_inbox_applies_pending_jsonl(tmp_path):
         },
     }
     entry_path = pending / "entry.jsonl"
-    entry_path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+    entry_path.write_text(
+        json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
     summary = process_sync_inbox(conn, str(sync_root), actor="pytest")
 
@@ -81,7 +83,9 @@ def test_create_snapshot_and_prune_hot(tmp_path):
 
     created = []
     for _ in range(4):
-        created.append(create_snapshot(str(db_path), str(backup_root), reason="pytest", tier="hot"))
+        created.append(
+            create_snapshot(str(db_path), str(backup_root), reason="pytest", tier="hot")
+        )
         time.sleep(0.01)
 
     removed = prune_hot_backups(str(backup_root), keep=3)

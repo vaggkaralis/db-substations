@@ -12,7 +12,11 @@ def test_ignores_unknown_columns(tmp_path):
 
     changelog = tmp_path / "cl.jsonl"
     # include an unknown column 'c' which should be ignored
-    obj = {"operation": "insert", "table": "foo", "data": {"a": "1", "b": "2", "c": "3"}}
+    obj = {
+        "operation": "insert",
+        "table": "foo",
+        "data": {"a": "1", "b": "2", "c": "3"},
+    }
     changelog.write_text(json.dumps(obj) + "\n", encoding="utf-8")
 
     apply_change_log_to_db(conn, str(changelog))
@@ -49,7 +53,9 @@ def test_maintenance_inserts_and_updates(tmp_path):
     # minimal schema expected by apply_change_log_to_db
     cur.execute("CREATE TABLE elements (id INTEGER PRIMARY KEY, maintenance_date TEXT)")
     cur.execute("CREATE TABLE maintenance (id INTEGER PRIMARY KEY, date_time TEXT)")
-    cur.execute("CREATE TABLE maintenance_elements (id INTEGER PRIMARY KEY, maintenance_id INTEGER, element_id INTEGER, element_comments TEXT)")
+    cur.execute(
+        "CREATE TABLE maintenance_elements (id INTEGER PRIMARY KEY, maintenance_id INTEGER, element_id INTEGER, element_comments TEXT)"
+    )
     conn.commit()
 
     # insert an element to reference
@@ -61,7 +67,10 @@ def test_maintenance_inserts_and_updates(tmp_path):
     maint = {
         "operation": "insert",
         "table": "maintenance",
-        "data": {"date_time": "2026-02-08T10:00:00", "elements": [{"element_id": elem_id, "element_comments": "ok"}]},
+        "data": {
+            "date_time": "2026-02-08T10:00:00",
+            "elements": [{"element_id": elem_id, "element_comments": "ok"}],
+        },
     }
     changelog.write_text(json.dumps(maint) + "\n", encoding="utf-8")
 

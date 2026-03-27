@@ -7,8 +7,7 @@ import logging
 import os
 
 from email_eml_parser import parse_eml_file
-from maintenance_email_importer import (DEFAULT_DB_PATH,
-                                        create_maintenance_from_email)
+from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
@@ -84,12 +83,12 @@ def main():
                     os.replace(path, target)
         except Exception:
             failed += 1
-            logging.exception('Failed importing %s', path)
+            logging.exception("Failed importing %s", path)
             if failed_folder:
                 target = os.path.join(failed_folder, os.path.basename(path))
                 os.replace(path, target)
 
-    logging.info('Imported: %s, Failed: %s', processed, failed)
+    logging.info("Imported: %s, Failed: %s", processed, failed)
 
 
 if __name__ == "__main__":

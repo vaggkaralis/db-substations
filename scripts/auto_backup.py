@@ -12,15 +12,30 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sync_service import create_snapshot, prune_hot_backups, resolve_backup_root, resolve_db_path
+from sync_service import (
+    create_snapshot,
+    prune_hot_backups,
+    resolve_backup_root,
+    resolve_db_path,
+)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create rolling DB backup snapshot")
     parser.add_argument("--db", dest="db_path", default=None, help="Path to SQLite DB")
-    parser.add_argument("--backup-root", dest="backup_root", default=None, help="Backup root directory")
-    parser.add_argument("--keep", dest="keep", type=int, default=3, help="How many hot snapshots to keep")
-    parser.add_argument("--reason", dest="reason", default="scheduled", help="Backup reason label")
+    parser.add_argument(
+        "--backup-root", dest="backup_root", default=None, help="Backup root directory"
+    )
+    parser.add_argument(
+        "--keep",
+        dest="keep",
+        type=int,
+        default=3,
+        help="How many hot snapshots to keep",
+    )
+    parser.add_argument(
+        "--reason", dest="reason", default="scheduled", help="Backup reason label"
+    )
     args = parser.parse_args()
 
     db_path = resolve_db_path(args.db_path)

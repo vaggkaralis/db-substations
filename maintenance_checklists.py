@@ -99,9 +99,15 @@ def normalize_state(raw_state) -> dict:
     raw_items = state.get("items") if isinstance(state.get("items"), dict) else {}
     for category_key, category in category_map.items():
         item_values[category_key] = {}
-        raw_category_items = raw_items.get(category_key) if isinstance(raw_items.get(category_key), dict) else {}
+        raw_category_items = (
+            raw_items.get(category_key)
+            if isinstance(raw_items.get(category_key), dict)
+            else {}
+        )
         for item in category.get("items", []):
-            item_values[category_key][item["key"]] = bool(raw_category_items.get(item["key"], False))
+            item_values[category_key][item["key"]] = bool(
+                raw_category_items.get(item["key"], False)
+            )
 
     return {
         "selected_categories": selected_categories,

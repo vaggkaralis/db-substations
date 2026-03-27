@@ -8,13 +8,16 @@ def test_generated_pdf_is_readable(tmp_path):
 
     # Import project module (project root already on sys.path when pytest runs)
     import importlib
+
     pdf_reports = importlib.import_module("pdf_reports")
     # Ensure `reportlab` is importable in the current test interpreter and
     # reload `pdf_reports` so it can pick up a now-available ReportLab.
     # If `reportlab` is not installed, importorskip will skip the test.
     pytest.importorskip("reportlab")
     importlib.reload(pdf_reports)
-    generate_preparation_checklist_pdf = getattr(pdf_reports, "generate_preparation_checklist_pdf", None)
+    generate_preparation_checklist_pdf = getattr(
+        pdf_reports, "generate_preparation_checklist_pdf", None
+    )
     out = tmp_path / "test_checklist.pdf"
 
     # Try using the project's generator; if it's not available or raises
@@ -37,14 +40,14 @@ def test_generated_pdf_is_readable(tmp_path):
         # even when a full ReportLab implementation is not available.
         # Create a larger content stream so the file size exceeds the test
         # threshold used by the original assertion.
-        content = (b"BT /F1 12 Tf 72 720 Td (test checklist) Tj ET\n" * 50)
+        content = b"BT /F1 12 Tf 72 720 Td (test checklist) Tj ET\n" * 50
 
         def _obj(n, body: bytes) -> bytes:
             return f"{n} 0 obj\n".encode("ascii") + body + b"\nendobj\n"
 
         parts = []
         out_bytes = bytearray()
-        out_bytes.extend(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")
+        out_bytes.extend(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
 
         # Object 1: Catalog
         o1 = b"<< /Type /Catalog /Pages 2 0 R >>\n"
@@ -70,13 +73,13 @@ def test_generated_pdf_is_readable(tmp_path):
 
         xref_start = len(out_bytes)
         out_bytes.extend(b"xref\n")
-        out_bytes.extend(f"0 {len(parts)+1}\n".encode("ascii"))
+        out_bytes.extend(f"0 {len(parts) + 1}\n".encode("ascii"))
         out_bytes.extend(b"0000000000 65535 f \n")
         for off in xref_offsets:
             out_bytes.extend(f"{off:010d} 00000 n \n".encode("ascii"))
 
         out_bytes.extend(b"trailer\n")
-        out_bytes.extend(b"<< /Size %d /Root 1 0 R >>\n" % (len(parts)+1,))
+        out_bytes.extend(b"<< /Size %d /Root 1 0 R >>\n" % (len(parts) + 1,))
         out_bytes.extend(b"startxref\n")
         out_bytes.extend(f"{xref_start}\n".encode("ascii"))
         out_bytes.extend(b"%%EOF\n")

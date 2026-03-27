@@ -14,7 +14,9 @@ from email_text_utils import tokenize_text as _tokenize_text
 from email_text_utils import tokens_match as _tokens_match
 from email_text_utils import normalize_substation_tokens as _normalize_substation_tokens
 from email_text_utils import tokenize_substation_text as _tokenize_substation_text
-from email_text_utils import iter_substation_name_candidates as _iter_substation_name_candidates
+from email_text_utils import (
+    iter_substation_name_candidates as _iter_substation_name_candidates,
+)
 from onedrive_hybrid_storage import ensure_maintenance_folders
 from settings import DB_PATH as DEFAULT_DB_PATH
 
@@ -25,12 +27,12 @@ except Exception:
 
 
 _FAULT_SUBJECT_STEMS = (
-    "βλαβ",        # βλάβη / βλαβη / βλαβών
-    "επισκευ",     # επισκευή / επισκευη / επισκευές
-    "αποκαταστ",   # αποκατάσταση
-    "δυσλειτουργ", # δυσλειτουργία
-    "βραχυκυκλ",   # βραχυκύκλωμα
-    "αστοχι",      # αστοχία
+    "βλαβ",  # βλάβη / βλαβη / βλαβών
+    "επισκευ",  # επισκευή / επισκευη / επισκευές
+    "αποκαταστ",  # αποκατάσταση
+    "δυσλειτουργ",  # δυσλειτουργία
+    "βραχυκυκλ",  # βραχυκύκλωμα
+    "αστοχι",  # αστοχία
     "fault",
     "failure",
     "repair",
@@ -39,14 +41,18 @@ _FAULT_SUBJECT_STEMS = (
 )
 
 
-def infer_maintenance_type_from_subject(subject: str, default_type: str | None = None) -> str:
+def infer_maintenance_type_from_subject(
+    subject: str, default_type: str | None = None
+) -> str:
     """Infer maintenance type from subject keywords.
 
     If the subject contains fault/repair stems, return a fault label
     (prefer localized configured labels). Otherwise return `default_type`
     (or configured MAINT_TYPE_DEFAULT fallback).
     """
-    fallback_default = default_type or S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση")
+    fallback_default = default_type or S.get("MESSAGES", {}).get(
+        "MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"
+    )
     text = (subject or "").strip()
     if not text:
         return fallback_default
@@ -65,6 +71,7 @@ def infer_maintenance_type_from_subject(subject: str, default_type: str | None =
         if candidate in maint_types:
             return candidate
     return "Βλάβη"
+
 
 # Map common substation name variations to database names
 _SUBSTATION_ALIASES = {
@@ -103,17 +110,17 @@ _SUBSTATION_ALIASES = {
     "υ/σ δοξας": "ΔΟΞΑ (ΘΕΣΣΑΛΟΝΙΚΗ I)",
     # ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ
     "κυτ θεσσαλονικης": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
-        # ΚΥΤ ΦΙΛΙΠΠΩΝ
-        "κυτ φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "κυτ φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "κυτ φιλιππων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-        "κυτ φιλλιπων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    # ΚΥΤ ΦΙΛΙΠΠΩΝ
+    "κυτ φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "κυτ φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "κυτ φιλιππων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
+    "κυτ φιλλιπων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "κυυτ θεσσαλονικης": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
     "κυτ θεσσαλονικησ": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
     "κυυτ θεσσαλονικησ": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",  # with final sigma and double upsilon
@@ -189,6 +196,7 @@ def _lookup_substation_by_name(conn, substation_name: str):
             return dict(db_row)
 
     return None
+
 
 def _get_table_columns(conn, table_name):
     cur = conn.cursor()
@@ -323,12 +331,12 @@ def _match_substation_in_text(conn, text: str):
     normalized_text = _normalize_for_alias_lookup(text)
     best_alias_match = None
     best_alias_length = 0
-    
+
     for alias, target_name in _SUBSTATION_ALIASES.items():
         if alias in normalized_text and len(alias) > best_alias_length:
             best_alias_match = target_name
             best_alias_length = len(alias)
-    
+
     if best_alias_match:
         result = _lookup_substation_by_name(conn, best_alias_match)
         if result:
@@ -402,7 +410,11 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
         if body_token == person_token:
             return True
         # Allow Greek declension variants that differ only by a suffix character.
-        if len(body_token) >= 4 and len(person_token) >= 4 and body_token[:-1] == person_token[:-1]:
+        if (
+            len(body_token) >= 4
+            and len(person_token) >= 4
+            and body_token[:-1] == person_token[:-1]
+        ):
             return True
         return False
 
@@ -444,10 +456,14 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
         # Require stronger evidence: contiguous full-name tokens in either order.
         if len(person_tokens) >= 2:
             for left, right in token_pairs:
-                if _person_token_match(left, surname_token) and _person_token_match(right, given_token):
+                if _person_token_match(left, surname_token) and _person_token_match(
+                    right, given_token
+                ):
                     matched = True
                     break
-                if _person_token_match(left, given_token) and _person_token_match(right, surname_token):
+                if _person_token_match(left, given_token) and _person_token_match(
+                    right, surname_token
+                ):
                     matched = True
                     break
 
@@ -500,9 +516,13 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
     compact_body = re.sub(r"[^0-9a-zα-ω]+", "", normalized_body)
     compact_body = re.sub(r"(μσ|ms)[ilι](?![0-9])", r"\g<1>1", compact_body)
     exact_designators = set()
-    for prefix, digits in re.findall(r"\b([a-zα-ω]{1,6})\s*[-/ ]\s*([0-9]{1,6})\b", normalized_body):
+    for prefix, digits in re.findall(
+        r"\b([a-zα-ω]{1,6})\s*[-/ ]\s*([0-9]{1,6})\b", normalized_body
+    ):
         exact_designators.add(f"{prefix}{digits}")
-    for prefix, digits in re.findall(r"\b([a-zα-ω]{1,6})([0-9]{1,6})\b", normalized_body):
+    for prefix, digits in re.findall(
+        r"\b([a-zα-ω]{1,6})([0-9]{1,6})\b", normalized_body
+    ):
         exact_designators.add(f"{prefix}{digits}")
     breaker_refs = set()
     for digits in re.findall(r"\bρ\s*[-/ ]?\s*([0-9]{1,4})\b", normalized_body):
@@ -620,6 +640,7 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
                     if strong:
                         return True
                 return False
+
             # Only match if explicit designator and strong context
             if digits and digits in (transformer_numbers | ms_numbers):
                 if _has_strong_transformer_context(digits):
@@ -809,7 +830,7 @@ def create_maintenance_from_email(
             return False, "Missing subject"
 
         substation_name, date_str = _parse_subject_for_substation_and_date(subject)
-        
+
         substation = None
         if substation_name:
             substation = _match_substation_by_name(conn, substation_name)
@@ -855,7 +876,9 @@ def create_maintenance_from_email(
 
         if "maintenance_type" in maint_cols:
             fields.append("maintenance_type")
-            values.append(infer_maintenance_type_from_subject(subject, default_type="Email"))
+            values.append(
+                infer_maintenance_type_from_subject(subject, default_type="Email")
+            )
 
         if "user_name" in maint_cols:
             fields.append("user_name")
@@ -877,7 +900,9 @@ def create_maintenance_from_email(
             # match by fingerprint: substation_id, date_time, maintenance_type, user_name
             mtype = None
             if "maintenance_type" in maint_cols:
-                mtype = infer_maintenance_type_from_subject(subject, default_type="Email")
+                mtype = infer_maintenance_type_from_subject(
+                    subject, default_type="Email"
+                )
             uname = sender_name or sender_email
             if mtype is not None:
                 c.execute(
@@ -919,7 +944,9 @@ def create_maintenance_from_email(
                 pass
 
         crew_ids = _find_people_in_body(
-            conn, sanitized_body, exclude_ids={responsible_id} if responsible_id else set()
+            conn,
+            sanitized_body,
+            exclude_ids={responsible_id} if responsible_id else set(),
         )
         people_name_map = _fetch_person_names_by_ids(
             conn, set(crew_ids) | ({responsible_id} if responsible_id else set())
@@ -929,8 +956,12 @@ def create_maintenance_from_email(
             sender_name=sender_name or "",
             sender_email=sender_email or "",
             subject=subject or "",
-            substation_id=substation.get("id") if isinstance(substation, dict) else None,
-            substation_name=substation.get("name") if isinstance(substation, dict) else "",
+            substation_id=substation.get("id")
+            if isinstance(substation, dict)
+            else None,
+            substation_name=substation.get("name")
+            if isinstance(substation, dict)
+            else "",
             maintenance_date_time=date_time_value,
             body_length=len(sanitized_body or ""),
             responsible_id=responsible_id,
@@ -971,11 +1002,21 @@ def create_maintenance_from_email(
         # Import must fail when folder structure cannot be created.
         c.execute("SELECT name FROM maintenance WHERE id=?", (maintenance_id,))
         maint_row = c.fetchone()
-        maintenance_name = maint_row[0] if maint_row and isinstance(maint_row, (tuple, list)) else (maint_row["name"] if maint_row else f"maintenance_{maintenance_id}")
+        maintenance_name = (
+            maint_row[0]
+            if maint_row and isinstance(maint_row, (tuple, list))
+            else (maint_row["name"] if maint_row else f"maintenance_{maintenance_id}")
+        )
 
-        c.execute("SELECT maintenance_type FROM maintenance WHERE id=?", (maintenance_id,))
+        c.execute(
+            "SELECT maintenance_type FROM maintenance WHERE id=?", (maintenance_id,)
+        )
         type_row = c.fetchone()
-        maintenance_type = type_row[0] if type_row and isinstance(type_row, (tuple, list)) else (type_row["maintenance_type"] if type_row else "Email")
+        maintenance_type = (
+            type_row[0]
+            if type_row and isinstance(type_row, (tuple, list))
+            else (type_row["maintenance_type"] if type_row else "Email")
+        )
 
         folder_result = ensure_maintenance_folders(
             conn,
@@ -1010,7 +1051,9 @@ def create_maintenance_from_email(
         log_import_diagnostic(
             "email_import_people_persisted",
             maintenance_id=maintenance_id,
-            substation_id=substation.get("id") if isinstance(substation, dict) else None,
+            substation_id=substation.get("id")
+            if isinstance(substation, dict)
+            else None,
             people=[
                 {
                     "role": row["role"],

@@ -2,11 +2,13 @@
 """Dry-run probe: compute startup sync probe and compare with persisted state.
 Does not modify DB or perform sync; read-only.
 """
+
 import os, json, time
 from datetime import datetime
 from sync_service import resolve_sync_root
 from onedrive_hybrid_storage import resolve_shared_root
 from config_manager import get_app_setting
+
 
 def scan_sync_payload_dir(dir_path):
     count = 0
@@ -52,7 +54,11 @@ def scan_actionable_pending(pending_dir, tracker_path):
             parts = name.split("_", 3)
             if len(parts) >= 4:
                 orig = "_".join(parts[3:])
-            status = (tracker.get(orig) or {}).get("status") if isinstance(tracker, dict) else None
+            status = (
+                (tracker.get(orig) or {}).get("status")
+                if isinstance(tracker, dict)
+                else None
+            )
             if not status or str(status).strip().lower() in {"", "pending", "conflict"}:
                 actionable_count += 1
             try:
@@ -82,13 +88,20 @@ def compute_probe(db_path):
         tracker_mtime = 0.0
     shared_exists = os.path.isdir(shared_root)
     try:
-        shared_mtime = round(float(os.path.getmtime(shared_root)), 3) if shared_exists else 0.0
+        shared_mtime = (
+            round(float(os.path.getmtime(shared_root)), 3) if shared_exists else 0.0
+        )
     except Exception:
         shared_mtime = 0.0
     shared_substation_dirs = 0
     if shared_exists:
         try:
-            shared_substation_dirs = sum(1 for name in os.listdir(shared_root) if os.path.isdir(os.path.join(shared_root, name)) and not name.startswith("_"))
+            shared_substation_dirs = sum(
+                1
+                for name in os.listdir(shared_root)
+                if os.path.isdir(os.path.join(shared_root, name))
+                and not name.startswith("_")
+            )
         except Exception:
             shared_substation_dirs = 0
     pending_total = scan_sync_payload_dir(pending_dir)
@@ -125,6 +138,7 @@ def load_saved_state(db_path):
 def main():
     # Find DB path from app settings or default
     from config_manager import get_db_path, get_app_setting
+
     db_path = get_db_path() or os.path.join(os.getcwd(), "substations.db")
     minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)
     print(f"Using sync_auto_cycle_minutes = {minutes}")
@@ -139,8 +153,12 @@ def main():
     # Simple actionable detection (mimic app): compare pending counts and latest mtimes
     prev_pending = int(((previous.get("pending") or {}).get("count", 0) or 0))
     curr_pending = int(((probe.get("pending") or {}).get("count", 0) or 0))
-    prev_pending_latest = float(((previous.get("pending") or {}).get("latest_mtime", 0.0) or 0.0))
-    curr_pending_latest = float(((probe.get("pending") or {}).get("latest_mtime", 0.0) or 0.0))
+    prev_pending_latest = float(
+        ((previous.get("pending") or {}).get("latest_mtime", 0.0) or 0.0)
+    )
+    curr_pending_latest = float(
+        ((probe.get("pending") or {}).get("latest_mtime", 0.0) or 0.0)
+    )
     actionable = False
     reasons = []
     if prev_pending != curr_pending:
@@ -148,15 +166,18 @@ def main():
         reasons.append(f"pending count changed: {prev_pending} -> {curr_pending}")
     if prev_pending_latest != curr_pending_latest:
         actionable = True
-        reasons.append(f"pending latest mtime changed: {datetime.fromtimestamp(prev_pending_latest) if prev_pending_latest else prev_pending_latest} -> {datetime.fromtimestamp(curr_pending_latest) if curr_pending_latest else curr_pending_latest}")
+        reasons.append(
+            f"pending latest mtime changed: {datetime.fromtimestamp(prev_pending_latest) if prev_pending_latest else prev_pending_latest} -> {datetime.fromtimestamp(curr_pending_latest) if curr_pending_latest else curr_pending_latest}"
+        )
     if not probe.get("shared_root_exists", True):
         actionable = True
         reasons.append("shared root missing")
-    print("Probe actionable:" , actionable)
+    print("Probe actionable:", actionable)
     if reasons:
         print("Reasons:")
         for r in reasons:
             print(" - ", r)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -12,7 +12,9 @@ from typing import Any
 
 def _log_path() -> str:
     base_dir = os.path.dirname(__file__)
-    return os.path.join(base_dir, "sync_exchange", "logs", "maintenance_import_diagnostics.log")
+    return os.path.join(
+        base_dir, "sync_exchange", "logs", "maintenance_import_diagnostics.log"
+    )
 
 
 def _sanitize(value: Any) -> Any:

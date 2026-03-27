@@ -19,7 +19,10 @@ def test_instance_folder_short_fallback():
         # Long substation name to force fallback
         long_name = "Substation " + ("VeryLongName_" * 10)
         folder = _isolation_instance_folder_name(
-            "2026-03-30 08:00", substation_name=long_name, request_id=999, isolation_root=tmp
+            "2026-03-30 08:00",
+            substation_name=long_name,
+            request_id=999,
+            isolation_root=tmp,
         )
         assert folder.startswith(_ISOLATION_INSTANCE_PREFIX)
         # projected path should be reasonable
@@ -38,7 +41,9 @@ def test_short_temp_open_copy_creates_temp_copy():
         temp_copy = _short_temp_open_copy(src_file)
         assert temp_copy is not None
         assert os.path.exists(temp_copy)
-        assert len(temp_copy) < len(src_file) or os.path.dirname(temp_copy) != os.path.dirname(src_file)
+        assert len(temp_copy) < len(src_file) or os.path.dirname(
+            temp_copy
+        ) != os.path.dirname(src_file)
     finally:
         shutil.rmtree(src_dir, ignore_errors=True)
         # also remove temp copy if present

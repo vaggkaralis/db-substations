@@ -17,7 +17,9 @@ except Exception:
 # Canonical breaker element names
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
 ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
-ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης")
+ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get(
+    "ELEMENT_BREAKER_SUBSTR", "Διακόπτης"
+)
 
 
 # Expected column mappings (internal name -> display names)
@@ -245,14 +247,21 @@ def detect_column_mismatches(df_columns: List[str], df=None) -> Dict[str, any]:
             # Find the import column that maps to Element Type (if any)
             elem_col = None
             for col in df.columns:
-                if col in [v for variants in COLUMN_MAPPINGS.get("Element Type", []) for v in variants]:
+                if col in [
+                    v
+                    for variants in COLUMN_MAPPINGS.get("Element Type", [])
+                    for v in variants
+                ]:
                     elem_col = col
                     break
 
             # Fallback: look for a column whose name looks like Element Type
             if elem_col is None:
                 for col in df.columns:
-                    if any(k.lower() in str(col).lower() for k in ["τύπος", "type", "element"]):
+                    if any(
+                        k.lower() in str(col).lower()
+                        for k in ["τύπος", "type", "element"]
+                    ):
                         elem_col = col
                         break
 
@@ -269,7 +278,11 @@ def detect_column_mismatches(df_columns: List[str], df=None) -> Dict[str, any]:
                         need_breaker_type = True
                         break
 
-        if need_breaker_type and "Τύπος Διακόπτη" not in df_columns and "Τύπος Διακόπτη" not in unmatched_required:
+        if (
+            need_breaker_type
+            and "Τύπος Διακόπτη" not in df_columns
+            and "Τύπος Διακόπτη" not in unmatched_required
+        ):
             unmatched_required.append("Τύπος Διακόπτη")
     except Exception:
         # Non-fatal: if detection fails, don't change required list

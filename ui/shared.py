@@ -16,6 +16,7 @@ from strings_proxy import STRINGS as S
 try:
     from kivy.uix.floatlayout import FloatLayout
 except Exception:
+
     class FloatLayout:
         """Minimal stub for environments without kivy.uix.floatlayout.
 
@@ -200,7 +201,7 @@ class IconWidget(Widget):
                 angle = math.radians(220)  # 220 degrees counterclockwise
                 cos_a = math.cos(angle)
                 sin_a = math.sin(angle)
-                
+
                 def rotate_point(px, py):
                     """Rotate point around center by angle"""
                     px_rel = px - cx
@@ -208,47 +209,87 @@ class IconWidget(Widget):
                     new_x = cx + px_rel * cos_a - py_rel * sin_a
                     new_y = cy + px_rel * sin_a + py_rel * cos_a
                     return new_x, new_y
-                
+
                 # Original pencil points (before rotation)
                 shaft_x = x + w * 0.15
                 shaft_y = y + h * 0.25
                 shaft_w = w * 0.55
                 shaft_h = h * 0.15
-                
+
                 # Pencil shaft corners
                 p1 = rotate_point(shaft_x, shaft_y)
                 p2 = rotate_point(shaft_x + shaft_w, shaft_y)
                 p3 = rotate_point(shaft_x + shaft_w, shaft_y + shaft_h)
                 p4 = rotate_point(shaft_x, shaft_y + shaft_h)
-                
+
                 # Draw rotated shaft
-                Line(points=[p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], p4[0], p4[1], p1[0], p1[1]], width=max(1.2, line_w))
-                
+                Line(
+                    points=[
+                        p1[0],
+                        p1[1],
+                        p2[0],
+                        p2[1],
+                        p3[0],
+                        p3[1],
+                        p4[0],
+                        p4[1],
+                        p1[0],
+                        p1[1],
+                    ],
+                    width=max(1.2, line_w),
+                )
+
                 # Pencil tip points
                 tip_px = shaft_x + shaft_w
                 tip_py = shaft_y + shaft_h * 0.5
                 tip_left = rotate_point(tip_px, tip_py)
                 tip_right = rotate_point(tip_px + h * 0.12, tip_py)
                 tip_top = rotate_point(tip_px, tip_py - h * 0.08)
-                
+
                 # Draw rotated tip
-                Line(points=[tip_left[0], tip_left[1], tip_right[0], tip_right[1], tip_top[0], tip_top[1], tip_left[0], tip_left[1]], width=max(1.2, line_w))
-                
+                Line(
+                    points=[
+                        tip_left[0],
+                        tip_left[1],
+                        tip_right[0],
+                        tip_right[1],
+                        tip_top[0],
+                        tip_top[1],
+                        tip_left[0],
+                        tip_left[1],
+                    ],
+                    width=max(1.2, line_w),
+                )
+
                 # Eraser at the back
                 eraser_x = shaft_x - w * 0.08
                 eraser_y = shaft_y
                 eraser_w = w * 0.08
                 eraser_h = shaft_h
-                
+
                 # Eraser corners
                 e1 = rotate_point(eraser_x, eraser_y)
                 e2 = rotate_point(eraser_x + eraser_w, eraser_y)
                 e3 = rotate_point(eraser_x + eraser_w, eraser_y + eraser_h)
                 e4 = rotate_point(eraser_x, eraser_y + eraser_h)
-                
+
                 # Draw rotated eraser
-                Line(points=[e1[0], e1[1], e2[0], e2[1], e3[0], e3[1], e4[0], e4[1], e1[0], e1[1]], width=max(1.0, line_w))
-                
+                Line(
+                    points=[
+                        e1[0],
+                        e1[1],
+                        e2[0],
+                        e2[1],
+                        e3[0],
+                        e3[1],
+                        e4[0],
+                        e4[1],
+                        e1[0],
+                        e1[1],
+                    ],
+                    width=max(1.0, line_w),
+                )
+
                 # Metal band between eraser and pencil
                 Line(points=[e2[0], e2[1], e3[0], e3[1]], width=max(1.0, line_w * 1.5))
             elif self.icon_type == "delete":
@@ -260,7 +301,15 @@ class IconWidget(Widget):
                 # lid
                 Line(rectangle=(lid_x, lid_y, lid_w, lid_h), width=max(1.0, line_w))
                 # handle
-                Line(points=[lid_x + lid_w * 0.4, lid_y + lid_h + h * 0.02, lid_x + lid_w * 0.6, lid_y + lid_h + h * 0.02], width=max(1.0, line_w))
+                Line(
+                    points=[
+                        lid_x + lid_w * 0.4,
+                        lid_y + lid_h + h * 0.02,
+                        lid_x + lid_w * 0.6,
+                        lid_y + lid_h + h * 0.02,
+                    ],
+                    width=max(1.0, line_w),
+                )
                 # can body
                 body_x = x + w * 0.26
                 body_y = y + h * 0.18
@@ -270,7 +319,15 @@ class IconWidget(Widget):
                 # vertical slats inside can
                 for i in range(1, 4):
                     sx = body_x + (body_w * i / 5.0)
-                    Line(points=[sx, body_y + body_h * 0.12, sx, body_y + body_h - body_h * 0.06], width=max(0.8, line_w * 0.6))
+                    Line(
+                        points=[
+                            sx,
+                            body_y + body_h * 0.12,
+                            sx,
+                            body_y + body_h - body_h * 0.06,
+                        ],
+                        width=max(0.8, line_w * 0.6),
+                    )
             elif self.icon_type == "eye":
                 # simple eye icon: outer eye shape and pupil
                 cx = x + w * 0.5
@@ -280,8 +337,14 @@ class IconWidget(Widget):
                 # outer eye arc (approximated with ellipse and lines)
                 Line(ellipse=(cx - rx, cy - ry, rx * 2, ry * 2), width=max(1.0, line_w))
                 # cover top and bottom to suggest almond shape
-                Line(points=[cx - rx, cy, cx, cy + ry * 0.9, cx + rx, cy], width=max(1.0, line_w))
-                Line(points=[cx - rx, cy, cx, cy - ry * 0.9, cx + rx, cy], width=max(1.0, line_w))
+                Line(
+                    points=[cx - rx, cy, cx, cy + ry * 0.9, cx + rx, cy],
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    points=[cx - rx, cy, cx, cy - ry * 0.9, cx + rx, cy],
+                    width=max(1.0, line_w),
+                )
                 # pupil
                 Ellipse(pos=(cx - rx * 0.25, cy - ry * 0.25), size=(rx * 0.5, ry * 0.5))
             elif self.icon_type == "book":
@@ -293,11 +356,22 @@ class IconWidget(Widget):
                 # book outline
                 Line(rectangle=(book_x, book_y, book_w, book_h), width=max(1.2, line_w))
                 # spine
-                Line(points=[book_x + book_w * 0.15, book_y, book_x + book_w * 0.15, book_y + book_h], width=max(1.2, line_w))
+                Line(
+                    points=[
+                        book_x + book_w * 0.15,
+                        book_y,
+                        book_x + book_w * 0.15,
+                        book_y + book_h,
+                    ],
+                    width=max(1.2, line_w),
+                )
                 # pages (horizontal lines)
                 for i in range(1, 4):
                     py = book_y + (book_h * i / 4.5)
-                    Line(points=[book_x + book_w * 0.25, py, book_x + book_w * 0.85, py], width=max(0.8, line_w * 0.7))
+                    Line(
+                        points=[book_x + book_w * 0.25, py, book_x + book_w * 0.85, py],
+                        width=max(0.8, line_w * 0.7),
+                    )
             elif self.icon_type == "folder":
                 # folder icon: top tab and body
                 folder_x = x + w * 0.15
@@ -307,9 +381,15 @@ class IconWidget(Widget):
                 tab_w = folder_w * 0.35
                 tab_h = h * 0.15
                 # folder tab (top-left corner)
-                Line(rectangle=(folder_x, folder_y + folder_h - tab_h, tab_w, tab_h), width=max(1.0, line_w))
+                Line(
+                    rectangle=(folder_x, folder_y + folder_h - tab_h, tab_w, tab_h),
+                    width=max(1.0, line_w),
+                )
                 # folder body
-                Line(rectangle=(folder_x, folder_y, folder_w, folder_h), width=max(1.2, line_w))
+                Line(
+                    rectangle=(folder_x, folder_y, folder_w, folder_h),
+                    width=max(1.2, line_w),
+                )
             elif self.icon_type == "email":
                 # envelope/email icon: outer envelope and flap
                 env_x = x + w * 0.15
@@ -319,10 +399,36 @@ class IconWidget(Widget):
                 # envelope body
                 Line(rectangle=(env_x, env_y, env_w, env_h), width=max(1.2, line_w))
                 # envelope flap (triangle top)
-                Line(points=[env_x, env_y + env_h, env_x + env_w * 0.5, env_y + env_h + env_h * 0.35, env_x + env_w, env_y + env_h], width=max(1.2, line_w))
+                Line(
+                    points=[
+                        env_x,
+                        env_y + env_h,
+                        env_x + env_w * 0.5,
+                        env_y + env_h + env_h * 0.35,
+                        env_x + env_w,
+                        env_y + env_h,
+                    ],
+                    width=max(1.2, line_w),
+                )
                 # center line (dividing envelope)
-                Line(points=[env_x, env_y + env_h, env_x + env_w * 0.5, env_y + env_h + env_h * 0.35], width=max(1.0, line_w))
-                Line(points=[env_x + env_w, env_y + env_h, env_x + env_w * 0.5, env_y + env_h + env_h * 0.35], width=max(1.0, line_w))
+                Line(
+                    points=[
+                        env_x,
+                        env_y + env_h,
+                        env_x + env_w * 0.5,
+                        env_y + env_h + env_h * 0.35,
+                    ],
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    points=[
+                        env_x + env_w,
+                        env_y + env_h,
+                        env_x + env_w * 0.5,
+                        env_y + env_h + env_h * 0.35,
+                    ],
+                    width=max(1.0, line_w),
+                )
 
 
 class ShiftSelectableTextInput(TextInput):
@@ -377,7 +483,9 @@ class IconButton(ButtonBehavior, BoxLayout):
             self.icon.size = (35, 35)
         else:
             self.icon = IconWidget(
-                icon_type=self.icon_type, icon_color=self.text_color, size_hint=(None, None)
+                icon_type=self.icon_type,
+                icon_color=self.text_color,
+                size_hint=(None, None),
             )
             self.icon.size = (23, 23)
         self.icon.pos_hint = {"center_y": 0.5}
@@ -430,7 +538,9 @@ class IconButton(ButtonBehavior, BoxLayout):
     def _on_source(self, _instance, new_source):
         # Swap between Image and IconWidget depending on `source`.
         try:
-            was_index = list(self.children).index(self.label)  # label is present; icon is before it
+            was_index = list(self.children).index(
+                self.label
+            )  # label is present; icon is before it
         except Exception:
             was_index = 0
         # remove existing icon
@@ -446,7 +556,9 @@ class IconButton(ButtonBehavior, BoxLayout):
             self.icon.size = (23, 23)
         else:
             self.icon = IconWidget(
-                icon_type=self.icon_type, icon_color=self.text_color, size_hint=(None, None)
+                icon_type=self.icon_type,
+                icon_color=self.text_color,
+                size_hint=(None, None),
             )
             self.icon.size = (23, 23)
         # add icon back before the label
@@ -554,7 +666,11 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             if hasattr(self.icon, "fit_mode"):
                 self.icon.fit_mode = "contain"
         else:
-            self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.icon_color, size_hint=(None, None))
+            self.icon = IconWidget(
+                icon_type=self.icon_type,
+                icon_color=self.icon_color,
+                size_hint=(None, None),
+            )
 
         # icon stays fixed size and centered in button
         dim = max(24, int(self.height * 0.85))
@@ -562,7 +678,7 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         # use size_hint for natural centering in BoxLayout, not pos_hint
         self.icon.size_hint_x = None
         self.icon.size_hint_y = None
-        
+
         self.add_widget(self.icon)
 
         self.bind(size=self._update_icon_size)
@@ -577,7 +693,9 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             "maintenance": S["MESSAGES"].get("TOOLTIP_MAINTENANCE", "Συντήρηση"),
             "inspection": S["MESSAGES"].get("TOOLTIP_INSPECTION", "Επιθεώρηση"),
             "book": S["MESSAGES"].get("TOOLTIP_MANUAL", "Manual"),
-            "folder": S["MESSAGES"].get("TOOLTIP_FOLDER", "Άνοιγμα Φακέλου Εικόνων/Video"),
+            "folder": S["MESSAGES"].get(
+                "TOOLTIP_FOLDER", "Άνοιγμα Φακέλου Εικόνων/Video"
+            ),
             "email": S["MESSAGES"].get("TOOLTIP_EMAIL", "Αποστολή Email"),
         }
         if tooltip_text:
@@ -606,7 +724,11 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             if hasattr(self.icon, "fit_mode"):
                 self.icon.fit_mode = "contain"
         else:
-            self.icon = IconWidget(icon_type=self.icon_type, icon_color=self.icon_color, size_hint=(None, None))
+            self.icon = IconWidget(
+                icon_type=self.icon_type,
+                icon_color=self.icon_color,
+                size_hint=(None, None),
+            )
         self._update_icon_size()
         self.add_widget(self.icon)
 
@@ -671,8 +793,16 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                             lbl.texture_update()
                         except Exception:
                             pass
-                        w2 = lbl.texture_size[0] + 24 if hasattr(lbl, "texture_size") else lbl.width
-                        h2 = lbl.texture_size[1] + 12 if hasattr(lbl, "texture_size") else lbl.height
+                        w2 = (
+                            lbl.texture_size[0] + 24
+                            if hasattr(lbl, "texture_size")
+                            else lbl.width
+                        )
+                        h2 = (
+                            lbl.texture_size[1] + 12
+                            if hasattr(lbl, "texture_size")
+                            else lbl.height
+                        )
                         lbl.size = (w2, h2)
                         x2, y2 = _calc_tooltip_pos(pos[0], pos[1], w2, h2)
                         lbl.pos = (x2, y2)
@@ -732,5 +862,3 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 except Exception:
                     pass
                 self._tooltip_widget = None
-
-

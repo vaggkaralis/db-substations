@@ -23,18 +23,22 @@ def test_apply_change_log_maintenance_inserts(tmp_path):
     log_path = tmp_path / "change_log.jsonl"
     entries = []
     # Insert an element with id=1
-    entries.append({"operation": "insert", "table": "elements", "data": {"id": 1, "name": "E1"}})
+    entries.append(
+        {"operation": "insert", "table": "elements", "data": {"id": 1, "name": "E1"}}
+    )
     # Insert a maintenance that references element id 1
-    entries.append({
-        "operation": "insert",
-        "table": "maintenance",
-        "data": {
-            "substation_id": 1,
-            "date_time": "2020-01-01",
-            "overall_comments": "ok",
-            "elements": [{"element_id": 1, "element_comments": "checked"}],
-        },
-    })
+    entries.append(
+        {
+            "operation": "insert",
+            "table": "maintenance",
+            "data": {
+                "substation_id": 1,
+                "date_time": "2020-01-01",
+                "overall_comments": "ok",
+                "elements": [{"element_id": 1, "element_comments": "checked"}],
+            },
+        }
+    )
 
     with open(log_path, "w", encoding="utf-8") as fh:
         for e in entries:
@@ -44,13 +48,19 @@ def test_apply_change_log_maintenance_inserts(tmp_path):
     apply_change_log_to_db(conn, str(log_path))
 
     # Assertions
-    r = cur.execute("SELECT id, name, maintenance_date FROM elements WHERE id=1").fetchone()
+    r = cur.execute(
+        "SELECT id, name, maintenance_date FROM elements WHERE id=1"
+    ).fetchone()
     assert r is not None and r[0] == 1
 
-    m = cur.execute("SELECT id, overall_comments, date_time FROM maintenance").fetchone()
+    m = cur.execute(
+        "SELECT id, overall_comments, date_time FROM maintenance"
+    ).fetchone()
     assert m is not None and m[1] == "ok"
 
-    me = cur.execute("SELECT maintenance_id, element_id, element_comments FROM maintenance_elements").fetchone()
+    me = cur.execute(
+        "SELECT maintenance_id, element_id, element_comments FROM maintenance_elements"
+    ).fetchone()
     assert me is not None and me[1] == 1 and me[2] == "checked"
 
     conn.close()

@@ -4,12 +4,14 @@ import sys
 import pandas as pd
 
 # Ensure project root is on sys.path so importers can be imported when running from tools/
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from importers import _map_columns
 from strings import STRINGS as S
 
 # canonical breaker substring for heuristic checks
-ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_SUBSTR", "Διακόπτης")
+ELEMENT_BREAKER_SUBSTR = S.get("MESSAGES", {}).get(
+    "ELEMENT_BREAKER_SUBSTR", "Διακόπτης"
+)
 
 
 def analyze(file_path: str):
@@ -31,7 +33,9 @@ def analyze(file_path: str):
         sheet = None
         for name, s in all_sheets.items():
             cols = [str(c).lower().strip() for c in s.columns]
-            if "name" in cols and ("element type" in cols or "τύπος" in cols or "element" in cols):
+            if "name" in cols and (
+                "element type" in cols or "τύπος" in cols or "element" in cols
+            ):
                 df = s
                 sheet = name
                 break
@@ -46,21 +50,21 @@ def analyze(file_path: str):
     breaker_col = None
     model_col = None
     for c in df.columns:
-        if str(c).strip() == 'Τύπος Διακόπτη':
+        if str(c).strip() == "Τύπος Διακόπτη":
             breaker_col = c
-        if str(c).strip() == 'Model Name':
+        if str(c).strip() == "Model Name":
             model_col = c
     # fallback heuristics
     if not breaker_col:
         for c in df.columns:
             lc = str(c).lower()
-            if 'breaker' in lc or 'τύπος' in lc or 'type' in lc:
+            if "breaker" in lc or "τύπος" in lc or "type" in lc:
                 breaker_col = c
                 break
     if not model_col:
         for c in df.columns:
             lc = str(c).lower()
-            if 'model' in lc or 'μοντέλο' in lc or 'μοντελο' in lc:
+            if "model" in lc or "μοντέλο" in lc or "μοντελο" in lc:
                 model_col = c
                 break
 
@@ -70,13 +74,13 @@ def analyze(file_path: str):
     # determine element type column (after mapping)
     element_col = None
     for c in df.columns:
-        if str(c).strip() == 'Element Type':
+        if str(c).strip() == "Element Type":
             element_col = c
             break
     if not element_col:
         for c in df.columns:
             lc = str(c).lower()
-            if 'element' in lc or 'τύπος' in lc or 'type' in lc:
+            if "element" in lc or "τύπος" in lc or "type" in lc:
                 element_col = c
                 break
 
@@ -90,7 +94,12 @@ def analyze(file_path: str):
         if element_col and pd.notna(row.get(element_col, None)):
             elem_val = str(row.get(element_col)).lower()
             # use canonical substring match (case-insensitive)
-            if ELEMENT_BREAKER_SUBSTR.lower() in elem_val or 'υτ' in elem_val or 'μτ' in elem_val or 'breaker' in elem_val:
+            if (
+                ELEMENT_BREAKER_SUBSTR.lower() in elem_val
+                or "υτ" in elem_val
+                or "μτ" in elem_val
+                or "breaker" in elem_val
+            ):
                 is_breaker = True
         # fallback: if breaker column exists and other heuristics fail, assume non-breaker
         if is_breaker and not br:
@@ -108,16 +117,16 @@ def analyze(file_path: str):
 
     # Show first 10 examples of rows missing breaker type
     if missing_breaker_rows:
-        print('\nExamples of rows missing breaker type (row index, snippet):')
+        print("\nExamples of rows missing breaker type (row index, snippet):")
         for r, rowdict in missing_breaker_rows[:10]:
-            name = rowdict.get('Name') or rowdict.get('Όνομα') or rowdict.get('name')
-            model = rowdict.get('Model Name') or rowdict.get('Model') or ''
+            name = rowdict.get("Name") or rowdict.get("Όνομα") or rowdict.get("name")
+            model = rowdict.get("Model Name") or rowdict.get("Model") or ""
             print(f" - Excel row ~{r}: Name={name} Model={model}")
 
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python tools/dry_run_import_check.py <excel-file-path>")
         sys.exit(2)

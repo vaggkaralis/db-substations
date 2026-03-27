@@ -29,15 +29,11 @@ logging.getLogger("pdfminer").setLevel(logging.ERROR)
 # Greek / English "From:" header line
 _RE_FROM = re.compile(r"^\s*(?:Από|From)\s*:\s*(.+)$", re.IGNORECASE)
 # Greek "Sent:" header line (Εστάλη / Eστάλη / Στάλθηκε) or English "Sent:"
-_RE_SENT = re.compile(
-    r"^\s*(?:Eστάλη|Εστάλη|Στάλθηκε|Sent)\s*:\s*(.+)$", re.IGNORECASE
-)
+_RE_SENT = re.compile(r"^\s*(?:Eστάλη|Εστάλη|Στάλθηκε|Sent)\s*:\s*(.+)$", re.IGNORECASE)
 # A bare email address on its own line (after the "Από:" line)
 _RE_EMAIL = re.compile(r"^\s*[\w.+\-]+@[\w.\-]+\.[a-z]{2,}\s*$", re.IGNORECASE)
 # "Στάλθηκε από Outlook" or "Sent from Outlook" — marks the forwarded-quote block
-_RE_SENT_FROM = re.compile(
-    r"^\s*(?:Στάλθηκε από|Sent from)\b", re.IGNORECASE
-)
+_RE_SENT_FROM = re.compile(r"^\s*(?:Στάλθηκε από|Sent from)\b", re.IGNORECASE)
 # "From:" in the forwarded-quote block that ends the relevant content
 _RE_FROM_QUOTE = re.compile(r"^\s*From\s*:\s*", re.IGNORECASE)
 
@@ -100,11 +96,21 @@ def _parse_email_headers(lines: list[str]) -> dict:
 
 # Greek month names → month number
 _GREEK_MONTHS = {
-    "ιανουαρ": 1,  "φεβρουαρ": 2, "μαρτ": 3,   "απριλ": 4,
-    "μαΐου": 5,    "μαιου": 5,    "ιουν": 6,    "ιουλ": 7,
-    "αυγ": 8,      "σεπτ": 9,     "οκτ": 10,    "νοεμβρ": 11,
+    "ιανουαρ": 1,
+    "φεβρουαρ": 2,
+    "μαρτ": 3,
+    "απριλ": 4,
+    "μαΐου": 5,
+    "μαιου": 5,
+    "ιουν": 6,
+    "ιουλ": 7,
+    "αυγ": 8,
+    "σεπτ": 9,
+    "οκτ": 10,
+    "νοεμβρ": 11,
     "δεκεμβρ": 12,
 }
+
 
 def _parse_greek_date(raw: str) -> str | None:
     """Attempt to parse a Greek date string into ISO-8601 UTC.
@@ -203,7 +209,7 @@ def parse_pdf_file(path: str) -> dict:
     # ------------------------------------------------------------------
     # Step 3: extract body after the header block, drop quoted tail
     # ------------------------------------------------------------------
-    body_lines = lines[headers["body_start_index"]:]
+    body_lines = lines[headers["body_start_index"] :]
     body_lines = _trim_quoted_tail(body_lines)
     body = "\n".join(body_lines).strip()
 

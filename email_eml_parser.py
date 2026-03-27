@@ -61,16 +61,16 @@ def _trim_first_message(text: str) -> str:
     trimmed = []
     skip_headers = False  # Flag to skip forwarded/original message headers
     content_started = False
-    
+
     def _is_header_line(value: str) -> bool:
         return any(pat.search(value) for pat in _HEADER_PATTERNS)
-    
+
     for line in lines:
         stripped = line.strip()
-        
+
         # Check if this is a separator for forwarded/original message
         is_separator = any(pat.search(line) for pat in _SEPARATOR_PATTERNS)
-        
+
         if is_separator:
             # Once we already captured user content, forwarded separator means
             # the next block is previous mail history.
@@ -90,7 +90,7 @@ def _trim_first_message(text: str) -> str:
         # history; stop here so previous thread content is not imported.
         if content_started and _is_header_line(line):
             break
-        
+
         # If we're in header skip mode, skip until we find the header/body boundary (blank line)
         if skip_headers:
             # Blank line = end of email headers, start of body
@@ -99,11 +99,11 @@ def _trim_first_message(text: str) -> str:
                 continue
             # Keep skipping this line (it's part of the headers)
             continue
-        
+
         # Stop at quote markers
         if stripped.startswith(">"):
             break
-        
+
         trimmed.append(line)
         if stripped:
             content_started = True
@@ -153,7 +153,9 @@ def _clean_body(text: str) -> str:
     # and split common inline numbering patterns into separate lines.
     cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
     cleaned = re.sub(r"(?<!\n)\s+(\d+\.)\s+", r"\n\1 ", cleaned)
-    cleaned = re.sub(r"(?<!\n)\s+(Σημείωση\s*\d+η?:)", r"\n\1", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"(?<!\n)\s+(Σημείωση\s*\d+η?:)", r"\n\1", cleaned, flags=re.IGNORECASE
+    )
 
     normalized_lines = []
     for line in cleaned.split("\n"):
@@ -203,7 +205,9 @@ def _extract_body(message):
 
     if body_part.get_content_type() == "text/html":
         content = re.sub(r"<\s*br\s*/?\s*>", "\n", content, flags=re.IGNORECASE)
-        content = re.sub(r"<\s*/\s*(p|div|li|tr|h[1-6])\s*>", "\n", content, flags=re.IGNORECASE)
+        content = re.sub(
+            r"<\s*/\s*(p|div|li|tr|h[1-6])\s*>", "\n", content, flags=re.IGNORECASE
+        )
         content = re.sub(r"<[^>]+>", " ", content)
         content = re.sub(r"[ \t]+", " ", content)
         content = re.sub(r"\n{3,}", "\n\n", content).strip()

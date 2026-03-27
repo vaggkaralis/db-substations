@@ -14,17 +14,41 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sync_service import resolve_db_path, resolve_sync_root, resolve_backup_root, run_sync_cycle
+from sync_service import (
+    resolve_db_path,
+    resolve_sync_root,
+    resolve_backup_root,
+    run_sync_cycle,
+)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Process OneDrive inbox submissions")
-    parser.add_argument("--db", dest="db_path", default=None, help="Path to authoritative SQLite DB")
-    parser.add_argument("--sync-root", dest="sync_root", default=None, help="Path to sync_exchange root")
-    parser.add_argument("--backup-root", dest="backup_root", default=None, help="Path to backup root")
-    parser.add_argument("--actor", dest="actor", default="desktop", help="Actor label for audit events")
-    parser.add_argument("--hot-keep", dest="hot_keep", type=int, default=3, help="How many hot snapshots to keep")
-    parser.add_argument("--no-backup", dest="no_backup", action="store_true", help="Do not create snapshot on accepted changes")
+    parser.add_argument(
+        "--db", dest="db_path", default=None, help="Path to authoritative SQLite DB"
+    )
+    parser.add_argument(
+        "--sync-root", dest="sync_root", default=None, help="Path to sync_exchange root"
+    )
+    parser.add_argument(
+        "--backup-root", dest="backup_root", default=None, help="Path to backup root"
+    )
+    parser.add_argument(
+        "--actor", dest="actor", default="desktop", help="Actor label for audit events"
+    )
+    parser.add_argument(
+        "--hot-keep",
+        dest="hot_keep",
+        type=int,
+        default=3,
+        help="How many hot snapshots to keep",
+    )
+    parser.add_argument(
+        "--no-backup",
+        dest="no_backup",
+        action="store_true",
+        help="Do not create snapshot on accepted changes",
+    )
     args = parser.parse_args()
 
     db_path = resolve_db_path(args.db_path)

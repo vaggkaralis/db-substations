@@ -25,7 +25,7 @@ DB_COMPATIBILITY = {
 
 def _get_db_metadata() -> dict:
     """Load database metadata from db_metadata.json.
-    
+
     Returns:
         Dictionary with db_version, last_migration, created_at, app_version_created
     """
@@ -45,7 +45,7 @@ def _get_db_metadata() -> dict:
 
 def _save_db_metadata(metadata: dict) -> None:
     """Save database metadata to db_metadata.json.
-    
+
     Args:
         metadata: Dictionary with database version information
     """
@@ -58,7 +58,7 @@ def _save_db_metadata(metadata: dict) -> None:
 
 def get_app_version_string() -> str:
     """Get the current application version.
-    
+
     Returns:
         Version string (e.g., '2.0.0')
     """
@@ -67,7 +67,7 @@ def get_app_version_string() -> str:
 
 def get_db_version_string() -> str:
     """Get the current database version.
-    
+
     Returns:
         Version string (e.g., '1.0.0')
     """
@@ -77,11 +77,11 @@ def get_db_version_string() -> str:
 
 def is_db_compatible(app_version: str = None, db_version: str = None) -> dict:
     """Check if the database version is compatible with the app version.
-    
+
     Args:
         app_version: App version to check (defaults to current APP_VERSION)
         db_version: DB version to check (defaults to current db version)
-    
+
     Returns:
         Dictionary with keys:
             - 'compatible': bool - True if versions are compatible
@@ -93,7 +93,7 @@ def is_db_compatible(app_version: str = None, db_version: str = None) -> dict:
         app_version = get_app_version_string()
     if db_version is None:
         db_version = get_db_version_string()
-    
+
     # Get compatibility requirements for this app version
     compat_spec = DB_COMPATIBILITY.get(app_version, {})
     if not compat_spec:
@@ -101,12 +101,12 @@ def is_db_compatible(app_version: str = None, db_version: str = None) -> dict:
             "compatible": False,
             "app_version": app_version,
             "db_version": db_version,
-            "message": f"App version {app_version} not recognized in compatibility matrix"
+            "message": f"App version {app_version} not recognized in compatibility matrix",
         }
-    
+
     min_db = compat_spec.get("min_db", "1.0.0")
     max_db = compat_spec.get("max_db", "1.0.0")
-    
+
     # Simple version comparison (assumes MAJOR.MINOR.PATCH format)
     def parse_version(v_str):
         try:
@@ -114,21 +114,21 @@ def is_db_compatible(app_version: str = None, db_version: str = None) -> dict:
             return tuple(int(p) for p in parts)
         except (ValueError, AttributeError):
             return (0, 0, 0)
-    
+
     db_tuple = parse_version(db_version)
     min_tuple = parse_version(min_db)
     max_tuple = parse_version(max_db)
-    
+
     is_compatible = min_tuple <= db_tuple <= max_tuple
-    
+
     if is_compatible:
         message = f"Compatible: App {app_version} with DB {db_version}"
     else:
         message = f"Incompatible: App {app_version} requires DB {min_db}-{max_db}, but DB is {db_version}"
-    
+
     return {
         "compatible": is_compatible,
         "app_version": app_version,
         "db_version": db_version,
-        "message": message
+        "message": message,
     }

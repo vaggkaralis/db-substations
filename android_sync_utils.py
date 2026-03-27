@@ -33,12 +33,12 @@ def is_content_uri(path: str) -> bool:
 def safe_listdir(path: str) -> list:
     """
     List directory contents safely on Android.
-    
+
     Works with both direct paths and content URIs.
     """
     if not path:
         return []
-    
+
     try:
         if is_content_uri(path):
             # Content URI: try direct access first, fall back to Android API
@@ -56,12 +56,12 @@ def safe_listdir(path: str) -> list:
 def safe_makedirs(path: str, exist_ok: bool = True) -> bool:
     """
     Create directories safely on Android.
-    
+
     Only works with direct filesystem paths.
     """
     if not path or is_content_uri(path):
         return False
-    
+
     try:
         os.makedirs(path, exist_ok=exist_ok)
         return True
@@ -74,7 +74,7 @@ def safe_exists(path: str) -> bool:
     """Check if path exists safely."""
     if not path:
         return False
-    
+
     try:
         if is_content_uri(path):
             return _exists_content_uri(path)
@@ -88,7 +88,7 @@ def safe_isfile(path: str) -> bool:
     """Check if path is a file safely."""
     if not path or is_content_uri(path):
         return False
-    
+
     try:
         return os.path.isfile(path)
     except Exception:
@@ -99,7 +99,7 @@ def safe_isdir(path: str) -> bool:
     """Check if path is a directory safely."""
     if not path:
         return False
-    
+
     try:
         if is_content_uri(path):
             return _isdir_content_uri(path)
@@ -112,12 +112,12 @@ def safe_isdir(path: str) -> bool:
 def safe_read_file(path: str, encoding: str = "utf-8") -> str | None:
     """
     Read file content safely.
-    
+
     Works with both direct paths and content URIs.
     """
     if not path:
         return None
-    
+
     try:
         if is_content_uri(path):
             return _read_content_uri(path, encoding)
@@ -132,12 +132,12 @@ def safe_read_file(path: str, encoding: str = "utf-8") -> str | None:
 def safe_write_file(path: str, content: str, encoding: str = "utf-8") -> bool:
     """
     Write file content safely.
-    
+
     Only works with direct filesystem paths.
     """
     if not path or is_content_uri(path):
         return False
-    
+
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding=encoding) as f:
@@ -151,12 +151,12 @@ def safe_write_file(path: str, content: str, encoding: str = "utf-8") -> bool:
 def safe_append_file(path: str, content: str, encoding: str = "utf-8") -> bool:
     """
     Append to file safely.
-    
+
     Only works with direct filesystem paths.
     """
     if not path or is_content_uri(path):
         return False
-    
+
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "a", encoding=encoding) as f:
@@ -170,12 +170,12 @@ def safe_append_file(path: str, content: str, encoding: str = "utf-8") -> bool:
 def safe_move(src: str, dst: str) -> bool:
     """
     Move file from src to dst safely.
-    
+
     Only works with direct filesystem paths.
     """
     if not src or not dst or is_content_uri(src) or is_content_uri(dst):
         return False
-    
+
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.move(src, dst)
@@ -188,12 +188,12 @@ def safe_move(src: str, dst: str) -> bool:
 def safe_copy(src: str, dst: str) -> bool:
     """
     Copy file safely.
-    
+
     Only works with direct filesystem paths for both source and destination.
     """
     if not src or not dst or is_content_uri(src) or is_content_uri(dst):
         return False
-    
+
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy(src, dst)
@@ -206,6 +206,7 @@ def safe_copy(src: str, dst: str) -> bool:
 # ============================================================================
 # Content URI helper functions (Android content provider access)
 # ============================================================================
+
 
 def _listdir_content_uri(uri: str) -> list:
     """List contents of a content URI folder."""
@@ -230,11 +231,12 @@ def _isdir_content_uri(uri: str) -> bool:
 def _read_content_uri(uri: str, encoding: str = "utf-8") -> str | None:
     """
     Read from a content URI.
-    
+
     Requires Android ContentResolver integration via Plyer.
     """
     try:
         from plyer import filechooser
+
         # Attempting to read directly - may not work with all providers
         # This is a fallback for future SAF integration
         _log(f"Content URI reading not fully implemented for {uri}", "warning")
@@ -246,27 +248,27 @@ def _read_content_uri(uri: str, encoding: str = "utf-8") -> str | None:
 def get_sync_paths(db_path: str) -> dict:
     """
     Get sync folder paths for Android.
-    
+
     Returns:
         Dictionary with resolved paths for sync_root and backup_root
     """
     from config_manager import get_app_setting
-    
+
     db_dir = os.path.dirname(os.path.abspath(db_path))
-    
+
     # Check for configured sync_root_path (user may have picked a folder)
     configured_sync_root = get_app_setting("sync_root_path", None)
     if configured_sync_root and os.path.exists(configured_sync_root):
         sync_root = configured_sync_root
     else:
         sync_root = os.path.join(db_dir, "sync_exchange")
-    
+
     configured_backup_root = get_app_setting("backup_root_path", None)
     if configured_backup_root and os.path.exists(configured_backup_root):
         backup_root = configured_backup_root
     else:
         backup_root = os.path.join(db_dir, "backups_auto")
-    
+
     return {
         "sync_root": sync_root,
         "backup_root": backup_root,

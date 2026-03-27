@@ -16,7 +16,11 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from maintenance_email_importer import _find_people_in_body
-from access_gate_utils import build_access_asset_gate_maps, find_mv_gate, format_gate_label
+from access_gate_utils import (
+    build_access_asset_gate_maps,
+    find_mv_gate,
+    format_gate_label,
+)
 
 
 ACCDB_PATH = Path(
@@ -202,7 +206,9 @@ def load_access_maintenance_rows():
                 "maintainer_fk": int(row[3]) if row[3] is not None else None,
                 "description": row[4] or "",
                 "completed": bool(row[5]) if row[5] is not None else None,
-                "access_maintainer_name": maintainers.get(int(row[3])) if row[3] is not None else None,
+                "access_maintainer_name": maintainers.get(int(row[3]))
+                if row[3] is not None
+                else None,
                 **(detail or {}),
             }
         )
@@ -261,7 +267,9 @@ def backup_sqlite_db():
 
 
 def find_matching_element(maintenance_row, sqlite_breakers):
-    access_substation = access_substation_key(maintenance_row.get("access_substation_name"))
+    access_substation = access_substation_key(
+        maintenance_row.get("access_substation_name")
+    )
     access_serial = normalize_serial(maintenance_row.get("access_serial"))
     access_code = extract_breaker_code(maintenance_row.get("access_breaker_name"))
     access_manufacturer = normalize_text(maintenance_row.get("access_manufacturer"))
@@ -276,7 +284,9 @@ def find_matching_element(maintenance_row, sqlite_breakers):
     compatible_substations = []
     if access_substation:
         compatible_substations = [
-            row for row in sqlite_breakers if row["norm_substation"] == access_substation
+            row
+            for row in sqlite_breakers
+            if row["norm_substation"] == access_substation
         ]
         if not compatible_substations:
             fuzzy_substations = [
@@ -336,7 +346,9 @@ def map_responsible_id(access_name, sqlite_people):
     return None, "person_not_found"
 
 
-def maintenance_exists(conn, substation_id, element_id, element_name, date_value, description):
+def maintenance_exists(
+    conn, substation_id, element_id, element_name, date_value, description
+):
     row = conn.execute(
         """
         SELECT m.id
@@ -355,7 +367,9 @@ def maintenance_exists(conn, substation_id, element_id, element_name, date_value
 
 
 def sync_maintenance_people(conn, maintenance_id, responsible_id, description):
-    conn.execute("DELETE FROM maintenance_people WHERE maintenance_id = ?", (maintenance_id,))
+    conn.execute(
+        "DELETE FROM maintenance_people WHERE maintenance_id = ?", (maintenance_id,)
+    )
     if responsible_id:
         conn.execute(
             "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, 'responsible')",
@@ -387,7 +401,9 @@ def sync_element_maintenance_date(conn, element_id):
         """,
         (element_id,),
     ).fetchone()[0]
-    conn.execute("UPDATE elements SET maintenance_date = ? WHERE id = ?", (latest, element_id))
+    conn.execute(
+        "UPDATE elements SET maintenance_date = ? WHERE id = ?", (latest, element_id)
+    )
 
 
 def sync_substation_last_maintenance(conn, substation_id):
@@ -395,7 +411,10 @@ def sync_substation_last_maintenance(conn, substation_id):
         "SELECT MAX(date_time) FROM maintenance WHERE substation_id = ?",
         (substation_id,),
     ).fetchone()[0]
-    conn.execute("UPDATE substations SET last_maintenance = ? WHERE id = ?", (latest, substation_id))
+    conn.execute(
+        "UPDATE substations SET last_maintenance = ? WHERE id = ?",
+        (latest, substation_id),
+    )
 
 
 def update_element_gate_from_access(conn, element, maintenance_row, gate_maps):
@@ -407,9 +426,14 @@ def update_element_gate_from_access(conn, element, maintenance_row, gate_maps):
     )
     if gate_number is None:
         return False
-    desired_gate = format_gate_label(gate_number, is_interconnection=element.get("is_main_switch") == 2)
+    desired_gate = format_gate_label(
+        gate_number, is_interconnection=element.get("is_main_switch") == 2
+    )
     if desired_gate and desired_gate != element.get("gate"):
-        conn.execute("UPDATE elements SET gate = ? WHERE id = ?", (desired_gate, element["element_id"]))
+        conn.execute(
+            "UPDATE elements SET gate = ? WHERE id = ?",
+            (desired_gate, element["element_id"]),
+        )
         element["gate"] = desired_gate
         return True
     return False
@@ -533,11 +557,12 @@ def main():
                 """,
                 (maintenance_id, element["element_id"], row["description"]),
             )
-            sync_maintenance_people(conn, maintenance_id, responsible_id, row["description"])
+            sync_maintenance_people(
+                conn, maintenance_id, responsible_id, row["description"]
+            )
             sync_element_maintenance_date(conn, element["element_id"])
             sync_substation_last_maintenance(conn, element["substation_id"])
             report["inserted"] += 1
-
 
         conn.commit()
 

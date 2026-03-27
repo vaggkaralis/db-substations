@@ -20,16 +20,16 @@ class _StringsProxy:
             # Start with English as base
             en_data = self._data.get("en", {})
             merged = dict(en_data.get(key, {}))
-            
+
             # Overlay with language-specific content from MESSAGES/TITLES if available
             if key in current:
                 merged.update(current[key])
-            
+
             # Also merge from BUTTONS as fallback (BUTTONS may contain translated messages)
             # These should override English defaults
             if "BUTTONS" in current:
                 merged.update(current["BUTTONS"])
-            
+
             return merged
 
         # For other keys, look directly in current language

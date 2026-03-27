@@ -33,7 +33,10 @@ def show_maintenance_menu_popup(app, ui):
     Label = ui["Label"]
     Button = ui["Button"]
 
-    menu_popup = Popup(title=S["MESSAGES"].get("MAINTENANCE_BUTTON", "Συντηρήσεις"), size_hint=(0.6, 0.55))
+    menu_popup = Popup(
+        title=S["MESSAGES"].get("MAINTENANCE_BUTTON", "Συντηρήσεις"),
+        size_hint=(0.6, 0.55),
+    )
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     try:
@@ -41,37 +44,68 @@ def show_maintenance_menu_popup(app, ui):
     except Exception:
         pass
 
-    layout.add_widget(Label(text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"), size_hint_y=None, height=45))
+    layout.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"),
+            size_hint_y=None,
+            height=45,
+        )
+    )
 
-    add_btn = Button(text=S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"), size_hint_y=None, height=60)
+    add_btn = Button(
+        text=S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"),
+        size_hint_y=None,
+        height=60,
+    )
+
     def _on_add(_instance=None):
         try:
             app.show_maintenance_menu(parent_popup=menu_popup)
         except Exception as exc:
             try:
                 import traceback, sys
+
                 tb = traceback.format_exc()
-                log_path = os.path.join(os.path.dirname(__file__), "maintenance_error.log")
+                log_path = os.path.join(
+                    os.path.dirname(__file__), "maintenance_error.log"
+                )
                 try:
                     with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.now().isoformat()}] Error opening maintenance form:\n{tb}\n")
+                        f.write(
+                            f"[{datetime.now().isoformat()}] Error opening maintenance form:\n{tb}\n"
+                        )
                 except Exception:
                     pass
-                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά το άνοιγμα φόρμας συντήρησης. Δείτε log: {log_path}")
+                ui.get("show_message_popup", lambda *a, **k: None)(
+                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
+                    f"Σφάλμα κατά το άνοιγμα φόρμας συντήρησης. Δείτε log: {log_path}",
+                )
             except Exception:
                 pass
+
     add_btn.bind(on_press=_on_add)
     layout.add_widget(add_btn)
 
-    import_email_btn = Button(text=S["MESSAGES"].get("IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"), size_hint_y=None, height=60)
+    import_email_btn = Button(
+        text=S["MESSAGES"].get(
+            "IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"
+        ),
+        size_hint_y=None,
+        height=60,
+    )
+
     def _on_import_email(_instance=None):
         try:
             app._show_import_maintenance_email_dialog(menu_popup)
         except Exception as exc:
             try:
-                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά την εισαγωγή από e-mail:\n{exc}")
+                ui.get("show_message_popup", lambda *a, **k: None)(
+                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
+                    f"Σφάλμα κατά την εισαγωγή από e-mail:\n{exc}",
+                )
             except Exception:
                 pass
+
     import_email_btn.bind(on_press=_on_import_email)
     layout.add_widget(import_email_btn)
 
@@ -79,22 +113,47 @@ def show_maintenance_menu_popup(app, ui):
     try:
         export_fn = ui.get("export_maintenances_per_substation")
         if export_fn:
-            export_maint_btn = Button(text=S["MESSAGES"].get("EXPORT_MAINTENANCES_EXCEL", "Εξαγωγή Συντηρήσεων (Excel)"), size_hint_y=None, height=60)
-            export_maint_btn.bind(on_press=lambda x: (menu_popup.dismiss(), export_fn(app.conn)))
+            export_maint_btn = Button(
+                text=S["MESSAGES"].get(
+                    "EXPORT_MAINTENANCES_EXCEL", "Εξαγωγή Συντηρήσεων (Excel)"
+                ),
+                size_hint_y=None,
+                height=60,
+            )
+            export_maint_btn.bind(
+                on_press=lambda x: (menu_popup.dismiss(), export_fn(app.conn))
+            )
             layout.add_widget(export_maint_btn)
     except Exception:
         pass
 
     def _open_history_choice(_instance=None):
         # present chooser between full history and undone maintenances
-        choice_popup = Popup(title=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint=(0.5, 0.35))
+        choice_popup = Popup(
+            title=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
+            size_hint=(0.5, 0.35),
+        )
         ch_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        info = Label(text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"), size_hint_y=None, height=30)
+        info = Label(
+            text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"),
+            size_hint_y=None,
+            height=30,
+        )
         ch_layout.add_widget(info)
 
         btns = BoxLayout(orientation="vertical", spacing=8)
-        complete_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=None, height=50)
-        undone_btn = Button(text=S["MESSAGES"].get("UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"), size_hint_y=None, height=50)
+        complete_btn = Button(
+            text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
+            size_hint_y=None,
+            height=50,
+        )
+        undone_btn = Button(
+            text=S["MESSAGES"].get(
+                "UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"
+            ),
+            size_hint_y=None,
+            height=50,
+        )
 
         def _on_complete(_btn):
             choice_popup.dismiss()
@@ -114,29 +173,47 @@ def show_maintenance_menu_popup(app, ui):
         choice_popup.content = ch_layout
         choice_popup.open()
 
-    history_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=None, height=60)
+    history_btn = Button(
+        text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
+        size_hint_y=None,
+        height=60,
+    )
+
     def _on_history(_instance=None):
         try:
             _open_history_choice()
         except Exception as exc:
             try:
-                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά το άνοιγμα ιστορικού συντηρήσεων:\n{exc}")
+                ui.get("show_message_popup", lambda *a, **k: None)(
+                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
+                    f"Σφάλμα κατά το άνοιγμα ιστορικού συντηρήσεων:\n{exc}",
+                )
             except Exception:
                 pass
+
     history_btn.bind(on_press=_on_history)
     layout.add_widget(history_btn)
 
     # Measurements history (global) - opens a list of measurement instances
-    meas_btn = Button(text=S["MESSAGES"].get("MEASUREMENTS_HISTORY_LABEL", "Ιστορικό Μετρήσεων"), size_hint_y=None, height=60)
+    meas_btn = Button(
+        text=S["MESSAGES"].get("MEASUREMENTS_HISTORY_LABEL", "Ιστορικό Μετρήσεων"),
+        size_hint_y=None,
+        height=60,
+    )
+
     def _on_meas(_instance=None):
         try:
             menu_popup.dismiss()
             app.show_measurements_history(parent_popup=menu_popup)
         except Exception as exc:
             try:
-                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά το άνοιγμα ιστορικού μετρήσεων:\n{exc}")
+                ui.get("show_message_popup", lambda *a, **k: None)(
+                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
+                    f"Σφάλμα κατά το άνοιγμα ιστορικού μετρήσεων:\n{exc}",
+                )
             except Exception:
                 pass
+
     meas_btn.bind(on_press=_on_meas)
     layout.add_widget(meas_btn)
 
@@ -156,7 +233,9 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
     Button = ui["Button"]
 
     popup = Popup(
-        title=S["MESSAGES"].get("IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"),
+        title=S["MESSAGES"].get(
+            "IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"
+        ),
         size_hint=(0.8, 0.35),
     )
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -169,7 +248,9 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
 
     buttons_row = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=0.35)
 
-    import_eml_btn = Button(text=S["MESSAGES"].get("IMPORT_EML_FILE", "Εισαγωγή αρχείου .eml"))
+    import_eml_btn = Button(
+        text=S["MESSAGES"].get("IMPORT_EML_FILE", "Εισαγωγή αρχείου .eml")
+    )
 
     def _on_import_eml(_instance=None):
         popup.dismiss()
@@ -178,7 +259,9 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
     import_eml_btn.bind(on_press=_on_import_eml)
     buttons_row.add_widget(import_eml_btn)
 
-    import_pst_btn = Button(text=S["MESSAGES"].get("IMPORT_PST_FILE", "Εισαγωγή αρχείου .pst"))
+    import_pst_btn = Button(
+        text=S["MESSAGES"].get("IMPORT_PST_FILE", "Εισαγωγή αρχείου .pst")
+    )
 
     def _on_import_pst(_instance=None):
         popup.dismiss()
@@ -187,7 +270,9 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
     import_pst_btn.bind(on_press=_on_import_pst)
     buttons_row.add_widget(import_pst_btn)
 
-    import_pdf_btn = Button(text=S["MESSAGES"].get("IMPORT_PDF_FILE", "Εισαγωγή αρχείου .pdf"))
+    import_pdf_btn = Button(
+        text=S["MESSAGES"].get("IMPORT_PDF_FILE", "Εισαγωγή αρχείου .pdf")
+    )
 
     def _on_import_pdf(_instance=None):
         popup.dismiss()
@@ -195,7 +280,7 @@ def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
 
     import_pdf_btn.bind(on_press=_on_import_pdf)
     buttons_row.add_widget(import_pdf_btn)
-    
+
     layout.add_widget(buttons_row)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.25)
@@ -219,7 +304,9 @@ def _show_import_maintenance_eml_dialog(app, ui, parent_popup=None):
 
     allow_fallback = False
     try:
-        fp = ask_open_file(title="Select .eml file", filetypes=(("EML files", "*.eml"),))
+        fp = ask_open_file(
+            title="Select .eml file", filetypes=(("EML files", "*.eml"),)
+        )
     except ImportError:
         allow_fallback = True
         fp = None
@@ -249,7 +336,9 @@ def _show_import_maintenance_eml_dialog(app, ui, parent_popup=None):
 
     def _choose_file_native(_instance=None):
         try:
-            fp = ask_open_file(title="Select .eml file", filetypes=(("EML files", "*.eml"),))
+            fp = ask_open_file(
+                title="Select .eml file", filetypes=(("EML files", "*.eml"),)
+            )
         except ImportError:
             show_message_popup(
                 "Σφάλμα",
@@ -283,7 +372,9 @@ def _show_import_maintenance_eml_dialog(app, ui, parent_popup=None):
         )
 
         if not file_path:
-            show_message_popup("Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!")
+            show_message_popup(
+                "Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
+            )
             return
 
         if not os.path.exists(file_path):
@@ -341,7 +432,11 @@ def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
     )
     progress_layout = BoxLayout(orientation="vertical", padding=15, spacing=15)
 
-    status_label = Label(text="Ανάγνωση αρχείου .pst...\nΠαρακαλώ περιμένετε...", size_hint_y=0.5, markup=True)
+    status_label = Label(
+        text="Ανάγνωση αρχείου .pst...\nΠαρακαλώ περιμένετε...",
+        size_hint_y=0.5,
+        markup=True,
+    )
     progress_layout.add_widget(status_label)
 
     # Will be added dynamically when email processing starts
@@ -355,61 +450,74 @@ def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
     # Import in background thread
     def _do_import():
         import time
-        
+
         # Give the dialog time to render before starting the heavy operation
         time.sleep(0.5)
-        
+
         try:
             from import_pst_file import import_maintenance_from_pst
             from kivy.clock import Clock
 
-            def progress_callback(current=None, imported=None, failed=None, status=None):
+            def progress_callback(
+                current=None, imported=None, failed=None, status=None
+            ):
                 """Update progress dialog - called from background thread."""
                 try:
                     # If status message provided, display it (for loading phase)
                     if status:
                         # During loading, only update status label
                         Clock.schedule_once(
-                            lambda dt, s=status: setattr(status_label, 'text', s),
+                            lambda dt, s=status: setattr(status_label, "text", s),
                             0,
                         )
                     else:
                         # Email processing phase - show real progress
                         msg = f"E-mail {current} | Επιτυχείς: {imported} | Αποτυχίες: {failed}"
                         Clock.schedule_once(
-                            lambda dt, m=msg: setattr(status_label, 'text', m),
+                            lambda dt, m=msg: setattr(status_label, "text", m),
                             0,
                         )
-                        
+
                         # Add progress bar on first email (lazy initialization)
                         nonlocal progress_bar, progress_label, progress_bar_container
                         if progress_bar_container is None:
+
                             def add_progress_bar():
-                                nonlocal progress_bar, progress_label, progress_bar_container
+                                nonlocal \
+                                    progress_bar, \
+                                    progress_label, \
+                                    progress_bar_container
                                 if progress_bar_container is None:
                                     try:
                                         from kivy.garden.progressbar import ProgressBar
-                                        progress_bar = ProgressBar(max=100, value=0, size_hint_y=0.3)
+
+                                        progress_bar = ProgressBar(
+                                            max=100, value=0, size_hint_y=0.3
+                                        )
                                         progress_layout.add_widget(progress_bar)
                                         progress_bar_container = True  # Mark as added
                                     except Exception:
-                                        progress_label = Label(text="0%", size_hint_y=0.3)
+                                        progress_label = Label(
+                                            text="0%", size_hint_y=0.3
+                                        )
                                         progress_layout.add_widget(progress_label)
                                         progress_bar_container = True
-                            
+
                             Clock.schedule_once(lambda dt: add_progress_bar(), 0)
-                        
+
                         # Update progress bar
                         pct = min(100, (current / max(1, current + 5)) * 100)
                         if progress_bar:
                             Clock.schedule_once(
-                                lambda dt, p=pct: setattr(progress_bar, 'value', p),
+                                lambda dt, p=pct: setattr(progress_bar, "value", p),
                                 0,
                             )
                         elif progress_label:
                             pct_text = f"{int(pct)}%"
                             Clock.schedule_once(
-                                lambda dt, t=pct_text: setattr(progress_label, 'text', t),
+                                lambda dt, t=pct_text: setattr(
+                                    progress_label, "text", t
+                                ),
                                 0,
                             )
                 except Exception:
@@ -454,7 +562,7 @@ def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
 
         except Exception as exc:
             from kivy.clock import Clock
-            
+
             # Capture error message now, before the callback is scheduled
             error_msg = str(exc)
 
@@ -489,7 +597,9 @@ def _show_import_maintenance_pdf_dialog(app, ui, parent_popup=None):
     show_message_popup = ui["show_message_popup"]
 
     try:
-        fp = ask_open_file(title="Select .pdf file", filetypes=(("PDF files", "*.pdf"),))
+        fp = ask_open_file(
+            title="Select .pdf file", filetypes=(("PDF files", "*.pdf"),)
+        )
     except ImportError:
         fp = None
     except Exception:
@@ -540,7 +650,10 @@ def _get_previous_maintenance_defaults(app, substation_id: int, date_time_value:
 
     maintenance_id, maint_type, comments, responsible_id = row
 
-    c.execute("SELECT person_id, role FROM maintenance_people WHERE maintenance_id=?", (maintenance_id,))
+    c.execute(
+        "SELECT person_id, role FROM maintenance_people WHERE maintenance_id=?",
+        (maintenance_id,),
+    )
     people_rows = c.fetchall()
     crew_ids = {pid for pid, role in people_rows if role == "crew"}
     if not responsible_id:
@@ -549,7 +662,10 @@ def _get_previous_maintenance_defaults(app, substation_id: int, date_time_value:
                 responsible_id = pid
                 break
 
-    c.execute("SELECT element_id FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+    c.execute(
+        "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+        (maintenance_id,),
+    )
     element_ids = {row[0] for row in c.fetchall()}
 
     return {
@@ -578,6 +694,7 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     c.execute("SELECT id, name FROM substations ORDER BY name")
     substations = c.fetchall()
     from popups import show_message_popup
+
     if not substations:
         show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["NO_SUBSTATIONS"])
         return
@@ -603,7 +720,9 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         app._prompt_add_elements_then_continue(substation_id, substation_name, payload)
         return
 
-    c.execute("SELECT id, name, role FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE")
+    c.execute(
+        "SELECT id, name, role FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE"
+    )
     people = c.fetchall()
     if not people:
         show_message_popup(
@@ -613,7 +732,9 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         return
 
     responsible_id = app._match_person_by_sender(sender_name, people)
-    crew_ids = app._find_people_in_body(body, people, exclude_ids={responsible_id} if responsible_id else set())
+    crew_ids = app._find_people_in_body(
+        body, people, exclude_ids={responsible_id} if responsible_id else set()
+    )
 
     people_name_by_id = {pid: name for pid, name, _role in people}
     log_import_diagnostic(
@@ -642,9 +763,13 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     if not date_time_value:
         date_time_value = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    default_maintenance_type = S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση")
+    default_maintenance_type = S.get("MESSAGES", {}).get(
+        "MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"
+    )
     if callable(infer_maintenance_type_from_subject):
-        default_maintenance_type = infer_maintenance_type_from_subject(subject, default_maintenance_type)
+        default_maintenance_type = infer_maintenance_type_from_subject(
+            subject, default_maintenance_type
+        )
 
     prefill = {
         "substation_id": substation_id,

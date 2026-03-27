@@ -30,11 +30,16 @@ def show_models_management(app_instance):
     )
     models = c.fetchall()
 
-    popup = Popup(title=S["TITLES"].get("MODELS_MANAGEMENT", "Διαχείριση Τύπων Στοιχείων"), size_hint=(0.95, 0.9))
+    popup = Popup(
+        title=S["TITLES"].get("MODELS_MANAGEMENT", "Διαχείριση Τύπων Στοιχείων"),
+        size_hint=(0.95, 0.9),
+    )
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     # Add model button
-    add_btn = Button(text=S["BUTTONS"].get("ADD_MODEL", "+ Προσθήκη Νέου Μοντέλου"), size_hint_y=0.1)
+    add_btn = Button(
+        text=S["BUTTONS"].get("ADD_MODEL", "+ Προσθήκη Νέου Μοντέλου"), size_hint_y=0.1
+    )
     add_btn.bind(on_press=lambda x: show_add_model_popup(app_instance, popup))
     main_layout.add_widget(add_btn)
 
@@ -50,8 +55,17 @@ def show_models_management(app_instance):
     filter_values = [S["MESSAGES"].get("ALL_OPTION", "(Όλα)")] + ordered_categories
 
     filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
-    filter_bar.add_widget(Label(text=S["MESSAGES"].get("FILTER_TYPE_LABEL", "Φίλτρο Τύπου:"), size_hint_x=0.25))
-    filter_spinner = Spinner(text=S["MESSAGES"].get("ALL_OPTION", "(Όλα)"), values=filter_values, size_hint_x=0.75)
+    filter_bar.add_widget(
+        Label(
+            text=S["MESSAGES"].get("FILTER_TYPE_LABEL", "Φίλτρο Τύπου:"),
+            size_hint_x=0.25,
+        )
+    )
+    filter_spinner = Spinner(
+        text=S["MESSAGES"].get("ALL_OPTION", "(Όλα)"),
+        values=filter_values,
+        size_hint_x=0.75,
+    )
     filter_bar.add_widget(filter_spinner)
     main_layout.add_widget(filter_bar)
 
@@ -63,7 +77,9 @@ def show_models_management(app_instance):
     def render_models(selected_category):
         grid.clear_widgets()
         filtered_models = models
-        if selected_category and selected_category != S["MESSAGES"].get("ALL_OPTION", "(Όλα)"):
+        if selected_category and selected_category != S["MESSAGES"].get(
+            "ALL_OPTION", "(Όλα)"
+        ):
             filtered_models = [m for m in models if m[1] == selected_category]
 
         if filtered_models:
@@ -75,7 +91,7 @@ def show_models_management(app_instance):
             # Define priority order for common categories
             priority_categories = [
                 ELEM_BREAKER_MT,
-                    ELEM_BREAKER_YT,
+                ELEM_BREAKER_YT,
                 "Μετασχηματιστής 150/20KV",
                 "Motor Drive",
             ]
@@ -128,7 +144,9 @@ def show_models_management(app_instance):
                         # Initialize ordered groups
                         for breaker_type in breaker_order:
                             breaker_groups[breaker_type] = []
-                        breaker_groups[S["MESSAGES"].get("OTHER_LABEL", "Άλλο")] = []  # For uncategorized
+                        breaker_groups[
+                            S["MESSAGES"].get("OTHER_LABEL", "Άλλο")
+                        ] = []  # For uncategorized
 
                         # Sort models into breaker groups
                         for model in category_models:
@@ -158,8 +176,11 @@ def show_models_management(app_instance):
                                         continue
                                 # Try normalized alphanumeric match (e.g., 'SF6' vs 'SF 6')
                                 if not assigned:
+
                                     def _norm(s):
-                                        return "".join(ch for ch in str(s).lower() if ch.isalnum())
+                                        return "".join(
+                                            ch for ch in str(s).lower() if ch.isalnum()
+                                        )
 
                                     nb = _norm(bval)
                                     for key in list(breaker_groups.keys()):
@@ -171,7 +192,9 @@ def show_models_management(app_instance):
                                         except Exception:
                                             continue
                             if not assigned:
-                                breaker_groups[S["MESSAGES"].get("OTHER_LABEL", "Άλλο")].append(model)
+                                breaker_groups[
+                                    S["MESSAGES"].get("OTHER_LABEL", "Άλλο")
+                                ].append(model)
 
                         # Display each breaker type group
                         for breaker_type, breaker_models in breaker_groups.items():
@@ -230,7 +253,9 @@ def show_models_management(app_instance):
                                     # Buttons
                                     btn_box = BoxLayout(size_hint_x=0.45, spacing=5)
 
-                                    list_btn = Button(text=S["BUTTONS"]["LIST"], size_hint_x=0.25)
+                                    list_btn = Button(
+                                        text=S["BUTTONS"]["LIST"], size_hint_x=0.25
+                                    )
                                     list_btn.bind(
                                         on_press=lambda x, mid=model_id, mname=model_name: (
                                             show_model_usages(app_instance, mid, mname)
@@ -240,8 +265,11 @@ def show_models_management(app_instance):
 
                                     manual_label = (
                                         S["MESSAGES"].get("MANUAL_LABEL", "Manual")
-                                        if (manual_pdf and os.path.exists(manual_pdf)) or onedrive_manual_link
-                                        else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
+                                        if (manual_pdf and os.path.exists(manual_pdf))
+                                        or onedrive_manual_link
+                                        else S["MESSAGES"].get(
+                                            "ADD_MANUAL", "Προσθήκη Manual"
+                                        )
                                     )
                                     manual_btn = Button(
                                         text=manual_label, size_hint_x=0.25
@@ -255,7 +283,11 @@ def show_models_management(app_instance):
                                     )
                                     btn_box.add_widget(manual_btn)
 
-                                    edit_btn = IconOnlyButton(icon_type="edit", icon_color=(0.2, 0.6, 1, 1), size=(45, 45))
+                                    edit_btn = IconOnlyButton(
+                                        icon_type="edit",
+                                        icon_color=(0.2, 0.6, 1, 1),
+                                        size=(45, 45),
+                                    )
                                     edit_btn.bind(
                                         on_press=lambda x, mid=model_id: (
                                             show_edit_model_popup(
@@ -265,7 +297,11 @@ def show_models_management(app_instance):
                                     )
                                     btn_box.add_widget(edit_btn)
 
-                                    delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(40, 40))
+                                    delete_btn = IconOnlyButton(
+                                        icon_type="delete",
+                                        icon_color=(1, 0.0, 0.0, 1),
+                                        size=(40, 40),
+                                    )
                                     delete_btn.bind(
                                         on_press=lambda x, mid=model_id: delete_model(
                                             app_instance, mid, popup
@@ -287,7 +323,9 @@ def show_models_management(app_instance):
                                     except Exception:
                                         thess_star = False
 
-                                    cycle_display = f"{cycle}" if cycle is not None else "-"
+                                    cycle_display = (
+                                        f"{cycle}" if cycle is not None else "-"
+                                    )
                                     if thess_star:
                                         cycle_display = f"{cycle_display}*"
 
@@ -304,7 +342,11 @@ def show_models_management(app_instance):
                                             display_power = rr[0] if rr else None
                                     except Exception:
                                         display_power = None
-                                    display_power_str = f"{display_power} MVA" if display_power is not None else "-"
+                                    display_power_str = (
+                                        f"{display_power} MVA"
+                                        if display_power is not None
+                                        else "-"
+                                    )
                                     details_text = f"    Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'} | Ισχ.: {display_power_str}"
                                     details = Label(
                                         text=details_text, size_hint_y=None, height=30
@@ -345,7 +387,11 @@ def show_models_management(app_instance):
                                 usage_count = 0
 
                             header.add_widget(
-                                Label(text=f"{model_name} ({usage_count})", bold=True, size_hint_x=0.45)
+                                Label(
+                                    text=f"{model_name} ({usage_count})",
+                                    bold=True,
+                                    size_hint_x=0.45,
+                                )
                             )
                             # Header power: prefer model power, else infer from elements, else '-'
                             try:
@@ -360,13 +406,23 @@ def show_models_management(app_instance):
                                     header_power = _r[0] if _r else None
                             except Exception:
                                 header_power = None
-                            header_power_str = f"{header_power} MVA" if header_power is not None else "-"
-                            header.add_widget(Label(text=(f"Ισχ.: {header_power_str}"), size_hint_x=0.10))
+                            header_power_str = (
+                                f"{header_power} MVA"
+                                if header_power is not None
+                                else "-"
+                            )
+                            header.add_widget(
+                                Label(
+                                    text=(f"Ισχ.: {header_power_str}"), size_hint_x=0.10
+                                )
+                            )
 
                             # Buttons
                             btn_box = BoxLayout(size_hint_x=0.45, spacing=5)
 
-                            list_btn = Button(text=S["BUTTONS"]["LIST"], size_hint_x=0.25)
+                            list_btn = Button(
+                                text=S["BUTTONS"]["LIST"], size_hint_x=0.25
+                            )
                             list_btn.bind(
                                 on_press=lambda x, mid=model_id, mname=model_name: (
                                     show_model_usages(app_instance, mid, mname)
@@ -376,7 +432,8 @@ def show_models_management(app_instance):
 
                             manual_label = (
                                 S["MESSAGES"].get("MANUAL_LABEL", "Manual")
-                                if (manual_pdf and os.path.exists(manual_pdf)) or onedrive_manual_link
+                                if (manual_pdf and os.path.exists(manual_pdf))
+                                or onedrive_manual_link
                                 else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                             )
                             manual_btn = Button(text=manual_label, size_hint_x=0.25)
@@ -387,7 +444,11 @@ def show_models_management(app_instance):
                             )
                             btn_box.add_widget(manual_btn)
 
-                            edit_btn = IconOnlyButton(icon_type="edit", icon_color=(0.2, 0.6, 1, 1), size=(45, 45))
+                            edit_btn = IconOnlyButton(
+                                icon_type="edit",
+                                icon_color=(0.2, 0.6, 1, 1),
+                                size=(45, 45),
+                            )
                             edit_btn.bind(
                                 on_press=lambda x, mid=model_id: show_edit_model_popup(
                                     app_instance, mid, popup
@@ -395,7 +456,11 @@ def show_models_management(app_instance):
                             )
                             btn_box.add_widget(edit_btn)
 
-                            delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(40, 40))
+                            delete_btn = IconOnlyButton(
+                                icon_type="delete",
+                                icon_color=(1, 0.0, 0.0, 1),
+                                size=(40, 40),
+                            )
                             delete_btn.bind(
                                 on_press=lambda x, mid=model_id: delete_model(
                                     app_instance, mid, popup
@@ -420,7 +485,11 @@ def show_models_management(app_instance):
                             if thess_star:
                                 cycle_display = f"{cycle_display}*"
 
-                            power_info = f" | Ονομαστική Ισχύς: {power_mva} MVA" if power_mva is not None else ""
+                            power_info = (
+                                f" | Ονομαστική Ισχύς: {power_mva} MVA"
+                                if power_mva is not None
+                                else ""
+                            )
                             details_text = f"Κατασκευαστής: {manufacturer or '-'} | Κύκλος: {cycle_display} έτη | Χώρος: {space or '-'}{power_info}"
                             if breaker_cat:
                                 details_text += f" | Κατηγορία: {breaker_cat}"
@@ -475,7 +544,10 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     from kivy.uix.spinner import Spinner
     from kivy.uix.textinput import TextInput
 
-    popup = Popup(title=S["MESSAGES"].get("ADD_MODEL_TITLE", "Προσθήκη Νέου Μοντέλου"), size_hint=(0.8, 0.8))
+    popup = Popup(
+        title=S["MESSAGES"].get("ADD_MODEL_TITLE", "Προσθήκη Νέου Μοντέλου"),
+        size_hint=(0.8, 0.8),
+    )
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -527,7 +599,9 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     layout.add_widget(manufacturer_input)
 
     # Rated power (MVA)
-    layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+    layout.add_widget(
+        Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30)
+    )
     power_input = TextInput(
         hint_text="MVA", size_hint_y=None, height=40, multiline=False
     )
@@ -603,13 +677,17 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
 
     def save_model():
         if not model_name_input.text.strip():
-            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_NAME_REQUIRED"])
+            show_message_popup(
+                S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_NAME_REQUIRED"]
+            )
             return
 
         try:
             cycle = int(cycle_input.text) if cycle_input.text.strip() else 0
         except ValueError:
-            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_SERVICE_CYCLE_NUM"])
+            show_message_popup(
+                S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_SERVICE_CYCLE_NUM"]
+            )
             return
 
         # parse rated power
@@ -618,7 +696,9 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             try:
                 power_val = float(power_input.text.strip())
             except ValueError:
-                show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_POWER_NUM"])
+                show_message_popup(
+                    S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_POWER_NUM"]
+                )
                 return
 
         breaker_cat = (
@@ -677,7 +757,9 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             else:
                 show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MODEL_ADDED"])
         except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την αποθήκευση: {str(e)}")
+            show_message_popup(
+                S["TITLES"]["ERROR"], f"Σφάλμα κατά την αποθήκευση: {str(e)}"
+            )
 
     save_btn = Button(text=S["BUTTONS"]["SAVE"])
     save_btn.bind(on_press=lambda x: save_model())
@@ -713,7 +795,17 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["MODEL_NOT_FOUND"])
         return
 
-    category, model_name, manufacturer, cycle, space, breaker_cat, sf6_capacity, power_mva, onedrive_manual_link = model
+    (
+        category,
+        model_name,
+        manufacturer,
+        cycle,
+        space,
+        breaker_cat,
+        sf6_capacity,
+        power_mva,
+        onedrive_manual_link,
+    ) = model
 
     popup = Popup(title=f"Επεξεργασία: {model_name}", size_hint=(0.8, 0.8))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -742,7 +834,9 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     layout.add_widget(manufacturer_input)
 
     # Rated power (MVA)
-    layout.add_widget(Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30))
+    layout.add_widget(
+        Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30)
+    )
     power_input = TextInput(
         text=str(power_mva) if power_mva is not None else "",
         size_hint_y=None,
@@ -814,13 +908,17 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     def save_changes():
         if not model_name_input.text.strip():
-            show_message_popup(S["TITLES"]["ERROR"], "Το όνομα μοντέλου είναι υποχρεωτικό!")
+            show_message_popup(
+                S["TITLES"]["ERROR"], "Το όνομα μοντέλου είναι υποχρεωτικό!"
+            )
             return
 
         try:
             cycle_val = int(cycle_input.text) if cycle_input.text.strip() else 0
         except ValueError:
-            show_message_popup(S["TITLES"]["ERROR"], "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
+            show_message_popup(
+                S["TITLES"]["ERROR"], "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!"
+            )
             return
 
         # parse rated power
@@ -829,7 +927,9 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             try:
                 power_val = float(power_input.text.strip())
             except ValueError:
-                show_message_popup(S["TITLES"]["ERROR"], "Η ονομαστική ισχύς πρέπει να είναι αριθμός!")
+                show_message_popup(
+                    S["TITLES"]["ERROR"], "Η ονομαστική ισχύς πρέπει να είναι αριθμός!"
+                )
                 return
 
         breaker_cat_val = breaker_spinner.text if breaker_spinner else ""
@@ -905,7 +1005,9 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
     popup.open()
 
 
-def _handle_manual_pdf(app_instance, model_id, manual_pdf, onedrive_manual_link=None, parent_popup=None):
+def _handle_manual_pdf(
+    app_instance, model_id, manual_pdf, onedrive_manual_link=None, parent_popup=None
+):
     has_local = bool(manual_pdf and os.path.exists(manual_pdf))
     has_link = bool(onedrive_manual_link and _is_web_url(onedrive_manual_link))
 
@@ -922,7 +1024,9 @@ def _handle_manual_pdf(app_instance, model_id, manual_pdf, onedrive_manual_link=
     _select_manual_pdf(app_instance, model_id, parent_popup)
 
 
-def _show_manual_actions_popup(app_instance, model_id, manual_pdf, onedrive_manual_link, parent_popup=None):
+def _show_manual_actions_popup(
+    app_instance, model_id, manual_pdf, onedrive_manual_link, parent_popup=None
+):
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.label import Label
@@ -994,20 +1098,18 @@ def _open_manual_link(url):
 def _open_manual_pdf(pdf_path):
     """Open a model's manual (can be a file or folder)."""
     from reports import open_file as _open
-    
+
     if not pdf_path or not os.path.exists(pdf_path):
         from popups import show_message_popup
-        show_message_popup(
-            "Σφάλμα",
-            "Το εγχειρίδιο δεν βρέθηκε!"
-        )
+
+        show_message_popup("Σφάλμα", "Το εγχειρίδιο δεν βρέθηκε!")
         return False
-    
+
     # Works for both files and folders
     return _open(
         pdf_path,
         not_found_message="Το εγχειρίδιο δεν βρέθηκε!",
-        error_prefix="Αποτυχία ανοίγματος εγχειριδίου:\n"
+        error_prefix="Αποτυχία ανοίγματος εγχειριδίου:\n",
     )
 
 
@@ -1019,7 +1121,10 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
     from kivy.uix.textinput import TextInput
 
     c = app_instance.conn.cursor()
-    c.execute("SELECT manual_pdf, onedrive_manual_link FROM element_models WHERE id=?", (model_id,))
+    c.execute(
+        "SELECT manual_pdf, onedrive_manual_link FROM element_models WHERE id=?",
+        (model_id,),
+    )
     row = c.fetchone() or (None, None)
     current_manual_pdf, current_onedrive_link = row
 
@@ -1053,7 +1158,9 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
 
     def browse_local_manual():
         try:
-            fp = ask_open_file(title="Select Manual PDF", filetypes=(("PDF files", "*.pdf"),))
+            fp = ask_open_file(
+                title="Select Manual PDF", filetypes=(("PDF files", "*.pdf"),)
+            )
         except Exception:
             fp = None
         if fp:
@@ -1066,21 +1173,29 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
         link_val = link_input.text.strip() or None
 
         if not file_path and not link_val:
-            show_message_popup("Σφάλμα", "Συμπληρώστε τοπικό manual ή σύνδεσμο OneDrive!")
+            show_message_popup(
+                "Σφάλμα", "Συμπληρώστε τοπικό manual ή σύνδεσμο OneDrive!"
+            )
             return
 
         if file_path:
             if not os.path.exists(file_path):
-                show_message_popup(S["TITLES"]["ERROR"], "Το αρχείο/φάκελος δεν βρέθηκε!")
+                show_message_popup(
+                    S["TITLES"]["ERROR"], "Το αρχείο/φάκελος δεν βρέθηκε!"
+                )
                 return
 
             # Accept either a PDF file or a directory
             if not os.path.isdir(file_path) and not file_path.lower().endswith(".pdf"):
-                show_message_popup(S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF ή φάκελο!")
+                show_message_popup(
+                    S["TITLES"]["ERROR"], "Παρακαλώ επιλέξτε αρχείο PDF ή φάκελο!"
+                )
                 return
 
         if link_val and not _is_web_url(link_val):
-            show_message_popup("Σφάλμα", "Ο σύνδεσμος πρέπει να ξεκινά με http:// ή https://")
+            show_message_popup(
+                "Σφάλμα", "Ο σύνδεσμος πρέπει να ξεκινά με http:// ή https://"
+            )
             return
 
         c = app_instance.conn.cursor()
@@ -1204,7 +1319,7 @@ def show_model_usages(app_instance, model_id, model_name):
             model_power_val = _row[0] if _row and _row[0] is not None else None
         except Exception:
             model_power_val = None
-        
+
         # Group elements by substation and status
         substation_groups = {}
         substation_order = []
@@ -1254,10 +1369,10 @@ def show_model_usages(app_instance, model_id, model_name):
 
             # Element name and type (bold, larger)
             breaker_info = f" | {breaker_category}" if breaker_category else ""
-            inactive_marker = " [color=ff0000][b]ΑΝΕΝΕΡΓΟ[/b][/color]" if is_inactive else ""
-            name_text = (
-                f"[b][size=16]{elem_name}[/size][/b] - {elem_type}{breaker_info}{inactive_marker}"
+            inactive_marker = (
+                " [color=ff0000][b]ΑΝΕΝΕΡΓΟ[/b][/color]" if is_inactive else ""
             )
+            name_text = f"[b][size=16]{elem_name}[/size][/b] - {elem_type}{breaker_info}{inactive_marker}"
             name_label = Label(
                 text=name_text,
                 size_hint_y=None,
@@ -1285,8 +1400,12 @@ def show_model_usages(app_instance, model_id, model_name):
             elem_box.add_widget(sn_label)
 
             # Manufacturer, installation space, operating status, model power (format like substation details)
-            display_power_str = f"{model_power_val} MVA" if model_power_val is not None else "-"
-            status_display = "Ανενεργή" if is_inactive else (operating_status or "Ενεργή")
+            display_power_str = (
+                f"{model_power_val} MVA" if model_power_val is not None else "-"
+            )
+            status_display = (
+                "Ανενεργή" if is_inactive else (operating_status or "Ενεργή")
+            )
             details_text = (
                 f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | "
                 f"Κατάστ.: {status_display} | Ισχ.: {display_power_str}"
@@ -1356,7 +1475,9 @@ def show_model_usages(app_instance, model_id, model_name):
 
             if is_th:
                 th_label = Button(
-                    text=S["MESSAGES"].get("SUBSTATION_IS_THESSALONIKI", "Υ/Σ Θεσσαλονίκης"),
+                    text=S["MESSAGES"].get(
+                        "SUBSTATION_IS_THESSALONIKI", "Υ/Σ Θεσσαλονίκης"
+                    ),
                     size_hint_x=0.2,
                     background_color=(1, 0, 0, 1),
                     color=(1, 1, 1, 1),
@@ -1370,8 +1491,8 @@ def show_model_usages(app_instance, model_id, model_name):
             # Add button to jump to substation elements view
             jump_btn = Button(text="Μετάβαση στον Υποσταθμό", size_hint_x=0.2)
             jump_btn.bind(
-                on_press=lambda x, sname=substation_name, p=popup: (
-                    jump_to_substation(app_instance, sname, p)
+                on_press=lambda x, sname=substation_name, p=popup: jump_to_substation(
+                    app_instance, sname, p
                 )
             )
             substation_header_layout.add_widget(jump_btn)
@@ -1400,9 +1521,7 @@ def show_model_usages(app_instance, model_id, model_name):
         main_layout.add_widget(scroll)
     else:
         # No usages found
-        no_usage_label = Label(
-            text=S["MESSAGES"]["MODEL_NOT_USED"], size_hint_y=0.7
-        )
+        no_usage_label = Label(text=S["MESSAGES"]["MODEL_NOT_USED"], size_hint_y=0.7)
         main_layout.add_widget(no_usage_label)
 
     # Close button

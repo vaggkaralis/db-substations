@@ -1,7 +1,11 @@
 from datetime import datetime
 
 from email_text_utils import iter_substation_name_candidates
-from isolation_importer import match_element_ids_from_text, match_substation, parse_isolation_request_text
+from isolation_importer import (
+    match_element_ids_from_text,
+    match_substation,
+    parse_isolation_request_text,
+)
 
 
 def test_iter_substation_name_candidates_includes_base_name():

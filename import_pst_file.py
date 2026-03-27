@@ -84,7 +84,7 @@ def _extract_media_attachments_from_item(item):
         try:
             att = attachments.Item(idx)
             name = (getattr(att, "FileName", "") or "").strip() or f"attachment_{idx}"
-            safe_name = "".join(ch if ch not in '\\/:*?\"<>|' else "_" for ch in name)
+            safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in name)
             ext = os.path.splitext(safe_name)[1].lower()
             if ext not in _MEDIA_EXTENSIONS:
                 continue
@@ -140,25 +140,25 @@ def _iter_mail_items(folder):
 
 def _ensure_outlook_running(progress_callback=None):
     """Ensure Outlook is running and MAPI is initialized.
-    
+
     Returns the Outlook application object.
     """
     try:
         import win32com.client
     except ImportError:
-        win32com = __import__('win32com.client', fromlist=['client'])
-    
+        win32com = __import__("win32com.client", fromlist=["client"])
+
     if progress_callback:
         try:
             progress_callback(status="Σύνδεση με Outlook... ⏳")
         except Exception:
             pass
-    
+
     # Try to get Outlook COM object (creates it if needed)
     # Give Outlook a few chances to initialize properly
     outlook = None
     last_error = None
-    
+
     for attempt in range(3):
         try:
             outlook = win32com.client.Dispatch("Outlook.Application")
@@ -169,7 +169,7 @@ def _ensure_outlook_running(progress_callback=None):
             last_error = str(e)
             if attempt < 2:
                 time.sleep(2.0)  # Wait before retry
-    
+
     if outlook is None:
         raise RuntimeError(
             "Δεν είναι δυνατή η σύνδεση με Outlook.\n\n"
@@ -182,13 +182,13 @@ def _ensure_outlook_running(progress_callback=None):
             "6. Ανοίξτε ξανά αυτή την εφαρμογή\n\n"
             f"Λεπτομέρειες: {last_error[:100] if last_error else 'αγνωστο'}"
         )
-    
+
     return outlook
 
 
 def _init_pst_store(pst_path, progress_callback=None):
     """Initialize PST store and return (namespace, target_store).
-    
+
     This is called synchronously so progress callbacks happen immediately,
     not delayed until iteration begins.
     """
@@ -220,17 +220,17 @@ def _init_pst_store(pst_path, progress_callback=None):
 
     # Ensure Outlook is running and get the COM object
     outlook = _ensure_outlook_running(progress_callback)
-    
+
     if progress_callback:
         try:
             progress_callback(status="Αρχικοποίηση Outlook MAPI... ⏳")
         except Exception:
             pass
-    
+
     # Try to get MAPI namespace with error handling
     namespace = None
     mapi_error = None
-    
+
     for attempt in range(3):
         try:
             namespace = outlook.GetNamespace("MAPI")
@@ -239,7 +239,7 @@ def _init_pst_store(pst_path, progress_callback=None):
             mapi_error = str(e)
             if attempt < 2:
                 time.sleep(2.0)  # Wait before retry
-    
+
     if namespace is None:
         raise RuntimeError(
             "Δεν είναι δυνατή η σύνδεση με το Outlook MAPI.\n\n"
@@ -252,7 +252,7 @@ def _init_pst_store(pst_path, progress_callback=None):
             "6. Ανοίξτε ξανά αυτή την εφαρμογή\n\n"
             f"Λεπτομέρειες: {mapi_error[:100]}"
         )
-    
+
     if progress_callback:
         try:
             progress_callback(status="Φόρτωση αρχείου σε Outlook... ⏳")
@@ -261,7 +261,7 @@ def _init_pst_store(pst_path, progress_callback=None):
 
     store_added = False
     add_store_error = None
-    
+
     # Try multiple times with delays in case MAPI isn't ready
     for attempt in range(3):
         try:
@@ -278,10 +278,13 @@ def _init_pst_store(pst_path, progress_callback=None):
                 add_store_error = str(e2)
                 if attempt < 2:
                     time.sleep(2.0)  # Wait before retry
-    
+
     if not store_added:
         # Check if this is a profile-related error
-        if "profile" in add_store_error.lower() or "δεδομένων" in add_store_error.lower():
+        if (
+            "profile" in add_store_error.lower()
+            or "δεδομένων" in add_store_error.lower()
+        ):
             raise RuntimeError(
                 "Το Outlook δεν μπορεί να φορτώσει το αρχείο .pst.\n\n"
                 "Αυτό συμβαίνει όταν το Outlook δεν έχει ρυθμιστεί σωστά.\n\n"
@@ -319,7 +322,9 @@ def _init_pst_store(pst_path, progress_callback=None):
             continue
 
     if target_store is None:
-        raise RuntimeError("Το αρχείο .pst άνοιξε, αλλά δεν εντοπίστηκε στο Outlook namespace.")
+        raise RuntimeError(
+            "Το αρχείο .pst άνοιξε, αλλά δεν εντοπίστηκε στο Outlook namespace."
+        )
 
     if progress_callback:
         try:
@@ -439,9 +444,7 @@ def import_maintenance_from_pst(
             else:
                 summary["failed"] += 1
                 if len(summary["failures"]) < max_failures_to_report:
-                    summary["failures"].append(
-                        f"{subject or '(χωρίς θέμα)'}: {result}"
-                    )
+                    summary["failures"].append(f"{subject or '(χωρίς θέμα)'}: {result}")
 
         return summary
     finally:

@@ -18,13 +18,19 @@ def _safe_sheet_name(name: str) -> str:
 def export_full_db(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Βάσης (Excel)", default_name="db_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Βάσης (Excel)",
+            default_name="db_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
 
     try:
         cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
         tables = [r[0] for r in cur.fetchall()]
 
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
@@ -45,7 +51,9 @@ def export_full_db(conn, default_path=None):
                     df = pd.DataFrame(rows, columns=cols)
                 sheet = _safe_sheet_name(t)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή βάσης ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή βάσης ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή βάσης:\n{str(exc)}")
@@ -55,7 +63,11 @@ def export_full_db(conn, default_path=None):
 def export_maintenances_per_substation(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Συντηρήσεων (Excel)", default_name="maintenances_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Συντηρήσεων (Excel)",
+            default_name="maintenances_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
 
@@ -81,11 +93,17 @@ def export_maintenances_per_substation(conn, default_path=None):
                         (m_id,),
                     )
                     elems = cur.fetchall()
-                    elems_text = "; ".join(f"{ename} (id:{eid}){(' - '+c) if c else ''}" for eid, ename, c in elems)
+                    elems_text = "; ".join(
+                        f"{ename} (id:{eid}){(' - ' + c) if c else ''}"
+                        for eid, ename, c in elems
+                    )
                     row_dict = dict(zip(cols, r))
                     row_dict["elements"] = elems_text
                     # fetch maintenance people
-                    cur.execute("SELECT p.name, mp.role FROM maintenance_people mp JOIN people p ON mp.person_id = p.id WHERE mp.maintenance_id=?", (m_id,))
+                    cur.execute(
+                        "SELECT p.name, mp.role FROM maintenance_people mp JOIN people p ON mp.person_id = p.id WHERE mp.maintenance_id=?",
+                        (m_id,),
+                    )
                     ppl = cur.fetchall()
                     ppl_text = "; ".join(f"{pname} ({role})" for pname, role in ppl)
                     row_dict["people"] = ppl_text
@@ -93,7 +111,9 @@ def export_maintenances_per_substation(conn, default_path=None):
                 df = pd.DataFrame(out_rows, columns=(cols + ["elements", "people"]))
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή συντηρήσεων:\n{str(exc)}")
@@ -103,13 +123,19 @@ def export_maintenances_per_substation(conn, default_path=None):
 def export_inspections_per_substation(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Επιθεωρήσεων (Excel)", default_name="inspections_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Επιθεωρήσεων (Excel)",
+            default_name="inspections_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
 
     try:
         cur = conn.cursor()
-        cur.execute("SELECT DISTINCT substation_id, substation_name FROM inspections ORDER BY substation_name")
+        cur.execute(
+            "SELECT DISTINCT substation_id, substation_name FROM inspections ORDER BY substation_name"
+        )
         subs = cur.fetchall()
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
             for sid, sname in subs:
@@ -124,14 +150,19 @@ def export_inspections_per_substation(conn, default_path=None):
                     row_dict = dict(zip(cols, r))
                     # pretty-print JSON data if possible
                     try:
-                        row_dict["data_json"] = json.dumps(json.loads(row_dict.get("data_json") or "{}"), ensure_ascii=False)
+                        row_dict["data_json"] = json.dumps(
+                            json.loads(row_dict.get("data_json") or "{}"),
+                            ensure_ascii=False,
+                        )
                     except Exception:
                         pass
                     out_rows.append(row_dict)
                 df = pd.DataFrame(out_rows, columns=cols)
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή επιθεωρήσεων:\n{str(exc)}")
@@ -139,19 +170,36 @@ def export_inspections_per_substation(conn, default_path=None):
 
 
 # People import/export
-PEOPLE_COLUMNS = ["given_name", "surname", "name", "role", "email", "report_receiver", "active"]
+PEOPLE_COLUMNS = [
+    "given_name",
+    "surname",
+    "name",
+    "role",
+    "email",
+    "report_receiver",
+    "active",
+]
 
 
 def export_people(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Προσωπικού (Excel)", default_name="people_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Προσωπικού (Excel)",
+            default_name="people_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
     try:
-        df = pd.read_sql_query("SELECT given_name, surname, name, role, email, report_receiver, active FROM people ORDER BY active DESC, COALESCE(surname, name)", conn)
+        df = pd.read_sql_query(
+            "SELECT given_name, surname, name, role, email, report_receiver, active FROM people ORDER BY active DESC, COALESCE(surname, name)",
+            conn,
+        )
         df.to_excel(path, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή προσωπικού:\n{str(exc)}")
@@ -161,13 +209,19 @@ def export_people(conn, default_path=None):
 def export_people_template(default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Δημιουργία Προτύπου Προσωπικού (Excel)", default_name="people_template.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Δημιουργία Προτύπου Προσωπικού (Excel)",
+            default_name="people_template.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
     try:
         df = pd.DataFrame(columns=PEOPLE_COLUMNS)
         df.to_excel(path, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Πρότυπο προσωπικού δημιουργήθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Πρότυπο προσωπικού δημιουργήθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η δημιουργία προτύπου:\n{str(exc)}")
@@ -180,7 +234,10 @@ def import_people(conn, file_path=None):
             # use open dialog
             from popups import ask_open_file
 
-            file_path = ask_open_file(title="Εισαγωγή Προσωπικού (Excel)", filetypes=[("Excel files", "*.xlsx;*.xls" )])
+            file_path = ask_open_file(
+                title="Εισαγωγή Προσωπικού (Excel)",
+                filetypes=[("Excel files", "*.xlsx;*.xls")],
+            )
         if not file_path:
             return False
         df = pd.read_excel(file_path, dtype=str)
@@ -205,9 +262,24 @@ def import_people(conn, file_path=None):
             role = _strval(row.get("role"))
             email = _strval(row.get("email"))
             rr_raw = row.get("report_receiver")
-            report_receiver = 1 if (not pd.isna(rr_raw) and str(rr_raw).strip().lower() in {"1", "true", "yes", "ναι", "y"}) else 0
+            report_receiver = (
+                1
+                if (
+                    not pd.isna(rr_raw)
+                    and str(rr_raw).strip().lower() in {"1", "true", "yes", "ναι", "y"}
+                )
+                else 0
+            )
             active_raw = row.get("active")
-            active = 1 if (not pd.isna(active_raw) and str(active_raw).strip().lower() in {"1", "true", "yes", "ναι", "y"}) else 0
+            active = (
+                1
+                if (
+                    not pd.isna(active_raw)
+                    and str(active_raw).strip().lower()
+                    in {"1", "true", "yes", "ναι", "y"}
+                )
+                else 0
+            )
             if not surname and not name:
                 continue
             cur.execute(
@@ -216,7 +288,10 @@ def import_people(conn, file_path=None):
             )
             inserted += 1
         conn.commit()
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"],
+            f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.",
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εισαγωγή προσωπικού:\n{str(exc)}")
@@ -235,13 +310,19 @@ def _safe_sheet_name(name: str) -> str:
 def export_full_db(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Βάσης (Excel)", default_name="db_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Βάσης (Excel)",
+            default_name="db_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
 
     try:
         cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
         tables = [r[0] for r in cur.fetchall()]
 
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
@@ -255,7 +336,9 @@ def export_full_db(conn, default_path=None):
                     df = pd.DataFrame(rows, columns=cols)
                 sheet = _safe_sheet_name(t)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή βάσης ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή βάσης ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή βάσης:\n{str(exc)}")
@@ -265,7 +348,11 @@ def export_full_db(conn, default_path=None):
 def export_maintenances_per_substation(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Συντηρήσεων (Excel)", default_name="maintenances_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Συντηρήσεων (Excel)",
+            default_name="maintenances_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
 
@@ -291,11 +378,17 @@ def export_maintenances_per_substation(conn, default_path=None):
                         (m_id,),
                     )
                     elems = cur.fetchall()
-                    elems_text = "; ".join(f"{ename} (id:{eid}){(' - '+c) if c else ''}" for eid, ename, c in elems)
+                    elems_text = "; ".join(
+                        f"{ename} (id:{eid}){(' - ' + c) if c else ''}"
+                        for eid, ename, c in elems
+                    )
                     row_dict = dict(zip(cols, r))
                     row_dict["elements"] = elems_text
                     # fetch maintenance people
-                    cur.execute("SELECT p.name, mp.role FROM maintenance_people mp JOIN people p ON mp.person_id = p.id WHERE mp.maintenance_id=?", (m_id,))
+                    cur.execute(
+                        "SELECT p.name, mp.role FROM maintenance_people mp JOIN people p ON mp.person_id = p.id WHERE mp.maintenance_id=?",
+                        (m_id,),
+                    )
                     ppl = cur.fetchall()
                     ppl_text = "; ".join(f"{pname} ({role})" for pname, role in ppl)
                     row_dict["people"] = ppl_text
@@ -303,7 +396,9 @@ def export_maintenances_per_substation(conn, default_path=None):
                 df = pd.DataFrame(out_rows, columns=(cols + ["elements", "people"]))
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή συντηρήσεων ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή συντηρήσεων:\n{str(exc)}")
@@ -313,13 +408,19 @@ def export_maintenances_per_substation(conn, default_path=None):
 def export_inspections_per_substation(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Επιθεωρήσεων (Excel)", default_name="inspections_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Επιθεωρήσεων (Excel)",
+            default_name="inspections_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
 
     try:
         cur = conn.cursor()
-        cur.execute("SELECT DISTINCT substation_id, substation_name FROM inspections ORDER BY substation_name")
+        cur.execute(
+            "SELECT DISTINCT substation_id, substation_name FROM inspections ORDER BY substation_name"
+        )
         subs = cur.fetchall()
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
             for sid, sname in subs:
@@ -334,14 +435,19 @@ def export_inspections_per_substation(conn, default_path=None):
                     row_dict = dict(zip(cols, r))
                     # pretty-print JSON data if possible
                     try:
-                        row_dict["data_json"] = json.dumps(json.loads(row_dict.get("data_json") or "{}"), ensure_ascii=False)
+                        row_dict["data_json"] = json.dumps(
+                            json.loads(row_dict.get("data_json") or "{}"),
+                            ensure_ascii=False,
+                        )
                     except Exception:
                         pass
                     out_rows.append(row_dict)
                 df = pd.DataFrame(out_rows, columns=cols)
                 sheet = _safe_sheet_name(sname)
                 df.to_excel(writer, sheet_name=sheet, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή επιθεωρήσεων ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή επιθεωρήσεων:\n{str(exc)}")
@@ -349,19 +455,36 @@ def export_inspections_per_substation(conn, default_path=None):
 
 
 # People import/export
-PEOPLE_COLUMNS = ["given_name", "surname", "name", "role", "email", "report_receiver", "active"]
+PEOPLE_COLUMNS = [
+    "given_name",
+    "surname",
+    "name",
+    "role",
+    "email",
+    "report_receiver",
+    "active",
+]
 
 
 def export_people(conn, default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Εξαγωγή Προσωπικού (Excel)", default_name="people_export.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Εξαγωγή Προσωπικού (Excel)",
+            default_name="people_export.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
     try:
-        df = pd.read_sql_query("SELECT given_name, surname, name, role, email, report_receiver, active FROM people ORDER BY active DESC, COALESCE(surname, name)", conn)
+        df = pd.read_sql_query(
+            "SELECT given_name, surname, name, role, email, report_receiver, active FROM people ORDER BY active DESC, COALESCE(surname, name)",
+            conn,
+        )
         df.to_excel(path, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Εξαγωγή προσωπικού ολοκληρώθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εξαγωγή προσωπικού:\n{str(exc)}")
@@ -371,13 +494,19 @@ def export_people(conn, default_path=None):
 def export_people_template(default_path=None):
     path = default_path
     if not path:
-        path = ask_save_file(title="Δημιουργία Προτύπου Προσωπικού (Excel)", default_name="people_template.xlsx", filetypes=[("Excel files", "*.xlsx")])
+        path = ask_save_file(
+            title="Δημιουργία Προτύπου Προσωπικού (Excel)",
+            default_name="people_template.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
     if not path:
         return False
     try:
         df = pd.DataFrame(columns=PEOPLE_COLUMNS)
         df.to_excel(path, index=False)
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Πρότυπο προσωπικού δημιουργήθηκε: {path}")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"], f"Πρότυπο προσωπικού δημιουργήθηκε: {path}"
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η δημιουργία προτύπου:\n{str(exc)}")
@@ -390,7 +519,10 @@ def import_people(conn, file_path=None):
             # use open dialog
             from popups import ask_open_file
 
-            file_path = ask_open_file(title="Εισαγωγή Προσωπικού (Excel)", filetypes=[("Excel files", "*.xlsx;*.xls" )])
+            file_path = ask_open_file(
+                title="Εισαγωγή Προσωπικού (Excel)",
+                filetypes=[("Excel files", "*.xlsx;*.xls")],
+            )
         if not file_path:
             return False
         df = pd.read_excel(file_path, dtype=str)
@@ -415,9 +547,24 @@ def import_people(conn, file_path=None):
             role = _strval(row.get("role"))
             email = _strval(row.get("email"))
             rr_raw = row.get("report_receiver")
-            report_receiver = 1 if (not pd.isna(rr_raw) and str(rr_raw).strip().lower() in {"1", "true", "yes", "ναι", "y"}) else 0
+            report_receiver = (
+                1
+                if (
+                    not pd.isna(rr_raw)
+                    and str(rr_raw).strip().lower() in {"1", "true", "yes", "ναι", "y"}
+                )
+                else 0
+            )
             active_raw = row.get("active")
-            active = 1 if (not pd.isna(active_raw) and str(active_raw).strip().lower() in {"1", "true", "yes", "ναι", "y"}) else 0
+            active = (
+                1
+                if (
+                    not pd.isna(active_raw)
+                    and str(active_raw).strip().lower()
+                    in {"1", "true", "yes", "ναι", "y"}
+                )
+                else 0
+            )
             if not surname and not name:
                 continue
             cur.execute(
@@ -426,7 +573,10 @@ def import_people(conn, file_path=None):
             )
             inserted += 1
         conn.commit()
-        show_message_popup(S["TITLES"]["SUCCESS"], f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.")
+        show_message_popup(
+            S["TITLES"]["SUCCESS"],
+            f"Εισαγωγή προσωπικού ολοκληρώθηκε: {inserted} εγγραφές.",
+        )
         return True
     except Exception as exc:
         show_message_popup("Σφάλμα", f"Απέτυχε η εισαγωγή προσωπικού:\n{str(exc)}")

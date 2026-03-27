@@ -18,8 +18,11 @@ try:
     from strings_proxy import STRINGS as S
 except Exception:
     S = {"BUTTONS": {"CANCEL": "Ακύρωση"}, "TITLES": {}, "MESSAGES": {}}
-from import_validator import (COLUMN_MAPPINGS, analyze_import_data,
-                              detect_column_mismatches)
+from import_validator import (
+    COLUMN_MAPPINGS,
+    analyze_import_data,
+    detect_column_mismatches,
+)
 
 
 class ColumnMappingPopup:

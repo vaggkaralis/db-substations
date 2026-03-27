@@ -7,8 +7,7 @@ import logging
 import sys
 
 from email_eml_parser import parse_eml_file
-from maintenance_email_importer import (DEFAULT_DB_PATH,
-                                        create_maintenance_from_email)
+from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
 from popups import ask_open_file
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -30,7 +29,10 @@ def main():
             # only open native dialog when running interactively
             print("Select .eml file to import")
             try:
-                file_path = ask_open_file(title="Select .eml file to import", filetypes=(("EML files", "*.eml"),))
+                file_path = ask_open_file(
+                    title="Select .eml file to import",
+                    filetypes=(("EML files", "*.eml"),),
+                )
             except ImportError:
                 print("Native dialogs unavailable; please pass --file <path>")
                 raise SystemExit(2)

@@ -20,6 +20,7 @@ except Exception:
 
 
 if KIVY_AVAILABLE:
+
     def show_message_popup(title: str, message: str, callback=None) -> None:
         """Show a Kivy popup with dynamic sizing based on message length."""
         msg_len = len(message)
@@ -65,7 +66,6 @@ if KIVY_AVAILABLE:
         popup.content = layout
         popup.open()
 
-
     def ask_open_file(title: str = "Select file", filetypes=None):
         """Show a native open-file dialog and return the selected path or None.
 
@@ -96,7 +96,6 @@ if KIVY_AVAILABLE:
                 pass
 
         return fp or None
-
 
     def _win32_get_open_filename(title: str = "Select file", filetypes=None):
         try:
@@ -165,8 +164,9 @@ if KIVY_AVAILABLE:
             return buffer.value
         return None
 
-
-    def ask_save_file(title: str = "Save file", default_name: str = None, filetypes=None):
+    def ask_save_file(
+        title: str = "Save file", default_name: str = None, filetypes=None
+    ):
         """Show a native save-file dialog and return the selected path or None.
 
         Uses Win32 API when available, otherwise falls back to tkinter.
@@ -194,7 +194,12 @@ if KIVY_AVAILABLE:
         _root.withdraw()
         try:
             ft = list(filetypes) if filetypes else [("All files", "*.*")]
-            fp = _fd.asksaveasfilename(title=title, initialfile=default_name or "", filetypes=ft, defaultextension=".xlsx")
+            fp = _fd.asksaveasfilename(
+                title=title,
+                initialfile=default_name or "",
+                filetypes=ft,
+                defaultextension=".xlsx",
+            )
         finally:
             try:
                 _root.destroy()
@@ -221,7 +226,6 @@ else:
             except Exception:
                 pass
 
-
     def ask_open_file(title: str = "Select file", filetypes=None):
         try:
             import tkinter as _tk
@@ -241,8 +245,9 @@ else:
                 pass
         return fp or None
 
-
-    def ask_save_file(title: str = "Save file", default_name: str = None, filetypes=None):
+    def ask_save_file(
+        title: str = "Save file", default_name: str = None, filetypes=None
+    ):
         try:
             import tkinter as _tk
             from tkinter import filedialog as _fd
@@ -253,7 +258,9 @@ else:
         _root.withdraw()
         try:
             ft = list(filetypes) if filetypes else [("All files", "*.*")]
-            fp = _fd.asksaveasfilename(title=title, initialfile=default_name or "", filetypes=ft)
+            fp = _fd.asksaveasfilename(
+                title=title, initialfile=default_name or "", filetypes=ft
+            )
         finally:
             try:
                 _root.destroy()

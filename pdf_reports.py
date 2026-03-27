@@ -13,9 +13,15 @@ try:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.pdfmetrics import registerFontFamily
     from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import (HRFlowable, Image, Paragraph,
-                                    SimpleDocTemplate, Spacer, Table,
-                                    TableStyle)
+    from reportlab.platypus import (
+        HRFlowable,
+        Image,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
     _HAS_REPORTLAB = True
 except Exception:
@@ -68,7 +74,11 @@ def _reset_windows_acl(path: str) -> bool:
             check=False,
         )
         if completed.returncode != 0:
-            logging.debug("icacls inheritance restore failed for %s: %s", path, completed.stdout or completed.stderr)
+            logging.debug(
+                "icacls inheritance restore failed for %s: %s",
+                path,
+                completed.stdout or completed.stderr,
+            )
         completed = subprocess.run(
             ["icacls", str(path), "/reset"],
             capture_output=True,
@@ -79,7 +89,11 @@ def _reset_windows_acl(path: str) -> bool:
             check=False,
         )
         if completed.returncode != 0:
-            logging.debug("icacls reset failed for %s: %s", path, completed.stdout or completed.stderr)
+            logging.debug(
+                "icacls reset failed for %s: %s",
+                path,
+                completed.stdout or completed.stderr,
+            )
             return False
         return True
     except Exception:
@@ -162,7 +176,9 @@ def repair_pdf_access(path: str, *, normalize_existing: bool = True) -> bool:
                 import ctypes
 
                 FILE_ATTRIBUTE_NORMAL = 0x80
-                ctypes.windll.kernel32.SetFileAttributesW(str(fs_path), FILE_ATTRIBUTE_NORMAL)
+                ctypes.windll.kernel32.SetFileAttributesW(
+                    str(fs_path), FILE_ATTRIBUTE_NORMAL
+                )
             except Exception:
                 pass
 
@@ -173,13 +189,17 @@ def repair_pdf_access(path: str, *, normalize_existing: bool = True) -> bool:
                 if not _rewrite_pdf_in_place(fs_path):
                     _normalize_pdf_file(fs_path)
             except Exception:
-                logging.debug("Existing PDF normalization failed for %s", fs_path, exc_info=True)
+                logging.debug(
+                    "Existing PDF normalization failed for %s", fs_path, exc_info=True
+                )
 
         _reset_windows_acl(fs_path)
 
         return is_pdf_readable(fs_path)
     except Exception:
         return False
+
+
 import unicodedata
 from datetime import datetime
 
@@ -230,11 +250,14 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
         except Exception:
             size_kb = 0
 
-        threshold_kb = int(get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024)
+        threshold_kb = int(
+            get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024
+        )
 
         # Check pikepdf availability
         try:
             import pikepdf  # type: ignore
+
             has_pike = True
         except Exception:
             has_pike = False
@@ -258,11 +281,15 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
                 try:
                     os.rename(fs_temp, fs_final)
                 except Exception:
-                    logging.exception("Failed to move PDF (large) %s -> %s", fs_temp, fs_final)
+                    logging.exception(
+                        "Failed to move PDF (large) %s -> %s", fs_temp, fs_final
+                    )
             try:
                 _pdf_norm_queue.put(fs_final)
             except Exception:
-                logging.exception("Failed to enqueue PDF normalization for %s", fs_final)
+                logging.exception(
+                    "Failed to enqueue PDF normalization for %s", fs_final
+                )
             return
 
         # Small file: normalize synchronously then move into place
@@ -277,7 +304,9 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
             try:
                 os.rename(fs_temp, fs_final)
             except Exception:
-                logging.exception("Failed to move PDF after normalization %s -> %s", fs_temp, fs_final)
+                logging.exception(
+                    "Failed to move PDF after normalization %s -> %s", fs_temp, fs_final
+                )
 
     finally:
         try:
@@ -299,10 +328,14 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
 
                     FILE_ATTRIBUTE_NORMAL = 0x80
                     # Use wide-char API to clear attributes
-                    ctypes.windll.kernel32.SetFileAttributesW(str(final_path), FILE_ATTRIBUTE_NORMAL)
+                    ctypes.windll.kernel32.SetFileAttributesW(
+                        str(final_path), FILE_ATTRIBUTE_NORMAL
+                    )
                 except Exception:
                     try:
-                        ctypes.windll.kernel32.SetFileAttributesW(str(fs_final), FILE_ATTRIBUTE_NORMAL)
+                        ctypes.windll.kernel32.SetFileAttributesW(
+                            str(fs_final), FILE_ATTRIBUTE_NORMAL
+                        )
                     except Exception:
                         pass
                 try:
@@ -311,7 +344,6 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
                     pass
         except Exception:
             pass
-
 
     def set_pdf_title(path: str, title: str) -> bool:
         """Set the internal PDF Title metadata to `title` using pikepdf.
@@ -327,13 +359,12 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
             fs = _fs_path(path)
             with pikepdf.Pdf.open(fs, allow_overwriting_input=True) as pdf:
                 info = pdf.open_metadata()
-                info['/Title'] = str(title)
+                info["/Title"] = str(title)
                 pdf.save(fs)
             return True
         except Exception:
             logging.debug("Failed to set PDF Title for %s", path, exc_info=True)
             return False
-
 
     def move_pdf_preserve_title(src: str, dest: str) -> bool:
         """Move a PDF from `src` to `dest`, preserving or copying the internal
@@ -352,10 +383,11 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
             orig_title = None
             try:
                 import pikepdf
+
                 with pikepdf.Pdf.open(fs_src) as pdf:
                     try:
                         meta = pdf.open_metadata()
-                        orig_title = meta.get('/Title')
+                        orig_title = meta.get("/Title")
                     except Exception:
                         orig_title = None
             except Exception:
@@ -369,14 +401,16 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
             try:
                 try:
                     import pikepdf
+
                     with pikepdf.Pdf.open(fs_src) as pdf:
                         if orig_title:
                             info = pdf.open_metadata()
-                            info['/Title'] = str(orig_title)
+                            info["/Title"] = str(orig_title)
                         pdf.save(tmp, linearize=True)
                 except Exception:
                     # Fallback to simple copy when pikepdf is not available
                     import shutil
+
                     shutil.copyfile(fs_src, tmp)
 
                 # Move temp into final place
@@ -411,6 +445,7 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
 # Background normalization queue and worker
 _pdf_norm_queue = queue.Queue()
 
+
 def _pdf_norm_worker():
     while True:
         path = _pdf_norm_queue.get()
@@ -421,14 +456,21 @@ def _pdf_norm_worker():
             if ok:
                 logging.info("pdf-norm-worker: normalized %s", path)
             else:
-                logging.warning("pdf-norm-worker: normalization skipped/failed for %s", path)
+                logging.warning(
+                    "pdf-norm-worker: normalization skipped/failed for %s", path
+                )
         except Exception:
-            logging.exception("pdf-norm-worker: unexpected error while normalizing %s", path)
+            logging.exception(
+                "pdf-norm-worker: unexpected error while normalizing %s", path
+            )
         finally:
             _pdf_norm_queue.task_done()
 
+
 # Start worker thread as daemon
-_pdf_norm_thread = threading.Thread(target=_pdf_norm_worker, daemon=True, name="pdf-norm-worker")
+_pdf_norm_thread = threading.Thread(
+    target=_pdf_norm_worker, daemon=True, name="pdf-norm-worker"
+)
 _pdf_norm_thread.start()
 
 
@@ -439,9 +481,13 @@ def _safe_filename_component(value: str) -> str:
     return text or "checklist"
 
 
-def generate_preparation_checklist_pdf(checklist_state, categories, metadata=None, output_path=None):
+def generate_preparation_checklist_pdf(
+    checklist_state, categories, metadata=None, output_path=None
+):
     if not _HAS_REPORTLAB:
-        raise RuntimeError("Το ReportLab δεν είναι διαθέσιμο για δημιουργία PDF checklist.")
+        raise RuntimeError(
+            "Το ReportLab δεν είναι διαθέσιμο για δημιουργία PDF checklist."
+        )
 
     metadata = metadata or {}
     state = checklist_state if isinstance(checklist_state, dict) else {}
@@ -451,9 +497,17 @@ def generate_preparation_checklist_pdf(checklist_state, categories, metadata=Non
     if output_path is None:
         reports_dir = os.path.join(os.path.dirname(__file__), "reports")
         os.makedirs(reports_dir, exist_ok=True)
-        title_part = _safe_filename_component(metadata.get("maintenance_name") or metadata.get("title") or "preparation_checklist")
-        date_part = _safe_filename_component(metadata.get("date_time") or datetime.now().strftime("%Y-%m-%d_%H-%M"))
-        output_path = os.path.join(reports_dir, f"{title_part}_{date_part}_checklist.pdf")
+        title_part = _safe_filename_component(
+            metadata.get("maintenance_name")
+            or metadata.get("title")
+            or "preparation_checklist"
+        )
+        date_part = _safe_filename_component(
+            metadata.get("date_time") or datetime.now().strftime("%Y-%m-%d_%H-%M")
+        )
+        output_path = os.path.join(
+            reports_dir, f"{title_part}_{date_part}_checklist.pdf"
+        )
 
     generator = MaintenanceReportGenerator(None)
     font_name = getattr(generator, "greek_font", "Helvetica")
@@ -506,7 +560,8 @@ def generate_preparation_checklist_pdf(checklist_state, categories, metadata=Non
         story.append(Spacer(1, 6))
 
     visible_categories = [
-        category for category in categories
+        category
+        for category in categories
         if category.get("key") in selected_categories
     ]
 
@@ -515,33 +570,49 @@ def generate_preparation_checklist_pdf(checklist_state, categories, metadata=Non
     else:
         for category in visible_categories:
             category_key = category.get("key")
-            story.append(Paragraph(category.get("label") or category_key or "Κατηγορία", heading_style))
+            story.append(
+                Paragraph(
+                    category.get("label") or category_key or "Κατηγορία", heading_style
+                )
+            )
 
-            table_rows = [[
-                Paragraph("Κατάσταση", body_style),
-                Paragraph("Ενέργεια", body_style),
-            ]]
+            table_rows = [
+                [
+                    Paragraph("Κατάσταση", body_style),
+                    Paragraph("Ενέργεια", body_style),
+                ]
+            ]
             for item in category.get("items", []):
-                checked = bool(item_values.get(category_key, {}).get(item.get("key"), False))
-                table_rows.append([
-                    Paragraph("Ναι" if checked else "Οχι", body_style),
-                    Paragraph(str(item.get("label") or item.get("key") or "-"), body_style),
-                ])
+                checked = bool(
+                    item_values.get(category_key, {}).get(item.get("key"), False)
+                )
+                table_rows.append(
+                    [
+                        Paragraph("Ναι" if checked else "Οχι", body_style),
+                        Paragraph(
+                            str(item.get("label") or item.get("key") or "-"), body_style
+                        ),
+                    ]
+                )
 
             table = Table(table_rows, colWidths=[28 * mm, 150 * mm], repeatRows=1)
-            table.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dde6ef")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-                ("FONTNAME", (0, 0), (-1, -1), font_name),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("LEADING", (0, 0), (-1, -1), 11),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]))
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dde6ef")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                        ("FONTNAME", (0, 0), (-1, -1), font_name),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("LEADING", (0, 0), (-1, -1), 11),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ]
+                )
+            )
             story.append(table)
             story.append(Spacer(1, 8))
 
@@ -550,6 +621,7 @@ def generate_preparation_checklist_pdf(checklist_state, categories, metadata=Non
     doc.build(story)
     _finalize_pdf(temp_path, output_path)
     return output_path
+
 
 # Canonical breaker element names
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
@@ -621,7 +693,10 @@ class MaintenanceReportGenerator:
                             if base_name.lower().startswith("dejavusans"):
                                 if "bold" in suffix.lower():
                                     candidates.insert(0, "DejaVuSans-Bold.ttf")
-                                if "italic" in suffix.lower() or "oblique" in suffix.lower():
+                                if (
+                                    "italic" in suffix.lower()
+                                    or "oblique" in suffix.lower()
+                                ):
                                     candidates.insert(0, "DejaVuSans-Oblique.ttf")
                             for cand in candidates:
                                 cand_path = os.path.join(base_dir, cand)
@@ -630,10 +705,18 @@ class MaintenanceReportGenerator:
                                         name = f"GreekFont{label}"
                                         pdfmetrics.registerFont(TTFont(name, cand_path))
                                         registered_variants[label] = name
-                                        logging.debug("Registered font variant %s -> %s", label, cand_path)
+                                        logging.debug(
+                                            "Registered font variant %s -> %s",
+                                            label,
+                                            cand_path,
+                                        )
                                         return True
                                     except Exception:
-                                        logging.exception("Failed to register font variant %s at %s", label, cand_path)
+                                        logging.exception(
+                                            "Failed to register font variant %s at %s",
+                                            label,
+                                            cand_path,
+                                        )
                             return False
 
                         _try_variant("-Bold", "Bold")
@@ -648,7 +731,9 @@ class MaintenanceReportGenerator:
                                 fam_kwargs["italic"] = registered_variants["Italic"]
                             registerFontFamily("GreekFont", **fam_kwargs)
                         except Exception:
-                            logging.debug("Could not register font family variants; continuing with base font")
+                            logging.debug(
+                                "Could not register font family variants; continuing with base font"
+                            )
 
                         self.greek_font = "GreekFont"
                         font_name = (
@@ -660,7 +745,7 @@ class MaintenanceReportGenerator:
                         logging.debug("   Path: %s", font_path)
                         return
                     except Exception:
-                        logging.exception('Failed to register %s', font_path)
+                        logging.exception("Failed to register %s", font_path)
                         continue
 
             # If no font found, use Helvetica (limited Greek support)
@@ -671,7 +756,7 @@ class MaintenanceReportGenerator:
 
         except Exception:
             # Fallback to Helvetica
-            logging.exception('Error setting up fonts')
+            logging.exception("Error setting up fonts")
             self.greek_font = "Helvetica"
 
     def normalize_text(self, text):
@@ -742,7 +827,7 @@ class MaintenanceReportGenerator:
                 "output_path is required. Use report_sync.get_or_prompt_report_path() "
                 "to determine proper output path and check for existing reports."
             )
-        
+
         c = self.conn.cursor()
 
         # Get maintenance record
@@ -847,11 +932,17 @@ class MaintenanceReportGenerator:
         # Generate the PDF based on breaker category
         category_lower = breaker_category.lower()
         if "sf6" in category_lower:
-            self._generate_sf6_report(output_write_path, maintenance, element, measurements)
+            self._generate_sf6_report(
+                output_write_path, maintenance, element, measurements
+            )
         elif category_lower in ["oil", "πτωχού ελαίου", "ελαίου"]:
-            self._generate_oil_report(output_write_path, maintenance, element, measurements)
+            self._generate_oil_report(
+                output_write_path, maintenance, element, measurements
+            )
         elif category_lower in ["vacuum", "κενού"]:
-            self._generate_vacuum_report(output_write_path, maintenance, element, measurements)
+            self._generate_vacuum_report(
+                output_write_path, maintenance, element, measurements
+            )
         else:
             raise ValueError(f"Unknown breaker category: {breaker_category}")
 
@@ -891,17 +982,24 @@ class MaintenanceReportGenerator:
             fontName=self.greek_font,
         )
 
-        title_text = S["MESSAGES"].get("MAINTENANCE_REPORT_TITLE", "ΔΕΛΤΙΟ ΣΥΝΤΗΡΗΣΗΣ ΔΙΑΚΟΠΤΗ {breaker}")
-        subtitle_text = S["MESSAGES"].get("MAINTENANCE_REPORT_SUBTITLE", "Υποσταθμός: {substation}")
+        title_text = S["MESSAGES"].get(
+            "MAINTENANCE_REPORT_TITLE", "ΔΕΛΤΙΟ ΣΥΝΤΗΡΗΣΗΣ ΔΙΑΚΟΠΤΗ {breaker}"
+        )
+        subtitle_text = S["MESSAGES"].get(
+            "MAINTENANCE_REPORT_SUBTITLE", "Υποσταθμός: {substation}"
+        )
         title = Paragraph(
             self.normalize_text(title_text.format(breaker=breaker_type)),
             title_style,
         )
         subtitle = Paragraph(
-            self.normalize_text(subtitle_text.format(substation=substation_name)), subtitle_style
+            self.normalize_text(subtitle_text.format(substation=substation_name)),
+            subtitle_style,
         )
         meta = Paragraph(
-            self.normalize_text("Εσωτερική χρήση ΔΕΔΔΗΕ | Παραγόμενο εταιρικό έγγραφο συντήρησης"),
+            self.normalize_text(
+                "Εσωτερική χρήση ΔΕΔΔΗΕ | Παραγόμενο εταιρικό έγγραφο συντήρησης"
+            ),
             meta_style,
         )
 
@@ -981,7 +1079,13 @@ class MaintenanceReportGenerator:
         )
         return [
             Spacer(1, 18),
-            HRFlowable(width="100%", color=colors.HexColor("#c9d1db"), thickness=0.7, spaceBefore=0, spaceAfter=6),
+            HRFlowable(
+                width="100%",
+                color=colors.HexColor("#c9d1db"),
+                thickness=0.7,
+                spaceBefore=0,
+                spaceAfter=6,
+            ),
             Paragraph(
                 self.normalize_text(
                     f"{document_kind} - Το παρόν έγγραφο παράγεται από το εταιρικό σύστημα DB Substations της ΔΕΔΔΗΕ και αποτυπώνει τα καταχωρημένα δεδομένα της συγκεκριμένης συντήρησης. Απαιτείται έλεγχος και υπογραφή από το αρμόδιο προσωπικό όπου προβλέπεται."
@@ -1034,8 +1138,14 @@ class MaintenanceReportGenerator:
         data = [
             [S["MESSAGES"].get("REPORT_SECTION_BREAKER_INFO", "ΣΤΟΙΧΕΙΑ ΔΙΑΚΟΠΤΗ"), ""],
             [S["MESSAGES"].get("ELEMENT_NAME_LABEL", "Όνομα:"), elem_name or "-"],
-            [S["MESSAGES"].get("SERIAL_NUMBER_LABEL", "Αριθμός Σειράς (S/N):"), serial_num or "-"],
-            [S["MESSAGES"].get("MANUFACTURER_LABEL", "Κατασκευαστής:"), display_manufacturer or "-"],
+            [
+                S["MESSAGES"].get("SERIAL_NUMBER_LABEL", "Αριθμός Σειράς (S/N):"),
+                serial_num or "-",
+            ],
+            [
+                S["MESSAGES"].get("MANUFACTURER_LABEL", "Κατασκευαστής:"),
+                display_manufacturer or "-",
+            ],
             ["Μοντέλο:", display_model or "-"],
             ["Τάση (kV):", voltage_level or "-"],
             ["Πύλη:", gate or "-"],
@@ -1286,7 +1396,9 @@ class MaintenanceReportGenerator:
             tables.append(sf6_table)
 
         # Vacuum Check VIDAR (only for Vacuum breakers)
-        if breaker_category.lower() in ["vacuum", "κενού"] and (vidar_fa or vidar_fb or vidar_fc):
+        if breaker_category.lower() in ["vacuum", "κενού"] and (
+            vidar_fa or vidar_fb or vidar_fc
+        ):
             vidar_data = [
                 ["ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR)", "", "", ""],
                 ["", "ΦΑ-ΦΑ", "ΦΒ-ΦΒ", "ΦΓ-ΦΓ"],
@@ -1409,11 +1521,20 @@ class MaintenanceReportGenerator:
         story.extend(comments)
 
         # Footer
-        story.extend(self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη SF6"))
+        story.extend(
+            self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη SF6")
+        )
 
         # Build PDF to temp and finalize (automatic normalization/move)
         temp_path = _temp_pdf_path(output_path)
-        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+        doc = SimpleDocTemplate(
+            _fs_path(temp_path),
+            pagesize=A4,
+            topMargin=20 * mm,
+            bottomMargin=20 * mm,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+        )
         doc.build(story)
         _finalize_pdf(temp_path, output_path)
 
@@ -1454,6 +1575,7 @@ class MaintenanceReportGenerator:
         # measurement exists for this maintenance/element.
         try:
             from dga_reports import analyze_dga_diagnostics
+
             cur = self.conn.cursor()
             # Look for latest DGA measurement for this element in the same maintenance
             cur.execute(
@@ -1492,14 +1614,31 @@ class MaintenanceReportGenerator:
                         leading=11,
                     )
                     story.append(Spacer(1, 8))
-                    story.append(Paragraph(self.normalize_text("DGA Diagnostics (latest measurement):"), body_style))
+                    story.append(
+                        Paragraph(
+                            self.normalize_text(
+                                "DGA Diagnostics (latest measurement):"
+                            ),
+                            body_style,
+                        )
+                    )
                     primary = diag.get("primary") or {}
                     consensus = diag.get("consensus") or {}
                     findings = diag.get("findings") or []
                     if primary.get("display_summary"):
-                        story.append(Paragraph(self.normalize_text(primary.get("display_summary")), body_style))
+                        story.append(
+                            Paragraph(
+                                self.normalize_text(primary.get("display_summary")),
+                                body_style,
+                            )
+                        )
                     if consensus and consensus.get("summary"):
-                        story.append(Paragraph(self.normalize_text(consensus.get("summary")), body_style))
+                        story.append(
+                            Paragraph(
+                                self.normalize_text(consensus.get("summary")),
+                                body_style,
+                            )
+                        )
                     # Add up to two findings
                     for f in findings[:2]:
                         line = f"{f.get('label') or f.get('code')}: {f.get('summary') or ''}"
@@ -1510,11 +1649,22 @@ class MaintenanceReportGenerator:
             pass
 
         # Footer
-        story.extend(self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη ελαίου"))
+        story.extend(
+            self._create_official_footer(
+                document_kind="Δελτίο συντήρησης διακόπτη ελαίου"
+            )
+        )
 
         # Build PDF to temp and finalize (automatic normalization/move)
         temp_path = _temp_pdf_path(output_path)
-        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+        doc = SimpleDocTemplate(
+            _fs_path(temp_path),
+            pagesize=A4,
+            topMargin=20 * mm,
+            bottomMargin=20 * mm,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+        )
         doc.build(story)
         _finalize_pdf(temp_path, output_path)
 
@@ -1552,11 +1702,22 @@ class MaintenanceReportGenerator:
         story.extend(comments)
 
         # Footer
-        story.extend(self._create_official_footer(document_kind="Δελτίο συντήρησης διακόπτη κενού"))
+        story.extend(
+            self._create_official_footer(
+                document_kind="Δελτίο συντήρησης διακόπτη κενού"
+            )
+        )
 
         # Build PDF to temp and finalize (automatic normalization/move)
         temp_path = _temp_pdf_path(output_path)
-        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+        doc = SimpleDocTemplate(
+            _fs_path(temp_path),
+            pagesize=A4,
+            topMargin=20 * mm,
+            bottomMargin=20 * mm,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+        )
         doc.build(story)
         _finalize_pdf(temp_path, output_path)
 
@@ -1573,13 +1734,13 @@ def generate_maintenance_report(conn, maintenance_id, element_id, output_path=No
 
     Returns:
         Path to the generated PDF file
-        
+
     Note:
         output_path must be provided. Use report_sync module to determine proper path:
-        
+
         from report_sync import safe_generate_and_store_report
         result = safe_generate_and_store_report(
-            conn, 
+            conn,
             maintenance_id=mid,
             element_id=eid,
         )
@@ -1588,7 +1749,7 @@ def generate_maintenance_report(conn, maintenance_id, element_id, output_path=No
         raise ValueError(
             "output_path is required. Use report_sync.safe_generate_and_store_report() instead."
         )
-    
+
     generator = MaintenanceReportGenerator(conn)
     return generator.generate_maintenance_report(
         maintenance_id, element_id, output_path
@@ -1598,7 +1759,9 @@ def generate_maintenance_report(conn, maintenance_id, element_id, output_path=No
 def generate_maintenance_overview_report(conn, maintenance_id, output_path=None):
     """Generate a maintenance-level summary PDF covering all linked elements."""
     if not _HAS_REPORTLAB:
-        raise RuntimeError("Το ReportLab δεν είναι διαθέσιμο για δημιουργία συνολικού PDF συντήρησης.")
+        raise RuntimeError(
+            "Το ReportLab δεν είναι διαθέσιμο για δημιουργία συνολικού PDF συντήρησης."
+        )
 
     cursor = conn.cursor()
     cursor.execute(
@@ -1644,7 +1807,9 @@ def generate_maintenance_overview_report(conn, maintenance_id, output_path=None)
     if output_path is None:
         reports_dir = os.path.join(os.path.dirname(__file__), "reports")
         os.makedirs(reports_dir, exist_ok=True)
-        output_path = os.path.join(reports_dir, f"maintenance_{maintenance_id}_overview.pdf")
+        output_path = os.path.join(
+            reports_dir, f"maintenance_{maintenance_id}_overview.pdf"
+        )
 
     generator = MaintenanceReportGenerator(conn)
     font_name = getattr(generator, "greek_font", "Helvetica")
@@ -1688,8 +1853,13 @@ def generate_maintenance_overview_report(conn, maintenance_id, output_path=None)
     logo = generator._get_logo_flowable(max_width=30 * mm, max_height=22 * mm)
     header_left = [
         Paragraph(generator.normalize_text("ΔΕΔΔΗΕ"), title_style),
-        Paragraph(generator.normalize_text("Συνοπτική Αναφορά Συντήρησης"), section_style),
-        Paragraph(generator.normalize_text(f"Κωδικός εγγράφου: M{maintenance_id}"), small_style),
+        Paragraph(
+            generator.normalize_text("Συνοπτική Αναφορά Συντήρησης"), section_style
+        ),
+        Paragraph(
+            generator.normalize_text(f"Κωδικός εγγράφου: M{maintenance_id}"),
+            small_style,
+        ),
     ]
     header_table = Table(
         [[header_left, logo or Spacer(1, 1)]],
@@ -1742,23 +1912,44 @@ def generate_maintenance_overview_report(conn, maintenance_id, output_path=None)
     ]
 
     story.append(Paragraph(generator.normalize_text("Συνολικά Σχόλια"), section_style))
-    story.append(Paragraph(generator.normalize_text(overall_comments or "-"), body_style))
+    story.append(
+        Paragraph(generator.normalize_text(overall_comments or "-"), body_style)
+    )
     story.append(Spacer(1, 8))
 
-    story.append(Paragraph(generator.normalize_text("Στοιχεία Συνδεδεμένων Στοιχείων"), section_style))
+    story.append(
+        Paragraph(
+            generator.normalize_text("Στοιχεία Συνδεδεμένων Στοιχείων"), section_style
+        )
+    )
 
     # Render each element as a small block (name/type/gate/category) followed
     # by its comments. This avoids extremely tall single table cells which
     # ReportLab cannot split across pages when a single cell's content exceeds
     # the page frame.
-    for element_name, element_type, gate, breaker_category, element_comments in elements:
+    for (
+        element_name,
+        element_type,
+        gate,
+        breaker_category,
+        element_comments,
+    ) in elements:
         element_table = Table(
-            [[
-                Paragraph(generator.normalize_text(f"<b>{element_name or '-'}</b>"), body_style),
-                Paragraph(generator.normalize_text(element_type or "-"), body_style),
-                Paragraph(generator.normalize_text(gate or "-"), body_style),
-                Paragraph(generator.normalize_text(breaker_category or "-"), body_style),
-            ]],
+            [
+                [
+                    Paragraph(
+                        generator.normalize_text(f"<b>{element_name or '-'}</b>"),
+                        body_style,
+                    ),
+                    Paragraph(
+                        generator.normalize_text(element_type or "-"), body_style
+                    ),
+                    Paragraph(generator.normalize_text(gate or "-"), body_style),
+                    Paragraph(
+                        generator.normalize_text(breaker_category or "-"), body_style
+                    ),
+                ]
+            ],
             colWidths=[58 * mm, 54 * mm, 28 * mm, 40 * mm],
         )
         element_table.setStyle(
@@ -1781,13 +1972,27 @@ def generate_maintenance_overview_report(conn, maintenance_id, output_path=None)
             if isinstance(comment_text, str) and len(comment_text) > max_chars:
                 comment_text = comment_text[:max_chars] + "\n... (truncated)"
             story.append(Spacer(1, 4))
-            story.append(Paragraph(generator.normalize_text(f"<b>Σχόλια:</b> {comment_text}"), body_style))
+            story.append(
+                Paragraph(
+                    generator.normalize_text(f"<b>Σχόλια:</b> {comment_text}"),
+                    body_style,
+                )
+            )
         story.append(Spacer(1, 6))
 
-    story.extend(generator._create_official_footer(document_kind="Συνοπτική αναφορά συντήρησης"))
+    story.extend(
+        generator._create_official_footer(document_kind="Συνοπτική αναφορά συντήρησης")
+    )
 
     temp_path = _temp_pdf_path(output_path)
-    doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+    doc = SimpleDocTemplate(
+        _fs_path(temp_path),
+        pagesize=A4,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+    )
     doc.build(story)
     _finalize_pdf(temp_path, output_path)
     return output_path
@@ -1832,7 +2037,9 @@ class InspectionReportGenerator:
             for font_path in font_paths:
                 if os.path.exists(font_path):
                     try:
-                        pdfmetrics.registerFont(TTFont("GreekFontInspection", font_path))
+                        pdfmetrics.registerFont(
+                            TTFont("GreekFontInspection", font_path)
+                        )
 
                         base_dir = os.path.dirname(font_path)
                         base_name = os.path.splitext(os.path.basename(font_path))[0]
@@ -1847,7 +2054,10 @@ class InspectionReportGenerator:
                             if base_name.lower().startswith("dejavusans"):
                                 if "bold" in suffix.lower():
                                     candidates.insert(0, "DejaVuSans-Bold.ttf")
-                                if "italic" in suffix.lower() or "oblique" in suffix.lower():
+                                if (
+                                    "italic" in suffix.lower()
+                                    or "oblique" in suffix.lower()
+                                ):
                                     candidates.insert(0, "DejaVuSans-Oblique.ttf")
                             for cand in candidates:
                                 cand_path = os.path.join(base_dir, cand)
@@ -1856,10 +2066,18 @@ class InspectionReportGenerator:
                                         name = f"GreekFontInspection{label}"
                                         pdfmetrics.registerFont(TTFont(name, cand_path))
                                         registered_variants[label] = name
-                                        logging.debug("Registered inspection font variant %s -> %s", label, cand_path)
+                                        logging.debug(
+                                            "Registered inspection font variant %s -> %s",
+                                            label,
+                                            cand_path,
+                                        )
                                         return True
                                     except Exception:
-                                        logging.exception("Failed to register inspection font variant %s at %s", label, cand_path)
+                                        logging.exception(
+                                            "Failed to register inspection font variant %s at %s",
+                                            label,
+                                            cand_path,
+                                        )
                             return False
 
                         _try_variant("-Bold", "Bold")
@@ -1873,7 +2091,9 @@ class InspectionReportGenerator:
                                 fam_kwargs["italic"] = registered_variants["Italic"]
                             registerFontFamily("GreekFontInspection", **fam_kwargs)
                         except Exception:
-                            logging.debug("Could not register inspection font family variants; proceeding with base font")
+                            logging.debug(
+                                "Could not register inspection font family variants; proceeding with base font"
+                            )
 
                         self.greek_font = "GreekFontInspection"
                         return
@@ -2081,61 +2301,80 @@ class InspectionReportGenerator:
                 ]
 
                 # Section 1
-                sections.extend([
-                    {"type": "section", "title": "1. Έλεγχος Χώρων ΥΣ"},
-                    "Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)",
-                ])
+                sections.extend(
+                    [
+                        {"type": "section", "title": "1. Έλεγχος Χώρων ΥΣ"},
+                        "Παρατηρήσεις (1. Έλεγχος Χώρων ΥΣ)",
+                    ]
+                )
                 sections.extend(rows[0:4])
 
                 # Section 2
-                sections.extend([
-                    {"type": "section", "title": "2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV"},
-                    "Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)",
-                ])
+                sections.extend(
+                    [
+                        {
+                            "type": "section",
+                            "title": "2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV",
+                        },
+                        "Παρατηρήσεις (2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV)",
+                    ]
+                )
                 sections.extend(rows[4:12])
 
                 # Section 3a
-                sections.extend([
-                    {"type": "section", "title": "3α. Υπαίθριες πύλες 20 kV"},
-                    "Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)",
-                ])
+                sections.extend(
+                    [
+                        {"type": "section", "title": "3α. Υπαίθριες πύλες 20 kV"},
+                        "Παρατηρήσεις (3α. Υπαίθριες πύλες 20 kV)",
+                    ]
+                )
                 if len(rows) > 12:
                     sections.append(rows[12])
 
                 # Section 3b
-                sections.extend([
-                    {"type": "section", "title": "3β. Πίνακες 20 kV"},
-                    "Παρατηρήσεις (3β. Πίνακες 20 kV)",
-                ])
+                sections.extend(
+                    [
+                        {"type": "section", "title": "3β. Πίνακες 20 kV"},
+                        "Παρατηρήσεις (3β. Πίνακες 20 kV)",
+                    ]
+                )
                 sections.extend(rows[13:15])
 
                 # Section 4
-                sections.extend([
-                    {"type": "section", "title": "4. Κτίριο χειρισμών & Τ.Α.Σ."},
-                    "Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)",
-                ])
+                sections.extend(
+                    [
+                        {"type": "section", "title": "4. Κτίριο χειρισμών & Τ.Α.Σ."},
+                        "Παρατηρήσεις (4. Κτίριο χειρισμών & Τ.Α.Σ.)",
+                    ]
+                )
                 sections.extend(rows[15:18])
 
                 # Section 5
-                sections.extend([
-                    {"type": "section", "title": "5. Αποζεύκτες Γραμμών"},
-                    "Παρατηρήσεις (5. Αποζεύκτες Γραμμών)",
-                ])
+                sections.extend(
+                    [
+                        {"type": "section", "title": "5. Αποζεύκτες Γραμμών"},
+                        "Παρατηρήσεις (5. Αποζεύκτες Γραμμών)",
+                    ]
+                )
                 if len(rows) > 18:
                     sections.append(rows[18])
 
                 # Section 6
-                sections.extend([
-                    {"type": "section", "title": "6. PC ΧΕΙΡΙΣΜΩΝ"},
-                    "Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)",
-                ])
+                sections.extend(
+                    [
+                        {"type": "section", "title": "6. PC ΧΕΙΡΙΣΜΩΝ"},
+                        "Παρατηρήσεις (6. PC ΧΕΙΡΙΣΜΩΝ)",
+                    ]
+                )
                 sections.extend(rows[19:21])
 
                 # Section 7
-                sections.extend([
-                    {"type": "section", "title": "7. Απόψεις"},
-                    "Απόψεις - Προτάσεις",
-                ])
+                sections.extend(
+                    [
+                        {"type": "section", "title": "7. Απόψεις"},
+                        "Απόψεις - Προτάσεις",
+                    ]
+                )
 
                 return sections
 
@@ -2235,14 +2474,23 @@ class InspectionReportGenerator:
         story.append(footer)
 
         temp_path = _temp_pdf_path(output_path)
-        doc = SimpleDocTemplate(_fs_path(temp_path), pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=15 * mm, bottomMargin=15 * mm)
+        doc = SimpleDocTemplate(
+            _fs_path(temp_path),
+            pagesize=A4,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+        )
         doc.build(story)
         async_flag = bool(get_app_setting("pdf_normalize_async", False))
         try:
             file_size_kb = os.path.getsize(_fs_path(temp_path)) // 1024
         except Exception:
             file_size_kb = 0
-        threshold_kb = int(get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024)
+        threshold_kb = int(
+            get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024
+        )
         if async_flag and file_size_kb >= threshold_kb:
             try:
                 os.replace(_fs_path(temp_path), _fs_path(output_path))
@@ -2452,7 +2700,9 @@ class SF6LeakReportGenerator:
             file_size_kb = os.path.getsize(_fs_path(temp_path)) // 1024
         except Exception:
             file_size_kb = 0
-        threshold_kb = int(get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024)
+        threshold_kb = int(
+            get_app_setting("pdf_normalize_size_threshold_kb", 1024) or 1024
+        )
         if async_flag and file_size_kb >= threshold_kb:
             try:
                 os.replace(_fs_path(temp_path), _fs_path(output_path))

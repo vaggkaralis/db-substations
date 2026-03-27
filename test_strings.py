@@ -33,17 +33,17 @@ print("Testing proxy system...")
 try:
     from strings_proxy import STRINGS
     from config_manager import get_current_language
-    
+
     current_lang = get_current_language()
     print(f"Current language: {current_lang}")
-    
+
     # Access through proxy
     messages = STRINGS["MESSAGES"]
     proxy_rows = messages.get("INSPECTION_ROWS", [])
     print(f"Rows via proxy: {len(proxy_rows)} items")
     if proxy_rows:
         print(f"Via proxy (first item): {proxy_rows[0]}")
-    
+
 except Exception as e:
     print(f"Error: {type(e).__name__}: {e}")
 

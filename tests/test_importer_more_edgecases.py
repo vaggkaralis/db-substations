@@ -14,6 +14,7 @@ class FakePD:
     @staticmethod
     def notna(v):
         return v is not None and v != ""
+
     @staticmethod
     def isna(v):
         return not FakePD.notna(v)
@@ -39,6 +40,7 @@ class FakeDF(list):
 
             def __getitem__(self, idx):
                 row = self.parent[idx]
+
                 class RowLike:
                     def __init__(self, values):
                         self.values = values
@@ -75,9 +77,7 @@ def test_import_elements_csv_model_mapping(monkeypatch):
     # Setup DB with a substation and element_models entry
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
-    cur.execute(
-        "CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT UNIQUE)"
-    )
+    cur.execute("CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT UNIQUE)")
     cur.execute(
         "CREATE TABLE element_models (id INTEGER PRIMARY KEY, element_category TEXT, model_name TEXT, manufacturer TEXT)"
     )

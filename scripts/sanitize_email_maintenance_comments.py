@@ -79,10 +79,16 @@ def sanitize_existing_comments(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Sanitize existing imported email maintenance comments.")
+    parser = argparse.ArgumentParser(
+        description="Sanitize existing imported email maintenance comments."
+    )
     parser.add_argument("--db", default=DB_PATH, help="Path to SQLite database file")
-    parser.add_argument("--substation", default=None, help="Optional exact substation name filter")
-    parser.add_argument("--substation-id", type=int, default=None, help="Optional substation id filter")
+    parser.add_argument(
+        "--substation", default=None, help="Optional exact substation name filter"
+    )
+    parser.add_argument(
+        "--substation-id", type=int, default=None, help="Optional substation id filter"
+    )
     parser.add_argument(
         "--apply",
         action="store_true",
@@ -98,7 +104,11 @@ def main() -> int:
     )
 
     mode = "APPLY" if args.apply else "DRY-RUN"
-    print(f"[{mode}] scanned={scanned}, would_update={updated}" if not args.apply else f"[{mode}] scanned={scanned}, updated={updated}")
+    print(
+        f"[{mode}] scanned={scanned}, would_update={updated}"
+        if not args.apply
+        else f"[{mode}] scanned={scanned}, updated={updated}"
+    )
     return 0
 
 

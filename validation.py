@@ -60,11 +60,15 @@ def filter_people_for_maintenance(people_rows, responsible_person_id=None):
     """
     people = list(people_rows)
     # Use canonical role matching to be tolerant to diacritics/variants in DB
-    responsible_people = [p for p in people if canonical_role(p[2]) in ALLOWED_RESPONSIBLE_ROLES]
+    responsible_people = [
+        p for p in people if canonical_role(p[2]) in ALLOWED_RESPONSIBLE_ROLES
+    ]
     crew_people = [p for p in people if canonical_role(p[2]) != "Υποστήριξη"]
 
     # If a preselected responsible person isn't in the allowed list, prepend them so they remain selectable
-    if responsible_person_id and not any(p[0] == responsible_person_id for p in responsible_people):
+    if responsible_person_id and not any(
+        p[0] == responsible_person_id for p in responsible_people
+    ):
         found = next((p for p in people if p[0] == responsible_person_id), None)
         if found:
             responsible_people.insert(0, found)
@@ -89,7 +93,12 @@ PEOPLE_ROLES = [
 
 # Role categories mapping (single source of truth)
 ROLE_CATEGORIES = {
-    "Μηχανικοί": {"Τομεάρχης ΤΕΙ", "Υποτομεάρχης ΤΕΙ", "Ειδικό Στέλεχος Γ'", "Μηχανικός"},
+    "Μηχανικοί": {
+        "Τομεάρχης ΤΕΙ",
+        "Υποτομεάρχης ΤΕΙ",
+        "Ειδικό Στέλεχος Γ'",
+        "Μηχανικός",
+    },
     "Τεχνικοί": {"Εργοδηγός", "Αρχιτεχνίτης", "Τεχνίτης", "Χειριστής"},
     "Λοιπά": {"Υποστήριξη"},
 }
@@ -180,28 +189,37 @@ def canonical_role(role_value):
 
     # Second pass: normalized whole-word match (prefer earlier PEOPLE_ROLES)
     import re
+
     for pr in PEOPLE_ROLES:
         prn = _norm(pr)
-        if re.search(r"\b" + re.escape(prn) + r"\b", rv) or re.search(r"\b" + re.escape(rv) + r"\b", prn):
+        if re.search(r"\b" + re.escape(prn) + r"\b", rv) or re.search(
+            r"\b" + re.escape(rv) + r"\b", prn
+        ):
             return pr
 
     # Try simple transliteration fallbacks (common ascii variants like TEI, G)
-    rv_alt = rv.replace('tei', 'τει')
+    rv_alt = rv.replace("tei", "τει")
     for pr in PEOPLE_ROLES:
         prn = _norm(pr)
-        if re.search(r"\b" + re.escape(prn) + r"\b", rv_alt) or re.search(r"\b" + re.escape(rv_alt) + r"\b", prn):
+        if re.search(r"\b" + re.escape(prn) + r"\b", rv_alt) or re.search(
+            r"\b" + re.escape(rv_alt) + r"\b", prn
+        ):
             return pr
 
-    rv_alt2 = rv.replace('g', 'γ')
+    rv_alt2 = rv.replace("g", "γ")
     for pr in PEOPLE_ROLES:
         prn = _norm(pr)
-        if re.search(r"\b" + re.escape(prn) + r"\b", rv_alt2) or re.search(r"\b" + re.escape(rv_alt2) + r"\b", prn):
+        if re.search(r"\b" + re.escape(prn) + r"\b", rv_alt2) or re.search(
+            r"\b" + re.escape(rv_alt2) + r"\b", prn
+        ):
             return pr
 
-    rv_alt3 = rv.replace('tei', 'τει').replace('g', 'γ')
+    rv_alt3 = rv.replace("tei", "τει").replace("g", "γ")
     for pr in PEOPLE_ROLES:
         prn = _norm(pr)
-        if re.search(r"\b" + re.escape(prn) + r"\b", rv_alt3) or re.search(r"\b" + re.escape(rv_alt3) + r"\b", prn):
+        if re.search(r"\b" + re.escape(prn) + r"\b", rv_alt3) or re.search(
+            r"\b" + re.escape(rv_alt3) + r"\b", prn
+        ):
             return pr
 
     return None
@@ -209,10 +227,10 @@ def canonical_role(role_value):
 
 def is_user_responsible_capable(role: str) -> bool:
     """Check if a user role can be assigned as maintenance responsible.
-    
+
     Args:
         role: The role name to check
-    
+
     Returns:
         True if the role can be assigned as maintenance responsible
     """

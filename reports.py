@@ -50,7 +50,9 @@ def _short_temp_open_copy(path: str, *, existing_path: str | None = None) -> str
         return None
 
     suffix = os.path.splitext(path or source_path)[1]
-    digest = hashlib.sha1(os.path.abspath(path or source_path).encode("utf-8", errors="ignore")).hexdigest()[:12]
+    digest = hashlib.sha1(
+        os.path.abspath(path or source_path).encode("utf-8", errors="ignore")
+    ).hexdigest()[:12]
     temp_dir = os.path.join(tempfile.gettempdir(), "dbsub_open")
     os.makedirs(temp_dir, exist_ok=True)
     temp_path = os.path.join(temp_dir, f"open_{digest}{suffix}")
@@ -77,11 +79,16 @@ def show_sf6_management_popup(app, instance=None):
     if not years:
         years = [str(__import__("datetime").datetime.now().year)]
 
-    popup = Popup(title=S["MESSAGES"].get("SF6_MANAGEMENT_TITLE", "Διαχείριση SF6"), size_hint=(0.95, 0.9))
+    popup = Popup(
+        title=S["MESSAGES"].get("SF6_MANAGEMENT_TITLE", "Διαχείριση SF6"),
+        size_hint=(0.95, 0.9),
+    )
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     control_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
-    control_row.add_widget(Label(text=S["MESSAGES"].get("YEAR_LABEL", "Έτος:"), size_hint_x=0.15))
+    control_row.add_widget(
+        Label(text=S["MESSAGES"].get("YEAR_LABEL", "Έτος:"), size_hint_x=0.15)
+    )
     year_spinner = Spinner(
         text=years[0], values=years, size_hint_x=0.25, size_hint_y=None, height=35
     )
@@ -125,16 +132,27 @@ def show_sf6_management_popup(app, instance=None):
         summary_label.text = summary_text
 
         header = GridLayout(cols=4, size_hint_y=None, height=30)
-        header.add_widget(Label(text=S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), bold=True))
-        header.add_widget(Label(text=S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός"), bold=True))
-        header.add_widget(Label(text=S["MESSAGES"].get("ELEMENT_LABEL", "Στοιχείο"), bold=True))
-        header.add_widget(Label(text=S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), bold=True))
+        header.add_widget(
+            Label(text=S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), bold=True)
+        )
+        header.add_widget(
+            Label(text=S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός"), bold=True)
+        )
+        header.add_widget(
+            Label(text=S["MESSAGES"].get("ELEMENT_LABEL", "Στοιχείο"), bold=True)
+        )
+        header.add_widget(
+            Label(text=S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), bold=True)
+        )
         table_layout.add_widget(header)
 
         if not data["rows"]:
             table_layout.add_widget(
                 Label(
-                    text=S["MESSAGES"].get("NO_LEAK_ENTRIES", "Δεν υπάρχουν καταχωρήσεις διαρροών για το έτος."),
+                    text=S["MESSAGES"].get(
+                        "NO_LEAK_ENTRIES",
+                        "Δεν υπάρχουν καταχωρήσεις διαρροών για το έτος.",
+                    ),
                     size_hint_y=None,
                     height=30,
                 )
@@ -147,7 +165,7 @@ def show_sf6_management_popup(app, instance=None):
             rlayout.add_widget(Label(text=row.get("substation") or "-"))
             rlayout.add_widget(Label(text=row.get("element") or "-"))
             leakage = row.get("leakage")
-            leakage_text = ("-" if leakage is None else f"{leakage:.2f}")
+            leakage_text = "-" if leakage is None else f"{leakage:.2f}"
             rlayout.add_widget(Label(text=leakage_text))
             table_layout.add_widget(rlayout)
 
@@ -167,9 +185,20 @@ def show_sf6_management_popup(app, instance=None):
                     # ignore open-errors; show_message_popup already reports success
                     pass
 
-            show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"].get("PDF_CREATED", "Το PDF δημιουργήθηκε:\n{path}").format(path=pdf_path), callback=_open_pdf)
+            show_message_popup(
+                S["TITLES"]["SUCCESS"],
+                S["MESSAGES"]
+                .get("PDF_CREATED", "Το PDF δημιουργήθηκε:\n{path}")
+                .format(path=pdf_path),
+                callback=_open_pdf,
+            )
         except Exception as exc:
-            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("PDF_CREATE_FAILED", "Αποτυχία δημιουργίας PDF:\n{err}").format(err=str(exc)))
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"]
+                .get("PDF_CREATE_FAILED", "Αποτυχία δημιουργίας PDF:\n{err}")
+                .format(err=str(exc)),
+            )
 
     def handle_excel(*_args):
         try:
@@ -186,9 +215,20 @@ def show_sf6_management_popup(app, instance=None):
                 except Exception:
                     pass
 
-            show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"].get("EXCEL_CREATED", "Το Excel δημιουργήθηκε:\n{path}").format(path=excel_path), callback=_open_excel)
+            show_message_popup(
+                S["TITLES"]["SUCCESS"],
+                S["MESSAGES"]
+                .get("EXCEL_CREATED", "Το Excel δημιουργήθηκε:\n{path}")
+                .format(path=excel_path),
+                callback=_open_excel,
+            )
         except Exception as exc:
-            show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"].get("EXCEL_CREATE_FAILED", "Αποτυχία δημιουργίας Excel:\n{err}").format(err=str(exc)))
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"]
+                .get("EXCEL_CREATE_FAILED", "Αποτυχία δημιουργίας Excel:\n{err}")
+                .format(err=str(exc)),
+            )
 
     refresh_btn.bind(on_press=lambda _x: render_report(year_spinner.text))
     year_spinner.bind(text=lambda _s, _t: render_report(year_spinner.text))
@@ -214,7 +254,11 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
             (element_id,),
         )
         elem_row = c.fetchone()
-        gate_value = elem_row[0] if elem_row and isinstance(elem_row, (tuple, list)) else (elem_row["gate"] if elem_row else None)
+        gate_value = (
+            elem_row[0]
+            if elem_row and isinstance(elem_row, (tuple, list))
+            else (elem_row["gate"] if elem_row else None)
+        )
 
         def _open_pdf(path: str):
             try:
@@ -266,7 +310,10 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
                         replace_result.get("message") or "Αποτυχία αντικατάστασης PDF.",
                     )
                     return
-                _show_success(replace_result["path"], replace_result.get("action_taken") or "replaced")
+                _show_success(
+                    replace_result["path"],
+                    replace_result.get("action_taken") or "replaced",
+                )
 
             show_confirm(
                 S["TITLES"].get("CONFIRM", "Επιβεβαίωση"),
@@ -311,7 +358,13 @@ def export_full_db_ui(app, parent_popup=None):
     return export_full_db(app.conn)
 
 
-def open_file(path, *, not_found_message="Το αρχείο δεν βρέθηκε!", error_title="Σφάλμα", error_prefix="Αποτυχία ανοίγματος αρχείου:\n"):
+def open_file(
+    path,
+    *,
+    not_found_message="Το αρχείο δεν βρέθηκε!",
+    error_title="Σφάλμα",
+    error_prefix="Αποτυχία ανοίγματος αρχείου:\n",
+):
     """Open a file with the platform default application and handle errors with popups.
 
     Returns True on success, False on failure.
@@ -329,14 +382,24 @@ def open_file(path, *, not_found_message="Το αρχείο δεν βρέθηκ�
         if sys.platform == "win32":
             open_target = existing_path
             suffix = os.path.splitext(existing_path)[1].lower()
-            if len(os.path.abspath(existing_path)) >= 220 and suffix in {".xls", ".xlsx", ".xlsm", ".doc", ".docx", ".ppt", ".pptx"}:
+            if len(os.path.abspath(existing_path)) >= 220 and suffix in {
+                ".xls",
+                ".xlsx",
+                ".xlsm",
+                ".doc",
+                ".docx",
+                ".ppt",
+                ".pptx",
+            }:
                 temp_copy = _short_temp_open_copy(path, existing_path=existing_path)
                 if temp_copy:
                     open_target = temp_copy
             try:
                 os.startfile(open_target)
             except Exception:
-                fallback_target = open_target if open_target != existing_path else existing_path
+                fallback_target = (
+                    open_target if open_target != existing_path else existing_path
+                )
                 os.startfile(fallback_target)
         elif sys.platform == "darwin":
             subprocess.call(["open", existing_path])
@@ -609,9 +672,7 @@ def _export_sf6_excel(app, year: str):
     start_row = 4
     if substation_sums:
         ws.cell(row=start_row, column=1, value="Υποσταθμός").font = bold_font
-        ws.cell(row=start_row, column=2, value="Σύνολο Διαρροών (kg)").font = (
-            bold_font
-        )
+        ws.cell(row=start_row, column=2, value="Σύνολο Διαρροών (kg)").font = bold_font
         for col_idx in (1, 2):
             cell = ws.cell(row=start_row, column=col_idx)
             cell.alignment = center

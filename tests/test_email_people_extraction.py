@@ -22,8 +22,13 @@ def _make_conn():
 def test_people_not_matched_from_short_prefix_words():
     conn = _make_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO people (id, name, active) VALUES (1, ?, 1)", ("Γιαννούλας Νικόλαος",))
-    cur.execute("INSERT INTO people (id, name, active) VALUES (2, ?, 1)", ("Μουτσέλος Ιωάννης",))
+    cur.execute(
+        "INSERT INTO people (id, name, active) VALUES (1, ?, 1)",
+        ("Γιαννούλας Νικόλαος",),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, active) VALUES (2, ?, 1)", ("Μουτσέλος Ιωάννης",)
+    )
     conn.commit()
 
     body = (
@@ -38,8 +43,14 @@ def test_people_not_matched_from_short_prefix_words():
 def test_people_matched_on_full_name_and_collapsed_by_display_name():
     conn = _make_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO people (id, name, active) VALUES (10, ?, 1)", ("Γιαννούλας Νικόλαος",))
-    cur.execute("INSERT INTO people (id, name, active) VALUES (11, ?, 1)", ("Γιαννούλας Νικόλαος",))
+    cur.execute(
+        "INSERT INTO people (id, name, active) VALUES (10, ?, 1)",
+        ("Γιαννούλας Νικόλαος",),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, active) VALUES (11, ?, 1)",
+        ("Γιαννούλας Νικόλαος",),
+    )
     conn.commit()
 
     body = "Συμμετείχε ο Γιαννούλας Νικόλαος στις εργασίες συντήρησης."
@@ -51,7 +62,10 @@ def test_people_matched_on_full_name_and_collapsed_by_display_name():
 def test_people_matched_on_initial_plus_surname():
     conn = _make_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO people (id, name, active) VALUES (20, ?, 1)", ("Γιαννούλας Νικόλαος",))
+    cur.execute(
+        "INSERT INTO people (id, name, active) VALUES (20, ?, 1)",
+        ("Γιαννούλας Νικόλαος",),
+    )
     conn.commit()
 
     body = "Παρόντες: Ν. Γιαννούλας και το υπόλοιπο συνεργείο."
@@ -122,7 +136,7 @@ def test_element_matching_uses_real_email_formats_without_matching_generic_ms_te
     )
     conn.commit()
 
-    body = '''Καλησπέρα,
+    body = """Καλησπέρα,
 
 Σήμερα στον υποσταθμό Διδυμοτείχου έγιναν οι εξής εργασίες:
 
@@ -137,7 +151,7 @@ def test_element_matching_uses_real_email_formats_without_matching_generic_ms_te
 *
 Η ηλεκτριση έγινε καλώς.
 
-Το συνεργείο έχει 1 ώρα υπερεργασίας.'''
+Το συνεργείο έχει 1 ώρα υπερεργασίας."""
 
     found = mei._find_elements_in_body(conn, body, 1)
     assert found == {2}

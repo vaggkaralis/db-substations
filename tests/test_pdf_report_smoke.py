@@ -57,13 +57,22 @@ def test_generate_maintenance_report_smoke(tmp_path):
     _create_pdf_schema(conn)
     cur = conn.cursor()
     # Insert minimal rows
-    cur.execute("INSERT INTO substations (id, name, location, division) VALUES (1, 'S1', '', '')")
-    cur.execute("INSERT INTO elements (id, element_type, name, breaker_category) VALUES (1, 'type', 'E1', 'SF6')")
-    cur.execute("INSERT INTO maintenance (id, substation_id, date_time, overall_comments, maintenance_type, user_name) VALUES (1, 1, '2020-01-01', 'ok', 'type', 'user')")
-    cur.execute("INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (1, 1, 'ok')")
+    cur.execute(
+        "INSERT INTO substations (id, name, location, division) VALUES (1, 'S1', '', '')"
+    )
+    cur.execute(
+        "INSERT INTO elements (id, element_type, name, breaker_category) VALUES (1, 'type', 'E1', 'SF6')"
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, date_time, overall_comments, maintenance_type, user_name) VALUES (1, 1, '2020-01-01', 'ok', 'type', 'user')"
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (1, 1, 'ok')"
+    )
     conn.commit()
 
     gen = MaintenanceReportGenerator(conn)
+
     # Monkeypatch heavy PDF generation to a lightweight writer so the smoke
     # test only validates end-to-end plumbing without requiring full ReportLab.
     def _fake_sf6(output_path, maintenance, element, measurements):

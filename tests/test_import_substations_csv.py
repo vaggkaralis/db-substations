@@ -43,7 +43,9 @@ def make_conn():
 def test_import_substations_from_csv_roundtrip(monkeypatch, tmp_path):
     # prepare fake CSV file (content isn't parsed by our fake pd)
     csv_path = tmp_path / "subs.csv"
-    csv_path.write_text("Name,Location,Adoption Date\nS1,L1,2026-02-08\n", encoding="utf-8")
+    csv_path.write_text(
+        "Name,Location,Adoption Date\nS1,L1,2026-02-08\n", encoding="utf-8"
+    )
 
     rows = [{"Name": "S1", "Location": "L1", "Adoption Date": "2026-02-08"}]
     fake_pd = FakePD(rows)
@@ -66,7 +68,9 @@ def test_import_substations_from_csv_roundtrip(monkeypatch, tmp_path):
     import_substations_from_csv(conn, str(csv_path), on_success, on_error)
 
     cur = conn.cursor()
-    cur.execute("SELECT name, location, adoption_date FROM substations WHERE name=?", ("S1",))
+    cur.execute(
+        "SELECT name, location, adoption_date FROM substations WHERE name=?", ("S1",)
+    )
     r = cur.fetchone()
     assert r == ("S1", "L1", "2026-02-08")
     assert "ok" in messages

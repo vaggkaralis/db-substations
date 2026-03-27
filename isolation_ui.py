@@ -45,7 +45,9 @@ def _group_elements_by_gate(elements):
     return groups
 
 
-def _prefill_imported_isolation(app, parent_popup, raw_text, status, attachment_paths=None):
+def _prefill_imported_isolation(
+    app, parent_popup, raw_text, status, attachment_paths=None
+):
     parsed = parse_isolation_request_text(raw_text)
     substations = _get_substations(app)
     matched_substation = match_substation(app, raw_text, substations)
@@ -63,28 +65,42 @@ def _prefill_imported_isolation(app, parent_popup, raw_text, status, attachment_
         prefill["substation_id"] = substation_id
         prefill["substation_name"] = substation_name
         element_rows = _get_elements_for_substation(app, substation_id)
-        matched_element_ids, _matched_phrases = match_element_ids_from_text(raw_text, element_rows)
+        matched_element_ids, _matched_phrases = match_element_ids_from_text(
+            raw_text, element_rows
+        )
         if not matched_element_ids and getattr(app, "_find_elements_in_body", None):
-            matched_element_ids = sorted(app._find_elements_in_body(raw_text, substation_id))
+            matched_element_ids = sorted(
+                app._find_elements_in_body(raw_text, substation_id)
+            )
         prefill["element_ids"] = matched_element_ids
 
     show_add_isolation_request(app, parent_popup, prefill_data=prefill)
 
 
-def import_isolation_request_from_payload(app, payload, parent_popup=None, status="Requested"):
+def import_isolation_request_from_payload(
+    app, payload, parent_popup=None, status="Requested"
+):
     raw_text = payload.get("body") or ""
     attachment_paths = payload.get("attachment_paths") or []
-    _prefill_imported_isolation(app, parent_popup, raw_text, status, attachment_paths=attachment_paths)
+    _prefill_imported_isolation(
+        app, parent_popup, raw_text, status, attachment_paths=attachment_paths
+    )
 
 
-def import_isolation_request_from_eml(app, file_path, parent_popup=None, status="Requested"):
+def import_isolation_request_from_eml(
+    app, file_path, parent_popup=None, status="Requested"
+):
     try:
         payload = parse_eml_file(file_path)
     except Exception as exc:
-        show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), f"Αποτυχία ανάγνωσης email:\n{exc}")
+        show_message_popup(
+            S["TITLES"].get("ERROR", "Σφάλμα"), f"Αποτυχία ανάγνωσης email:\n{exc}"
+        )
         return
 
-    import_isolation_request_from_payload(app, payload, parent_popup=parent_popup, status=status)
+    import_isolation_request_from_payload(
+        app, payload, parent_popup=parent_popup, status=status
+    )
 
 
 def _show_import_text_popup(app, parent_popup, status):
@@ -111,7 +127,9 @@ def _show_import_text_popup(app, parent_popup, status):
     def do_import():
         raw_text = text_input.text.strip()
         if not raw_text:
-            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν δόθηκε κείμενο για εισαγωγή.")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν δόθηκε κείμενο για εισαγωγή."
+            )
             return
         popup.dismiss()
         _prefill_imported_isolation(app, parent_popup, raw_text, status)
@@ -128,10 +146,14 @@ def _show_import_text_popup(app, parent_popup, status):
 
 
 def _import_from_eml(app, parent_popup, status):
-    file_path = ask_open_file(title="Select .eml file", filetypes=(("EML files", "*.eml"),))
+    file_path = ask_open_file(
+        title="Select .eml file", filetypes=(("EML files", "*.eml"),)
+    )
     if not file_path:
         return
-    import_isolation_request_from_eml(app, file_path, parent_popup=parent_popup, status=status)
+    import_isolation_request_from_eml(
+        app, file_path, parent_popup=parent_popup, status=status
+    )
 
 
 def show_import_isolation_request(app, parent_popup=None):
@@ -143,19 +165,37 @@ def show_import_isolation_request(app, parent_popup=None):
 
     popup = Popup(title="Εισαγωγή αίτησης απομόνωσης", size_hint=(0.7, 0.45))
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-    layout.add_widget(Label(text="Ορίστε κατάσταση για την εισαγόμενη απομόνωση:", size_hint_y=None, height=35))
-    status_spinner = Spinner(text="Requested", values=_STATUS_VALUES, size_hint_y=None, height=40)
+    layout.add_widget(
+        Label(
+            text="Ορίστε κατάσταση για την εισαγόμενη απομόνωση:",
+            size_hint_y=None,
+            height=35,
+        )
+    )
+    status_spinner = Spinner(
+        text="Requested", values=_STATUS_VALUES, size_hint_y=None, height=40
+    )
     layout.add_widget(status_spinner)
 
     buttons = BoxLayout(size_hint_y=None, height=50, spacing=10)
     text_btn = Button(text="Από κείμενο")
-    text_btn.bind(on_press=lambda _x: (popup.dismiss(), _show_import_text_popup(app, parent_popup, status_spinner.text)))
+    text_btn.bind(
+        on_press=lambda _x: (
+            popup.dismiss(),
+            _show_import_text_popup(app, parent_popup, status_spinner.text),
+        )
+    )
     buttons.add_widget(text_btn)
 
     email_btn = Button(text="Από e-mail (.eml)")
-    email_btn.bind(on_press=lambda _x: (popup.dismiss(), _import_from_eml(app, parent_popup, status_spinner.text)))
+    email_btn.bind(
+        on_press=lambda _x: (
+            popup.dismiss(),
+            _import_from_eml(app, parent_popup, status_spinner.text),
+        )
+    )
     buttons.add_widget(email_btn)
-    
+
     layout.add_widget(buttons)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=45)
@@ -206,9 +246,25 @@ def show_isolation_requests(app, instance=None):
 
     legend_layout = BoxLayout(size_hint_y=0.08, spacing=10, padding=[10, 5])
     legend_layout.add_widget(Label(text="", size_hint_x=0.25, **font_kwargs))
-    legend_layout.add_widget(Label(text="● Αιτήθηκε", size_hint_x=0.22, color=(1, 0.85, 0, 1), **font_kwargs))
-    legend_layout.add_widget(Label(text="● Εγκρίθηκε", size_hint_x=0.22, color=(0.2, 0.8, 0.2, 1), **font_kwargs))
-    legend_layout.add_widget(Label(text="● Ακυρώθηκε", size_hint_x=0.22, color=(0.9, 0.2, 0.2, 1), **font_kwargs))
+    legend_layout.add_widget(
+        Label(text="● Αιτήθηκε", size_hint_x=0.22, color=(1, 0.85, 0, 1), **font_kwargs)
+    )
+    legend_layout.add_widget(
+        Label(
+            text="● Εγκρίθηκε",
+            size_hint_x=0.22,
+            color=(0.2, 0.8, 0.2, 1),
+            **font_kwargs,
+        )
+    )
+    legend_layout.add_widget(
+        Label(
+            text="● Ακυρώθηκε",
+            size_hint_x=0.22,
+            color=(0.9, 0.2, 0.2, 1),
+            **font_kwargs,
+        )
+    )
     legend_layout.add_widget(Label(text="", size_hint_x=0.09, **font_kwargs))
     main_layout.add_widget(legend_layout)
 
@@ -269,15 +325,30 @@ def show_isolation_requests(app, instance=None):
                     # only store dates that fall inside the display range to limit memory
                     if start_date <= current_date <= end_date:
                         requests_by_day.setdefault(current_date, [])
-                        if not any(existing[0] == req_id for existing in requests_by_day[current_date]):
-                            requests_by_day[current_date].append((req_id, sub_id, sub_name, start_dt, end_dt, status, notes))
+                        if not any(
+                            existing[0] == req_id
+                            for existing in requests_by_day[current_date]
+                        ):
+                            requests_by_day[current_date].append(
+                                (
+                                    req_id,
+                                    sub_id,
+                                    sub_name,
+                                    start_dt,
+                                    end_dt,
+                                    status,
+                                    notes,
+                                )
+                            )
                     current += timedelta(days=1)
             except Exception:
                 continue
 
         calendar_grid = GridLayout(cols=7, spacing=2)
         for day_name in ["Δευ", "Τρί", "Τετ", "Πέμ", "Παρ", "Σάβ", "Κυρ"]:
-            calendar_grid.add_widget(Label(text=day_name, size_hint_y=None, height=30, bold=True))
+            calendar_grid.add_widget(
+                Label(text=day_name, size_hint_y=None, height=30, bold=True)
+            )
 
         # Build a continuous range starting from the Monday of the week
         # containing the month's first day, and ending on the Sunday of the
@@ -293,7 +364,7 @@ def show_isolation_requests(app, instance=None):
 
         current_day = start_date
         while current_day <= end_date:
-            is_current_month = (current_day.month == month and current_day.year == year)
+            is_current_month = current_day.month == month and current_day.year == year
             is_leading = current_day < first_of_month
             is_trailing = current_day > last_of_month
             day_box = BoxLayout(orientation="vertical", size_hint_y=None, height=100)
@@ -307,20 +378,41 @@ def show_isolation_requests(app, instance=None):
                 day_label_color = (1, 1, 1, 1)
             day_label_kwargs = dict(size_hint_y=0.3)
             if is_current_month:
-                day_label = Label(text=str(current_day.day), bold=True, **day_label_kwargs, **font_kwargs)
+                day_label = Label(
+                    text=str(current_day.day),
+                    bold=True,
+                    **day_label_kwargs,
+                    **font_kwargs,
+                )
             else:
                 # Show different (muted) style for previous/next month days
-                day_label = Label(text=str(current_day.day), color=day_label_color, bold=False, font_size="12sp", **day_label_kwargs)
+                day_label = Label(
+                    text=str(current_day.day),
+                    color=day_label_color,
+                    bold=False,
+                    font_size="12sp",
+                    **day_label_kwargs,
+                )
 
             day_box.add_widget(day_label)
 
             # Show requests if any for this calendar date (including leading/trailing)
             if current_day in requests_by_day:
                 scroll = ScrollView(size_hint_y=0.7)
-                requests_layout = GridLayout(cols=1, size_hint_y=None, spacing=2, padding=2)
+                requests_layout = GridLayout(
+                    cols=1, size_hint_y=None, spacing=2, padding=2
+                )
                 requests_layout.bind(minimum_height=requests_layout.setter("height"))
 
-                for req_id, _sub_id, sub_name, _start_dt, _end_dt, status, _notes in requests_by_day[current_day]:
+                for (
+                    req_id,
+                    _sub_id,
+                    sub_name,
+                    _start_dt,
+                    _end_dt,
+                    status,
+                    _notes,
+                ) in requests_by_day[current_day]:
                     if status == "Accepted":
                         color = (0.2, 0.8, 0.2, 1)
                     elif status == "Cancelled":
@@ -336,7 +428,9 @@ def show_isolation_requests(app, instance=None):
                         **font_kwargs,
                     )
                     req_btn.bind(
-                        on_press=lambda _x, r_id=req_id, popup_ref=popup: show_isolation_request_details(app, r_id, popup_ref)
+                        on_press=lambda _x, r_id=req_id, popup_ref=popup: (
+                            show_isolation_request_details(app, r_id, popup_ref)
+                        )
                     )
                     requests_layout.add_widget(req_btn)
 
@@ -405,7 +499,10 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     prefill_data = prefill_data or {}
     substations = _get_substations(app)
     if not substations:
-        show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), S["MESSAGES"].get("NO_SUBSTATIONS", "Δεν υπάρχουν υποσταθμοί!"))
+        show_message_popup(
+            S["TITLES"].get("ERROR", "Σφάλμα"),
+            S["MESSAGES"].get("NO_SUBSTATIONS", "Δεν υπάρχουν υποσταθμοί!"),
+        )
         return
 
     c = app.conn.cursor()
@@ -429,9 +526,14 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         )
         request_record = c.fetchone()
         if not request_record:
-            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Η αίτηση απομόνωσης δεν βρέθηκε.")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"), "Η αίτηση απομόνωσης δεν βρέθηκε."
+            )
             return
-        c.execute("SELECT element_id FROM isolation_request_elements WHERE request_id=?", (request_id,))
+        c.execute(
+            "SELECT element_id FROM isolation_request_elements WHERE request_id=?",
+            (request_id,),
+        )
         selected_element_ids = {row[0] for row in c.fetchall()}
         existing_attachment_path = str(request_record[7] or "").strip()
         storage_folder_path = str(request_record[8] or "").strip()
@@ -448,13 +550,20 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
             request_file_path=existing_attachment_path,
             db_path=getattr(app, "db_path", None),
         )
-        storage_folder_path = storage_result.get("storage_folder") or storage_folder_path
+        storage_folder_path = (
+            storage_result.get("storage_folder") or storage_folder_path
+        )
         stored_files = storage_result.get("stored_files") or []
-        if (not existing_attachment_path) or (existing_attachment_path and not os.path.exists(existing_attachment_path)):
+        if (not existing_attachment_path) or (
+            existing_attachment_path and not os.path.exists(existing_attachment_path)
+        ):
             if stored_files:
                 existing_attachment_path = stored_files[0]
 
-        if existing_attachment_path != str(request_record[7] or "").strip() or storage_folder_path != str(request_record[8] or "").strip():
+        if (
+            existing_attachment_path != str(request_record[7] or "").strip()
+            or storage_folder_path != str(request_record[8] or "").strip()
+        ):
             c.execute(
                 """
                 UPDATE isolation_requests
@@ -484,9 +593,13 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     elif prefill_data.get("substation_name") in substation_map:
         initial_substation = prefill_data["substation_name"]
 
-    content.add_widget(Label(text="Υποσταθμός:", size_hint_y=None, height=30, bold=True))
+    content.add_widget(
+        Label(text="Υποσταθμός:", size_hint_y=None, height=30, bold=True)
+    )
     substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
-    substation_input = TextInput(text=initial_substation, readonly=True, multiline=False, size_hint_x=0.72)
+    substation_input = TextInput(
+        text=initial_substation, readonly=True, multiline=False, size_hint_x=0.72
+    )
     select_sub_btn = Button(text="Επιλογή", size_hint_x=0.28)
     substation_row.add_widget(substation_input)
     substation_row.add_widget(select_sub_btn)
@@ -505,27 +618,59 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         )
     )
 
-    content.add_widget(Label(text="Ημ/νία & Ώρα Έναρξης:", size_hint_y=None, height=30, bold=True))
+    content.add_widget(
+        Label(text="Ημ/νία & Ώρα Έναρξης:", size_hint_y=None, height=30, bold=True)
+    )
     start_default = (
         request_record[3]
         if request_record
-        else prefill_data.get("start_datetime") or datetime.now().strftime("%Y-%m-%d 09:00")
+        else prefill_data.get("start_datetime")
+        or datetime.now().strftime("%Y-%m-%d 09:00")
     )
-    start_input = TextInput(text=start_default, hint_text="YYYY-MM-DD HH:MM", multiline=False, size_hint_y=None, height=35)
+    start_input = TextInput(
+        text=start_default,
+        hint_text="YYYY-MM-DD HH:MM",
+        multiline=False,
+        size_hint_y=None,
+        height=35,
+    )
     content.add_widget(start_input)
 
     start_presets = BoxLayout(size_hint_y=None, height=35, spacing=5)
-    start_presets.add_widget(Button(text="Σήμερα 08:00", on_press=lambda _x: setattr(start_input, "text", datetime.now().strftime("%Y-%m-%d 08:00"))))
-    start_presets.add_widget(Button(text="Σήμερα 18:00", on_press=lambda _x: setattr(start_input, "text", datetime.now().strftime("%Y-%m-%d 18:00"))))
+    start_presets.add_widget(
+        Button(
+            text="Σήμερα 08:00",
+            on_press=lambda _x: setattr(
+                start_input, "text", datetime.now().strftime("%Y-%m-%d 08:00")
+            ),
+        )
+    )
+    start_presets.add_widget(
+        Button(
+            text="Σήμερα 18:00",
+            on_press=lambda _x: setattr(
+                start_input, "text", datetime.now().strftime("%Y-%m-%d 18:00")
+            ),
+        )
+    )
     content.add_widget(start_presets)
 
-    content.add_widget(Label(text="Ημ/νία & Ώρα Λήξης:", size_hint_y=None, height=30, bold=True))
+    content.add_widget(
+        Label(text="Ημ/νία & Ώρα Λήξης:", size_hint_y=None, height=30, bold=True)
+    )
     end_default = (
         request_record[4]
         if request_record
-        else prefill_data.get("end_datetime") or datetime.now().strftime("%Y-%m-%d 14:00")
+        else prefill_data.get("end_datetime")
+        or datetime.now().strftime("%Y-%m-%d 14:00")
     )
-    end_input = TextInput(text=end_default, hint_text="YYYY-MM-DD HH:MM", multiline=False, size_hint_y=None, height=35)
+    end_input = TextInput(
+        text=end_default,
+        hint_text="YYYY-MM-DD HH:MM",
+        multiline=False,
+        size_hint_y=None,
+        height=35,
+    )
     content.add_widget(end_input)
 
     duration_row = BoxLayout(size_hint_y=None, height=35, spacing=5)
@@ -533,21 +678,33 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     def _set_duration(hours):
         try:
             start_dt = datetime.strptime(start_input.text.strip(), "%Y-%m-%d %H:%M")
-            end_input.text = (start_dt + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
+            end_input.text = (start_dt + timedelta(hours=hours)).strftime(
+                "%Y-%m-%d %H:%M"
+            )
         except Exception:
             pass
 
     duration_row.add_widget(Button(text="2 ώρες", on_press=lambda _x: _set_duration(2)))
     duration_row.add_widget(Button(text="4 ώρες", on_press=lambda _x: _set_duration(4)))
-    duration_row.add_widget(Button(text="1 ημέρα", on_press=lambda _x: _set_duration(24)))
+    duration_row.add_widget(
+        Button(text="1 ημέρα", on_press=lambda _x: _set_duration(24))
+    )
     content.add_widget(duration_row)
 
     content.add_widget(Label(text="Κατάσταση:", size_hint_y=None, height=30, bold=True))
-    status_default = request_record[5] if request_record else prefill_data.get("status") or "Requested"
-    status_spinner = Spinner(text=status_default, values=_STATUS_VALUES, size_hint_y=None, height=40)
+    status_default = (
+        request_record[5]
+        if request_record
+        else prefill_data.get("status") or "Requested"
+    )
+    status_spinner = Spinner(
+        text=status_default, values=_STATUS_VALUES, size_hint_y=None, height=40
+    )
     content.add_widget(status_spinner)
 
-    content.add_widget(Label(text="Συνημμένη αίτηση/αρχείο:", size_hint_y=None, height=30, bold=True))
+    content.add_widget(
+        Label(text="Συνημμένη αίτηση/αρχείο:", size_hint_y=None, height=30, bold=True)
+    )
     attachment_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
     attachment_input = TextInput(
         text=existing_attachment_path,
@@ -569,7 +726,10 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         on_press=lambda _x: setattr(
             attachment_input,
             "text",
-            ask_open_file(title="Select request file", filetypes=(("All files", "*.*"),)) or attachment_input.text,
+            ask_open_file(
+                title="Select request file", filetypes=(("All files", "*.*"),)
+            )
+            or attachment_input.text,
         )
     )
 
@@ -587,7 +747,9 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 request_file_path=existing_attachment_path,
                 db_path=getattr(app, "db_path", None),
             )
-            storage_folder_path = storage_result.get("storage_folder") or storage_folder_path
+            storage_folder_path = (
+                storage_result.get("storage_folder") or storage_folder_path
+            )
             stored_files = storage_result.get("stored_files") or []
             if stored_files:
                 attachment_path = stored_files[0]
@@ -611,12 +773,18 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         if attachment_path:
             open_file(attachment_path)
         else:
-            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν έχει οριστεί συνημμένο αρχείο.")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν έχει οριστεί συνημμένο αρχείο."
+            )
 
     open_attachment_btn.bind(on_press=_open_attachment)
     clear_attachment_btn.bind(on_press=lambda _x: setattr(attachment_input, "text", ""))
 
-    content.add_widget(Label(text="Στοιχεία που θα απομονωθούν:", size_hint_y=None, height=30, bold=True))
+    content.add_widget(
+        Label(
+            text="Στοιχεία που θα απομονωθούν:", size_hint_y=None, height=30, bold=True
+        )
+    )
     element_actions = BoxLayout(size_hint_y=None, height=35, spacing=5)
     select_all_btn = Button(text=S["MESSAGES"].get("SELECT_ALL_BTN", "Επιλογή Όλων"))
     clear_all_btn = Button(text=S["MESSAGES"].get("NONE", "Καμία"))
@@ -635,16 +803,29 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         substation_id = substation_map.get(sub_name)
         if not substation_id:
             return
-        grouped = _group_elements_by_gate(_get_elements_for_substation(app, substation_id))
+        grouped = _group_elements_by_gate(
+            _get_elements_for_substation(app, substation_id)
+        )
         gate_names = [gate for gate in grouped.keys() if gate.startswith("ΠΥΛΗ")]
-        gate_names = sorted(gate_names) + [gate for gate in grouped.keys() if gate not in gate_names]
+        gate_names = sorted(gate_names) + [
+            gate for gate in grouped.keys() if gate not in gate_names
+        ]
         for gate_name in gate_names:
             elements_container.add_widget(
-                Label(text=f"{gate_name} ({len(grouped[gate_name])} στοιχεία)", size_hint_y=None, height=30, bold=True)
+                Label(
+                    text=f"{gate_name} ({len(grouped[gate_name])} στοιχεία)",
+                    size_hint_y=None,
+                    height=30,
+                    bold=True,
+                )
             )
-            for element_id, name, serial_number, element_type, _gate_name in grouped[gate_name]:
+            for element_id, name, serial_number, element_type, _gate_name in grouped[
+                gate_name
+            ]:
                 row = BoxLayout(size_hint_y=None, height=34, spacing=5)
-                anchor = AnchorLayout(size_hint_x=None, width=32, anchor_x="center", anchor_y="center")
+                anchor = AnchorLayout(
+                    size_hint_x=None, width=32, anchor_x="center", anchor_y="center"
+                )
                 checkbox = CheckBox(active=element_id in selected_element_ids)
                 anchor.add_widget(checkbox)
                 row.add_widget(anchor)
@@ -658,13 +839,29 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 elements_container.add_widget(row)
                 element_checks[element_id] = checkbox
 
-    select_all_btn.bind(on_press=lambda _x: [setattr(cb, "active", True) for cb in element_checks.values()])
-    clear_all_btn.bind(on_press=lambda _x: [setattr(cb, "active", False) for cb in element_checks.values()])
+    select_all_btn.bind(
+        on_press=lambda _x: [
+            setattr(cb, "active", True) for cb in element_checks.values()
+        ]
+    )
+    clear_all_btn.bind(
+        on_press=lambda _x: [
+            setattr(cb, "active", False) for cb in element_checks.values()
+        ]
+    )
     load_elements(initial_substation)
 
-    content.add_widget(Label(text="Σχόλια / Κείμενο εισαγωγής:", size_hint_y=None, height=30, bold=True))
-    notes_default = request_record[6] if request_record else prefill_data.get("notes") or ""
-    notes_input = TextInput(text=notes_default, size_hint_y=None, height=180, multiline=True)
+    content.add_widget(
+        Label(
+            text="Σχόλια / Κείμενο εισαγωγής:", size_hint_y=None, height=30, bold=True
+        )
+    )
+    notes_default = (
+        request_record[6] if request_record else prefill_data.get("notes") or ""
+    )
+    notes_input = TextInput(
+        text=notes_default, size_hint_y=None, height=180, multiline=True
+    )
 
     def _resize_notes_input(*_args):
         try:
@@ -674,14 +871,20 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
 
     notes_input.bind(text=lambda *_args: _resize_notes_input())
     notes_input.bind(width=lambda *_args: _resize_notes_input())
-    notes_input.bind(focus=lambda _instance, focused: setattr(scroll, "do_scroll_y", not focused))
+    notes_input.bind(
+        focus=lambda _instance, focused: setattr(scroll, "do_scroll_y", not focused)
+    )
     _resize_notes_input()
     content.add_widget(notes_input)
 
     if request_record:
         linked_box = GridLayout(cols=1, size_hint_y=None, spacing=6)
         linked_box.bind(minimum_height=linked_box.setter("height"))
-        linked_box.add_widget(Label(text="Συνδεδεμένες συντηρήσεις:", size_hint_y=None, height=30, bold=True))
+        linked_box.add_widget(
+            Label(
+                text="Συνδεδεμένες συντηρήσεις:", size_hint_y=None, height=30, bold=True
+            )
+        )
 
         c.execute(
             """
@@ -695,7 +898,12 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         linked_maintenances = c.fetchall()
 
         if linked_maintenances:
-            for maint_id, maint_name, date_time, maintenance_type in linked_maintenances:
+            for (
+                maint_id,
+                maint_name,
+                date_time,
+                maintenance_type,
+            ) in linked_maintenances:
                 row = BoxLayout(size_hint_y=None, height=38, spacing=5)
                 row.add_widget(
                     Label(
@@ -711,23 +919,39 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                         popup.dismiss(),
                         app.show_maintenance_menu(
                             maintenance_id=mid,
-                            after_save_callback=lambda: show_isolation_request_details(app, request_id, parent_popup),
+                            after_save_callback=lambda: show_isolation_request_details(
+                                app, request_id, parent_popup
+                            ),
                         ),
                     )
                 )
                 row.add_widget(open_btn)
                 linked_box.add_widget(row)
         else:
-            linked_box.add_widget(Label(text="Δεν υπάρχει ακόμη συνδεδεμένη συντήρηση.", size_hint_y=None, height=28))
+            linked_box.add_widget(
+                Label(
+                    text="Δεν υπάρχει ακόμη συνδεδεμένη συντήρηση.",
+                    size_hint_y=None,
+                    height=28,
+                )
+            )
 
-        create_maint_btn = Button(text="Νέα συντήρηση από την απομόνωση", size_hint_y=None, height=42)
+        create_maint_btn = Button(
+            text="Νέα συντήρηση από την απομόνωση", size_hint_y=None, height=42
+        )
 
         def _create_linked_maintenance():
-            selected_ids = [element_id for element_id, checkbox in element_checks.items() if checkbox.active]
+            selected_ids = [
+                element_id
+                for element_id, checkbox in element_checks.items()
+                if checkbox.active
+            ]
             popup.dismiss()
             app.show_maintenance_menu(
                 preselected_substation_name=substation_input.text,
-                after_save_callback=lambda: show_isolation_request_details(app, request_id, parent_popup),
+                after_save_callback=lambda: show_isolation_request_details(
+                    app, request_id, parent_popup
+                ),
                 prefill_data={
                     "substation_id": substation_map.get(substation_input.text),
                     "substation_name": substation_input.text,
@@ -742,8 +966,22 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         linked_box.add_widget(create_maint_btn)
         content.add_widget(linked_box)
         content.add_widget(Widget(size_hint_y=None, height=4))
-        content.add_widget(Label(text=f"Δημιουργήθηκε: {request_record[9]}", size_hint_y=None, height=24, font_size="11sp"))
-        content.add_widget(Label(text=f"Τελευταία ενημέρωση: {request_record[10]}", size_hint_y=None, height=24, font_size="11sp"))
+        content.add_widget(
+            Label(
+                text=f"Δημιουργήθηκε: {request_record[9]}",
+                size_hint_y=None,
+                height=24,
+                font_size="11sp",
+            )
+        )
+        content.add_widget(
+            Label(
+                text=f"Τελευταία ενημέρωση: {request_record[10]}",
+                size_hint_y=None,
+                height=24,
+                font_size="11sp",
+            )
+        )
     else:
         content.add_widget(
             Label(
@@ -767,25 +1005,42 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
             start_value = datetime.strptime(start_dt, "%Y-%m-%d %H:%M")
             end_value = datetime.strptime(end_dt, "%Y-%m-%d %H:%M")
         except ValueError:
-            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Μη έγκυρη μορφή ημερομηνίας. Χρησιμοποιήστε YYYY-MM-DD HH:MM.")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                "Μη έγκυρη μορφή ημερομηνίας. Χρησιμοποιήστε YYYY-MM-DD HH:MM.",
+            )
             return None
         if end_value <= start_value:
-            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Η ημερομηνία λήξης πρέπει να είναι μετά την έναρξη.")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                "Η ημερομηνία λήξης πρέπει να είναι μετά την έναρξη.",
+            )
             return None
         return start_dt, end_dt
 
     def save_request():
-        nonlocal request_id, existing_attachment_path, storage_folder_path, request_record, is_new_request
+        nonlocal \
+            request_id, \
+            existing_attachment_path, \
+            storage_folder_path, \
+            request_record, \
+            is_new_request
         validated = _validate_datetimes()
         if not validated:
             return
         start_dt, end_dt = validated
         substation_id = substation_map.get(substation_input.text)
         if not substation_id:
-            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν βρέθηκε υποσταθμός.")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν βρέθηκε υποσταθμός."
+            )
             return
 
-        selected_ids = [element_id for element_id, checkbox in element_checks.items() if checkbox.active]
+        selected_ids = [
+            element_id
+            for element_id, checkbox in element_checks.items()
+            if checkbox.active
+        ]
         notes_value = notes_input.text.strip()
         status_value = status_spinner.text
         selected_attachment = attachment_input.text.strip()
@@ -798,7 +1053,15 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 SET substation_id=?, start_datetime=?, end_datetime=?, status=?, notes=?, updated_at=?
                 WHERE id=?
                 """,
-                (substation_id, start_dt, end_dt, status_value, notes_value, now, request_id),
+                (
+                    substation_id,
+                    start_dt,
+                    end_dt,
+                    status_value,
+                    notes_value,
+                    now,
+                    request_id,
+                ),
             )
         else:
             c.execute(
@@ -814,11 +1077,19 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         copied_attachment_paths = []
         if selected_attachment and os.path.isfile(selected_attachment):
             selected_abs = os.path.abspath(selected_attachment)
-            existing_abs = os.path.abspath(existing_attachment_path) if existing_attachment_path else ""
+            existing_abs = (
+                os.path.abspath(existing_attachment_path)
+                if existing_attachment_path
+                else ""
+            )
             if selected_abs != existing_abs:
                 copied_attachment_paths = [selected_attachment]
 
-        stored_attachment_path = existing_attachment_path if selected_attachment == existing_attachment_path else ""
+        stored_attachment_path = (
+            existing_attachment_path
+            if selected_attachment == existing_attachment_path
+            else ""
+        )
         if copied_attachment_paths or selected_attachment or storage_folder_path:
             storage_result = ensure_isolation_request_storage(
                 app.conn,
@@ -830,7 +1101,9 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 request_file_path=selected_attachment or existing_attachment_path,
                 db_path=getattr(app, "db_path", None),
             )
-            storage_folder_path = storage_result.get("storage_folder") or storage_folder_path
+            storage_folder_path = (
+                storage_result.get("storage_folder") or storage_folder_path
+            )
             stored_files = storage_result.get("stored_files") or []
             if stored_files:
                 stored_attachment_path = stored_files[0]
@@ -843,10 +1116,17 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
             SET request_file_path=?, storage_folder_path=?, updated_at=?
             WHERE id=?
             """,
-            (stored_attachment_path or None, storage_folder_path or None, now, request_id),
+            (
+                stored_attachment_path or None,
+                storage_folder_path or None,
+                now,
+                request_id,
+            ),
         )
 
-        c.execute("DELETE FROM isolation_request_elements WHERE request_id=?", (request_id,))
+        c.execute(
+            "DELETE FROM isolation_request_elements WHERE request_id=?", (request_id,)
+        )
         for element_id in selected_ids:
             c.execute(
                 "INSERT OR IGNORE INTO isolation_request_elements (request_id, element_id) VALUES (?, ?)",
@@ -877,23 +1157,38 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 parent_popup.dismiss()
             except Exception:
                 pass
-        message = "Η αίτηση απομόνωσης καταχωρήθηκε!" if is_new_request else "Η αίτηση απομόνωσης ενημερώθηκε!"
+        message = (
+            "Η αίτηση απομόνωσης καταχωρήθηκε!"
+            if is_new_request
+            else "Η αίτηση απομόνωσης ενημερώθηκε!"
+        )
         show_message_popup(
             S["TITLES"].get("SUCCESS", "Επιτυχία"),
             message,
             callback=lambda: show_isolation_requests(app, None),
         )
 
-    save_btn = Button(text=S["BUTTONS"]["SAVE"] if is_new_request else S["BUTTONS"].get("UPDATE", S["BUTTONS"]["SAVE"]))
+    save_btn = Button(
+        text=S["BUTTONS"]["SAVE"]
+        if is_new_request
+        else S["BUTTONS"].get("UPDATE", S["BUTTONS"]["SAVE"])
+    )
     save_btn.size_hint_x = 1
     save_btn.bind(on_press=lambda _x: save_request())
     buttons_layout.add_widget(save_btn)
 
     if request_id:
+
         def delete_request():
             def _do_delete():
-                c.execute("UPDATE maintenance SET isolation_request_id=NULL WHERE isolation_request_id=?", (request_id,))
-                c.execute("DELETE FROM isolation_request_elements WHERE request_id=?", (request_id,))
+                c.execute(
+                    "UPDATE maintenance SET isolation_request_id=NULL WHERE isolation_request_id=?",
+                    (request_id,),
+                )
+                c.execute(
+                    "DELETE FROM isolation_request_elements WHERE request_id=?",
+                    (request_id,),
+                )
                 c.execute("DELETE FROM isolation_requests WHERE id=?", (request_id,))
                 app.conn.commit()
                 try:
@@ -905,7 +1200,11 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                         parent_popup.dismiss()
                 except Exception:
                     pass
-                show_message_popup(S["TITLES"].get("SUCCESS", "Επιτυχία"), "Η αίτηση απομόνωσης διαγράφηκε!", callback=lambda: show_isolation_requests(app, None))
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    "Η αίτηση απομόνωσης διαγράφηκε!",
+                    callback=lambda: show_isolation_requests(app, None),
+                )
 
             show_confirm(
                 "Επιβεβαίωση",
@@ -921,7 +1220,9 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         delete_btn.bind(on_press=lambda _x: delete_request())
         buttons_layout.add_widget(delete_btn)
 
-    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"] if is_new_request else S["BUTTONS"]["CLOSE"])
+    cancel_btn = Button(
+        text=S["BUTTONS"]["CANCEL"] if is_new_request else S["BUTTONS"]["CLOSE"]
+    )
     cancel_btn.size_hint_x = 1
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
@@ -932,8 +1233,12 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
 
 
 def show_add_isolation_request(app, parent_popup, prefill_data=None):
-    _show_isolation_request_form(app, parent_popup, request_id=None, prefill_data=prefill_data)
+    _show_isolation_request_form(
+        app, parent_popup, request_id=None, prefill_data=prefill_data
+    )
 
 
 def show_isolation_request_details(app, request_id, parent_popup):
-    _show_isolation_request_form(app, parent_popup, request_id=request_id, prefill_data=None)
+    _show_isolation_request_form(
+        app, parent_popup, request_id=request_id, prefill_data=None
+    )

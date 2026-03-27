@@ -75,7 +75,10 @@ def _join_parts(parts: tuple[str, ...] | list[str] | str) -> str:
 
 def _maintenance_root_relative_path(maintenance_type: str | None) -> str:
     text = (maintenance_type or "").strip().lower()
-    if any(token in text for token in ("φυσικοχημ", "αεριο", "physicochemical", "gas chromat")):
+    if any(
+        token in text
+        for token in ("φυσικοχημ", "αεριο", "physicochemical", "gas chromat")
+    ):
         return _DIR_DGA
     return ""
 
@@ -83,7 +86,9 @@ def _maintenance_root_relative_path(maintenance_type: str | None) -> str:
 def _instance_prefix_for_maintenance_type(maintenance_type: str | None) -> str:
     text = (maintenance_type or "").strip().lower()
     text = "".join(
-        ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch)
+        ch
+        for ch in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(ch)
     )
     if any(
         token in text
@@ -193,7 +198,9 @@ def ensure_reference_structure(
         return {"created": 0, "described": 0}
 
     nested_shared_root = os.path.join(shared_root, _DEFAULT_SHARED_ROOT_NAME)
-    if os.path.normcase(os.path.abspath(nested_shared_root)) != os.path.normcase(os.path.abspath(shared_root)):
+    if os.path.normcase(os.path.abspath(nested_shared_root)) != os.path.normcase(
+        os.path.abspath(shared_root)
+    ):
         try:
             _merge_legacy_path(nested_shared_root, shared_root)
         except Exception:
@@ -222,7 +229,9 @@ def ensure_reference_structure(
         try:
             os.makedirs(legacy_root, exist_ok=True)
             if os.path.exists(dest):
-                dest = os.path.join(legacy_root, f"{name}_moved_{int(datetime.now().timestamp())}")
+                dest = os.path.join(
+                    legacy_root, f"{name}_moved_{int(datetime.now().timestamp())}"
+                )
             shutil.move(path, dest)
         except Exception:
             pass
@@ -266,7 +275,9 @@ def ensure_reference_structure(
         _DIR_DGA_PARTS[0],
     )
     for obsolete_name in obsolete_reference_dirs:
-        _move_to_legacy(os.path.join(reference_root, obsolete_name), legacy_reference_root)
+        _move_to_legacy(
+            os.path.join(reference_root, obsolete_name), legacy_reference_root
+        )
 
     _ensure_folder(reference_root)
 
@@ -304,13 +315,19 @@ def ensure_reference_structure(
         gate_path = os.path.join(sample_root, gate_name)
         _ensure_folder(gate_path, gate_descriptions[gate_name])
 
-        maintenance_example = os.path.join(gate_path, f"{_MAINTENANCE_INSTANCE_PREFIX}20260326_0800_Υποσταθμός_Δείγμα_M123")
+        maintenance_example = os.path.join(
+            gate_path,
+            f"{_MAINTENANCE_INSTANCE_PREFIX}20260326_0800_Υποσταθμός_Δείγμα_M123",
+        )
         _ensure_folder(
             maintenance_example,
             "Παράδειγμα φακέλου συντήρησης. Η συνοπτική PDF αναφορά της συντήρησης αποθηκεύεται απευθείας εδώ.",
         )
         media_example = os.path.join(maintenance_example, _DIR_MEDIA)
-        _ensure_folder(media_example, "Φωτογραφίες και βίντεο μόνο για το συγκεκριμένο περιστατικό συντήρησης.")
+        _ensure_folder(
+            media_example,
+            "Φωτογραφίες και βίντεο μόνο για το συγκεκριμένο περιστατικό συντήρησης.",
+        )
         try:
             _atomic_write(
                 os.path.join(media_example, "Παραδείγματα_Ονομασίας.txt"),
@@ -336,7 +353,9 @@ def ensure_reference_structure(
                 "Υποφάκελος αναφορών ανά κατηγορία στοιχείου. Δημιουργείται μόνο όταν υπάρχει αντίστοιχη αναφορά.",
             )
 
-        fault_example = os.path.join(gate_path, f"{_FAULT_INSTANCE_PREFIX}20260326_1015_Υποσταθμός_Δείγμα_M124")
+        fault_example = os.path.join(
+            gate_path, f"{_FAULT_INSTANCE_PREFIX}20260326_1015_Υποσταθμός_Δείγμα_M124"
+        )
         _ensure_folder(
             fault_example,
             "Παράδειγμα φακέλου βλάβης. Οι βλάβες αποθηκεύονται απευθείας στην πύλη με πρόθεμα Βλαβ_.",
@@ -351,7 +370,10 @@ def ensure_reference_structure(
             "Φάκελος επιθεωρήσεων για την πύλη. Δημιουργείται όταν αποθηκευτούν σχετικά αρχεία.",
         )
         dga_root = os.path.join(gate_path, _DIR_DGA)
-        _ensure_folder(dga_root, "Ενιαίος φάκελος για το κοινό Excel φυσικοχημικών και αεριοχρωματογραφίας.")
+        _ensure_folder(
+            dga_root,
+            "Ενιαίος φάκελος για το κοινό Excel φυσικοχημικών και αεριοχρωματογραφίας.",
+        )
         _ensure_folder(
             os.path.join(dga_root, "20260326_Μετασχηματιστής_Δείγμα"),
             "Παράδειγμα φακέλου μέτρησης DGA. Κάθε μέτρηση αποθηκεύεται ως ένας ενιαίος φάκελος με το κοινό Excel report.",
@@ -362,7 +384,9 @@ def ensure_reference_structure(
         isolation_root,
         "Οι αιτήσεις απομόνωσης ανήκουν στο επίπεδο του υποσταθμού και δημιουργούνται μόνο όταν υπάρχει σχετική αίτηση.",
     )
-    isolation_example = os.path.join(isolation_root, "Απομ_20260326_1200_Υποσταθμός_Δείγμα_321")
+    isolation_example = os.path.join(
+        isolation_root, "Απομ_20260326_1200_Υποσταθμός_Δείγμα_321"
+    )
     _ensure_folder(isolation_example, "Παράδειγμα φακέλου αίτησης απομόνωσης.")
 
     return {"created": int(created), "described": int(described)}
@@ -377,7 +401,9 @@ def _normalize_reports_root_path(path: str | None) -> str | None:
         return path
     try:
         abs_path = os.path.abspath(path)
-        if os.path.normcase(os.path.basename(abs_path)) == os.path.normcase(_DIR_REPORTS):
+        if os.path.normcase(os.path.basename(abs_path)) == os.path.normcase(
+            _DIR_REPORTS
+        ):
             return os.path.dirname(abs_path)
         return abs_path
     except Exception:
@@ -416,7 +442,9 @@ def _canonical_report_filename(
     safe_sub = _safe_name(substation_name or "unknown", fallback="unknown")
     safe_elem = _safe_name(element_name or "element", fallback="element")
     stem_budget = _report_stem_budget(parent_dir)
-    stem = _report_prefixed_name(f"{safe_sub}_{safe_elem}_Maintenance_M{maintenance_id}")
+    stem = _report_prefixed_name(
+        f"{safe_sub}_{safe_elem}_Maintenance_M{maintenance_id}"
+    )
     if len(stem) <= stem_budget:
         return stem + ".pdf"
 
@@ -451,7 +479,9 @@ def _canonical_overview_report_filename(
     if len(stem) <= stem_budget:
         return stem + ".pdf"
 
-    digest = hashlib.sha1(f"{safe_sub}|overview|{maintenance_id}".encode("utf-8")).hexdigest()[:10]
+    digest = hashlib.sha1(
+        f"{safe_sub}|overview|{maintenance_id}".encode("utf-8")
+    ).hexdigest()[:10]
     suffix = f"_M{maintenance_id}_OV_{digest}"
     budget = stem_budget - len(suffix)
     if budget >= 6:
@@ -483,7 +513,9 @@ def _remap_legacy_shared_root(path: str | None, shared_root: str) -> str | None:
             os.path.abspath(os.path.join(current_parent, _DEFAULT_SHARED_ROOT_NAME)),
         ]
         for alias in _LEGACY_SHARED_ROOT_ALIASES:
-            equivalent_roots.append(os.path.abspath(os.path.join(current_parent, alias)))
+            equivalent_roots.append(
+                os.path.abspath(os.path.join(current_parent, alias))
+            )
 
         # Windows-safe case-insensitive prefix comparison.
         abs_norm = os.path.normcase(abs_path)
@@ -528,14 +560,18 @@ def _remap_legacy_shared_root(path: str | None, shared_root: str) -> str | None:
                 if os.path.normcase(part) != alias_norm:
                     continue
                 rel_tail = os.sep.join(parts[idx + 1 :]).lstrip("\\/")
-                return os.path.join(current_root, rel_tail) if rel_tail else current_root
+                return (
+                    os.path.join(current_root, rel_tail) if rel_tail else current_root
+                )
     except Exception:
         return path
 
     return path
 
 
-def _normalize_shared_root_relative(configured_value: str | None, sync_root: str) -> str:
+def _normalize_shared_root_relative(
+    configured_value: str | None, sync_root: str
+) -> str:
     """Normalize user setting to a relative folder path under sync_root.
 
     Backward compatibility:
@@ -585,7 +621,9 @@ def resolve_shared_root(db_path: str | None = None) -> str:
     if sync_root:
         sync_base = os.path.abspath(sync_root)
         base_name = os.path.basename(sync_base.rstrip("\\/"))
-        if os.path.normcase(base_name) == os.path.normcase(_DEFAULT_SHARED_ROOT_NAME) or _is_legacy_shared_root_alias(base_name):
+        if os.path.normcase(base_name) == os.path.normcase(
+            _DEFAULT_SHARED_ROOT_NAME
+        ) or _is_legacy_shared_root_alias(base_name):
             return sync_base
         if os.path.isdir(sync_base):
             try:
@@ -641,7 +679,9 @@ def _gate_relative_path(bucket: tuple[str, str]) -> str:
     return _DIR_GATE_UNKNOWN
 
 
-def _report_bucket_label_for_element(element_type: str | None, breaker_category: str | None = None) -> str:
+def _report_bucket_label_for_element(
+    element_type: str | None, breaker_category: str | None = None
+) -> str:
     t = (element_type or "").lower()
 
     # Direct substring matches keep highest priority
@@ -654,7 +694,9 @@ def _report_bucket_label_for_element(element_type: str | None, breaker_category:
 
     # If the element type is a generic breaker label, try to infer from
     # breaker_category (e.g. SF6 tends to be HV; Vacuum/Κενού tends to be MV).
-    is_breaker_generic = any(token in t for token in ("διακόπτη", "διακόπτης", "breaker"))
+    is_breaker_generic = any(
+        token in t for token in ("διακόπτη", "διακόπτης", "breaker")
+    )
     if is_breaker_generic or not t:
         if breaker_category:
             bc = (breaker_category or "").strip().lower()
@@ -665,11 +707,17 @@ def _report_bucket_label_for_element(element_type: str | None, breaker_category:
     return _DIR_REPORTS_OTHER
 
 
-def _report_subfolder_name_for_element(element_type: str | None, breaker_category: str | None = None) -> str:
-    return _report_prefixed_name(_report_bucket_label_for_element(element_type, breaker_category))
+def _report_subfolder_name_for_element(
+    element_type: str | None, breaker_category: str | None = None
+) -> str:
+    return _report_prefixed_name(
+        _report_bucket_label_for_element(element_type, breaker_category)
+    )
 
 
-def _legacy_report_subfolder_name_for_element(element_type: str | None, breaker_category: str | None = None) -> str:
+def _legacy_report_subfolder_name_for_element(
+    element_type: str | None, breaker_category: str | None = None
+) -> str:
     return _report_bucket_label_for_element(element_type, breaker_category)
 
 
@@ -690,8 +738,9 @@ def _sanitize_element_name(name: str) -> str:
 
 # Substrings that identify element types by priority (Greek + English, lower-case)
 _TRANSFORMER_SUBSTRS = ("μετασχηματιστ", "μ/σ", "transformer")
-_HV_BREAKER_SUBSTRS  = ("διακόπτης υτ", "hv breaker")
-_MV_BREAKER_SUBSTRS  = ("διακόπτης μτ", "mv breaker")
+_HV_BREAKER_SUBSTRS = ("διακόπτης υτ", "hv breaker")
+_MV_BREAKER_SUBSTRS = ("διακόπτης μτ", "mv breaker")
+
 
 def _element_priority(element_type: str) -> int:
     """Return sort priority: 0=transformer, 1=HV breaker, 2=MV breaker, 3=other."""
@@ -727,13 +776,21 @@ def _element_slug_for_folder(elements: list[tuple[str, str]]) -> str:
 
     MAX_SHOWN = 5
     shown = winning[:MAX_SHOWN]
-    rest  = len(winning) - len(shown)
+    rest = len(winning) - len(shown)
 
-    parts = [_sanitize_element_name(name) for _, name in shown if _sanitize_element_name(name)]
+    parts = [
+        _sanitize_element_name(name)
+        for _, name in shown
+        if _sanitize_element_name(name)
+    ]
     slug = "+".join(parts)
     if rest == 1:
         # Prefer explicit naming over "+1more" for readability.
-        extra_name = _sanitize_element_name(winning[MAX_SHOWN][1]) if len(winning) > MAX_SHOWN else ""
+        extra_name = (
+            _sanitize_element_name(winning[MAX_SHOWN][1])
+            if len(winning) > MAX_SHOWN
+            else ""
+        )
         if extra_name:
             slug += f"+{extra_name}"
         else:
@@ -760,7 +817,9 @@ def _instance_slug(
     except Exception:
         dt = None
 
-    dt_part = dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+    dt_part = (
+        dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+    )
 
     # Substation: take up to 25 chars, slug-ify
     sub_slug = ""
@@ -794,7 +853,9 @@ def _instance_slug_short_fallback(
         dt = datetime.fromisoformat((date_time or "").replace("Z", "+00:00"))
     except Exception:
         dt = None
-    dt_part = dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+    dt_part = (
+        dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+    )
 
     sub = _safe_name(substation_name or "", fallback="substation")
     sub = re.sub(r"[()]", "", sub)
@@ -815,7 +876,9 @@ def _isolation_instance_short_fallback(
     except Exception:
         dt = None
 
-    dt_part = dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+    dt_part = (
+        dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+    )
 
     sub = _safe_name(substation_name or "", fallback="substation")
     sub = re.sub(r"[()]", "", sub)
@@ -843,11 +906,15 @@ def _isolation_instance_folder_name(
     if not isolation_root:
         return prefixed
 
-    projected_len = len(os.path.join(isolation_root, prefixed, f"Αίτηση_{request_id}.xlsx"))
+    projected_len = len(
+        os.path.join(isolation_root, prefixed, f"Αίτηση_{request_id}.xlsx")
+    )
     if projected_len <= _ISOLATION_OPEN_PATH_MAX:
         return prefixed
 
-    fallback = _isolation_instance_short_fallback(start_datetime, substation_name, request_id)
+    fallback = _isolation_instance_short_fallback(
+        start_datetime, substation_name, request_id
+    )
     return f"{_ISOLATION_INSTANCE_PREFIX}{fallback}"
 
 
@@ -878,8 +945,16 @@ def _maintenance_instance_folder_name(
         len(_report_prefixed_name(_DIR_REPORTS_TRANSFORMERS)),
         len(_report_prefixed_name(_DIR_REPORTS_OTHER)),
     )
-    compact_report_budget = max(20, len(f"{_REPORT_PREFIX}M{maintenance_id}_1234567890.pdf"))
-    projected_len = len(os.path.join(gate_root, prefixed)) + 1 + report_folder_budget + 1 + compact_report_budget
+    compact_report_budget = max(
+        20, len(f"{_REPORT_PREFIX}M{maintenance_id}_1234567890.pdf")
+    )
+    projected_len = (
+        len(os.path.join(gate_root, prefixed))
+        + 1
+        + report_folder_budget
+        + 1
+        + compact_report_budget
+    )
     if projected_len <= _REPORT_FULL_PATH_MAX:
         return prefixed
 
@@ -895,7 +970,9 @@ def _append_graph_queue(shared_root: str, payload: dict) -> None:
         fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
-def _ensure_dir(path: str, *, queue_on_fail: bool = True, queue_payload: dict | None = None) -> None:
+def _ensure_dir(
+    path: str, *, queue_on_fail: bool = True, queue_payload: dict | None = None
+) -> None:
     try:
         os.makedirs(_win_path(path), exist_ok=True)
     except Exception as exc:
@@ -905,10 +982,12 @@ def _ensure_dir(path: str, *, queue_on_fail: bool = True, queue_payload: dict | 
                 queue_payload["path"] = path
             _append_graph_queue(queue_payload.get("shared_root", path), queue_payload)
         raise RuntimeError(
-            S["MESSAGES"].get(
+            S["MESSAGES"]
+            .get(
                 "ONEDRIVE_FOLDER_CREATE_FAILED_FMT",
                 "Failed to create folder: {path}\n{error}",
-            ).format(path=path, error=str(exc))
+            )
+            .format(path=path, error=str(exc))
         ) from exc
 
 
@@ -983,7 +1062,9 @@ def process_hybrid_queue(db_path: str | None = None, *, max_jobs: int = 100) -> 
     }
 
 
-def _copy_media_to_targets(source_paths: Iterable[str], target_folders: Iterable[str]) -> int:
+def _copy_media_to_targets(
+    source_paths: Iterable[str], target_folders: Iterable[str]
+) -> int:
     copied = 0
     targets = [t for t in target_folders if t]
     for src in source_paths or []:
@@ -1026,7 +1107,9 @@ def copy_files_to_folder(source_paths: Iterable[str], target_folder: str | None)
         try:
             src_path = Path(src)
             src_abs = str(src_path)
-            if not os.path.exists(_win_path(src_abs)) or not os.path.isfile(_win_path(src_abs)):
+            if not os.path.exists(_win_path(src_abs)) or not os.path.isfile(
+                _win_path(src_abs)
+            ):
                 continue
 
             os.makedirs(_win_path(target), exist_ok=True)
@@ -1045,7 +1128,9 @@ def copy_files_to_folder(source_paths: Iterable[str], target_folder: str | None)
     return copied
 
 
-def _move_files_to_folder(source_paths: Iterable[str], target_folder: str | None) -> int:
+def _move_files_to_folder(
+    source_paths: Iterable[str], target_folder: str | None
+) -> int:
     if not target_folder:
         return 0
 
@@ -1060,7 +1145,9 @@ def _move_files_to_folder(source_paths: Iterable[str], target_folder: str | None
         try:
             src_path = Path(src)
             src_abs = str(src_path)
-            if not os.path.exists(_win_path(src_abs)) or not os.path.isfile(_win_path(src_abs)):
+            if not os.path.exists(_win_path(src_abs)) or not os.path.isfile(
+                _win_path(src_abs)
+            ):
                 continue
 
             os.makedirs(_win_path(target), exist_ok=True)
@@ -1068,7 +1155,9 @@ def _move_files_to_folder(source_paths: Iterable[str], target_folder: str | None
             base = dest.stem
             ext = dest.suffix
             idx = 1
-            while dest.exists() and os.path.normcase(str(dest)) != os.path.normcase(str(src_path)):
+            while dest.exists() and os.path.normcase(str(dest)) != os.path.normcase(
+                str(src_path)
+            ):
                 dest = Path(target) / f"{base}_{idx}{ext}"
                 idx += 1
 
@@ -1101,12 +1190,16 @@ def _list_direct_files(folder_path: str | None) -> list[str]:
         return []
 
 
-def _canonical_isolation_attachment_name(request_id: int, index: int, suffix: str) -> str:
+def _canonical_isolation_attachment_name(
+    request_id: int, index: int, suffix: str
+) -> str:
     suffix_text = "" if index == 1 else f"_{index}"
     return f"Αίτηση_{request_id}{suffix_text}{suffix}"
 
 
-def _normalize_isolation_attachment_files(folder_path: str | None, request_id: int) -> list[str]:
+def _normalize_isolation_attachment_files(
+    folder_path: str | None, request_id: int
+) -> list[str]:
     files = _list_direct_files(folder_path)
     if not files:
         return []
@@ -1116,11 +1209,17 @@ def _normalize_isolation_attachment_files(folder_path: str | None, request_id: i
         try:
             src_path = Path(src)
             suffix = src_path.suffix or ""
-            candidate = Path(folder_path) / _canonical_isolation_attachment_name(request_id, index, suffix)
+            candidate = Path(folder_path) / _canonical_isolation_attachment_name(
+                request_id, index, suffix
+            )
             candidate_index = index
-            while candidate.exists() and os.path.normcase(str(candidate)) != os.path.normcase(str(src_path)):
+            while candidate.exists() and os.path.normcase(
+                str(candidate)
+            ) != os.path.normcase(str(src_path)):
                 candidate_index += 1
-                candidate = Path(folder_path) / _canonical_isolation_attachment_name(request_id, candidate_index, suffix)
+                candidate = Path(folder_path) / _canonical_isolation_attachment_name(
+                    request_id, candidate_index, suffix
+                )
 
             if os.path.normcase(str(candidate)) != os.path.normcase(str(src_path)):
                 shutil.move(_win_path(str(src_path)), _win_path(str(candidate)))
@@ -1161,23 +1260,28 @@ def _distribute_attachments_and_register(
     # Map element_id -> (gate_key, element_type)
     elem_map = {}
     try:
-            if element_ids:
-                placeholders = ",".join(["?"] * len(element_ids))
-                cur = conn.cursor()
-                cur.execute(f"SELECT id, gate, element_type, breaker_category FROM elements WHERE id IN ({placeholders})", tuple(element_ids))
-                for row in cur.fetchall() or []:
-                    eid = row[0]
-                    gate = row[1] or ""
-                    etype = row[2] or ""
-                    bcat = row[3] or None
-                    bucket = _bucket_for_gate(gate)
-                    gate_key = f"{bucket[0]}:{bucket[1]}"
-                    elem_map[eid] = (gate_key, etype, bcat)
+        if element_ids:
+            placeholders = ",".join(["?"] * len(element_ids))
+            cur = conn.cursor()
+            cur.execute(
+                f"SELECT id, gate, element_type, breaker_category FROM elements WHERE id IN ({placeholders})",
+                tuple(element_ids),
+            )
+            for row in cur.fetchall() or []:
+                eid = row[0]
+                gate = row[1] or ""
+                etype = row[2] or ""
+                bcat = row[3] or None
+                bucket = _bucket_for_gate(gate)
+                gate_key = f"{bucket[0]}:{bucket[1]}"
+                elem_map[eid] = (gate_key, etype, bcat)
     except Exception:
         elem_map = {}
 
     # Targets for media copying
-    media_targets = [r["media_folder"] for r in (created_rows or []) if r.get("media_folder")]
+    media_targets = [
+        r["media_folder"] for r in (created_rows or []) if r.get("media_folder")
+    ]
 
     for src in source_paths or []:
         if not src:
@@ -1192,7 +1296,9 @@ def _distribute_attachments_and_register(
                 # Copy into per-element report subfolders when possible
                 if elem_map:
                     for eid, (gate_key, etype, bcat) in elem_map.items():
-                        target_row = rows_by_gate.get(gate_key) or (created_rows[0] if created_rows else None)
+                        target_row = rows_by_gate.get(gate_key) or (
+                            created_rows[0] if created_rows else None
+                        )
                         if not target_row:
                             continue
                         reports_root = target_row.get("reports_folder")
@@ -1227,7 +1333,9 @@ def _distribute_attachments_and_register(
                     if created_rows:
                         target_row = created_rows[0]
                         reports_root = target_row.get("reports_folder")
-                        subfolder = os.path.join(reports_root, _report_prefixed_name(_DIR_REPORTS_OTHER))
+                        subfolder = os.path.join(
+                            reports_root, _report_prefixed_name(_DIR_REPORTS_OTHER)
+                        )
                         os.makedirs(_win_path(subfolder), exist_ok=True)
                         dest = Path(subfolder) / src_path.name
                         base = dest.stem
@@ -1284,7 +1392,9 @@ def _collect_gate_buckets(conn, element_ids: Iterable[int]) -> list[tuple[str, s
     return buckets
 
 
-def ensure_substation_structure(conn, substation_id: int, *, db_path: str | None = None) -> dict:
+def ensure_substation_structure(
+    conn, substation_id: int, *, db_path: str | None = None
+) -> dict:
     cur = conn.cursor()
     cur.execute("SELECT name FROM substations WHERE id=?", (substation_id,))
     row = cur.fetchone()
@@ -1297,7 +1407,9 @@ def ensure_substation_structure(conn, substation_id: int, *, db_path: str | None
         )
 
     substation_name = row[0] if isinstance(row, (tuple, list)) else row["name"]
-    safe_substation = _safe_name(substation_name, fallback=f"substation_{substation_id}")
+    safe_substation = _safe_name(
+        substation_name, fallback=f"substation_{substation_id}"
+    )
     shared_root = resolve_shared_root(db_path)
     _reconcile_legacy_shared_root_aliases(shared_root)
 
@@ -1394,17 +1506,23 @@ def ensure_isolation_request_storage(
 
         legacy_attachment_dir = os.path.join(candidate_path, "Αίτηση")
         if os.path.isdir(legacy_attachment_dir):
-            _move_files_to_folder(_list_direct_files(legacy_attachment_dir), attachments_root)
+            _move_files_to_folder(
+                _list_direct_files(legacy_attachment_dir), attachments_root
+            )
             _prune_empty_dir(legacy_attachment_dir, stop_at=isolation_root)
 
-        if os.path.normcase(os.path.abspath(candidate_path)) != os.path.normcase(os.path.abspath(instance_root)):
+        if os.path.normcase(os.path.abspath(candidate_path)) != os.path.normcase(
+            os.path.abspath(instance_root)
+        ):
             _move_files_to_folder(_list_direct_files(candidate_path), attachments_root)
             _prune_empty_dir(candidate_path, stop_at=isolation_root)
 
     # Preserve a directly selected existing file even when the DB row has no request_file_path yet.
     if request_file_path and os.path.isfile(_win_path(request_file_path)):
         request_parent = os.path.dirname(os.path.abspath(request_file_path))
-        if os.path.normcase(request_parent) != os.path.normcase(os.path.abspath(attachments_root)):
+        if os.path.normcase(request_parent) != os.path.normcase(
+            os.path.abspath(attachments_root)
+        ):
             copy_files_to_folder([request_file_path], attachments_root)
 
     copy_files_to_folder(attachment_paths or [], attachments_root)
@@ -1489,9 +1607,12 @@ def _normalize_storage_row_paths(
         try:
             instance_parent = os.path.dirname(os.path.abspath(existing_instance))
             use_existing_instance = (
-                os.path.normcase(instance_parent) == os.path.normcase(os.path.abspath(maintenance_root))
+                os.path.normcase(instance_parent)
+                == os.path.normcase(os.path.abspath(maintenance_root))
                 and _is_same_or_child_path(existing_instance, substation_root)
-                and not _has_duplicated_substation_segment(existing_instance, shared_root=shared_root)
+                and not _has_duplicated_substation_segment(
+                    existing_instance, shared_root=shared_root
+                )
             )
         except Exception:
             use_existing_instance = False
@@ -1501,9 +1622,12 @@ def _normalize_storage_row_paths(
     use_existing_reports = False
     if existing_reports:
         try:
-            use_existing_reports = (
-                os.path.normcase(os.path.abspath(existing_reports)) == os.path.normcase(os.path.abspath(instance_root))
-                and not _has_duplicated_substation_segment(existing_reports, shared_root=shared_root)
+            use_existing_reports = os.path.normcase(
+                os.path.abspath(existing_reports)
+            ) == os.path.normcase(
+                os.path.abspath(instance_root)
+            ) and not _has_duplicated_substation_segment(
+                existing_reports, shared_root=shared_root
             )
         except Exception:
             use_existing_reports = False
@@ -1512,16 +1636,22 @@ def _normalize_storage_row_paths(
     if existing_media:
         try:
             use_existing_media = (
-                os.path.normcase(os.path.basename(os.path.abspath(existing_media))) == os.path.normcase(_DIR_MEDIA)
-                and os.path.normcase(os.path.dirname(os.path.abspath(existing_media))) == os.path.normcase(os.path.abspath(instance_root))
-                and not _has_duplicated_substation_segment(existing_media, shared_root=shared_root)
+                os.path.normcase(os.path.basename(os.path.abspath(existing_media)))
+                == os.path.normcase(_DIR_MEDIA)
+                and os.path.normcase(os.path.dirname(os.path.abspath(existing_media)))
+                == os.path.normcase(os.path.abspath(instance_root))
+                and not _has_duplicated_substation_segment(
+                    existing_media, shared_root=shared_root
+                )
             )
         except Exception:
             use_existing_media = False
 
     return {
         "instance_folder": instance_root,
-        "reports_folder": existing_reports if use_existing_reports else canonical_reports,
+        "reports_folder": existing_reports
+        if use_existing_reports
+        else canonical_reports,
         "media_folder": existing_media if use_existing_media else canonical_media,
     }
 
@@ -1604,7 +1734,9 @@ def _reconcile_duplicate_shared_root(shared_root: str) -> None:
     current_root = os.path.abspath(shared_root)
     for _ in range(4):
         nested_root = os.path.join(current_root, _DEFAULT_SHARED_ROOT_NAME)
-        if os.path.normcase(os.path.abspath(nested_root)) == os.path.normcase(current_root):
+        if os.path.normcase(os.path.abspath(nested_root)) == os.path.normcase(
+            current_root
+        ):
             break
         if not os.path.isdir(nested_root):
             break
@@ -1661,7 +1793,9 @@ def _reconcile_legacy_gate_children(gate_root: str) -> None:
         _merge_legacy_path(src, dst)
 
 
-def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | None = None) -> dict:
+def sync_substation_gate_folders(
+    conn, substation_id: int, *, db_path: str | None = None
+) -> dict:
     """Ensure gate/interconnection folders match gates used by current elements.
 
     - Create folders for active gates.
@@ -1695,13 +1829,20 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
             created.append(f"SKIPPED_UNKNOWN:{gate_rel}")
             continue
         _reconcile_legacy_gate_children(gate_root)
-        _ensure_dir(gate_root, queue_payload={"shared_root": base["shared_root"], "kind": "sync_gate", "substation_id": substation_id})
+        _ensure_dir(
+            gate_root,
+            queue_payload={
+                "shared_root": base["shared_root"],
+                "kind": "sync_gate",
+                "substation_id": substation_id,
+            },
+        )
         # NOTE: Inspection and DGA folders are created on-demand when content
         # is actually written. Maintenance instances now live directly under
         # the gate root with a Συντ_ prefix.
         created.append(gate_rel)
 
-    active_rel = { _gate_relative_path(b) for b in active_buckets }
+    active_rel = {_gate_relative_path(b) for b in active_buckets}
 
     removed = []
     known_candidates = [
@@ -1747,7 +1888,9 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
     # Remove Interconnections parent if empty
     for inter_dir in (_DIR_INTERCONNECTIONS, "Interconnections"):
         interconnections_root = os.path.join(substation_root, inter_dir)
-        if os.path.isdir(interconnections_root) and _is_dir_empty(interconnections_root):
+        if os.path.isdir(interconnections_root) and _is_dir_empty(
+            interconnections_root
+        ):
             try:
                 os.rmdir(interconnections_root)
             except Exception:
@@ -1761,7 +1904,9 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
             if not os.path.isdir(gate_candidate):
                 continue
             maintenance_candidate = os.path.join(gate_candidate, _DIR_MAINTENANCE)
-            if os.path.isdir(maintenance_candidate) and _is_dir_empty(maintenance_candidate):
+            if os.path.isdir(maintenance_candidate) and _is_dir_empty(
+                maintenance_candidate
+            ):
                 try:
                     os.rmdir(maintenance_candidate)
                 except Exception:
@@ -1780,7 +1925,11 @@ def sync_substation_gate_folders(conn, substation_id: int, *, db_path: str | Non
 
             # Consider gate roots and the Interconnections parent
             norm = name.strip().lower()
-            if not (norm.startswith(_DIR_GATE_1.split()[0].lower()) or norm.startswith('πυλη') or norm == _DIR_INTERCONNECTIONS.lower()):
+            if not (
+                norm.startswith(_DIR_GATE_1.split()[0].lower())
+                or norm.startswith("πυλη")
+                or norm == _DIR_INTERCONNECTIONS.lower()
+            ):
                 continue
 
             # Walk the tree to see if any files exist or any non-empty directories
@@ -1864,9 +2013,13 @@ def ensure_maintenance_folders(
     existing_by_gate_key = {}
     for row in existing_rows:
         gate_key = row[0] if isinstance(row, (tuple, list)) else row["gate_key"]
-        instance_folder = row[1] if isinstance(row, (tuple, list)) else row["instance_folder"]
+        instance_folder = (
+            row[1] if isinstance(row, (tuple, list)) else row["instance_folder"]
+        )
         media_folder = row[2] if isinstance(row, (tuple, list)) else row["media_folder"]
-        reports_folder = row[3] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        reports_folder = (
+            row[3] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        )
         existing_by_gate_key[gate_key] = {
             "instance_folder": instance_folder,
             "media_folder": media_folder,
@@ -1966,7 +2119,9 @@ def ensure_maintenance_folders(
                 # Remove the instance folder tree if it's empty (prune up to substation root)
                 instance_folder = row.get("instance_folder")
                 if instance_folder:
-                    _prune_empty_dir(instance_folder, stop_at=os.path.dirname(instance_folder))
+                    _prune_empty_dir(
+                        instance_folder, stop_at=os.path.dirname(instance_folder)
+                    )
             except Exception:
                 continue
         primary_media = None
@@ -2046,10 +2201,26 @@ def get_transformer_report_targets(
             )
             maintenance_row = cur.fetchone()
             if maintenance_row:
-                substation_id = maintenance_row[0] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["substation_id"]
-                maintenance_name = maintenance_row[1] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["name"]
-                maintenance_type = maintenance_row[2] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["maintenance_type"]
-                date_time = maintenance_row[3] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["date_time"]
+                substation_id = (
+                    maintenance_row[0]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["substation_id"]
+                )
+                maintenance_name = (
+                    maintenance_row[1]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["name"]
+                )
+                maintenance_type = (
+                    maintenance_row[2]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["maintenance_type"]
+                )
+                date_time = (
+                    maintenance_row[3]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["date_time"]
+                )
 
                 cur.execute(
                     """
@@ -2060,7 +2231,10 @@ def get_transformer_report_targets(
                     """,
                     (maintenance_id,),
                 )
-                element_ids = [r[0] if isinstance(r, (tuple, list)) else r["id"] for r in (cur.fetchall() or [])]
+                element_ids = [
+                    r[0] if isinstance(r, (tuple, list)) else r["id"]
+                    for r in (cur.fetchall() or [])
+                ]
 
                 ensure_maintenance_folders(
                     conn,
@@ -2110,8 +2284,12 @@ def get_transformer_report_targets(
     targets: list[str] = []
     seen: set[str] = set()
     for row in rows:
-        reports_root_raw = row[0] if isinstance(row, (tuple, list)) else row["reports_folder"]
-        reports_root = _normalize_reports_root_path(_remap_legacy_shared_root(reports_root_raw, shared_root))
+        reports_root_raw = (
+            row[0] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        )
+        reports_root = _normalize_reports_root_path(
+            _remap_legacy_shared_root(reports_root_raw, shared_root)
+        )
         if not reports_root:
             continue
         if reports_root in seen:
@@ -2173,15 +2351,21 @@ def ensure_dga_folder(
 
 def delete_maintenance_folders(conn, maintenance_id: int) -> int:
     cur = conn.cursor()
-    report_cleanup = invalidate_maintenance_reports(conn, maintenance_id, delete_files=True)
-    dga_cleanup = prune_stale_dga_measurements(conn, maintenance_id=maintenance_id, valid_element_ids=[])
+    report_cleanup = invalidate_maintenance_reports(
+        conn, maintenance_id, delete_files=True
+    )
+    dga_cleanup = prune_stale_dga_measurements(
+        conn, maintenance_id=maintenance_id, valid_element_ids=[]
+    )
     cur.execute(
         "SELECT instance_folder FROM maintenance_storage_paths WHERE maintenance_id=?",
         (maintenance_id,),
     )
     rows = cur.fetchall() or []
 
-    deleted = int(report_cleanup.get("deleted_files", 0) or 0) + int(dga_cleanup.get("deleted_files", 0) or 0)
+    deleted = int(report_cleanup.get("deleted_files", 0) or 0) + int(
+        dga_cleanup.get("deleted_files", 0) or 0
+    )
     for row in rows:
         path = row[0] if isinstance(row, (tuple, list)) else row["instance_folder"]
         if not path:
@@ -2193,11 +2377,16 @@ def delete_maintenance_folders(conn, maintenance_id: int) -> int:
         except Exception:
             continue
 
-    cur.execute("DELETE FROM maintenance_storage_paths WHERE maintenance_id=?", (maintenance_id,))
+    cur.execute(
+        "DELETE FROM maintenance_storage_paths WHERE maintenance_id=?",
+        (maintenance_id,),
+    )
     return deleted
 
 
-def invalidate_maintenance_reports(conn, maintenance_id: int, *, delete_files: bool = True) -> dict:
+def invalidate_maintenance_reports(
+    conn, maintenance_id: int, *, delete_files: bool = True
+) -> dict:
     """Remove tracked maintenance PDFs so sync regenerates current output."""
     cur = conn.cursor()
 
@@ -2232,9 +2421,14 @@ def invalidate_maintenance_reports(conn, maintenance_id: int, *, delete_files: b
             except Exception:
                 pass
 
-    cur.execute("DELETE FROM maintenance_report_paths WHERE maintenance_id=?", (maintenance_id,))
+    cur.execute(
+        "DELETE FROM maintenance_report_paths WHERE maintenance_id=?", (maintenance_id,)
+    )
     element_rows_deleted = cur.rowcount if cur.rowcount is not None else 0
-    cur.execute("DELETE FROM maintenance_overview_report_paths WHERE maintenance_id=?", (maintenance_id,))
+    cur.execute(
+        "DELETE FROM maintenance_overview_report_paths WHERE maintenance_id=?",
+        (maintenance_id,),
+    )
     overview_rows_deleted = cur.rowcount if cur.rowcount is not None else 0
 
     return {
@@ -2426,16 +2620,35 @@ def get_maintenance_overview_targets(
             )
             maintenance_row = cur.fetchone()
             if maintenance_row:
-                substation_id = maintenance_row[0] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["substation_id"]
-                maintenance_name = maintenance_row[1] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["name"]
-                maintenance_type = maintenance_row[2] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["maintenance_type"]
-                date_time = maintenance_row[3] if isinstance(maintenance_row, (tuple, list)) else maintenance_row["date_time"]
+                substation_id = (
+                    maintenance_row[0]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["substation_id"]
+                )
+                maintenance_name = (
+                    maintenance_row[1]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["name"]
+                )
+                maintenance_type = (
+                    maintenance_row[2]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["maintenance_type"]
+                )
+                date_time = (
+                    maintenance_row[3]
+                    if isinstance(maintenance_row, (tuple, list))
+                    else maintenance_row["date_time"]
+                )
 
                 cur.execute(
                     "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
                     (maintenance_id,),
                 )
-                element_ids = [r[0] if isinstance(r, (tuple, list)) else r["element_id"] for r in (cur.fetchall() or [])]
+                element_ids = [
+                    r[0] if isinstance(r, (tuple, list)) else r["element_id"]
+                    for r in (cur.fetchall() or [])
+                ]
 
                 ensure_maintenance_folders(
                     conn,
@@ -2467,8 +2680,12 @@ def get_maintenance_overview_targets(
     seen = set()
     for row in rows:
         gate_key = row[0] if isinstance(row, (tuple, list)) else row["gate_key"]
-        reports_root_raw = row[1] if isinstance(row, (tuple, list)) else row["reports_folder"]
-        reports_root = _normalize_reports_root_path(_remap_legacy_shared_root(reports_root_raw, shared_root))
+        reports_root_raw = (
+            row[1] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        )
+        reports_root = _normalize_reports_root_path(
+            _remap_legacy_shared_root(reports_root_raw, shared_root)
+        )
         if not gate_key or not reports_root or (gate_key, reports_root) in seen:
             continue
         seen.add((gate_key, reports_root))
@@ -2504,12 +2721,14 @@ def get_maintenance_report_path(
     return path
 
 
-def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, progress_callback = None) -> dict:
+def relink_existing_maintenance_assets(
+    conn, *, db_path: str | None = None, progress_callback=None
+) -> dict:
     """Relink existing folder/media/report paths into DB if missing.
 
     This does not create new files. It discovers existing paths under maintained
     folder structures and stores missing DB links.
-    
+
     Args:
         conn: Database connection
         db_path: Path to database file
@@ -2552,22 +2771,26 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
     seen_media = set()
     current_work = 0
     _reconcile_duplicate_shared_root(shared_root)
-    
+
     for row in media_rows:
         maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
-        existing_link = row[1] if isinstance(row, (tuple, list)) else row["onedrive_media_folder_link"]
+        existing_link = (
+            row[1]
+            if isinstance(row, (tuple, list))
+            else row["onedrive_media_folder_link"]
+        )
         media_folder = row[2] if isinstance(row, (tuple, list)) else row["media_folder"]
         substation_name = row[3] if isinstance(row, (tuple, list)) else row["name"]
-        
+
         current_work += 1
         if progress_callback:
             progress_callback(
                 operation="Relinking media folders",
                 substation=substation_name,
                 current=current_work,
-                total=total_work
+                total=total_work,
             )
-        
+
         if maintenance_id in seen_media:
             continue
         seen_media.add(maintenance_id)
@@ -2591,7 +2814,9 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
         element_name = row[2] if isinstance(row, (tuple, list)) else row["name"]
         element_type = row[3] if isinstance(row, (tuple, list)) else row["element_type"]
         gate = row[4] if isinstance(row, (tuple, list)) else row["gate"]
-        breaker_category = row[5] if isinstance(row, (tuple, list)) else row["breaker_category"]
+        breaker_category = (
+            row[5] if isinstance(row, (tuple, list)) else row["breaker_category"]
+        )
         substation_name = row[6] if isinstance(row, (tuple, list)) else row["name"]
 
         current_work += 1
@@ -2600,7 +2825,7 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
                 operation="Relinking report files",
                 substation=substation_name,
                 current=current_work,
-                total=total_work
+                total=total_work,
             )
 
         tracked = get_maintenance_report_path(
@@ -2625,7 +2850,10 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
             continue
 
         reports_root = targets[0]
-        subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(element_type, breaker_category))
+        subfolder = os.path.join(
+            reports_root,
+            _report_subfolder_name_for_element(element_type, breaker_category),
+        )
         legacy_subfolder = os.path.join(
             _legacy_reports_root(reports_root),
             _legacy_report_subfolder_name_for_element(element_type, breaker_category),
@@ -2649,16 +2877,23 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
                 search_dirs = []
                 if os.path.isdir(subfolder):
                     search_dirs.append(subfolder)
-                if os.path.isdir(legacy_subfolder) and legacy_subfolder not in search_dirs:
+                if (
+                    os.path.isdir(legacy_subfolder)
+                    and legacy_subfolder not in search_dirs
+                ):
                     search_dirs.append(legacy_subfolder)
                 for search_dir in search_dirs:
                     for fname in os.listdir(search_dir):
                         if fname.lower().endswith(".pdf"):
                             # Look for old format: Maintenance_M{id}_E{id}_...
-                            if fname.startswith(f"Maintenance_M{maintenance_id}_E{element_id}_"):
+                            if fname.startswith(
+                                f"Maintenance_M{maintenance_id}_E{element_id}_"
+                            ):
                                 legacy_matches.append(os.path.join(search_dir, fname))
                             # Look for old element name prefix format: Maintenance_{element}_...
-                            elif fname.startswith(f"Maintenance_{(element_name or '').replace('/', '-').replace('\\', '-').replace(':', '-')}_"):
+                            elif fname.startswith(
+                                f"Maintenance_{(element_name or '').replace('/', '-').replace('\\', '-').replace(':', '-')}_"
+                            ):
                                 legacy_matches.append(os.path.join(search_dir, fname))
             except Exception:
                 legacy_matches = []
@@ -2667,7 +2902,9 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
             auto_short_dir = os.path.join(subfolder, "_AUTO_SHORT")
             if os.path.isdir(auto_short_dir):
                 auto_short_candidates = [
-                    os.path.join(auto_short_dir, f"M{maintenance_id}_E{element_id}.pdf"),
+                    os.path.join(
+                        auto_short_dir, f"M{maintenance_id}_E{element_id}.pdf"
+                    ),
                     os.path.join(auto_short_dir, canonical_name),
                 ]
                 for candidate in auto_short_candidates:
@@ -2684,6 +2921,7 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
                 # safe move that preserves PDF Title metadata.
                 try:
                     from pdf_reports import move_pdf_preserve_title
+
                     cand = os.path.join(
                         subfolder,
                         _canonical_report_filename(
@@ -2726,7 +2964,9 @@ def relink_existing_maintenance_assets(conn, *, db_path: str | None = None, prog
     }
 
 
-def _replace_prefix_ci(path: str | None, old_prefix: str | None, new_prefix: str | None) -> str | None:
+def _replace_prefix_ci(
+    path: str | None, old_prefix: str | None, new_prefix: str | None
+) -> str | None:
     """Replace path prefix with case-insensitive matching (Windows friendly)."""
     if not path or not old_prefix or not new_prefix:
         return path
@@ -2792,10 +3032,14 @@ def retrofit_maintenance_instance_folder_names(
     for row in maint_rows:
         scanned += 1
         maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
-        substation_id = row[1] if isinstance(row, (tuple, list)) else row["substation_id"]
+        substation_id = (
+            row[1] if isinstance(row, (tuple, list)) else row["substation_id"]
+        )
         date_time = row[2] if isinstance(row, (tuple, list)) else row["date_time"]
         substation_name = row[3] if isinstance(row, (tuple, list)) else row["name"]
-        maintenance_type = row[4] if isinstance(row, (tuple, list)) else row["maintenance_type"]
+        maintenance_type = (
+            row[4] if isinstance(row, (tuple, list)) else row["maintenance_type"]
+        )
         base = ensure_substation_structure(conn, substation_id, db_path=db_path)
         substation_root = base["substation_root"]
 
@@ -2821,10 +3065,18 @@ def retrofit_maintenance_instance_folder_names(
 
         for prow in path_rows:
             gate_key = prow[0] if isinstance(prow, (tuple, list)) else prow["gate_key"]
-            old_instance_raw = prow[1] if isinstance(prow, (tuple, list)) else prow["instance_folder"]
-            old_media_raw = prow[2] if isinstance(prow, (tuple, list)) else prow["media_folder"]
-            old_reports_raw = prow[3] if isinstance(prow, (tuple, list)) else prow["reports_folder"]
-            gate_root = os.path.join(substation_root, _gate_relative_path_from_gate_key(gate_key))
+            old_instance_raw = (
+                prow[1] if isinstance(prow, (tuple, list)) else prow["instance_folder"]
+            )
+            old_media_raw = (
+                prow[2] if isinstance(prow, (tuple, list)) else prow["media_folder"]
+            )
+            old_reports_raw = (
+                prow[3] if isinstance(prow, (tuple, list)) else prow["reports_folder"]
+            )
+            gate_root = os.path.join(
+                substation_root, _gate_relative_path_from_gate_key(gate_key)
+            )
             target_instance_name = _maintenance_instance_folder_name(
                 date_time,
                 substation_name=substation_name,
@@ -2834,7 +3086,9 @@ def retrofit_maintenance_instance_folder_names(
                 gate_root=gate_root,
             )
 
-            old_instance_mapped = _remap_legacy_shared_root(old_instance_raw, shared_root)
+            old_instance_mapped = _remap_legacy_shared_root(
+                old_instance_raw, shared_root
+            )
             old_media_mapped = _remap_legacy_shared_root(old_media_raw, shared_root)
             old_reports_mapped = _remap_legacy_shared_root(old_reports_raw, shared_root)
 
@@ -2849,7 +3103,11 @@ def retrofit_maintenance_instance_folder_names(
 
             current_instance_path = old_instance_mapped or old_instance_raw or ""
             current_base = os.path.basename(os.path.normpath(current_instance_path))
-            current_abs = os.path.normcase(os.path.abspath(current_instance_path)) if current_instance_path else ""
+            current_abs = (
+                os.path.normcase(os.path.abspath(current_instance_path))
+                if current_instance_path
+                else ""
+            )
             target_abs = os.path.normcase(os.path.abspath(target_instance))
             needs_move = current_abs != target_abs
             needs_rename = current_base != target_instance_name
@@ -2857,8 +3115,12 @@ def retrofit_maintenance_instance_folder_names(
             # Resolve collisions by adding maintenance id suffix.
             final_target = target_instance
             if needs_move and os.path.exists(final_target):
-                same = os.path.normcase(os.path.abspath(final_target)) == os.path.normcase(
-                    os.path.abspath(old_instance_mapped or old_instance_raw or final_target)
+                same = os.path.normcase(
+                    os.path.abspath(final_target)
+                ) == os.path.normcase(
+                    os.path.abspath(
+                        old_instance_mapped or old_instance_raw or final_target
+                    )
                 )
                 if not same:
                     folder_conflicts += 1
@@ -2874,7 +3136,12 @@ def retrofit_maintenance_instance_folder_names(
             # If DB already points to a renamed/missing path, try discovering a
             # legacy Email_instance_* folder for this maintenance under the same
             # Maintenance root.
-            if needs_move and not source_path and instance_parent and os.path.isdir(instance_parent):
+            if (
+                needs_move
+                and not source_path
+                and instance_parent
+                and os.path.isdir(instance_parent)
+            ):
                 try:
                     legacy_suffix = f"Email_instance_{maintenance_id}"
                     for name in os.listdir(instance_parent):
@@ -2885,7 +3152,12 @@ def retrofit_maintenance_instance_folder_names(
                 except Exception:
                     pass
 
-            if needs_move and source_path and os.path.normcase(os.path.abspath(source_path)) != os.path.normcase(os.path.abspath(final_target)):
+            if (
+                needs_move
+                and source_path
+                and os.path.normcase(os.path.abspath(source_path))
+                != os.path.normcase(os.path.abspath(final_target))
+            ):
                 try:
                     old_parent = os.path.dirname(source_path)
                     if not dry_run:
@@ -2894,7 +3166,9 @@ def retrofit_maintenance_instance_folder_names(
                         _prune_empty_dir(old_parent, stop_at=gate_root)
                     renamed_folders += 1
                 except Exception as exc:
-                    errors.append(f"maintenance {maintenance_id} gate {gate_key}: {exc}")
+                    errors.append(
+                        f"maintenance {maintenance_id} gate {gate_key}: {exc}"
+                    )
                     # Retry with a compact fallback name to avoid long-path errors.
                     try:
                         fallback_name = _instance_slug_short_fallback(
@@ -2903,9 +3177,13 @@ def retrofit_maintenance_instance_folder_names(
                             maintenance_id,
                         )
                         fallback_target = os.path.join(instance_parent, fallback_name)
-                        if fallback_target != final_target and not os.path.exists(fallback_target):
+                        if fallback_target != final_target and not os.path.exists(
+                            fallback_target
+                        ):
                             if not dry_run:
-                                os.makedirs(os.path.dirname(fallback_target), exist_ok=True)
+                                os.makedirs(
+                                    os.path.dirname(fallback_target), exist_ok=True
+                                )
                                 shutil.move(source_path, fallback_target)
                             renamed_folders += 1
                             final_target = fallback_target
@@ -2915,9 +3193,21 @@ def retrofit_maintenance_instance_folder_names(
                         pass
 
             # Compute updated DB paths by prefix replacement from old->new.
-            new_instance = final_target if needs_move else (old_instance_mapped or old_instance_raw)
-            new_media = _replace_prefix_ci(old_media_mapped or old_media_raw, old_instance_mapped or old_instance_raw, new_instance)
-            new_reports = _replace_prefix_ci(old_reports_mapped or old_reports_raw, old_instance_mapped or old_instance_raw, new_instance)
+            new_instance = (
+                final_target
+                if needs_move
+                else (old_instance_mapped or old_instance_raw)
+            )
+            new_media = _replace_prefix_ci(
+                old_media_mapped or old_media_raw,
+                old_instance_mapped or old_instance_raw,
+                new_instance,
+            )
+            new_reports = _replace_prefix_ci(
+                old_reports_mapped or old_reports_raw,
+                old_instance_mapped or old_instance_raw,
+                new_instance,
+            )
 
             if (
                 (new_instance or "") != (old_instance_raw or "")
@@ -2931,7 +3221,13 @@ def retrofit_maintenance_instance_folder_names(
                         SET instance_folder=?, media_folder=?, reports_folder=?
                         WHERE maintenance_id=? AND gate_key=?
                         """,
-                        (new_instance, new_media, new_reports, maintenance_id, gate_key),
+                        (
+                            new_instance,
+                            new_media,
+                            new_reports,
+                            maintenance_id,
+                            gate_key,
+                        ),
                     )
                 storage_rows_updated += 1
 
@@ -2941,7 +3237,11 @@ def retrofit_maintenance_instance_folder_names(
                 (maintenance_id,),
             )
             mrow = cur.fetchone()
-            old_link = mrow[0] if mrow and isinstance(mrow, (tuple, list)) else (mrow["onedrive_media_folder_link"] if mrow else None)
+            old_link = (
+                mrow[0]
+                if mrow and isinstance(mrow, (tuple, list))
+                else (mrow["onedrive_media_folder_link"] if mrow else None)
+            )
             new_link = _replace_prefix_ci(old_link, old_instance_raw, new_instance)
             new_link = _replace_prefix_ci(new_link, old_instance_mapped, new_instance)
             if (new_link or "") != (old_link or ""):
@@ -2960,14 +3260,24 @@ def retrofit_maintenance_instance_folder_names(
             rrows = cur.fetchall() or []
             for rrow in rrows:
                 rid = rrow[0] if isinstance(rrow, (tuple, list)) else rrow["id"]
-                old_report_path = rrow[1] if isinstance(rrow, (tuple, list)) else rrow["report_path"]
-                new_report_path = _replace_prefix_ci(old_report_path, old_instance_raw, new_instance)
-                new_report_path = _replace_prefix_ci(new_report_path, old_instance_mapped, new_instance)
+                old_report_path = (
+                    rrow[1] if isinstance(rrow, (tuple, list)) else rrow["report_path"]
+                )
+                new_report_path = _replace_prefix_ci(
+                    old_report_path, old_instance_raw, new_instance
+                )
+                new_report_path = _replace_prefix_ci(
+                    new_report_path, old_instance_mapped, new_instance
+                )
                 if (new_report_path or "") != (old_report_path or ""):
                     if not dry_run:
                         cur.execute(
                             "UPDATE maintenance_report_paths SET report_path=?, updated_at=? WHERE id=?",
-                            (new_report_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), rid),
+                            (
+                                new_report_path,
+                                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                rid,
+                            ),
                         )
                     report_paths_updated += 1
 
@@ -3059,7 +3369,9 @@ def retrofit_shared_root_paths(
         JOIN elements e ON e.id = mrp.element_id
         """
     )
-    for report_id, old_report_path, element_type, breaker_category in cur.fetchall() or []:
+    for report_id, old_report_path, element_type, breaker_category in (
+        cur.fetchall() or []
+    ):
         new_report_path = _canonicalize_path(
             old_report_path,
             element_type=element_type,
@@ -3101,7 +3413,12 @@ def retrofit_shared_root_paths(
     return stats
 
 
-def _map_folder_labels_in_path(path: str | None, *, element_type: str | None = None, breaker_category: str | None = None) -> str | None:
+def _map_folder_labels_in_path(
+    path: str | None,
+    *,
+    element_type: str | None = None,
+    breaker_category: str | None = None,
+) -> str | None:
     """Map legacy English folder labels in a Windows path to canonical Greek labels."""
     if not path:
         return path
@@ -3160,7 +3477,11 @@ def _map_folder_labels_in_path(path: str | None, *, element_type: str | None = N
                 mapped.append(_report_prefixed_name(_DIR_REPORTS_OTHER))
             elif low == "breakers":
                 if element_type:
-                    mapped.append(_report_subfolder_name_for_element(element_type, breaker_category))
+                    mapped.append(
+                        _report_subfolder_name_for_element(
+                            element_type, breaker_category
+                        )
+                    )
                 else:
                     # Filesystem-only retrofits may not know element_type.
                     # Infer from nearby path parts and default to HV breakers.
@@ -3203,18 +3524,29 @@ def retrofit_folder_labels_to_greek(
 
     for row in rows:
         scanned += 1
-        maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        maintenance_id = (
+            row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        )
         gate_key = row[1] if isinstance(row, (tuple, list)) else row["gate_key"]
-        old_instance = row[2] if isinstance(row, (tuple, list)) else row["instance_folder"]
+        old_instance = (
+            row[2] if isinstance(row, (tuple, list)) else row["instance_folder"]
+        )
         old_media = row[3] if isinstance(row, (tuple, list)) else row["media_folder"]
-        old_reports = row[4] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        old_reports = (
+            row[4] if isinstance(row, (tuple, list)) else row["reports_folder"]
+        )
 
         new_instance = _map_folder_labels_in_path(old_instance)
         new_media = _map_folder_labels_in_path(old_media)
         new_reports = _map_folder_labels_in_path(old_reports)
 
         try:
-            if old_instance and new_instance and os.path.normcase(os.path.abspath(old_instance)) != os.path.normcase(os.path.abspath(new_instance)):
+            if (
+                old_instance
+                and new_instance
+                and os.path.normcase(os.path.abspath(old_instance))
+                != os.path.normcase(os.path.abspath(new_instance))
+            ):
                 if os.path.isdir(old_instance):
                     if not dry_run:
                         os.makedirs(os.path.dirname(new_instance), exist_ok=True)
@@ -3243,7 +3575,11 @@ def retrofit_folder_labels_to_greek(
     cur.execute("SELECT id, onedrive_media_folder_link FROM maintenance")
     for row in cur.fetchall() or []:
         mid = row[0] if isinstance(row, (tuple, list)) else row["id"]
-        old_link = row[1] if isinstance(row, (tuple, list)) else row["onedrive_media_folder_link"]
+        old_link = (
+            row[1]
+            if isinstance(row, (tuple, list))
+            else row["onedrive_media_folder_link"]
+        )
         new_link = _map_folder_labels_in_path(old_link)
         if (new_link or "") != (old_link or ""):
             if not dry_run:
@@ -3286,19 +3622,21 @@ def retrofit_folder_labels_to_greek(
     }
 
 
-def sync_all_substation_structures(conn, *, db_path: str | None = None, quiet: bool = True, progress_callback = None) -> dict:
+def sync_all_substation_structures(
+    conn, *, db_path: str | None = None, quiet: bool = True, progress_callback=None
+) -> dict:
     """Ensure folder structure exists for all substations with elements.
-    
+
     This creates the OneDrive folder hierarchy for all substations that have
     registered elements, ensuring the structure is ready for reports, maintenance
     records, inspections, and DGA measurements.
-    
+
     Args:
         conn: Database connection
         db_path: Path to database file (for resolving shared root)
         quiet: If True, suppress exceptions for individual substations
         progress_callback: Optional callable(operation, substation, current, total) for progress reporting
-        
+
     Returns:
         Dictionary with sync statistics: total, synced, failed, skipped
     """
@@ -3307,7 +3645,7 @@ def sync_all_substation_structures(conn, *, db_path: str | None = None, quiet: b
         _reconcile_duplicate_shared_root(resolve_shared_root(db_path))
     except Exception:
         pass
-    
+
     # Get all substations that have at least one element
     cur.execute("""
         SELECT DISTINCT s.id, s.name
@@ -3316,24 +3654,24 @@ def sync_all_substation_structures(conn, *, db_path: str | None = None, quiet: b
         ORDER BY s.name
     """)
     substations = cur.fetchall()
-    
+
     total = len(substations)
     synced = 0
     failed = 0
     skipped = 0
-    
+
     for idx, row in enumerate(substations):
         substation_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
         substation_name = row[1] if isinstance(row, (tuple, list)) else row["name"]
-        
+
         if progress_callback:
             progress_callback(
                 operation="Syncing substation folder structure",
                 substation=substation_name,
                 current=idx + 1,
-                total=total
+                total=total,
             )
-        
+
         try:
             # Sync gate/interconnection folders based on actual elements
             sync_substation_gate_folders(conn, substation_id, db_path=db_path)
@@ -3344,7 +3682,7 @@ def sync_all_substation_structures(conn, *, db_path: str | None = None, quiet: b
                 raise RuntimeError(
                     f"Failed to sync folder structure for substation '{substation_name}' (ID: {substation_id}): {exc}"
                 ) from exc
-    
+
     return {
         "total": total,
         "synced": synced,
@@ -3353,12 +3691,19 @@ def sync_all_substation_structures(conn, *, db_path: str | None = None, quiet: b
     }
 
 
-def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: bool = True, limit: int = None, progress_callback = None) -> dict:
+def regenerate_maintenance_reports(
+    conn,
+    *,
+    db_path: str | None = None,
+    quiet: bool = True,
+    limit: int = None,
+    progress_callback=None,
+) -> dict:
     """Generate missing PDF reports for existing maintenance records.
 
     Reports are created only when a canonical file for the specific
     (maintenance_id, element_id) pair does not already exist.
-    
+
     Args:
         conn: Database connection
         db_path: Path to database file
@@ -3407,12 +3752,20 @@ def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: b
     maintenance_context: dict[int, dict] = {}
 
     for row in records:
-        maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        maintenance_id = (
+            row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        )
         element_id = row[1] if isinstance(row, (tuple, list)) else row["element_id"]
         gate = row[3] if isinstance(row, (tuple, list)) else row["gate"]
-        substation_id = row[6] if isinstance(row, (tuple, list)) else row["substation_id"]
-        maintenance_name = row[7] if isinstance(row, (tuple, list)) else row["maintenance_name"]
-        maintenance_type = row[8] if isinstance(row, (tuple, list)) else row["maintenance_type"]
+        substation_id = (
+            row[6] if isinstance(row, (tuple, list)) else row["substation_id"]
+        )
+        maintenance_name = (
+            row[7] if isinstance(row, (tuple, list)) else row["maintenance_name"]
+        )
+        maintenance_type = (
+            row[8] if isinstance(row, (tuple, list)) else row["maintenance_type"]
+        )
         date_time = row[9] if isinstance(row, (tuple, list)) else row["date_time"]
         context = maintenance_context.setdefault(
             maintenance_id,
@@ -3432,25 +3785,37 @@ def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: b
         context["reports_roots"].setdefault(gate_key, None)
 
     for idx, row in enumerate(records):
-        maintenance_id = row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        maintenance_id = (
+            row[0] if isinstance(row, (tuple, list)) else row["maintenance_id"]
+        )
         element_id = row[1] if isinstance(row, (tuple, list)) else row["element_id"]
         element_name = row[2] if isinstance(row, (tuple, list)) else row["element_name"]
         gate = row[3] if isinstance(row, (tuple, list)) else row["gate"]
         element_type = row[4] if isinstance(row, (tuple, list)) else row["element_type"]
-        breaker_category = row[5] if isinstance(row, (tuple, list)) else row["breaker_category"]
-        substation_id = row[6] if isinstance(row, (tuple, list)) else row["substation_id"]
-        maintenance_name = row[7] if isinstance(row, (tuple, list)) else row["maintenance_name"]
-        maintenance_type = row[8] if isinstance(row, (tuple, list)) else row["maintenance_type"]
+        breaker_category = (
+            row[5] if isinstance(row, (tuple, list)) else row["breaker_category"]
+        )
+        substation_id = (
+            row[6] if isinstance(row, (tuple, list)) else row["substation_id"]
+        )
+        maintenance_name = (
+            row[7] if isinstance(row, (tuple, list)) else row["maintenance_name"]
+        )
+        maintenance_type = (
+            row[8] if isinstance(row, (tuple, list)) else row["maintenance_type"]
+        )
         date_time = row[9] if isinstance(row, (tuple, list)) else row["date_time"]
-        substation_name = row[10] if isinstance(row, (tuple, list)) else row["substation_name"]
+        substation_name = (
+            row[10] if isinstance(row, (tuple, list)) else row["substation_name"]
+        )
         all_maintenance_ids.add(maintenance_id)
-        
+
         if progress_callback:
             progress_callback(
                 operation="Generating maintenance reports",
                 substation=substation_name,
                 current=idx + 1,
-                total=total
+                total=total,
             )
 
         try:
@@ -3463,8 +3828,12 @@ def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: b
                         conn,
                         maintenance_id=maintenance_id,
                         substation_id=context.get("substation_id", substation_id),
-                        maintenance_name=context.get("maintenance_name", maintenance_name),
-                        maintenance_type=context.get("maintenance_type", maintenance_type),
+                        maintenance_name=context.get(
+                            "maintenance_name", maintenance_name
+                        ),
+                        maintenance_type=context.get(
+                            "maintenance_type", maintenance_type
+                        ),
                         date_time=context.get("date_time", date_time),
                         element_ids=sorted(context.get("element_ids") or [element_id]),
                         attachment_paths=[],
@@ -3495,7 +3864,12 @@ def regenerate_maintenance_reports(conn, *, db_path: str | None = None, quiet: b
                         reports_root = report_targets[0] if report_targets else ""
                         context.setdefault("reports_roots", {})[gate_key] = reports_root
                     if reports_root:
-                        subfolder = os.path.join(reports_root, _report_subfolder_name_for_element(element_type, breaker_category))
+                        subfolder = os.path.join(
+                            reports_root,
+                            _report_subfolder_name_for_element(
+                                element_type, breaker_category
+                            ),
+                        )
                         os.makedirs(_win_path(subfolder), exist_ok=True)
                 except Exception:
                     reports_root = None

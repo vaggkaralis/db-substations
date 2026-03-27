@@ -51,7 +51,14 @@ def main() -> int:
     kept = 0
     missing = 0
 
-    for report_id, maintenance_id, _element_id, report_path, element_name, substation_name in rows:
+    for (
+        report_id,
+        maintenance_id,
+        _element_id,
+        report_path,
+        element_name,
+        substation_name,
+    ) in rows:
         safe_elem = _safe(element_name)
         safe_sub = _safe(substation_name)
         canonical_name = f"{safe_sub}_{safe_elem}_Maintenance_M{maintenance_id}.pdf"
@@ -84,7 +91,9 @@ def main() -> int:
     conn.commit()
     conn.close()
 
-    print(f"checked={len(rows)} updated={updated} copied={copied} kept={kept} missing={missing}")
+    print(
+        f"checked={len(rows)} updated={updated} copied={copied} kept={kept} missing={missing}"
+    )
     return 0
 
 

@@ -72,7 +72,8 @@ def import_android_changes_from_file(app, file_path):
             if apply_change_log_to_db:
                 apply_change_log_to_db(app.conn, file_path)
             show_message_popup(
-                "Εισαγωγή αλλαγών από Android", f"Επιτυχής εισαγωγή. Backup: {backup_path}"
+                "Εισαγωγή αλλαγών από Android",
+                f"Επιτυχής εισαγωγή. Backup: {backup_path}",
             )
         except Exception as e:
             show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την εισαγωγή: {e}")
@@ -102,4 +103,3 @@ def import_android_changes_from_file(app, file_path):
     layout.add_widget(btns)
     preview_popup.content = layout
     preview_popup.open()
-

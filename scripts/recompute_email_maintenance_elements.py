@@ -72,7 +72,9 @@ def recompute_elements(
                 )
                 existing_rows = cur.fetchall()
                 existing_ids = {row[1] for row in existing_rows}
-                has_non_empty_comments = any((row[2] or "").strip() for row in existing_rows)
+                has_non_empty_comments = any(
+                    (row[2] or "").strip() for row in existing_rows
+                )
 
                 if inferred_ids == existing_ids:
                     summary["unchanged"] += 1
@@ -84,7 +86,10 @@ def recompute_elements(
 
                 summary["would_change"] += 1
                 if not dry_run:
-                    cur.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (maintenance_id,))
+                    cur.execute(
+                        "DELETE FROM maintenance_elements WHERE maintenance_id=?",
+                        (maintenance_id,),
+                    )
                     for elem_id in sorted(inferred_ids):
                         cur.execute(
                             "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, '')",
@@ -103,10 +108,16 @@ def recompute_elements(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Recompute maintenance elements from email comments.")
+    parser = argparse.ArgumentParser(
+        description="Recompute maintenance elements from email comments."
+    )
     parser.add_argument("--db", default=DB_PATH, help="Path to SQLite database file")
-    parser.add_argument("--substation-id", type=int, default=None, help="Optional substation id filter")
-    parser.add_argument("--apply", action="store_true", help="Apply updates (default is dry-run)")
+    parser.add_argument(
+        "--substation-id", type=int, default=None, help="Optional substation id filter"
+    )
+    parser.add_argument(
+        "--apply", action="store_true", help="Apply updates (default is dry-run)"
+    )
     parser.add_argument(
         "--force",
         action="store_true",

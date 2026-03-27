@@ -175,10 +175,33 @@ _RATIO_RULES = [
 
 _DUVAL_TRIANGLE_1_ZONES = {
     "PD": [(0.98, 0.02, 0.00), (0.98, 0.00, 0.02), (1.00, 0.00, 0.00)],
-    "T1": [(0.80, 0.00, 0.20), (0.87, 0.00, 0.13), (0.98, 0.00, 0.02), (0.98, 0.02, 0.00), (0.80, 0.02, 0.18)],
-    "T2": [(0.50, 0.00, 0.50), (0.80, 0.00, 0.20), (0.80, 0.02, 0.18), (0.50, 0.10, 0.40)],
-    "T3": [(0.00, 0.00, 1.00), (0.50, 0.00, 0.50), (0.50, 0.10, 0.40), (0.00, 0.15, 0.85)],
-    "D1": [(0.00, 0.15, 0.85), (0.50, 0.10, 0.40), (0.80, 0.02, 0.18), (0.98, 0.02, 0.00), (0.35, 0.65, 0.00), (0.00, 0.65, 0.35)],
+    "T1": [
+        (0.80, 0.00, 0.20),
+        (0.87, 0.00, 0.13),
+        (0.98, 0.00, 0.02),
+        (0.98, 0.02, 0.00),
+        (0.80, 0.02, 0.18),
+    ],
+    "T2": [
+        (0.50, 0.00, 0.50),
+        (0.80, 0.00, 0.20),
+        (0.80, 0.02, 0.18),
+        (0.50, 0.10, 0.40),
+    ],
+    "T3": [
+        (0.00, 0.00, 1.00),
+        (0.50, 0.00, 0.50),
+        (0.50, 0.10, 0.40),
+        (0.00, 0.15, 0.85),
+    ],
+    "D1": [
+        (0.00, 0.15, 0.85),
+        (0.50, 0.10, 0.40),
+        (0.80, 0.02, 0.18),
+        (0.98, 0.02, 0.00),
+        (0.35, 0.65, 0.00),
+        (0.00, 0.65, 0.35),
+    ],
     "D2": [(0.00, 0.65, 0.35), (0.35, 0.65, 0.00), (0.00, 1.00, 0.00)],
     "DT": [(0.00, 0.15, 0.85), (0.00, 0.65, 0.35), (0.50, 0.10, 0.40)],
 }
@@ -320,7 +343,11 @@ def _matches_rule(value, rule):
 
 
 def _severity_max(left: str, right: str) -> str:
-    return left if _DGA_SEVERITY_ORDER.get(left, 0) >= _DGA_SEVERITY_ORDER.get(right, 0) else right
+    return (
+        left
+        if _DGA_SEVERITY_ORDER.get(left, 0) >= _DGA_SEVERITY_ORDER.get(right, 0)
+        else right
+    )
 
 
 def _ratio_value(num, den):
@@ -375,10 +402,14 @@ def _point_in_polygon(point, polygon):
     return inside
 
 
-def _build_diagnostic_result(method_key, method_label, code, reasoning, *, confidence="medium"):
+def _build_diagnostic_result(
+    method_key, method_label, code, reasoning, *, confidence="medium"
+):
     details = _DIAGNOSTIC_DETAILS.get(code, {})
     summary = details.get("summary") or "DGA diagnostic pattern detected."
-    root_cause = details.get("root_cause") or "Potential abnormal transformer fault pattern."
+    root_cause = (
+        details.get("root_cause") or "Potential abnormal transformer fault pattern."
+    )
     return {
         "method": method_key,
         "method_label": method_label,
@@ -412,7 +443,9 @@ def analyze_dga_diagnostics(values):
     overall_level = "ok"
     primary = None
 
-    ratio_total = sum(gases[key] or 0.0 for key in ("h2", "ch4", "c2h2", "c2h4", "c2h6"))
+    ratio_total = sum(
+        gases[key] or 0.0 for key in ("h2", "ch4", "c2h2", "c2h4", "c2h6")
+    )
     ratio_diag = {
         "method": "iec_60599_ratios",
         "method_label": "IEC 60599 / Rogers ratios",
@@ -508,7 +541,10 @@ def analyze_dga_diagnostics(values):
         point = _ternary_to_cartesian(ch4_frac, c2h2_frac, c2h4_frac)
         zone_code = None
         for candidate in ("PD", "D2", "DT", "D1", "T3", "T2", "T1"):
-            polygon = [_ternary_to_cartesian(*vertex) for vertex in _DUVAL_TRIANGLE_1_ZONES[candidate]]
+            polygon = [
+                _ternary_to_cartesian(*vertex)
+                for vertex in _DUVAL_TRIANGLE_1_ZONES[candidate]
+            ]
             if _point_in_polygon(point, polygon):
                 zone_code = candidate
                 break
@@ -576,7 +612,9 @@ def analyze_dga_diagnostics(values):
                 "label": "Cellulose aging watch",
                 "summary": "CO2/CO ratio suggests possible paper aging or early cellulose degradation.",
                 "root_cause": "Paper insulation may be under thermal stress and should be trended.",
-                "reasoning": [f"CO2/CO = {_format_ratio_number(paper_ratio)} between 3 and 10"],
+                "reasoning": [
+                    f"CO2/CO = {_format_ratio_number(paper_ratio)} between 3 and 10"
+                ],
                 "confidence": "medium",
                 "display_summary": "CO2/CO ratio: watch cellulose condition.",
             }
@@ -587,7 +625,9 @@ def analyze_dga_diagnostics(values):
         if diag.get("code"):
             findings.append(diag)
             overall_level = _severity_max(overall_level, diag.get("status", "ok"))
-            if primary is None or _DGA_SEVERITY_ORDER.get(diag.get("status", "ok"), 0) > _DGA_SEVERITY_ORDER.get(primary.get("status", "ok"), 0):
+            if primary is None or _DGA_SEVERITY_ORDER.get(
+                diag.get("status", "ok"), 0
+            ) > _DGA_SEVERITY_ORDER.get(primary.get("status", "ok"), 0):
                 primary = diag
 
     consensus = None
@@ -596,7 +636,9 @@ def analyze_dga_diagnostics(values):
     if ratio_code and duval_code:
         if ratio_code == duval_code:
             consensus = {
-                "status": _severity_max(ratio_diag.get("status", "ok"), duval_diag.get("status", "ok")),
+                "status": _severity_max(
+                    ratio_diag.get("status", "ok"), duval_diag.get("status", "ok")
+                ),
                 "summary": f"IEC 60599 / Rogers and Duval Triangle 1 both indicate {ratio_code}.",
                 "reasoning": [
                     ratio_diag.get("display_summary"),
@@ -608,7 +650,10 @@ def analyze_dga_diagnostics(values):
             consensus = {
                 "status": "warn",
                 "summary": "IEC 60599 / Rogers and Duval Triangle 1 do not fully agree.",
-                "reasoning": [ratio_diag.get("display_summary"), duval_diag.get("display_summary")],
+                "reasoning": [
+                    ratio_diag.get("display_summary"),
+                    duval_diag.get("display_summary"),
+                ],
             }
             overall_level = _severity_max(overall_level, "warn")
 
@@ -790,7 +835,9 @@ def evaluate_dga_limits(values, template_path):
         good_rules = field.get("good_rules") or []
         tolerable_rules = field.get("tolerable_rules") or []
 
-        is_good = bool(good_rules) and any(_matches_rule(value, rule) for rule in good_rules)
+        is_good = bool(good_rules) and any(
+            _matches_rule(value, rule) for rule in good_rules
+        )
         is_tolerable = bool(tolerable_rules) and any(
             _matches_rule(value, rule) for rule in tolerable_rules
         )
@@ -834,7 +881,8 @@ def evaluate_dga_limits(values, template_path):
 
     return {
         "is_problematic": bool(problems) or diagnostics.get("overall_level") == "bad",
-        "has_warnings": bool(warnings) or diagnostics.get("overall_level") in {"warn", "bad"},
+        "has_warnings": bool(warnings)
+        or diagnostics.get("overall_level") in {"warn", "bad"},
         "overall_level": overall,
         "checks": checks,
         "warnings": warnings,
@@ -875,10 +923,14 @@ def _surname_upper(value):
     return (parts[-1] if parts else txt).upper()
 
 
-def generate_dga_excel_report(template_path: str, output_path: str, payload: dict) -> str:
+def generate_dga_excel_report(
+    template_path: str, output_path: str, payload: dict
+) -> str:
     if not os.path.exists(template_path):
         raise FileNotFoundError(
-            S["MESSAGES"].get("DGA_TEMPLATE_NOT_FOUND_FMT", "DGA template not found: {path}").format(path=template_path)
+            S["MESSAGES"]
+            .get("DGA_TEMPLATE_NOT_FOUND_FMT", "DGA template not found: {path}")
+            .format(path=template_path)
         )
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -988,7 +1040,9 @@ def generate_dga_excel_report(template_path: str, output_path: str, payload: dic
                     diag_sheet[f"D{row}"] = f.get("summary")
                     reasoning = "; ".join(f.get("reasoning") or [])
                     root = f.get("root_cause") or ""
-                    diag_sheet[f"E{row}"] = root + (" - " + reasoning if reasoning else "")
+                    diag_sheet[f"E{row}"] = root + (
+                        " - " + reasoning if reasoning else ""
+                    )
                     row += 1
 
     except Exception:

@@ -13,12 +13,26 @@ def test_new_maintenance_defaults_to_most_recent_isolation(tmp_path, monkeypatch
     # Older isolation
     cur.execute(
         "INSERT INTO isolation_requests (substation_id, start_datetime, end_datetime, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (1, "2026-01-01 08:00", "2026-01-01 16:00", "Requested", "2026-01-01 00:00", "2026-01-01 00:00"),
+        (
+            1,
+            "2026-01-01 08:00",
+            "2026-01-01 16:00",
+            "Requested",
+            "2026-01-01 00:00",
+            "2026-01-01 00:00",
+        ),
     )
     # Newer isolation (should be chosen)
     cur.execute(
         "INSERT INTO isolation_requests (substation_id, start_datetime, end_datetime, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (1, "2026-02-01 08:00", "2026-02-01 16:00", "Requested", "2026-02-01 00:00", "2026-02-01 00:00"),
+        (
+            1,
+            "2026-02-01 08:00",
+            "2026-02-01 16:00",
+            "Requested",
+            "2026-02-01 00:00",
+            "2026-02-01 00:00",
+        ),
     )
     conn.commit()
 

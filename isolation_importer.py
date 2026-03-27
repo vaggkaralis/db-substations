@@ -43,7 +43,9 @@ def _normalize_time_value(value: str) -> str:
     return re.sub(r"\s+", "", value or "").replace(".", ":")
 
 
-def _parse_datetime(value: str, time_value: str, reference_dt: datetime | None = None) -> str | None:
+def _parse_datetime(
+    value: str, time_value: str, reference_dt: datetime | None = None
+) -> str | None:
     date_parts = [part for part in re.split(r"[./-]", value or "") if part]
     if len(date_parts) not in (2, 3):
         return None
@@ -57,7 +59,10 @@ def _parse_datetime(value: str, time_value: str, reference_dt: datetime | None =
                 year += 2000
         else:
             year = (reference_dt or datetime.now()).year
-        parsed = datetime.strptime(f"{day:02d}/{month:02d}/{year:04d} {_normalize_time_value(time_value)}", "%d/%m/%Y %H:%M")
+        parsed = datetime.strptime(
+            f"{day:02d}/{month:02d}/{year:04d} {_normalize_time_value(time_value)}",
+            "%d/%m/%Y %H:%M",
+        )
         return parsed.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return None
@@ -78,7 +83,10 @@ def extract_date_times(text: str) -> list[str]:
 
     for match in _DATE_TIME_PATTERN.finditer(text or ""):
         span = match.span()
-        if any(not (span[1] <= used_start or span[0] >= used_end) for used_start, used_end in occupied_spans):
+        if any(
+            not (span[1] <= used_start or span[0] >= used_end)
+            for used_start, used_end in occupied_spans
+        ):
             continue
         parsed = _parse_datetime(match.group("date"), match.group("time"))
         if parsed and parsed not in matches:
@@ -151,7 +159,9 @@ def match_substation(app, text: str, substations) -> tuple[int, str] | None:
                 if not name_tokens:
                     continue
                 for idx in range(len(text_tokens) - len(name_tokens) + 1):
-                    if tokens_match(text_tokens[idx : idx + len(name_tokens)], name_tokens):
+                    if tokens_match(
+                        text_tokens[idx : idx + len(name_tokens)], name_tokens
+                    ):
                         return (substation_id, substation_name)
 
     if getattr(app, "_find_substation_in_text", None):
@@ -161,7 +171,9 @@ def match_substation(app, text: str, substations) -> tuple[int, str] | None:
     return None
 
 
-def match_element_ids_from_text(text: str, element_rows) -> tuple[list[int], dict[int, list[str]]]:
+def match_element_ids_from_text(
+    text: str, element_rows
+) -> tuple[list[int], dict[int, list[str]]]:
     normalized_text = normalize_text(text or "")
     normalized_text = re.sub(r"μ\s*[/.-]?\s*σ", "μσ", normalized_text)
     compact_text = re.sub(r"[^0-9a-zα-ω]+", "", normalized_text)
@@ -172,13 +184,20 @@ def match_element_ids_from_text(text: str, element_rows) -> tuple[list[int], dic
     breaker_numbers = set()
     transformer_numbers = set()
 
-    for prefix, digits in re.findall(r"\b([a-zα-ω]{1,6})\s*[-/ ]\s*([0-9]{1,6})\b", normalized_text):
+    for prefix, digits in re.findall(
+        r"\b([a-zα-ω]{1,6})\s*[-/ ]\s*([0-9]{1,6})\b", normalized_text
+    ):
         exact_designators.add(f"{prefix}{digits}")
-    for prefix, digits in re.findall(r"\b([a-zα-ω]{1,6})([0-9]{1,6})\b", normalized_text):
+    for prefix, digits in re.findall(
+        r"\b([a-zα-ω]{1,6})([0-9]{1,6})\b", normalized_text
+    ):
         exact_designators.add(f"{prefix}{digits}")
     for digits in re.findall(r"\bρ\s*[-/ ]?\s*(\d{1,4})\b", normalized_text):
         breaker_numbers.add(digits)
-    for digits in re.findall(r"(?:μσ|μετασχηματιστ(?:ης|ησ)?|ms|transformer)\s*(?:νο|no|νο\.)?\s*[-/ ]?\s*(\d+)\b", normalized_text):
+    for digits in re.findall(
+        r"(?:μσ|μετασχηματιστ(?:ης|ησ)?|ms|transformer)\s*(?:νο|no|νο\.)?\s*[-/ ]?\s*(\d+)\b",
+        normalized_text,
+    ):
         transformer_numbers.add(digits)
 
     matched_ids = []
@@ -195,7 +214,10 @@ def match_element_ids_from_text(text: str, element_rows) -> tuple[list[int], dic
         name_tokens = set(tokenize_text(name))
         digits = "".join(ch for ch in compact_name if ch.isdigit())
         element_type_norm = normalize_text(element_type)
-        is_transformer = "μετασχηματιστ" in element_type_norm or compact_name.startswith(("μσ", "ms"))
+        is_transformer = (
+            "μετασχηματιστ" in element_type_norm
+            or compact_name.startswith(("μσ", "ms"))
+        )
         is_r_breaker = compact_name.startswith("ρ") and bool(digits)
         matched = False
         supporting = []
@@ -229,7 +251,10 @@ def match_element_ids_from_text(text: str, element_rows) -> tuple[list[int], dic
 
         if not matched:
             for phrase, tokens in phrase_tokens.items():
-                if tokens and (_tokens_contained(name_tokens, tokens) or _tokens_contained(tokens, name_tokens)):
+                if tokens and (
+                    _tokens_contained(name_tokens, tokens)
+                    or _tokens_contained(tokens, name_tokens)
+                ):
                     matched = True
                     supporting.append(phrase)
 
