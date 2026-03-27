@@ -34,7 +34,11 @@ def make_conn():
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
     cur.execute(
-        "CREATE TABLE substations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, location TEXT, adoption_date TEXT)"
+        "CREATE TABLE substations ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "name TEXT UNIQUE, "
+        "location TEXT, "
+        "adoption_date TEXT)"
     )
     conn.commit()
     return conn
