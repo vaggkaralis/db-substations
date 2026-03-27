@@ -6,11 +6,14 @@ import sys
 # Add parent dir to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from onedrive_hybrid_storage import retrofit_shared_root_paths, resolve_shared_root
-from settings import DB_PATH
-
 
 def main():
+    from onedrive_hybrid_storage import (
+        resolve_shared_root,
+        retrofit_shared_root_paths,
+    )
+    from settings import DB_PATH
+
     conn = sqlite3.connect(DB_PATH)
     try:
         stats = retrofit_shared_root_paths(conn, db_path=DB_PATH)
@@ -23,7 +26,8 @@ def main():
     print(f"maintenance media links updated: {stats['maintenance_links_updated']}")
     print(f"maintenance_report_paths updated: {stats['report_paths_updated']}")
     print(
-        f"maintenance_overview_report_paths updated: {stats['overview_report_paths_updated']}"
+        "maintenance_overview_report_paths updated: "
+        f"{stats['overview_report_paths_updated']}"
     )
     print(f"dga_measurements report_path updated: {stats['dga_report_paths_updated']}")
     return 0
