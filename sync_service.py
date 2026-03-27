@@ -241,7 +241,8 @@ def _apply_change_log_to_db(
                         else row["substation_id"]
                     )
                     cur.execute(
-                        "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+                        "SELECT element_id FROM maintenance_elements "
+                        "WHERE maintenance_id=?",
                         (maint_id,),
                     )
                     affected_elements = [
@@ -308,7 +309,8 @@ def _apply_change_log_to_db(
                         except Exception:
                             pass
                         cur.execute(
-                            "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+                            "SELECT element_id FROM maintenance_elements "
+                            "WHERE maintenance_id=?",
                             (maint_id,),
                         )
                         previous_element_ids = [
@@ -332,7 +334,9 @@ def _apply_change_log_to_db(
                             seen_element_ids.add(elem_id)
                             new_element_ids.append(elem_id)
                             cur.execute(
-                                "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+                                "INSERT INTO maintenance_elements "
+                                "(maintenance_id, element_id, element_comments) "
+                                "VALUES (?, ?, ?)",
                                 (maint_id, elem_id, elem_comments),
                             )
                             if data.get("date_time"):
@@ -380,7 +384,10 @@ def _apply_change_log_to_db(
                     try:
                         placeholders = ",".join(["?"] * len(maint_keys))
                         columns = ",".join(maint_keys)
-                        sql = f"INSERT INTO maintenance ({columns}) VALUES ({placeholders})"
+                        sql = (
+                            f"INSERT INTO maintenance ({columns}) "
+                            f"VALUES ({placeholders})"
+                        )
                         cur.execute(sql, [data[k] for k in maint_keys])
                         maintenance_id = cur.lastrowid
                     except sqlite3.IntegrityError:
