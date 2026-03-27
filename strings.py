@@ -1366,11 +1366,26 @@ STRINGS_EN = {
         "BACKUP_ROOT_PATH_HINT": "Empty = default (next to DB: backups_auto)",
         "SYNC_INTERVAL_INVALID": "Invalid auto-sync minutes value.",
         "SYNC_HOT_KEEP_INVALID": "Invalid hot snapshot count value.",
-        "SYNC_MANUAL_SUMMARY_FMT": "Inbox processing completed.\nProcessed: {processed}\nAccepted: {accepted}\nConflicts: {conflicts}\nRejected: {rejected}",
+        "SYNC_MANUAL_SUMMARY_FMT": (
+            "Inbox processing completed.\n"
+            "Processed: {processed}\n"
+            "Accepted: {accepted}\n"
+            "Conflicts: {conflicts}\n"
+            "Rejected: {rejected}"
+        ),
         "SYNC_SNAPSHOT_LINE_FMT": "Snapshot: {snapshot}",
-        "SYNC_AUTO_SUMMARY": "Automatic sync completed:\n✓ Accepted: {accepted}\n⚠ Conflicts: {conflicts}\n❌ Rejected: {rejected}",
+        "SYNC_AUTO_SUMMARY": (
+            "Automatic sync completed:\n"
+            "✓ Accepted: {accepted}\n"
+            "⚠ Conflicts: {conflicts}\n"
+            "❌ Rejected: {rejected}"
+        ),
         "SYNC_BACKUP_CREATED": "Backup created.",
-        "SYNC_ISSUES_FOUND": "Found previous changes with issues:\n• Rejected: {rejected}\n• Conflicts: {conflicts}",
+        "SYNC_ISSUES_FOUND": (
+            "Found previous changes with issues:\n"
+            "• Rejected: {rejected}\n"
+            "• Conflicts: {conflicts}"
+        ),
         "SYNC_ISSUES_ACTION": "Check rejected and conflicts folders in sync_root.",
         "SYNC_ONEDRIVE_BUTTON": "OneDrive Sync",
         "IMPORT_SYNC_INBOX_BUTTON": "Sync with OneDrive",
