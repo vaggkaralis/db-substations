@@ -952,12 +952,12 @@ def create_maintenance_from_email(
             sender_name=sender_name or "",
             sender_email=sender_email or "",
             subject=subject or "",
-            substation_id=substation.get("id")
-            if isinstance(substation, dict)
-            else None,
-            substation_name=substation.get("name")
-            if isinstance(substation, dict)
-            else "",
+            substation_id=(
+                substation.get("id") if isinstance(substation, dict) else None
+            ),
+            substation_name=(
+                substation.get("name") if isinstance(substation, dict) else ""
+            ),
             maintenance_date_time=date_time_value,
             body_length=len(sanitized_body or ""),
             responsible_id=responsible_id,
@@ -1047,9 +1047,9 @@ def create_maintenance_from_email(
         log_import_diagnostic(
             "email_import_people_persisted",
             maintenance_id=maintenance_id,
-            substation_id=substation.get("id")
-            if isinstance(substation, dict)
-            else None,
+            substation_id=(
+                substation.get("id") if isinstance(substation, dict) else None
+            ),
             people=[
                 {
                     "role": row["role"],

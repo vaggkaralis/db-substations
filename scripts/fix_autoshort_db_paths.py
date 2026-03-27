@@ -35,15 +35,13 @@ def main() -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    cur.execute(
-        """
+    cur.execute("""
         SELECT mrp.id, mrp.maintenance_id, mrp.element_id, mrp.report_path, e.name, s.name
         FROM maintenance_report_paths mrp
         JOIN elements e ON e.id = mrp.element_id
         JOIN substations s ON s.id = e.substation_id
         WHERE mrp.report_type = 'pdf' AND mrp.report_path LIKE '%\\_AUTO_SHORT\\%'
-        """
-    )
+        """)
     rows = cur.fetchall() or []
 
     updated = 0

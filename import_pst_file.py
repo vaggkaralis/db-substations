@@ -13,7 +13,6 @@ from database import init_db
 from email_eml_parser import sanitize_email_body_for_import
 from maintenance_email_importer import DEFAULT_DB_PATH, create_maintenance_from_email
 
-
 OL_MAIL_ITEM_CLASS = 43
 
 _MEDIA_EXTENSIONS = {

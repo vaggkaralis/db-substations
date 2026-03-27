@@ -272,14 +272,12 @@ def verify_maintenance_overview_report_synchronization(
     conn.row_factory = sqlite3.Row
     try:
         cursor = conn.cursor()
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT m.id AS maintenance_id, s.name AS substation_name
             FROM maintenance m
             JOIN substations s ON s.id = m.substation_id
             ORDER BY m.id DESC
-            """
-        )
+            """)
         rows = cursor.fetchall() or []
 
         existing = 0
@@ -332,9 +330,9 @@ def verify_maintenance_overview_report_synchronization(
             "missing_files": missing,
             "stale_tracked_rows": stale_tracked,
             "missing_details": missing_details[:10],
-            "status": "OK"
-            if missing == 0
-            else f"WARN: {missing} missing overview reports",
+            "status": (
+                "OK" if missing == 0 else f"WARN: {missing} missing overview reports"
+            ),
         }
     finally:
         conn.row_factory = original_row_factory
@@ -562,28 +560,23 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
     try:
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COUNT(*) as cnt
             FROM maintenance_report_paths
             WHERE report_type = 'pdf'
-            """
-        )
+            """)
         total_tracked = cursor.fetchone()["cnt"]
 
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COUNT(*) as cnt
             FROM maintenance_report_paths mrp
             LEFT JOIN maintenance_elements me
               ON me.maintenance_id = mrp.maintenance_id AND me.element_id = mrp.element_id
             WHERE mrp.report_type = 'pdf' AND me.maintenance_id IS NULL
-            """
-        )
+            """)
         orphan_tracked = cursor.fetchone()["cnt"]
 
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT DISTINCT
                 m.id as maintenance_id,
                 me.element_id,
@@ -600,8 +593,7 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
             LEFT JOIN maintenance_report_paths mrp
               ON mrp.maintenance_id = m.id AND mrp.element_id = me.element_id AND mrp.report_type = 'pdf'
             ORDER BY m.id DESC, me.element_id
-            """
-        )
+            """)
         rows = cursor.fetchall()
 
         existing = 0

@@ -11,7 +11,6 @@ from typing import Iterable
 from config_manager import get_app_setting
 from strings_proxy import STRINGS as S
 
-
 _MEDIA_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -1647,9 +1646,9 @@ def _normalize_storage_row_paths(
 
     return {
         "instance_folder": instance_root,
-        "reports_folder": existing_reports
-        if use_existing_reports
-        else canonical_reports,
+        "reports_folder": (
+            existing_reports if use_existing_reports else canonical_reports
+        ),
         "media_folder": existing_media if use_existing_media else canonical_media,
     }
 
@@ -2509,8 +2508,7 @@ def upsert_maintenance_report_path(
 def delete_orphaned_maintenance_report_paths(conn) -> int:
     """Delete tracked element report rows that no longer map to maintenance_elements."""
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         DELETE FROM maintenance_report_paths
         WHERE NOT EXISTS (
             SELECT 1
@@ -2518,8 +2516,7 @@ def delete_orphaned_maintenance_report_paths(conn) -> int:
             WHERE me.maintenance_id = maintenance_report_paths.maintenance_id
               AND me.element_id = maintenance_report_paths.element_id
         )
-        """
-    )
+        """)
     return cur.rowcount if cur.rowcount is not None else 0
 
 
@@ -2723,28 +2720,24 @@ def relink_existing_maintenance_assets(
     shared_root = resolve_shared_root(db_path)
 
     # Relink media folder link on maintenance table when missing.
-    cur.execute(
-        """
+    cur.execute("""
         SELECT m.id, m.onedrive_media_folder_link, msp.media_folder, s.name
         FROM maintenance m
         JOIN maintenance_storage_paths msp ON msp.maintenance_id = m.id
         JOIN substations s ON s.id = m.substation_id
         ORDER BY m.id
-        """
-    )
+        """)
     media_rows = cur.fetchall() or []
 
     # Preload report rows so total_work is available for media-phase progress.
-    cur.execute(
-        """
+    cur.execute("""
         SELECT m.id, me.element_id, e.name, e.element_type, e.gate, e.breaker_category, s.name
         FROM maintenance m
         JOIN maintenance_elements me ON me.maintenance_id = m.id
         JOIN elements e ON e.id = me.element_id
         JOIN substations s ON s.id = m.substation_id
         ORDER BY m.id DESC
-        """
-    )
+        """)
     rows = cur.fetchall() or []
 
     # total_work covers media phase plus one progress tick for every report row.
@@ -3343,13 +3336,11 @@ def retrofit_shared_root_paths(
             stats["maintenance_links_updated"] += 1
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cur.execute(
-        """
+    cur.execute("""
         SELECT mrp.id, mrp.report_path, e.element_type, e.breaker_category
         FROM maintenance_report_paths mrp
         JOIN elements e ON e.id = mrp.element_id
-        """
-    )
+        """)
     for report_id, old_report_path, element_type, breaker_category in (
         cur.fetchall() or []
     ):
@@ -3494,13 +3485,11 @@ def retrofit_folder_labels_to_greek(
     updated_report_paths = 0
     errors: list[str] = []
 
-    cur.execute(
-        """
+    cur.execute("""
         SELECT maintenance_id, gate_key, instance_folder, media_folder, reports_folder
         FROM maintenance_storage_paths
         ORDER BY maintenance_id, gate_key
-        """
-    )
+        """)
     rows = cur.fetchall() or []
 
     for row in rows:
@@ -3570,13 +3559,11 @@ def retrofit_folder_labels_to_greek(
                 )
             updated_media_links += 1
 
-    cur.execute(
-        """
+    cur.execute("""
         SELECT mrp.id, mrp.report_path, e.element_type
         FROM maintenance_report_paths mrp
         JOIN elements e ON e.id = mrp.element_id
-        """
-    )
+        """)
     for row in cur.fetchall() or []:
         rid = row[0] if isinstance(row, (tuple, list)) else row["id"]
         old_path = row[1] if isinstance(row, (tuple, list)) else row["report_path"]

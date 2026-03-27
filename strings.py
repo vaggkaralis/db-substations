@@ -1267,7 +1267,6 @@ STRINGS_EN = {
         "SERIAL_NUMBER_HINT": "Serial Number",
         "ELEMENT_MANUFACTURE_YEAR_LABEL": "Manufacture Year",
         "ELEMENT_MANUFACTURE_YEAR_HINT": "YYYY",
-        
         "MAINTENANCE_DATE_HINT": "YYYY-MM-DD",
         "MANUFACTURER_LABEL": "Manufacturer",
         "MANUFACTURER_HINT": "Manufacturer",

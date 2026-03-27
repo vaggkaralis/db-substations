@@ -2,7 +2,6 @@ import math
 
 from DBrun import SubstationApp
 
-
 DUVAL_ZONES = {
     "PD": [(0.98, 0.02, 0.00), (0.98, 0.00, 0.02), (1.00, 0.00, 0.00)],
     "T1": [

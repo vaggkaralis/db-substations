@@ -7,8 +7,7 @@ from pdf_reports import MaintenanceReportGenerator
 def _create_pdf_schema(conn):
     cur = conn.cursor()
     # Minimal tables and columns referenced by generator
-    cur.executescript(
-        """
+    cur.executescript("""
         CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, division TEXT);
         CREATE TABLE element_models (id INTEGER PRIMARY KEY, manufacturer TEXT, model_name TEXT);
         CREATE TABLE elements (id INTEGER PRIMARY KEY, element_type TEXT, name TEXT, serial_number TEXT, manufacturer TEXT, model TEXT, breaker_category TEXT, voltage_level TEXT, gate TEXT, manufacture_year TEXT, element_model_id INTEGER);
@@ -46,8 +45,7 @@ def _create_pdf_schema(conn):
             vidar_fb TEXT,
             vidar_fc TEXT
         );
-        """
-    )
+        """)
     conn.commit()
 
 

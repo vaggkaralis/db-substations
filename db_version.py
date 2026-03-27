@@ -8,7 +8,6 @@ import json
 import os
 from datetime import datetime
 
-
 DB_METADATA_PATH = os.environ.get(
     "DB_METADATA_PATH",
     os.path.join(os.path.dirname(__file__), "db_metadata.json"),

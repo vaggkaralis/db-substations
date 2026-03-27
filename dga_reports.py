@@ -9,7 +9,6 @@ from datetime import datetime
 from openpyxl import load_workbook
 from strings_proxy import STRINGS as S
 
-
 _DGA_FIELD_ROWS = [
     ("h2", 19, "gases", "H2"),
     ("c2h2", 20, "gases", "C2H2"),

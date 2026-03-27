@@ -14,18 +14,14 @@ def _seed_sample_data(conn):
     cur.execute(
         "INSERT INTO substations (id, name, location) VALUES (1, 'TEST SUB', 'TEST LOC')"
     )
-    cur.execute(
-        """
+    cur.execute("""
         INSERT INTO elements (id, substation_id, element_type, name, gate, breaker_category)
         VALUES (10, 1, 'Διακόπτης ΥΤ', 'Q1', 'ΠΥΛΗ 1', 'SF6')
-        """
-    )
-    cur.execute(
-        """
+        """)
+    cur.execute("""
         INSERT INTO maintenance (id, substation_id, name, date_time, maintenance_type, user_name, overall_comments)
         VALUES (100, 1, 'Annual Maintenance', '2026-03-25 08:00:00', 'Ετήσια', 'tester', 'Overall ok')
-        """
-    )
+        """)
     cur.execute(
         "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (100, 10, 'Element ok')"
     )

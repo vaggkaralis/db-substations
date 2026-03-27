@@ -538,12 +538,14 @@ def show_add_element_popup(app, instance):
                 is_main_switch,
                 breaker_category_value,
                 (
-                    None
-                    if rated_power_val == ""
-                    else float(rated_power_val.replace(",", "."))
-                )
-                if rated_power_val
-                else None,
+                    (
+                        None
+                        if rated_power_val == ""
+                        else float(rated_power_val.replace(",", "."))
+                    )
+                    if rated_power_val
+                    else None
+                ),
             ),
         )
         element_id = c.lastrowid
@@ -569,12 +571,14 @@ def show_add_element_popup(app, instance):
             "is_main_switch": is_main_switch,
             "breaker_category": breaker_category_value,
             "power_mva": (
-                None
-                if rated_power_val == ""
-                else float(rated_power_val.replace(",", "."))
-            )
-            if rated_power_val
-            else None,
+                (
+                    None
+                    if rated_power_val == ""
+                    else float(rated_power_val.replace(",", "."))
+                )
+                if rated_power_val
+                else None
+            ),
         }
         app._append_change_log("insert", "elements", element_data)
 
@@ -1744,12 +1748,16 @@ def show_add_element_popup_for_substation(
 
     initial_gates = app.get_available_gates(substation_id)
     gate_spinner = Spinner(
-        text=initial_gates[0]
-        if initial_gates
-        else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"),
-        values=initial_gates
-        if initial_gates
-        else [S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")],
+        text=(
+            initial_gates[0]
+            if initial_gates
+            else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+        ),
+        values=(
+            initial_gates
+            if initial_gates
+            else [S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")]
+        ),
         size_hint_y=None,
         height=40,
     )

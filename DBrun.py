@@ -15,7 +15,7 @@ import sqlite3
 import sys
 import logging
 import subprocess
- 
+
 import webbrowser
 from datetime import datetime, timedelta
 from database import init_db
@@ -57,6 +57,7 @@ from validation import (
     filter_people_for_maintenance,
     group_people_by_category,
 )
+
 # Move runtime-only imports here so module-level imports are at top
 import importlib
 
@@ -93,7 +94,6 @@ from dga_reports import (
 
 from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput, StatusButton
 
- 
 
 # Lazy-evaluated strings (called at runtime, not import time)
 def get_unreg():
@@ -8964,8 +8964,8 @@ class SubstationApp(App):
                                     )
                                     try:
                                         _q = process_hybrid_queue(
-                                                    self.db_path, max_jobs=120
-                                                )
+                                            self.db_path, max_jobs=120
+                                        )
                                     except Exception:
                                         logging.exception(
                                             "Hybrid queue processing failed in scheduler"
@@ -10463,9 +10463,11 @@ class SubstationApp(App):
                         model["manufacturer"],
                         mcycle,
                         model["data"]["space"],
-                        model["data"].get("breaker_category")
-                        if model.get("data")
-                        else None,
+                        (
+                            model["data"].get("breaker_category")
+                            if model.get("data")
+                            else None
+                        ),
                     ),
                 )
             else:
@@ -12796,11 +12798,11 @@ class SubstationApp(App):
 
                         _elem_name = meta.get("elem_name")
                         elem_type = meta.get("elem_type")
-                        breaker_category = meta.get("breaker_category") 
+                        breaker_category = meta.get("breaker_category")
                         _model_manufacturer = meta.get("model_manufacturer")
                         _model_name = meta.get("model_name")
                         is_breaker = meta.get("is_breaker")
-                        _operations_count = meta.get("operations_count") 
+                        _operations_count = meta.get("operations_count")
                         has_measurement_form = bool(
                             is_breaker or self._is_transformer(elem_type)
                         )
@@ -15916,9 +15918,11 @@ class SubstationApp(App):
                 show_message_popup(
                     S["TITLES"].get("SUCCESS", "Επιτυχία"),
                     S["MESSAGES"].get(
-                        "MAINTENANCE_UPDATED"
-                        if maintenance_record
-                        else "MAINTENANCE_CREATED",
+                        (
+                            "MAINTENANCE_UPDATED"
+                            if maintenance_record
+                            else "MAINTENANCE_CREATED"
+                        ),
                         success_msg,
                     ),
                     callback=lambda: after_save_callback(),
@@ -15927,9 +15931,11 @@ class SubstationApp(App):
                 show_message_popup(
                     S["TITLES"].get("SUCCESS", "Επιτυχία"),
                     S["MESSAGES"].get(
-                        "MAINTENANCE_UPDATED"
-                        if maintenance_record
-                        else "MAINTENANCE_CREATED",
+                        (
+                            "MAINTENANCE_UPDATED"
+                            if maintenance_record
+                            else "MAINTENANCE_CREATED"
+                        ),
                         success_msg,
                     ),
                 )
@@ -16019,15 +16025,13 @@ class SubstationApp(App):
     def show_maintenance_history(self, instance, _deferred=False):
         """Show maintenance history – prompt user to pick a substation first."""
         c = self.conn.cursor()
-        c.execute(
-            """
+        c.execute("""
             SELECT s.id, s.name, COUNT(m.id) AS maint_count
             FROM substations s
             LEFT JOIN maintenance m ON m.substation_id = s.id
             GROUP BY s.id, s.name
             ORDER BY s.name
-            """
-        )
+            """)
         all_substations_raw = c.fetchall()
         if not all_substations_raw:
             from reports import show_message_popup
@@ -16090,16 +16094,14 @@ class SubstationApp(App):
             show_message_popup = None
 
         c = self.conn.cursor()
-        c.execute(
-            """
+        c.execute("""
             SELECT m.id, m.name, m.date_time, s.name AS sub_name, p.name AS person_name, t.tasks_text
             FROM maintenance_pending_tasks t
             JOIN maintenance m ON t.maintenance_id = m.id
             LEFT JOIN substations s ON m.substation_id = s.id
             LEFT JOIN people p ON m.responsible_id = p.id
             ORDER BY m.date_time DESC
-            """
-        )
+            """)
         rows = c.fetchall() or []
         if not rows:
             if show_message_popup:
@@ -16346,15 +16348,13 @@ class SubstationApp(App):
             )
             all_elements_in_sub = c.fetchall()
 
-        c.execute(
-            """
+        c.execute("""
             SELECT s.id, s.name, COUNT(m.id) AS maint_count
             FROM substations s
             LEFT JOIN maintenance m ON m.substation_id = s.id
             GROUP BY s.id, s.name
             ORDER BY s.name
-            """
-        )
+            """)
         all_substations_raw = c.fetchall()
         chooser_substations = []
         chooser_map = {}
@@ -16365,9 +16365,11 @@ class SubstationApp(App):
 
         element_name_by_id = {eid: ename for eid, ename, _etype in all_elements_in_sub}
         current_element_filter = {
-            "id": preselected_element_id
-            if preselected_element_id in element_name_by_id
-            else None,
+            "id": (
+                preselected_element_id
+                if preselected_element_id in element_name_by_id
+                else None
+            ),
             "name": None,
         }
         if current_element_filter["id"] is not None:
@@ -18081,8 +18083,7 @@ class SubstationApp(App):
     def show_problematic_dga_measurements(self, parent_popup=None):
         """Display DGA measurements that are outside configured template limits."""
         c = self.conn.cursor()
-        c.execute(
-            """
+        c.execute("""
             SELECT
                 dm.id,
                 dm.maintenance_id,
@@ -18102,8 +18103,7 @@ class SubstationApp(App):
             JOIN substations s ON s.id = dm.substation_id
             JOIN elements e ON e.id = dm.element_id
             ORDER BY dm.measurement_date DESC, dm.created_at DESC
-            """
-        )
+            """)
         rows = c.fetchall()
 
         problematic = []
@@ -19305,57 +19305,91 @@ class SubstationApp(App):
                             measurement_responsible.text.strip() or None,
                             sample_point.text.strip() or None,
                             sampling_method.text.strip() or None,
-                            float(sample_temperature.text.replace(",", "."))
-                            if sample_temperature.text.strip()
-                            else None,
-                            float(h2.text.replace(",", "."))
-                            if h2.text.strip()
-                            else None,
-                            float(c2h2.text.replace(",", "."))
-                            if c2h2.text.strip()
-                            else None,
-                            float(c2h4.text.replace(",", "."))
-                            if c2h4.text.strip()
-                            else None,
-                            float(c2h6.text.replace(",", "."))
-                            if c2h6.text.strip()
-                            else None,
-                            float(co.text.replace(",", "."))
-                            if co.text.strip()
-                            else None,
-                            float(co2.text.replace(",", "."))
-                            if co2.text.strip()
-                            else None,
-                            float(ch4.text.replace(",", "."))
-                            if ch4.text.strip()
-                            else None,
-                            float(o2.text.replace(",", "."))
-                            if o2.text.strip()
-                            else None,
-                            float(c3h8.text.replace(",", "."))
-                            if c3h8.text.strip()
-                            else None,
-                            float(n2.text.replace(",", "."))
-                            if n2.text.strip()
-                            else None,
-                            float(h2o.text.replace(",", "."))
-                            if h2o.text.strip()
-                            else None,
-                            float(density.text.replace(",", "."))
-                            if density.text.strip()
-                            else None,
-                            float(humidity.text.replace(",", "."))
-                            if humidity.text.strip()
-                            else None,
-                            float(dielectric_strength.text.replace(",", "."))
-                            if dielectric_strength.text.strip()
-                            else None,
-                            float(loss_factor.text.replace(",", "."))
-                            if loss_factor.text.strip()
-                            else None,
-                            float(surface_tension.text.replace(",", "."))
-                            if surface_tension.text.strip()
-                            else None,
+                            (
+                                float(sample_temperature.text.replace(",", "."))
+                                if sample_temperature.text.strip()
+                                else None
+                            ),
+                            (
+                                float(h2.text.replace(",", "."))
+                                if h2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c2h2.text.replace(",", "."))
+                                if c2h2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c2h4.text.replace(",", "."))
+                                if c2h4.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c2h6.text.replace(",", "."))
+                                if c2h6.text.strip()
+                                else None
+                            ),
+                            (
+                                float(co.text.replace(",", "."))
+                                if co.text.strip()
+                                else None
+                            ),
+                            (
+                                float(co2.text.replace(",", "."))
+                                if co2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(ch4.text.replace(",", "."))
+                                if ch4.text.strip()
+                                else None
+                            ),
+                            (
+                                float(o2.text.replace(",", "."))
+                                if o2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c3h8.text.replace(",", "."))
+                                if c3h8.text.strip()
+                                else None
+                            ),
+                            (
+                                float(n2.text.replace(",", "."))
+                                if n2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(h2o.text.replace(",", "."))
+                                if h2o.text.strip()
+                                else None
+                            ),
+                            (
+                                float(density.text.replace(",", "."))
+                                if density.text.strip()
+                                else None
+                            ),
+                            (
+                                float(humidity.text.replace(",", "."))
+                                if humidity.text.strip()
+                                else None
+                            ),
+                            (
+                                float(dielectric_strength.text.replace(",", "."))
+                                if dielectric_strength.text.strip()
+                                else None
+                            ),
+                            (
+                                float(loss_factor.text.replace(",", "."))
+                                if loss_factor.text.strip()
+                                else None
+                            ),
+                            (
+                                float(surface_tension.text.replace(",", "."))
+                                if surface_tension.text.strip()
+                                else None
+                            ),
                             notes.text.strip() or None,
                             primary_report_path,
                             now_db,
@@ -19385,57 +19419,91 @@ class SubstationApp(App):
                             measurement_responsible.text.strip() or None,
                             sample_point.text.strip() or None,
                             sampling_method.text.strip() or None,
-                            float(sample_temperature.text.replace(",", "."))
-                            if sample_temperature.text.strip()
-                            else None,
-                            float(h2.text.replace(",", "."))
-                            if h2.text.strip()
-                            else None,
-                            float(c2h2.text.replace(",", "."))
-                            if c2h2.text.strip()
-                            else None,
-                            float(c2h4.text.replace(",", "."))
-                            if c2h4.text.strip()
-                            else None,
-                            float(c2h6.text.replace(",", "."))
-                            if c2h6.text.strip()
-                            else None,
-                            float(co.text.replace(",", "."))
-                            if co.text.strip()
-                            else None,
-                            float(co2.text.replace(",", "."))
-                            if co2.text.strip()
-                            else None,
-                            float(ch4.text.replace(",", "."))
-                            if ch4.text.strip()
-                            else None,
-                            float(o2.text.replace(",", "."))
-                            if o2.text.strip()
-                            else None,
-                            float(c3h8.text.replace(",", "."))
-                            if c3h8.text.strip()
-                            else None,
-                            float(n2.text.replace(",", "."))
-                            if n2.text.strip()
-                            else None,
-                            float(h2o.text.replace(",", "."))
-                            if h2o.text.strip()
-                            else None,
-                            float(density.text.replace(",", "."))
-                            if density.text.strip()
-                            else None,
-                            float(humidity.text.replace(",", "."))
-                            if humidity.text.strip()
-                            else None,
-                            float(dielectric_strength.text.replace(",", "."))
-                            if dielectric_strength.text.strip()
-                            else None,
-                            float(loss_factor.text.replace(",", "."))
-                            if loss_factor.text.strip()
-                            else None,
-                            float(surface_tension.text.replace(",", "."))
-                            if surface_tension.text.strip()
-                            else None,
+                            (
+                                float(sample_temperature.text.replace(",", "."))
+                                if sample_temperature.text.strip()
+                                else None
+                            ),
+                            (
+                                float(h2.text.replace(",", "."))
+                                if h2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c2h2.text.replace(",", "."))
+                                if c2h2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c2h4.text.replace(",", "."))
+                                if c2h4.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c2h6.text.replace(",", "."))
+                                if c2h6.text.strip()
+                                else None
+                            ),
+                            (
+                                float(co.text.replace(",", "."))
+                                if co.text.strip()
+                                else None
+                            ),
+                            (
+                                float(co2.text.replace(",", "."))
+                                if co2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(ch4.text.replace(",", "."))
+                                if ch4.text.strip()
+                                else None
+                            ),
+                            (
+                                float(o2.text.replace(",", "."))
+                                if o2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(c3h8.text.replace(",", "."))
+                                if c3h8.text.strip()
+                                else None
+                            ),
+                            (
+                                float(n2.text.replace(",", "."))
+                                if n2.text.strip()
+                                else None
+                            ),
+                            (
+                                float(h2o.text.replace(",", "."))
+                                if h2o.text.strip()
+                                else None
+                            ),
+                            (
+                                float(density.text.replace(",", "."))
+                                if density.text.strip()
+                                else None
+                            ),
+                            (
+                                float(humidity.text.replace(",", "."))
+                                if humidity.text.strip()
+                                else None
+                            ),
+                            (
+                                float(dielectric_strength.text.replace(",", "."))
+                                if dielectric_strength.text.strip()
+                                else None
+                            ),
+                            (
+                                float(loss_factor.text.replace(",", "."))
+                                if loss_factor.text.strip()
+                                else None
+                            ),
+                            (
+                                float(surface_tension.text.replace(",", "."))
+                                if surface_tension.text.strip()
+                                else None
+                            ),
                             notes.text.strip() or None,
                             primary_report_path,
                             now_db,
@@ -19802,8 +19870,7 @@ class SubstationApp(App):
         substations = c.fetchall()
 
         # Load all DGA measurement rows joined with element and maintenance info
-        c.execute(
-            """
+        c.execute("""
             SELECT dm.id, dm.maintenance_id, dm.element_id, e.name, e.serial_number, e.manufacturer,
                    dm.substation_id, s.name AS substation_name,
                    dm.measurement_date, dm.sampling_date, dm.report_path, dm.created_at,
@@ -19813,8 +19880,7 @@ class SubstationApp(App):
             LEFT JOIN elements e ON dm.element_id = e.id
             LEFT JOIN substations s ON dm.substation_id = s.id
             ORDER BY dm.measurement_date DESC, dm.created_at DESC
-            """
-        )
+            """)
         rows = c.fetchall()
 
         Popup = globals().get("Popup")

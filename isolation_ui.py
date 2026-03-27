@@ -10,7 +10,6 @@ from onedrive_hybrid_storage import ensure_isolation_request_storage
 from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
 
-
 _STATUS_VALUES = ["Requested", "Accepted", "Cancelled"]
 
 
@@ -1017,12 +1016,7 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         return start_dt, end_dt
 
     def save_request():
-        nonlocal \
-            request_id, \
-            existing_attachment_path, \
-            storage_folder_path, \
-            request_record, \
-            is_new_request
+        nonlocal request_id, existing_attachment_path, storage_folder_path, request_record, is_new_request
         validated = _validate_datetimes()
         if not validated:
             return
@@ -1167,9 +1161,11 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         )
 
     save_btn = Button(
-        text=S["BUTTONS"]["SAVE"]
-        if is_new_request
-        else S["BUTTONS"].get("UPDATE", S["BUTTONS"]["SAVE"])
+        text=(
+            S["BUTTONS"]["SAVE"]
+            if is_new_request
+            else S["BUTTONS"].get("UPDATE", S["BUTTONS"]["SAVE"])
+        )
     )
     save_btn.size_hint_x = 1
     save_btn.bind(on_press=lambda _x: save_request())

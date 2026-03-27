@@ -486,10 +486,7 @@ def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
                         if progress_bar_container is None:
 
                             def add_progress_bar():
-                                nonlocal \
-                                    progress_bar, \
-                                    progress_label, \
-                                    progress_bar_container
+                                nonlocal progress_bar, progress_label, progress_bar_container
                                 if progress_bar_container is None:
                                     try:
                                         from kivy.garden.progressbar import ProgressBar

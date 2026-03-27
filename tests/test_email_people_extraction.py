@@ -6,15 +6,13 @@ import maintenance_email_importer as mei
 def _make_conn():
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE people (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             active INTEGER NOT NULL DEFAULT 1
         )
-        """
-    )
+        """)
     conn.commit()
     return conn
 
@@ -78,16 +76,14 @@ def _make_element_conn():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE elements (
             id INTEGER PRIMARY KEY,
             substation_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             element_type TEXT NOT NULL
         )
-        """
-    )
+        """)
     conn.commit()
     return conn
 

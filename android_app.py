@@ -1086,8 +1086,7 @@ class SubstationAndroidApp(App):
             return []
         conn = sqlite3.connect(self.local_db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT
                 s.id,
                 s.name,
@@ -1127,8 +1126,7 @@ class SubstationAndroidApp(App):
                 ) AS maintenances_count
             FROM substations s
             ORDER BY s.name ASC
-            """
-        )
+            """)
         rows = cursor.fetchall()
         conn.close()
         return [

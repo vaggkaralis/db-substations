@@ -9,7 +9,6 @@ Handles persistent settings stored in app_settings.json:
 import json
 import os
 
-
 APP_NAME = "SubstationManager"
 _DEFAULT_SETTINGS_FILE_NAME = "app_settings.json"
 _DEFAULT_TEMPLATE_FILE_NAME = "app_settings.default.json"
@@ -45,9 +44,11 @@ _APPDATA_SETTINGS_FILE = os.path.join(APP_DATA_DIR, _DEFAULT_SETTINGS_FILE_NAME)
 
 SETTINGS_FILE = os.environ.get(
     "APP_SETTINGS_PATH",
-    _PROJECT_SETTINGS_FILE
-    if os.path.exists(_PROJECT_SETTINGS_FILE)
-    else _APPDATA_SETTINGS_FILE,
+    (
+        _PROJECT_SETTINGS_FILE
+        if os.path.exists(_PROJECT_SETTINGS_FILE)
+        else _APPDATA_SETTINGS_FILE
+    ),
 )
 DEFAULT_TEMPLATE_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), _DEFAULT_TEMPLATE_FILE_NAME

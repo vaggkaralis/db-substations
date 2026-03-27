@@ -9,7 +9,6 @@ from email_text_utils import (
     tokenize_substation_text,
 )
 
-
 _DATE_TIME_PATTERN = re.compile(
     r"(?P<date>\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?).{0,40}?ώρα\s*(?P<time>\d{1,2}[:.]\d{2})",
     re.IGNORECASE | re.DOTALL,

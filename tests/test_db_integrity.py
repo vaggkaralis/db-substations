@@ -75,9 +75,9 @@ def test_integrity_check_missing_table():
         result = check_database_integrity(tmp_path, quick_check=False)
 
         assert not result.passed, "Database with missing tables should fail"
-        assert any("missing" in err.lower() for err in result.errors), (
-            "Should report missing tables"
-        )
+        assert any(
+            "missing" in err.lower() for err in result.errors
+        ), "Should report missing tables"
 
     finally:
         if os.path.exists(tmp_path):
@@ -164,9 +164,9 @@ def test_integrity_check_invalid_breaker_category():
 
         # This should generate a warning (not error, since database is usable)
         assert len(result.warnings) > 0, "Should warn about breakers without category"
-        assert any("breaker" in warn.lower() for warn in result.warnings), (
-            "Should mention breakers in warning"
-        )
+        assert any(
+            "breaker" in warn.lower() for warn in result.warnings
+        ), "Should mention breakers in warning"
 
     finally:
         if os.path.exists(tmp_path):

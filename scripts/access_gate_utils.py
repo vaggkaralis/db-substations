@@ -16,6 +16,7 @@ def generate_interconnection_gate_labels(gate_numbers):
             labels.append(f"ΠΥΛΗ {gate_numbers[i]}-{gate_numbers[j]}")
     return labels
 
+
 def normalize_text(value):
     text = str(value or "").replace("\x00", "").strip().upper()
     text = unicodedata.normalize("NFD", text)

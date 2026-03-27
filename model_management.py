@@ -144,9 +144,9 @@ def show_models_management(app_instance):
                         # Initialize ordered groups
                         for breaker_type in breaker_order:
                             breaker_groups[breaker_type] = []
-                        breaker_groups[
-                            S["MESSAGES"].get("OTHER_LABEL", "Άλλο")
-                        ] = []  # For uncategorized
+                        breaker_groups[S["MESSAGES"].get("OTHER_LABEL", "Άλλο")] = (
+                            []
+                        )  # For uncategorized
 
                         # Sort models into breaker groups
                         for model in category_models:

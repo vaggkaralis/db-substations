@@ -90,8 +90,7 @@ def archive_move(src: str, archive_root: str, reason: str, shared_root: str) -> 
 
 def fetch_rows(conn: sqlite3.Connection):
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         SELECT m.id AS maintenance_id,
                e.id AS element_id,
                e.name AS element_name,
@@ -102,8 +101,7 @@ def fetch_rows(conn: sqlite3.Connection):
         JOIN maintenance_elements me ON me.maintenance_id = m.id
         JOIN elements e ON e.id = me.element_id
         JOIN substations s ON s.id = m.substation_id
-        """
-    )
+        """)
     rows = cur.fetchall() or []
     by_mid = defaultdict(list)
     by_pair = {}
@@ -125,16 +123,14 @@ def fetch_rows(conn: sqlite3.Connection):
 
 def fetch_maintenance_context(conn: sqlite3.Connection):
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         SELECT m.id AS maintenance_id,
                m.substation_id,
                m.name AS maintenance_name,
                m.maintenance_type,
                m.date_time
         FROM maintenance m
-        """
-    )
+        """)
     ctx = {}
     for row in cur.fetchall() or []:
         maintenance_id = int(row[0])

@@ -397,8 +397,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     # Opportunistically clean existing stale report rows so startup/sync does not
     # continue carrying forward orphaned maintenance-element report links.
     try:
-        cursor.execute(
-            """
+        cursor.execute("""
             DELETE FROM maintenance_report_paths
             WHERE NOT EXISTS (
                 SELECT 1
@@ -406,8 +405,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                 WHERE me.maintenance_id = maintenance_report_paths.maintenance_id
                   AND me.element_id = maintenance_report_paths.element_id
             )
-            """
-        )
+            """)
     except Exception:
         pass
 

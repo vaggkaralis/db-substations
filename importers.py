@@ -1040,17 +1040,23 @@ def import_elements_from_excel(
                                         if pd.notna(maintenance_date)
                                         else ""
                                     ),
-                                    str(voltage_level)
-                                    if pd.notna(voltage_level)
-                                    else "",
-                                    manufacturer_value
-                                    if manufacturer_value is not None
-                                    else "",
+                                    (
+                                        str(voltage_level)
+                                        if pd.notna(voltage_level)
+                                        else ""
+                                    ),
+                                    (
+                                        manufacturer_value
+                                        if manufacturer_value is not None
+                                        else ""
+                                    ),
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    normalized_breaker_category
-                                    if normalized_breaker_category
-                                    else None,
+                                    (
+                                        normalized_breaker_category
+                                        if normalized_breaker_category
+                                        else None
+                                    ),
                                     maintenance_cycle_int,
                                     element_model_id,
                                     operating_status,
@@ -1067,17 +1073,23 @@ def import_elements_from_excel(
                                         if pd.notna(maintenance_date)
                                         else ""
                                     ),
-                                    str(voltage_level)
-                                    if pd.notna(voltage_level)
-                                    else "",
-                                    manufacturer_value
-                                    if manufacturer_value is not None
-                                    else "",
+                                    (
+                                        str(voltage_level)
+                                        if pd.notna(voltage_level)
+                                        else ""
+                                    ),
+                                    (
+                                        manufacturer_value
+                                        if manufacturer_value is not None
+                                        else ""
+                                    ),
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    normalized_breaker_category
-                                    if normalized_breaker_category
-                                    else None,
+                                    (
+                                        normalized_breaker_category
+                                        if normalized_breaker_category
+                                        else None
+                                    ),
                                     element_model_id,
                                     operating_status,
                                     existing[0],
@@ -1102,17 +1114,23 @@ def import_elements_from_excel(
                                         if pd.notna(maintenance_date)
                                         else ""
                                     ),
-                                    str(voltage_level)
-                                    if pd.notna(voltage_level)
-                                    else "",
-                                    manufacturer_value
-                                    if manufacturer_value is not None
-                                    else "",
+                                    (
+                                        str(voltage_level)
+                                        if pd.notna(voltage_level)
+                                        else ""
+                                    ),
+                                    (
+                                        manufacturer_value
+                                        if manufacturer_value is not None
+                                        else ""
+                                    ),
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    normalized_breaker_category
-                                    if normalized_breaker_category
-                                    else None,
+                                    (
+                                        normalized_breaker_category
+                                        if normalized_breaker_category
+                                        else None
+                                    ),
                                     maintenance_cycle_int,
                                     element_model_id,
                                     operating_status,
@@ -1132,17 +1150,23 @@ def import_elements_from_excel(
                                         if pd.notna(maintenance_date)
                                         else ""
                                     ),
-                                    str(voltage_level)
-                                    if pd.notna(voltage_level)
-                                    else "",
-                                    manufacturer_value
-                                    if manufacturer_value is not None
-                                    else "",
+                                    (
+                                        str(voltage_level)
+                                        if pd.notna(voltage_level)
+                                        else ""
+                                    ),
+                                    (
+                                        manufacturer_value
+                                        if manufacturer_value is not None
+                                        else ""
+                                    ),
                                     str(gate) if gate else "",
                                     is_main_switch,
-                                    normalized_breaker_category
-                                    if normalized_breaker_category
-                                    else None,
+                                    (
+                                        normalized_breaker_category
+                                        if normalized_breaker_category
+                                        else None
+                                    ),
                                     element_model_id,
                                     operating_status,
                                 ),
@@ -1698,12 +1722,16 @@ def import_elements_from_csv(
                                         if pd.notna(maintenance_date)
                                         else ""
                                     ),
-                                    str(voltage_level)
-                                    if pd.notna(voltage_level)
-                                    else "",
-                                    manufacturer_value
-                                    if manufacturer_value is not None
-                                    else "",
+                                    (
+                                        str(voltage_level)
+                                        if pd.notna(voltage_level)
+                                        else ""
+                                    ),
+                                    (
+                                        manufacturer_value
+                                        if manufacturer_value is not None
+                                        else ""
+                                    ),
                                     str(gate) if gate else "",
                                     is_main_switch,
                                     breaker_type if breaker_type else None,
@@ -1723,12 +1751,16 @@ def import_elements_from_csv(
                                         if pd.notna(maintenance_date)
                                         else ""
                                     ),
-                                    str(voltage_level)
-                                    if pd.notna(voltage_level)
-                                    else "",
-                                    manufacturer_value
-                                    if manufacturer_value is not None
-                                    else "",
+                                    (
+                                        str(voltage_level)
+                                        if pd.notna(voltage_level)
+                                        else ""
+                                    ),
+                                    (
+                                        manufacturer_value
+                                        if manufacturer_value is not None
+                                        else ""
+                                    ),
                                     str(gate) if gate else "",
                                     is_main_switch,
                                     breaker_type if breaker_type else None,
@@ -1759,9 +1791,11 @@ def import_elements_from_csv(
                                     else ""
                                 ),
                                 str(voltage_level) if pd.notna(voltage_level) else "",
-                                manufacturer_value
-                                if manufacturer_value is not None
-                                else "",
+                                (
+                                    manufacturer_value
+                                    if manufacturer_value is not None
+                                    else ""
+                                ),
                                 str(gate) if gate else "",
                                 is_main_switch,
                                 breaker_type if breaker_type else None,
@@ -1786,9 +1820,11 @@ def import_elements_from_csv(
                                     else ""
                                 ),
                                 str(voltage_level) if pd.notna(voltage_level) else "",
-                                manufacturer_value
-                                if manufacturer_value is not None
-                                else "",
+                                (
+                                    manufacturer_value
+                                    if manufacturer_value is not None
+                                    else ""
+                                ),
                                 str(gate) if gate else "",
                                 is_main_switch,
                                 breaker_type if breaker_type else None,

@@ -7,7 +7,6 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -23,7 +22,6 @@ from access_gate_utils import (  # noqa: E402
     format_gate_label,
 )
 from maintenance_email_importer import _find_people_in_body  # noqa: E402
-
 
 ACCDB_PATH = powertrans.ACCDB_PATH
 SQLITE_PATH = powertrans.SQLITE_PATH
@@ -325,8 +323,7 @@ def main():
             normalized_interconnection_gates += 1
         report["normalized_interconnection_gates"] = normalized_interconnection_gates
 
-        conn.execute(
-            """
+        conn.execute("""
             UPDATE elements
             SET maintenance_date = (
                 SELECT MAX(m.date_time)
@@ -335,18 +332,15 @@ def main():
                 WHERE me.element_id = elements.id
             )
             WHERE id IN (SELECT DISTINCT element_id FROM maintenance_elements)
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             UPDATE substations
             SET last_maintenance = (
                 SELECT MAX(m.date_time)
                 FROM maintenance m
                 WHERE m.substation_id = substations.id
             )
-            """
-        )
+            """)
         conn.commit()
 
     payload = dict(report)

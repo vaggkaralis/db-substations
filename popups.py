@@ -208,7 +208,6 @@ if KIVY_AVAILABLE:
 
         return fp or None
 
-
 else:
     # Fallback implementations when Kivy is not available. These are
     # intentionally minimal: they print messages to console and use

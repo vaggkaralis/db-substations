@@ -254,7 +254,6 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
 
         # Check pikepdf availability
         try:
-
             has_pike = True
         except Exception:
             has_pike = False

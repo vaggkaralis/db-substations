@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pyodbc
 
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -21,7 +20,6 @@ from access_gate_utils import (  # noqa: E402
     find_transformer_gate,
     format_gate_label,
 )
-
 
 ACCDB_PATH = Path(
     r"C:\Users\e.karalis\OneDrive - Hellenic Electricity Distribution Network Operator S.A\60_Projects\DB Substations\substation_asset_maintenance.accdb"
@@ -124,8 +122,7 @@ def parse_asset_transformer_display(value):
 
 def build_access_connection():
     conn_str = (
-        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-        f"DBQ={ACCDB_PATH};"
+        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};" f"DBQ={ACCDB_PATH};"
     )
     return pyodbc.connect(conn_str)
 
@@ -216,9 +213,9 @@ def load_access_maintenance_rows():
                 {
                     "maintenance_id": int(row[0]),
                     "date": normalize_access_datetime(row[1]),
-                    "transformer_fk": str(row[2]).strip()
-                    if row[2] is not None
-                    else None,
+                    "transformer_fk": (
+                        str(row[2]).strip() if row[2] is not None else None
+                    ),
                     "maintainer_fk": int(row[3]) if row[3] is not None else None,
                     "description": row[4] or "",
                     "completed": bool(row[5]) if row[5] is not None else None,
@@ -229,8 +226,7 @@ def load_access_maintenance_rows():
 
 def load_sqlite_transformers(conn):
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT
             e.id AS element_id,
             e.name AS element_name,
@@ -243,8 +239,7 @@ def load_sqlite_transformers(conn):
            OR e.element_type LIKE '%transformer%'
            OR e.name LIKE 'ΜΣ%'
         ORDER BY s.name, e.name
-        """
-    ).fetchall()
+        """).fetchall()
 
     result = []
     for row in rows:

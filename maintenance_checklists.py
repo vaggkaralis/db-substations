@@ -1,7 +1,6 @@
 import json
 import os
 
-
 _DEFAULT_CATALOG = {
     "categories": [
         {
