@@ -9,7 +9,6 @@ from isolation_importer import (
 from onedrive_hybrid_storage import ensure_isolation_request_storage
 from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
-from ui.shared import IconOnlyButton
 
 
 _STATUS_VALUES = ["Requested", "Accepted", "Cancelled"]
@@ -354,7 +353,6 @@ def show_isolation_requests(app, instance=None):
         # containing the month's first day, and ending on the Sunday of the
         # week containing the month's last day. This shows leading/trailing
         # days from adjacent months.
-        from datetime import date
 
         first_of_month = datetime(year, month, 1).date()
         last_of_month = datetime(year, month, monthrange(year, month)[1]).date()

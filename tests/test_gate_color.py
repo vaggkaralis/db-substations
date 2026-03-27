@@ -18,10 +18,10 @@ def test_gate_color_maps_multiple_labels():
     _gate_color_map.clear()
     _assigned_colors.clear()
     labels = ["A", "B", "C", "ΠΥΛΗ 2"]
-    colors = [get_gate_color(l) for l in labels]
+    colors = [get_gate_color(label) for label in labels]
     # mapping should have entries for these labels
-    for l in labels:
-        assert l in _gate_color_map
+    for label in labels:
+        assert label in _gate_color_map
     # colors should be tuples
     assert all(isinstance(col, tuple) for col in colors)
 
@@ -30,6 +30,6 @@ def test_gate_colors_unique_for_multiple_labels():
     _gate_color_map.clear()
     _assigned_colors.clear()
     labels = [f"ΠΥΛΗ {i}" for i in range(1, len(GATE_COLOR_PALETTE) + 2)]
-    colors = [get_gate_color(l) for l in labels]
+    colors = [get_gate_color(label) for label in labels]
     # Expect colors to be unique for each label
     assert len(set(colors)) == len(labels)

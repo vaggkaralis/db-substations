@@ -38,7 +38,9 @@ def test_missing_table_line_is_ignored_and_others_apply(tmp_path):
         {"operation": "insert", "table": "nope", "data": {"z": "z"}},
         {"operation": "insert", "table": "good", "data": {"x": "y"}},
     ]
-    changelog.write_text("".join(json.dumps(l) + "\n" for l in lines), encoding="utf-8")
+    changelog.write_text(
+        "".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8"
+    )
 
     # should not raise
     apply_change_log_to_db(conn, str(changelog))

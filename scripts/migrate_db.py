@@ -85,21 +85,21 @@ def create_migration(version_new: str, migration_name: str, app_version: str) ->
 
         # Print reminder about compatibility matrix
         print(f"\n{'=' * 70}")
-        print(f"⚠️  IMPORTANT: Update DB_COMPATIBILITY in strings.py")
+        print("⚠️  IMPORTANT: Update DB_COMPATIBILITY in strings.py")
         print(f"{'=' * 70}")
         print(f"\nYou created DB version {version_new} for app {app_version}.")
-        print(f"Update the compatibility matrix in strings.py:\n")
-        print(f"    DB_COMPATIBILITY = {{")
-        print(f"        \"2.0.0\": {{'min_db': \"1.0.0\", 'max_db': \"1.0.0'}},")
+        print("Update the compatibility matrix in strings.py:\n")
+        print("    DB_COMPATIBILITY = {")
+        print("        \"2.0.0\": {'min_db': \"1.0.0\", 'max_db': \"1.0.0'},")
         print(
             f'        "{app_version}": {{\'min_db\': "?.?.?", \'max_db\': "{version_new}"}},  # <- ADD THIS'
         )
-        print(f"    }}\n")
-        print(f"Next steps:")
+        print("    }\n")
+        print("Next steps:")
         print(f"1. Edit {migration_path} and add your SQL schema changes")
-        print(f"2. Update DB_COMPATIBILITY in strings.py")
-        print(f"3. Test the changes")
-        print(f"4. Commit both files to git")
+        print("2. Update DB_COMPATIBILITY in strings.py")
+        print("3. Test the changes")
+        print("4. Commit both files to git")
 
         return True
 

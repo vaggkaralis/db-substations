@@ -9,7 +9,7 @@ This module performs comprehensive checks when loading a database to detect:
 """
 
 import sqlite3
-from typing import Dict, List, Tuple, Optional
+from typing import List
 
 
 class IntegrityCheckResult:

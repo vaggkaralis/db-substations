@@ -15,8 +15,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from maintenance_email_importer import _find_people_in_body
-from access_gate_utils import (
+from maintenance_email_importer import _find_people_in_body  # noqa: E402
+from access_gate_utils import (  # noqa: E402
     build_access_asset_gate_maps,
     find_mv_gate,
     format_gate_label,

@@ -5,13 +5,8 @@ Provides Android-safe wrappers for file operations that work with both
 direct filesystem paths and content URIs (for OneDrive, Google Drive, etc).
 """
 
-import json
 import os
 import shutil
-import sqlite3
-import tempfile
-from pathlib import Path
-from datetime import datetime
 
 try:
     from kivy.logger import Logger
@@ -235,8 +230,6 @@ def _read_content_uri(uri: str, encoding: str = "utf-8") -> str | None:
     Requires Android ContentResolver integration via Plyer.
     """
     try:
-        from plyer import filechooser
-
         # Attempting to read directly - may not work with all providers
         # This is a fallback for future SAF integration
         _log(f"Content URI reading not fully implemented for {uri}", "warning")

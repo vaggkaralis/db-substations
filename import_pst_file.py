@@ -7,7 +7,6 @@ import sqlite3
 import sys
 import time
 import tempfile
-import subprocess
 from datetime import datetime
 
 from database import init_db
@@ -196,7 +195,7 @@ def _init_pst_store(pst_path, progress_callback=None):
         raise RuntimeError("Η εισαγωγή από .pst υποστηρίζεται μόνο σε Windows.")
 
     try:
-        import win32com.client
+        pass
     except Exception as exc:
         raise RuntimeError(
             "Δεν βρέθηκε το pywin32. Απαιτείται για εισαγωγή αρχείων .pst."

@@ -1811,7 +1811,7 @@ class SubstationAndroidApp(App):
         elif already_applied > 0:
             msg = f"Συγχρονισμός ολοκληρώθηκε\nΌλες οι αλλαγές ήδη εφαρμοσμένες ({already_applied})"
         else:
-            msg = f"Συγχρονισμός ολοκληρώθηκε\nΔεν βρέθηκαν νέες αλλαγές"
+            msg = "Συγχρονισμός ολοκληρώθηκε\nΔεν βρέθηκαν νέες αλλαγές"
 
         self.show_error(msg, is_info=True)
 
@@ -2972,7 +2972,6 @@ class SubstationAndroidApp(App):
         """Show maintenance recording interface"""
         from kivy.uix.checkbox import CheckBox
         from kivy.uix.spinner import Spinner
-        from kivy.uix.widget import Widget
 
         popup = Popup(title=f"Συντήρηση - {substation['name']}", size_hint=(0.95, 0.95))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -3208,7 +3207,6 @@ class SubstationAndroidApp(App):
                         )
                         has_measurement_form = bool(is_breaker or is_transformer)
 
-                        is_sf6_breaker = is_breaker and breaker_category == "SF6"
                         is_hv_sf6 = (
                             elem_type
                             == S.get("MESSAGES", {}).get(

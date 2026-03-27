@@ -1,9 +1,7 @@
 import os
 import tempfile
 import shutil
-from pathlib import Path
 
-import pytest
 
 from onedrive_hybrid_storage import (
     _isolation_instance_folder_name,
@@ -26,7 +24,7 @@ def test_instance_folder_short_fallback():
         )
         assert folder.startswith(_ISOLATION_INSTANCE_PREFIX)
         # projected path should be reasonable
-        example_full = os.path.join(tmp, folder, f"Αίτηση_999.xlsx")
+        example_full = os.path.join(tmp, folder, "Αίτηση_999.xlsx")
         assert len(example_full) <= max(_ISOLATION_OPEN_PATH_MAX, len(example_full))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from maintenance_email_importer import _find_elements_in_body
-from settings import DB_PATH
+from maintenance_email_importer import _find_elements_in_body  # noqa: E402
+from settings import DB_PATH  # noqa: E402
 
 
 def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:

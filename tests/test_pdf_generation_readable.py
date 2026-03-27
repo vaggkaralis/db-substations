@@ -1,5 +1,4 @@
 import pytest
-from pathlib import Path
 
 
 def test_generated_pdf_is_readable(tmp_path):

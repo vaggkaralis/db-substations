@@ -698,8 +698,6 @@ def _report_bucket_label_for_element(
         token in t for token in ("διακόπτη", "διακόπτης", "breaker")
     )
     if is_breaker_generic or not t:
-        if breaker_category:
-            bc = (breaker_category or "").strip().lower()
         # Fallback: prefer HV for breakers when ambiguous (matches prior behaviour)
         if is_breaker_generic:
             return _DIR_REPORTS_BREAKERS_HV
@@ -2046,9 +2044,6 @@ def ensure_maintenance_folders(
             maintenance_type=maintenance_type,
             gate_root=gate_root,
         )
-        inspections_root = os.path.join(gate_root, _DIR_INSPECTIONS)
-        dga_root = os.path.join(gate_root, _DIR_DGA)
-
         queue_payload = {
             "kind": "ensure_gate_structure",
             "maintenance_id": maintenance_id,
@@ -2075,10 +2070,6 @@ def ensure_maintenance_folders(
         )
         instance_root = normalized_paths["instance_folder"]
         reports_root = normalized_paths["reports_folder"]
-        reports_breakers_hv = os.path.join(reports_root, _DIR_REPORTS_BREAKERS_HV)
-        reports_breakers_mv = os.path.join(reports_root, _DIR_REPORTS_BREAKERS_MV)
-        reports_transformers = os.path.join(reports_root, _DIR_REPORTS_TRANSFORMERS)
-        reports_other = os.path.join(reports_root, _DIR_REPORTS_OTHER)
         media_root = normalized_paths["media_folder"]
 
         # Defer creating the instance/reports/media folders until an actual
@@ -2273,14 +2264,6 @@ def get_transformer_report_targets(
         rows = cur.fetchall() or []
 
     shared_root = resolve_shared_root(db_path)
-    queue_payload = {
-        "kind": "ensure_reports_root",
-        "maintenance_id": maintenance_id,
-        "gate_key": gate_key,
-        "shared_root": shared_root,
-        "created_at": datetime.now().isoformat(),
-    }
-
     targets: list[str] = []
     seen: set[str] = set()
     for row in rows:
@@ -3102,7 +3085,6 @@ def retrofit_maintenance_instance_folder_names(
             target_instance = os.path.join(instance_parent, target_instance_name)
 
             current_instance_path = old_instance_mapped or old_instance_raw or ""
-            current_base = os.path.basename(os.path.normpath(current_instance_path))
             current_abs = (
                 os.path.normcase(os.path.abspath(current_instance_path))
                 if current_instance_path
@@ -3110,7 +3092,6 @@ def retrofit_maintenance_instance_folder_names(
             )
             target_abs = os.path.normcase(os.path.abspath(target_instance))
             needs_move = current_abs != target_abs
-            needs_rename = current_base != target_instance_name
 
             # Resolve collisions by adding maintenance id suffix.
             final_target = target_instance

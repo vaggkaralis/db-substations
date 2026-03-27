@@ -8,7 +8,6 @@ Handles persistent settings stored in app_settings.json:
 
 import json
 import os
-from datetime import datetime
 
 
 APP_NAME = "SubstationManager"

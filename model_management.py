@@ -1310,8 +1310,6 @@ def show_model_usages(app_instance, model_id, model_name):
         grid = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
         grid.bind(minimum_height=grid.setter("height"))
 
-        # Group by substation
-        current_substation = None
         # Fetch model rated power once
         try:
             c.execute("SELECT power_mva FROM element_models WHERE id=?", (model_id,))
@@ -1444,7 +1442,6 @@ def show_model_usages(app_instance, model_id, model_name):
             total_count = active_count + inactive_count
 
             # Substation header
-            current_substation = substation_name
             count_text = f" ({total_count}/{inactive_count})"
 
             # Create a layout for substation header with button

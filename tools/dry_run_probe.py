@@ -3,7 +3,8 @@
 Does not modify DB or perform sync; read-only.
 """
 
-import os, json, time
+import os
+import json
 from datetime import datetime
 from sync_service import resolve_sync_root
 from onedrive_hybrid_storage import resolve_shared_root
@@ -137,7 +138,7 @@ def load_saved_state(db_path):
 
 def main():
     # Find DB path from app settings or default
-    from config_manager import get_db_path, get_app_setting
+    from config_manager import get_db_path
 
     db_path = get_db_path() or os.path.join(os.getcwd(), "substations.db")
     minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)

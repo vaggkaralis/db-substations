@@ -51,7 +51,7 @@ def clear_maintenance_history(db_path=None):
         c.execute("SELECT COUNT(*) FROM maintenance_people")
         people_count = c.fetchone()[0]
 
-        print(f"\nFound:")
+        print("\nFound:")
         print(f"  - {maintenance_count} maintenance records")
         print(f"  - {elements_count} maintenance-element associations")
         print(f"  - {people_count} maintenance-people associations")
@@ -80,7 +80,7 @@ def clear_maintenance_history(db_path=None):
 
         conn.commit()
 
-        print(f"\n✅ Successfully cleared maintenance history:")
+        print("\n✅ Successfully cleared maintenance history:")
         print(f"  - Deleted {maintenance_count} maintenance records")
         print(
             f"  - Deleted {elements_count} maintenance-element associations (cascaded)"

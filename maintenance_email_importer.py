@@ -12,7 +12,6 @@ from email_eml_parser import sanitize_email_body_for_import
 from email_text_utils import normalize_text as _normalize_text
 from email_text_utils import tokenize_text as _tokenize_text
 from email_text_utils import tokens_match as _tokens_match
-from email_text_utils import normalize_substation_tokens as _normalize_substation_tokens
 from email_text_utils import tokenize_substation_text as _tokenize_substation_text
 from email_text_utils import (
     iter_substation_name_candidates as _iter_substation_name_candidates,
@@ -114,16 +113,13 @@ _SUBSTATION_ALIASES = {
     "κυτ φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "κυτ φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-    "κυτ φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "φιλιππων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "φιλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
-    "φιλλιπων": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "κυτ φιλιππων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "κυτ φιλλιπων μσ1": "ΚΥΤ ΦΙΛΙΠΠΩΝ",
     "κυυτ θεσσαλονικης": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
     "κυτ θεσσαλονικησ": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
-    "κυυτ θεσσαλονικησ": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",  # with final sigma and double upsilon
     "κυυτ θεσσαλονικησ": "ΚΥΤ ΘΕΣΣΑΛΟΝΙΚΗΣ",
     # ΣΕΡΡΕΣ
     "σερρες": "ΣΕΡΡΕΣ",

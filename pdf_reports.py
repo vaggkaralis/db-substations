@@ -3,6 +3,11 @@ PDF Report Generation for Circuit Breaker Maintenance
 Generates maintenance reports matching the official templates
 """
 
+import unicodedata
+from datetime import datetime
+
+from strings_proxy import STRINGS as S
+
 try:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -31,7 +36,6 @@ import json
 import logging
 import os
 import subprocess
-import tempfile
 import uuid
 import threading
 import queue
@@ -200,12 +204,6 @@ def repair_pdf_access(path: str, *, normalize_existing: bool = True) -> bool:
         return False
 
 
-import unicodedata
-from datetime import datetime
-
-from strings_proxy import STRINGS as S
-
-
 def _fs_path(path: str) -> str:
     abs_path = os.path.abspath(path)
     if os.name != "nt" or abs_path.startswith("\\\\?\\"):
@@ -256,7 +254,6 @@ def _finalize_pdf(temp_path: str, final_path: str) -> None:
 
         # Check pikepdf availability
         try:
-            import pikepdf  # type: ignore
 
             has_pike = True
         except Exception:

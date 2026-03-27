@@ -868,7 +868,6 @@ def _export_single_maintenance_pdf(app, maintenance_id, element_id):
     from popups import show_message_popup
     from report_sync import safe_generate_and_store_report
     from reports import show_confirm
-    import os
 
     try:
         # Get element info for messages

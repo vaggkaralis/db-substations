@@ -61,9 +61,9 @@ def show_maintenance_menu_popup(app, ui):
     def _on_add(_instance=None):
         try:
             app.show_maintenance_menu(parent_popup=menu_popup)
-        except Exception as exc:
+        except Exception:
             try:
-                import traceback, sys
+                import traceback
 
                 tb = traceback.format_exc()
                 log_path = os.path.join(
@@ -413,7 +413,6 @@ def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
     Popup = ui["Popup"]
     BoxLayout = ui["BoxLayout"]
     Label = ui["Label"]
-    Button = ui["Button"]
     show_message_popup = ui["show_message_popup"]
 
     fp = ask_open_file(
@@ -532,8 +531,6 @@ def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
             )
 
             # Schedule UI update on main thread
-            from kivy.clock import Clock
-
             def show_results(_dt):
                 try:
                     progress_popup.dismiss()

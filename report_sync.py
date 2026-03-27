@@ -11,8 +11,6 @@ Handles:
 import os
 import sqlite3
 import hashlib
-from pathlib import Path
-from datetime import datetime
 
 from pdf_reports import repair_pdf_access
 
@@ -79,8 +77,6 @@ def get_or_prompt_report_path(
             if isinstance(element_row, (tuple, list))
             else element_row["breaker_category"]
         )
-        safe_name = elem_name.replace("/", "-").replace("\\", "-").replace(":", "-")
-
         # Get the proper report target folder from storage layer
         targets = get_transformer_report_targets(
             conn,
@@ -118,10 +114,6 @@ def get_or_prompt_report_path(
             if substation_row and isinstance(substation_row, (tuple, list))
             else (substation_row["name"] if substation_row else "unknown")
         )
-        safe_substation = (
-            substation_name.replace("/", "-").replace("\\", "-").replace(":", "-")
-        )
-
         # Construct canonical filename
         canonical_path = os.path.join(
             subfolder,
@@ -143,8 +135,6 @@ def get_or_prompt_report_path(
         )
 
         file_exists = repair_pdf_access(canonical_path)
-        db_path_matches = existing_db_path == canonical_path
-
         shared_root = resolve_shared_root(db_path)
 
         return {
@@ -458,7 +448,7 @@ def safe_generate_and_store_report(
             return {
                 "success": True,
                 "path": report_path,
-                "message": f"Opening existing report...",
+                "message": "Opening existing report...",
                 "action_taken": "opened",
             }
 

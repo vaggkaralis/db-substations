@@ -390,22 +390,22 @@ def migrate_fallback_reports(*, conflict_policy: str = "skip"):
             stats["errors"] += 1
 
     # Cleanup: Remove empty directories
-    print(f"\nCleaning up empty directories...")
+    print("\nCleaning up empty directories...")
     prune_empty_dirs(fallback_root)
 
     # Try to remove fallback_root if empty
     try:
         if not any(os.scandir(fallback_root)):
             os.rmdir(fallback_root)
-            print(f"  Removed: _AUTO_SHORT_REPORTS (empty)")
-    except:
-        print(f"  _AUTO_SHORT_REPORTS still has content")
+            print("  Removed: _AUTO_SHORT_REPORTS (empty)")
+    except Exception:
+        print("  _AUTO_SHORT_REPORTS still has content")
 
     conn.commit()
     conn.close()
 
     # Print summary
-    print(f"\n=== MIGRATION SUMMARY ===")
+    print("\n=== MIGRATION SUMMARY ===")
     print(f"Reports scanned: {stats['scanned']}")
     print(f"Reports moved: {stats['moved']}")
     print(f"Duplicate fallback copies removed: {stats['removed_duplicates']}")

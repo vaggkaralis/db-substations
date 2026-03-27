@@ -1,3 +1,8 @@
+import re
+import unicodedata
+from collections import defaultdict
+
+
 # Utility to generate all interconnection gate labels for a list of gate numbers
 def generate_interconnection_gate_labels(gate_numbers):
     """
@@ -10,12 +15,6 @@ def generate_interconnection_gate_labels(gate_numbers):
         for j in range(i + 1, n):
             labels.append(f"ΠΥΛΗ {gate_numbers[i]}-{gate_numbers[j]}")
     return labels
-
-
-import re
-import unicodedata
-from collections import defaultdict
-
 
 def normalize_text(value):
     text = str(value or "").replace("\x00", "").strip().upper()

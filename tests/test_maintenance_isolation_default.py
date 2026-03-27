@@ -1,9 +1,7 @@
-import sqlite3
 from database import init_db
 
 
 def test_new_maintenance_defaults_to_most_recent_isolation(tmp_path, monkeypatch):
-    import DBrun
 
     # Prepare a temporary DB and insert a substation + two isolation requests
     db_path = tmp_path / "test_db.sqlite"
