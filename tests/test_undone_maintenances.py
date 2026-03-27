@@ -9,12 +9,15 @@ def test_show_undone_maintenances_smoke():
     c.execute("INSERT INTO substations (name) VALUES (?)", ("S1",))
     sub_id = c.lastrowid
     c.execute(
-        "INSERT INTO maintenance (substation_id, name, date_time) VALUES (?, ?, datetime('now'))",
+        "INSERT INTO maintenance (substation_id, name, date_time) "
+        "VALUES (?, ?, datetime('now'))",
         (sub_id, "M1"),
     )
     mid = c.lastrowid
     c.execute(
-        "INSERT INTO maintenance_pending_tasks (maintenance_id, tasks_text, created_at) VALUES (?, ?, datetime('now'))",
+        "INSERT INTO maintenance_pending_tasks "
+        "(maintenance_id, tasks_text, created_at) "
+        "VALUES (?, ?, datetime('now'))",
         (mid, "Task A"),
     )
     conn.commit()

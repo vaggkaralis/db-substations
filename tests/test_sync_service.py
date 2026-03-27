@@ -11,7 +11,8 @@ def _seed_db(conn: sqlite3.Connection) -> tuple[int, int]:
     cur.execute("INSERT INTO substations (name, location) VALUES (?, ?)", ("S1", "L1"))
     sub_id = cur.lastrowid
     cur.execute(
-        "INSERT INTO elements (substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?)",
+        "INSERT INTO elements (substation_id, element_type, name, breaker_category) "
+        "VALUES (?, ?, ?, ?)",
         (sub_id, "Διακόπτης ΜΤ", "E1", "SF6"),
     )
     elem_id = cur.lastrowid

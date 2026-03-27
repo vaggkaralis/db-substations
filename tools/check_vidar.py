@@ -20,7 +20,8 @@ logging.info("element: %s", row)
 if row:
     eid = row[0]
     c.execute(
-        "SELECT maintenance_id, vidar_fa, vidar_fb, vidar_fc FROM maintenance_elements WHERE element_id=?",
+        "SELECT maintenance_id, vidar_fa, vidar_fb, vidar_fc "
+        "FROM maintenance_elements WHERE element_id=?",
         (eid,),
     )
     logging.info("maintenance_elements: %s", c.fetchall())
