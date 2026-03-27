@@ -67,7 +67,8 @@ def recompute_elements(
                 inferred_ids = _find_elements_in_body(conn, comments or "", sid)
 
                 cur.execute(
-                    "SELECT id, element_id, COALESCE(element_comments, '') FROM maintenance_elements WHERE maintenance_id=?",
+                    "SELECT id, element_id, COALESCE(element_comments, '') "
+                    "FROM maintenance_elements WHERE maintenance_id=?",
                     (maintenance_id,),
                 )
                 existing_rows = cur.fetchall()
@@ -92,7 +93,9 @@ def recompute_elements(
                     )
                     for elem_id in sorted(inferred_ids):
                         cur.execute(
-                            "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, '')",
+                            "INSERT INTO maintenance_elements "
+                            "(maintenance_id, element_id, element_comments) "
+                            "VALUES (?, ?, '')",
                             (maintenance_id, elem_id),
                         )
                     summary["updated"] += 1
@@ -113,7 +116,10 @@ def main() -> int:
     )
     parser.add_argument("--db", default=DB_PATH, help="Path to SQLite database file")
     parser.add_argument(
-        "--substation-id", type=int, default=None, help="Optional substation id filter"
+        "--substation-id",
+        type=int,
+        default=None,
+        help="Optional substation id filter",
     )
     parser.add_argument(
         "--apply", action="store_true", help="Apply updates (default is dry-run)"

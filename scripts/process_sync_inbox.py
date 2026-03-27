@@ -3,7 +3,8 @@
 
 Usage:
     python scripts/process_sync_inbox.py
-    python scripts/process_sync_inbox.py --db path/to/substations.db --sync-root path/to/sync_exchange
+    python scripts/process_sync_inbox.py --db path/to/substations.db \
+        --sync-root path/to/sync_exchange
     python scripts/process_sync_inbox.py --hot-keep 3 --no-backup
 """
 
@@ -14,15 +15,15 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sync_service import (
-    resolve_db_path,
-    resolve_sync_root,
-    resolve_backup_root,
-    run_sync_cycle,
-)
-
 
 def main() -> int:
+    from sync_service import (
+        resolve_backup_root,
+        resolve_db_path,
+        resolve_sync_root,
+        run_sync_cycle,
+    )
+
     parser = argparse.ArgumentParser(description="Process OneDrive inbox submissions")
     parser.add_argument(
         "--db", dest="db_path", default=None, help="Path to authoritative SQLite DB"
