@@ -4,7 +4,7 @@ import sys
 # Ensure project root is on sys.path when running from tests/ directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from android_app import SubstationAndroidApp
+from android_app import SubstationAndroidApp  # noqa: E402
 
 
 class DummyLayout:
@@ -45,14 +45,19 @@ def run_permission_test(simulate_granted: bool):
         def request_permissions(perms):
             print("request_permissions called for:", perms)
 
-    # Inject fake module into function globals where used
-    # The code imports 'from android.permissions import check_permission, request_permissions, Permission' dynamically
-    # Simulate by inserting a fake module into sys.modules
+    # Inject fake module into function globals where used.
+    # The code imports:
+    #   from android.permissions import check_permission,
+    #   request_permissions, Permission
+    # dynamically. Simulate by inserting a fake module into sys.modules.
     sys.modules["android.permissions"] = FakePermissionModule
 
-    # Simulate user opening picker via _prompt_local_db_path open_picker path
-    # We'll call the internal logic that triggers permission check: _open_android_document_picker is invoked via open_local_db_picker -> _prompt_local_db_path -> open_picker
-    # But easier: directly call the permission checking block used before calling _open_android_document_picker
+    # Simulate user opening picker via _prompt_local_db_path open_picker path.
+    # We'll call the internal logic that triggers permission check:
+    # _open_android_document_picker is invoked via:
+    # open_local_db_picker -> _prompt_local_db_path -> open_picker.
+    # But easier: directly call the permission checking block used before
+    # calling _open_android_document_picker.
 
     # Simulate the selection callback
     def on_selected(selection):
