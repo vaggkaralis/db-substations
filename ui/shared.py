@@ -755,7 +755,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             win_w, win_h = Window.size
 
             def _calc_tooltip_pos(mx, my, tw, th):
-                # horizontal: place to the right of cursor; flip left if it would overflow
+                # horizontal: place to the right of cursor; flip left if it
+                # would overflow the window
                 if mx + 12 + tw > win_w - 6:
                     tx = mx - tw - 12
                 else:
@@ -784,7 +785,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 x, y = _calc_tooltip_pos(pos[0], pos[1], w, h)
                 lbl.pos = (x, y)
                 lbl.canvas.ask_update()
-                # schedule a post-layout update to recompute texture-derived size/position
+                # schedule a post-layout update to recompute texture-derived
+                # size/position
                 try:
                     from kivy.clock import Clock
 
@@ -814,7 +816,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 try:
                     Window.add_widget(lbl)
                 except Exception:
-                    # Fallback: try an app-level overlay if Window doesn't accept widgets
+                    # Fallback: try an app-level overlay if Window doesn't
+                    # accept widgets
                     try:
                         from kivy.app import App
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Repair elements in substations_backup.db:
 - Ensure each element has a unique, non-zero `id`.
-- Fix invalid `element_type` or `breaker_category` values by assigning a random valid one.
+- Fix invalid `element_type` or `breaker_category` values by assigning a random
+    valid one.
 
 Run as: python tools/repair_elements_db.py [path_to_db]
 """
