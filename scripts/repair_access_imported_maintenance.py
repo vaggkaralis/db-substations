@@ -62,7 +62,8 @@ def sync_maintenance_people(conn, maintenance_id, responsible_id, description):
     )
     if responsible_id:
         conn.execute(
-            "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, 'responsible')",
+            "INSERT INTO maintenance_people "
+            "(maintenance_id, person_id, role) VALUES (?, ?, 'responsible')",
             (maintenance_id, responsible_id),
         )
     crew_ids = sorted(
@@ -74,7 +75,8 @@ def sync_maintenance_people(conn, maintenance_id, responsible_id, description):
     )
     for person_id in crew_ids:
         conn.execute(
-            "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, 'crew')",
+            "INSERT INTO maintenance_people "
+            "(maintenance_id, person_id, role) VALUES (?, ?, 'crew')",
             (maintenance_id, person_id),
         )
     return crew_ids
@@ -135,11 +137,13 @@ def repair_powertrans(conn, gate_maps, report):
             responsible_name, sqlite_people
         )
         conn.execute(
-            "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, responsible_id = ? WHERE id = ?",
+            "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, "
+            "responsible_id = ? WHERE id = ?",
             (row["date"], row["description"], responsible_id, maintenance_id),
         )
         conn.execute(
-            "UPDATE maintenance_elements SET element_comments = ? WHERE maintenance_id = ? AND element_id = ?",
+            "UPDATE maintenance_elements SET element_comments = ? "
+            "WHERE maintenance_id = ? AND element_id = ?",
             (row["description"], maintenance_id, element["element_id"]),
         )
         crew_ids = sync_maintenance_people(
@@ -196,11 +200,13 @@ def repair_hvcb(conn, gate_maps, report):
             row.get("access_maintainer_name"), sqlite_people
         )
         conn.execute(
-            "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, responsible_id = ? WHERE id = ?",
+            "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, "
+            "responsible_id = ? WHERE id = ?",
             (row["date"], row["description"], responsible_id, maintenance_id),
         )
         conn.execute(
-            "UPDATE maintenance_elements SET element_comments = ? WHERE maintenance_id = ? AND element_id = ?",
+            "UPDATE maintenance_elements SET element_comments = ? "
+            "WHERE maintenance_id = ? AND element_id = ?",
             (row["description"], maintenance_id, element["element_id"]),
         )
         crew_ids = sync_maintenance_people(
@@ -257,11 +263,13 @@ def repair_mvcb(conn, gate_maps, report):
             row.get("access_maintainer_name"), sqlite_people
         )
         conn.execute(
-            "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, responsible_id = ? WHERE id = ?",
+            "UPDATE maintenance SET name = NULL, date_time = ?, overall_comments = ?, "
+            "responsible_id = ? WHERE id = ?",
             (row["date"], row["description"], responsible_id, maintenance_id),
         )
         conn.execute(
-            "UPDATE maintenance_elements SET element_comments = ? WHERE maintenance_id = ? AND element_id = ?",
+            "UPDATE maintenance_elements SET element_comments = ? "
+            "WHERE maintenance_id = ? AND element_id = ?",
             (row["description"], maintenance_id, element["element_id"]),
         )
         crew_ids = sync_maintenance_people(
@@ -309,7 +317,9 @@ def main():
 
         normalized_interconnection_gates = 0
         rows = conn.execute(
-            "SELECT id, gate FROM elements WHERE element_type='Διακόπτης ΜΤ' AND is_main_switch=2 AND gate IS NOT NULL AND TRIM(gate)<>''"
+            "SELECT id, gate FROM elements WHERE "
+            "element_type='Διακόπτης ΜΤ' AND is_main_switch=2 "
+            "AND gate IS NOT NULL AND TRIM(gate)<>''"
         ).fetchall()
         for element_id, gate in rows:
             match = re.fullmatch(r"\s*ΠΥΛΗ\s+(\d+)\s*", gate or "")
