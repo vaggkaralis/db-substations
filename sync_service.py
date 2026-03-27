@@ -379,7 +379,8 @@ def _apply_change_log_to_db(
                 if maint_keys:
                     try:
                         placeholders = ",".join(["?"] * len(maint_keys))
-                        sql = f"INSERT INTO maintenance ({','.join(maint_keys)}) VALUES ({placeholders})"
+                        columns = ",".join(maint_keys)
+                        sql = f"INSERT INTO maintenance ({columns}) VALUES ({placeholders})"
                         cur.execute(sql, [data[k] for k in maint_keys])
                         maintenance_id = cur.lastrowid
                     except sqlite3.IntegrityError:
@@ -405,7 +406,11 @@ def _apply_change_log_to_db(
                     try:
                         cur.execute(
                             """
-                            INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments)
+                            INSERT INTO maintenance_elements (
+                                maintenance_id,
+                                element_id,
+                                element_comments
+                            )
                             SELECT ?, ?, ?
                             WHERE NOT EXISTS (
                                 SELECT 1
@@ -456,7 +461,8 @@ def _apply_change_log_to_db(
 
             try:
                 placeholders = ",".join(["?"] * len(insert_keys))
-                sql = f"INSERT INTO {table} ({','.join(insert_keys)}) VALUES ({placeholders})"
+                columns = ",".join(insert_keys)
+                sql = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
                 cur.execute(sql, [data[k] for k in insert_keys])
                 conn.commit()
                 accepted += 1

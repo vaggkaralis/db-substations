@@ -76,7 +76,8 @@ def create_elements_template(base_dir: str) -> tuple[bool, str]:
         ws.cell(row=1, column=1).font = Font(italic=True, color="999999")
         ws.row_dimensions[1].height = 15
 
-        # The template requires model information; the element `manufacturer` is derived from the model.
+        # The template requires model information; the element `manufacturer`
+        # is derived from the model.
         headers = S["MESSAGES"].get(
             "TEMPLATE_ELEMENTS_HEADERS",
             [
