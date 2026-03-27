@@ -57,7 +57,10 @@ def test_generated_pdf_is_readable(tmp_path):
         parts.append((2, o2))
 
         # Object 3: Page
-        o3 = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /ProcSet [/PDF /Text] >> >>\n"
+        o3 = (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /ProcSet [/PDF /Text] >> >>\n"
+        )
         parts.append((3, o3))
 
         # Object 4: Content stream

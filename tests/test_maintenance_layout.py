@@ -28,16 +28,16 @@ def test_maintenance_comments_in_fixed_container(monkeypatch):
 
     popup = captured.get("instance")
     assert popup is not None
-    # The popup content should be a layout; ensure it has a child TextInput with the overall comments hint
+    # The popup content should be a layout; ensure it has a child TextInput
+    # with the overall comments hint.
     found = False
     try:
         for child in getattr(popup.content, "children", []):
             # children may include the scroll and the comments container
             # inspect grandchildren for TextInput with hint_text
             for grand in getattr(child, "children", []):
-                if (
-                    getattr(grand, "hint_text", None)
-                    == "Γενικά σχόλια για την συντήρηση..."
+                if getattr(grand, "hint_text", None) == (
+                    "Γενικά σχόλια για την συντήρηση..."
                 ):
                     found = True
     except Exception:

@@ -10,7 +10,12 @@ def test_new_maintenance_defaults_to_most_recent_isolation(tmp_path, monkeypatch
     cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
     # Older isolation
     cur.execute(
-        "INSERT INTO isolation_requests (substation_id, start_datetime, end_datetime, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "INSERT INTO isolation_requests "
+            "(substation_id, start_datetime, end_datetime, status, "
+            "created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)"
+        ),
         (
             1,
             "2026-01-01 08:00",
@@ -22,7 +27,12 @@ def test_new_maintenance_defaults_to_most_recent_isolation(tmp_path, monkeypatch
     )
     # Newer isolation (should be chosen)
     cur.execute(
-        "INSERT INTO isolation_requests (substation_id, start_datetime, end_datetime, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "INSERT INTO isolation_requests "
+            "(substation_id, start_datetime, end_datetime, status, "
+            "created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)"
+        ),
         (
             1,
             "2026-02-01 08:00",
@@ -34,10 +44,17 @@ def test_new_maintenance_defaults_to_most_recent_isolation(tmp_path, monkeypatch
     )
     conn.commit()
 
-    # Emulate the selection logic used by the maintenance UI without instantiating UI
+    # Emulate the selection logic used by the maintenance UI without
+    # instantiating UI.
     # Build isolation options as the UI does (most-recent first)
     cur.execute(
-        "SELECT id, start_datetime, end_datetime, status FROM isolation_requests WHERE substation_id = ? ORDER BY start_datetime DESC LIMIT 5",
+        (
+            "SELECT id, start_datetime, end_datetime, status "
+            "FROM isolation_requests "
+            "WHERE substation_id = ? "
+            "ORDER BY start_datetime DESC "
+            "LIMIT 5"
+        ),
         (1,),
     )
     isolation_options_by_label = {"Χωρίς σύνδεση": None}
@@ -47,7 +64,8 @@ def test_new_maintenance_defaults_to_most_recent_isolation(tmp_path, monkeypatch
         isolation_options_by_label[label] = req_id
         values.append(label)
 
-    # With no preferred or linked ids, the UI should pick the most recent (first) request
+    # With no preferred or linked ids, the UI should pick the most recent
+    # (first) request.
     preferred_request_id = None
     linked_isolation_request_id = None
     if preferred_request_id is not None:
