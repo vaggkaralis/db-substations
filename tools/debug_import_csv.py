@@ -4,10 +4,10 @@ import sys
 
 # Ensure project root is on sys.path for direct script execution
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-import inspect
+import inspect  # noqa: E402
 
-import importers
-from strings import STRINGS as S
+import importers  # noqa: E402
+from strings import STRINGS as S  # noqa: E402
 
 ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
@@ -92,14 +92,40 @@ conn = sqlite3.connect(":memory:")
 cur = conn.cursor()
 cur.execute("CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT UNIQUE)")
 cur.execute(
-    "CREATE TABLE element_models (id INTEGER PRIMARY KEY, element_category TEXT, model_name TEXT, manufacturer TEXT)"
+    """
+    CREATE TABLE element_models (
+        id INTEGER PRIMARY KEY,
+        element_category TEXT,
+        model_name TEXT,
+        manufacturer TEXT
+    )
+    """
 )
 cur.execute(
-    "CREATE TABLE elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, gate TEXT, is_main_switch INTEGER, breaker_category TEXT, element_model_id INTEGER, operating_status TEXT)"
+    """
+    CREATE TABLE elements (
+        id INTEGER PRIMARY KEY,
+        substation_id INTEGER,
+        element_type TEXT,
+        name TEXT,
+        serial_number TEXT,
+        maintenance_date TEXT,
+        voltage_level TEXT,
+        manufacturer TEXT,
+        gate TEXT,
+        is_main_switch INTEGER,
+        breaker_category TEXT,
+        element_model_id INTEGER,
+        operating_status TEXT
+    )
+    """
 )
 cur.execute("INSERT INTO substations (id, name) VALUES (?,?)", (1, "S1"))
 cur.execute(
-    "INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?,?,?)",
+    """
+    INSERT INTO element_models (element_category, model_name, manufacturer)
+    VALUES (?, ?, ?)
+    """,
     (ELEM_BREAKER_MT, "M200", "Acme"),
 )
 conn.commit()
@@ -117,12 +143,25 @@ importers.import_elements_from_csv(conn, "dummy.csv", on_success, on_error)
 
 print("ELEMENT MODELS:")
 for row in cur.execute(
-    "SELECT id,element_category,model_name,manufacturer FROM element_models"
+    """
+    SELECT id, element_category, model_name, manufacturer
+    FROM element_models
+    """
 ):
     print(row)
 
 print("ELEMENTS:")
 for row in cur.execute(
-    "SELECT id,substation_id,element_type,name,serial_number,element_model_id,operating_status FROM elements"
+    """
+    SELECT
+        id,
+        substation_id,
+        element_type,
+        name,
+        serial_number,
+        element_model_id,
+        operating_status
+    FROM elements
+    """
 ):
     print(row)
