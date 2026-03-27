@@ -85,7 +85,10 @@ def test_integrity_check_missing_table():
 
 
 def test_integrity_check_orphaned_elements():
-    """Test that orphaned elements (referencing non-existent substations) are detected."""
+    """Test that orphaned elements are detected.
+
+    Orphaned elements reference non-existent substations.
+    """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         tmp_path = tmp.name
 
@@ -96,10 +99,12 @@ def test_integrity_check_orphaned_elements():
         cursor.execute("PRAGMA foreign_keys = OFF")
 
         # Seed a legacy-corrupt orphan row that bypasses the runtime FK guard.
-        cursor.execute("""
-            INSERT INTO elements (substation_id, element_type, name) 
+        cursor.execute(
+            """
+            INSERT INTO elements (substation_id, element_type, name)
             VALUES (99999, 'Test Type', 'Test Element')
-        """)
+            """
+        )
         conn.commit()
         cursor.execute("PRAGMA foreign_keys = ON")
         conn.close()
@@ -141,9 +146,11 @@ def test_integrity_check_invalid_breaker_category():
         try:
             cursor.execute(
                 """
-                INSERT INTO elements (substation_id, element_type, name, breaker_category) 
+                INSERT INTO elements (
+                    substation_id, element_type, name, breaker_category
+                )
                 VALUES (?, 'Διακόπτης ΥΤ', 'Test Breaker', '')
-            """,
+                """,
                 (sub_id,),
             )
             conn.commit()
