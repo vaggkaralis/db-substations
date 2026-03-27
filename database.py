@@ -186,6 +186,18 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         )
     """)
 
+    # Pending tasks for incomplete maintenances
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS maintenance_pending_tasks (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER NOT NULL,
+            tasks_text TEXT,
+            created_at TEXT,
+            FOREIGN KEY(maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE,
+            UNIQUE(maintenance_id)
+        )
+    """)
+
     # Inspections table (monthly inspection reports)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS inspections (

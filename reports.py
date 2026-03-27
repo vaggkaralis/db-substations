@@ -1,7 +1,10 @@
 import importlib
+import hashlib
 import os
 import subprocess
 import sys
+import tempfile
+import shutil
 
 from onedrive_hybrid_storage import (
     ensure_maintenance_folders,
@@ -15,6 +18,44 @@ from pdf_reports import generate_maintenance_report, generate_sf6_leak_report
 from popups import show_message_popup
 from report_sync import safe_generate_and_store_report
 from strings_proxy import STRINGS as S
+
+
+def _win_existing_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    try:
+        abs_path = os.path.abspath(path)
+    except Exception:
+        abs_path = str(path)
+
+    if os.path.exists(abs_path):
+        return abs_path
+
+    if os.name != "nt":
+        return None
+
+    if abs_path.startswith("\\\\?\\"):
+        long_path = abs_path
+    elif abs_path.startswith("\\\\"):
+        long_path = "\\\\?\\UNC\\" + abs_path[2:]
+    else:
+        long_path = "\\\\?\\" + abs_path
+
+    return long_path if os.path.exists(long_path) else None
+
+
+def _short_temp_open_copy(path: str, *, existing_path: str | None = None) -> str | None:
+    source_path = existing_path or _win_existing_path(path)
+    if not source_path:
+        return None
+
+    suffix = os.path.splitext(path or source_path)[1]
+    digest = hashlib.sha1(os.path.abspath(path or source_path).encode("utf-8", errors="ignore")).hexdigest()[:12]
+    temp_dir = os.path.join(tempfile.gettempdir(), "dbsub_open")
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, f"open_{digest}{suffix}")
+    shutil.copy2(source_path, temp_path)
+    return temp_path
 
 
 def show_sf6_management_popup(app, instance=None):
@@ -280,16 +321,27 @@ def open_file(path, *, not_found_message="Το αρχείο δεν βρέθηκ�
 
     from popups import show_message_popup
 
-    if not path or not os.path.exists(path):
+    existing_path = _win_existing_path(path)
+    if not existing_path:
         show_message_popup(error_title, not_found_message)
         return False
     try:
         if sys.platform == "win32":
-            os.startfile(path)
+            open_target = existing_path
+            suffix = os.path.splitext(existing_path)[1].lower()
+            if len(os.path.abspath(existing_path)) >= 220 and suffix in {".xls", ".xlsx", ".xlsm", ".doc", ".docx", ".ppt", ".pptx"}:
+                temp_copy = _short_temp_open_copy(path, existing_path=existing_path)
+                if temp_copy:
+                    open_target = temp_copy
+            try:
+                os.startfile(open_target)
+            except Exception:
+                fallback_target = open_target if open_target != existing_path else existing_path
+                os.startfile(fallback_target)
         elif sys.platform == "darwin":
-            subprocess.call(["open", path])
+            subprocess.call(["open", existing_path])
         else:
-            subprocess.call(["xdg-open", path])
+            subprocess.call(["xdg-open", existing_path])
         return True
     except Exception as exc:
         show_message_popup(error_title, f"{error_prefix}{str(exc)}")

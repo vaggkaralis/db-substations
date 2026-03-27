@@ -9994,6 +9994,10 @@ class SubstationApp(App):
                         "so2_fc": row[28],
                     },
                 }
+                # Load pending tasks if this maintenance was previously saved as incomplete
+                c.execute("SELECT tasks_text FROM maintenance_pending_tasks WHERE maintenance_id=?", (maintenance_id,))
+                _pending_row = c.fetchone()
+                pending_tasks_text_default = _pending_row[0] if _pending_row and _pending_row[0] else ""
 
         popup_title = (
             "Επεξεργασία Συντήρησης" if maintenance_id else "Καταχώρηση Συντήρησης"
@@ -10459,6 +10463,50 @@ class SubstationApp(App):
         overall_comments.bind(text=_resize_comments)
         _resize_comments()
         content_layout.add_widget(overall_comments)
+
+        # Completed / Incomplete marker + tasks left input
+        completed_row = BoxLayout(size_hint_y=None, height=40, spacing=6)
+        mark_complete_cb = CheckBox(size_hint=(None, None), size=(28, 28))
+        mark_complete_label = Label(text=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Ολοκληρώθηκε"), size_hint_x=0.85, valign="middle")
+        completed_row.add_widget(mark_complete_label)
+        completed_row.add_widget(mark_complete_cb)
+        content_layout.add_widget(completed_row)
+
+        tasks_default_text = globals().get('pending_tasks_text_default', '') if 'pending_tasks_text_default' in globals() else ''
+        try:
+            # prefer the value fetched earlier when editing
+            tasks_default_text = pending_tasks_text_default
+        except Exception:
+            tasks_default_text = ''
+
+        tasks_input = TextInput(
+            hint_text=S["MESSAGES"].get("TASKS_LEFT_LABEL", "Εργασίες που απομένουν..."),
+            text=tasks_default_text,
+            size_hint_y=None,
+            height=100,
+            multiline=True,
+        )
+        # hide by default when marked complete
+        if tasks_default_text:
+            mark_complete_cb.active = False
+        else:
+            mark_complete_cb.active = True
+            tasks_input.opacity = 0
+            tasks_input.disabled = True
+            tasks_input.height = 0
+
+        def _toggle_tasks_visibility(cb, value):
+            if value:
+                tasks_input.opacity = 0
+                tasks_input.disabled = True
+                tasks_input.height = 0
+            else:
+                tasks_input.opacity = 1
+                tasks_input.disabled = False
+                tasks_input.height = 100
+
+        mark_complete_cb.bind(active=_toggle_tasks_visibility)
+        content_layout.add_widget(tasks_input)
 
         # OneDrive Media Folder Link
         content_layout.add_widget(
@@ -12386,6 +12434,23 @@ class SubstationApp(App):
                 )
                 return
 
+            # Persist pending tasks for incomplete maintenances
+            try:
+                if mark_complete_cb.active:
+                    c.execute(
+                        "DELETE FROM maintenance_pending_tasks WHERE maintenance_id=?",
+                        (maintenance_id,),
+                    )
+                else:
+                    c.execute(
+                        "INSERT OR REPLACE INTO maintenance_pending_tasks (maintenance_id, tasks_text, created_at) VALUES (?, ?, datetime('now'))",
+                        (maintenance_id, tasks_input.text.strip()),
+                    )
+            except Exception:
+                import logging
+
+                logging.exception("Failed to update maintenance_pending_tasks for %s", maintenance_id)
+
             elements_data = []
             for elem_id, widgets in selected_elements:
                 elements_data.append({
@@ -12503,6 +12568,98 @@ class SubstationApp(App):
     def _show_maintenance_history_obsolete_unused(self, instance, _deferred=False):
         """Deprecated shim. Kept only to avoid breaking stale callbacks."""
         self.show_maintenance_history(instance)
+
+    def show_undone_maintenances(self, parent_popup=None):
+        """Show maintenances saved as incomplete with their pending tasks."""
+        if parent_popup:
+            try:
+                parent_popup.dismiss()
+            except Exception:
+                pass
+
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.scrollview import ScrollView
+        from kivy.uix.label import Label
+        from kivy.uix.button import Button
+        from kivy.uix.widget import Widget
+        try:
+            from reports import show_message_popup
+        except Exception:
+            show_message_popup = None
+
+        c = self.conn.cursor()
+        c.execute(
+            """
+            SELECT m.id, m.name, m.date_time, s.name AS sub_name, p.name AS person_name, t.tasks_text
+            FROM maintenance_pending_tasks t
+            JOIN maintenance m ON t.maintenance_id = m.id
+            LEFT JOIN substations s ON m.substation_id = s.id
+            LEFT JOIN people p ON m.responsible_id = p.id
+            ORDER BY m.date_time DESC
+            """
+        )
+        rows = c.fetchall() or []
+        if not rows:
+            if show_message_popup:
+                show_message_popup(S["TITLES"].get("INFO", "Πληροφορία"), S["MESSAGES"].get("NO_UNDONE_MAINTENANCES", "Δεν υπάρχουν εκκρεμείς συντηρήσεις"))
+            return
+
+        popup = Popup(title=S["MESSAGES"].get("UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"), size_hint=(0.9, 0.9))
+        scroll = ScrollView(bar_width=10)
+        container = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=8)
+        container.bind(minimum_height=container.setter("height"))
+
+
+        from ui.shared import IconOnlyButton
+
+        for mid, mname, mdate, sname, pname, tasks in rows:
+            row = BoxLayout(size_hint_y=None, height=110, spacing=8)
+            left = BoxLayout(orientation="vertical")
+            left.add_widget(Label(text=f"{sname or '-'} — {mname} — {mdate}", size_hint_y=None, height=30))
+            left.add_widget(Label(text=f"{S['MESSAGES'].get('TASKS_LEFT_LABEL','Tasks left')}: {tasks or ''}", size_hint_y=None, height=70))
+            row.add_widget(left)
+
+            actions = BoxLayout(orientation="vertical", size_hint_x=0.28, spacing=6)
+            primary_color = (0.2, 0.6, 1, 1)
+            try:
+                primary_color = getattr(self, 'theme', {}).get('primary', primary_color)
+            except Exception:
+                primary_color = primary_color
+            edit_btn = IconOnlyButton(icon_type="edit", icon_color=primary_color, size=(36, 36), tooltip=S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"))
+            edit_btn.bind(on_press=lambda inst, mid=mid: (popup.dismiss(), self.show_maintenance_menu(maintenance_id=mid)))
+            done_color = (0.1, 0.6, 0.1, 1)
+            done_btn = IconOnlyButton(icon_type="check", icon_color=done_color, size=(36, 36), tooltip=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Ολοκληρώθηκε"))
+
+            def _mark_done(_inst, mid=mid):
+                try:
+                    c.execute("DELETE FROM maintenance_pending_tasks WHERE maintenance_id=?", (mid,))
+                    self.conn.commit()
+                except Exception:
+                    import logging
+
+                    logging.exception("Failed to mark maintenance %s done", mid)
+                popup.dismiss()
+                # refresh
+                self.show_undone_maintenances()
+
+            done_btn.bind(on_press=_mark_done)
+            actions.add_widget(edit_btn)
+            actions.add_widget(done_btn)
+            row.add_widget(actions)
+
+            container.add_widget(row)
+            container.add_widget(Widget(size_hint_y=None, height=6))
+
+        scroll.add_widget(container)
+        main = BoxLayout(orientation="vertical", padding=8)
+        main.add_widget(scroll)
+        close = Button(text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42)
+        close.bind(on_press=popup.dismiss)
+        main.add_widget(close)
+        popup.content = main
+        popup.open()
 
     def show_substation_maintenance_history(
         self,

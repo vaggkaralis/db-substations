@@ -234,9 +234,15 @@ def show_isolation_requests(app, instance=None):
         header_label.text = f"{month_names[month]} {year}"
 
         c = app.conn.cursor()
-        first_day = f"{year}-{month:02d}-01 00:00"
-        last_day_num = monthrange(year, month)[1]
-        last_day = f"{year}-{month:02d}-{last_day_num} 23:59"
+        # Determine calendar display range (start = Monday of first week, end = Sunday of last week)
+        first_of_month = datetime(year, month, 1).date()
+        last_of_month = datetime(year, month, monthrange(year, month)[1]).date()
+
+        start_date = first_of_month - timedelta(days=first_of_month.weekday())
+        end_date = last_of_month + timedelta(days=(6 - last_of_month.weekday()))
+
+        first_day = f"{start_date.strftime('%Y-%m-%d')} 00:00"
+        last_day = f"{end_date.strftime('%Y-%m-%d')} 23:59"
 
         c.execute(
             """
@@ -251,7 +257,7 @@ def show_isolation_requests(app, instance=None):
             (last_day, first_day, first_day, last_day),
         )
         requests = c.fetchall()
-
+        # Index requests by exact date (date objects) across the displayed range
         requests_by_day = {}
         for req_id, sub_id, sub_name, start_dt, end_dt, status, notes in requests:
             try:
@@ -259,10 +265,12 @@ def show_isolation_requests(app, instance=None):
                 end = datetime.strptime(end_dt, "%Y-%m-%d %H:%M")
                 current = start
                 while current <= end:
-                    if current.year == year and current.month == month:
-                        requests_by_day.setdefault(current.day, [])
-                        if not any(existing[0] == req_id for existing in requests_by_day[current.day]):
-                            requests_by_day[current.day].append((req_id, sub_id, sub_name, start_dt, end_dt, status, notes))
+                    current_date = current.date()
+                    # only store dates that fall inside the display range to limit memory
+                    if start_date <= current_date <= end_date:
+                        requests_by_day.setdefault(current_date, [])
+                        if not any(existing[0] == req_id for existing in requests_by_day[current_date]):
+                            requests_by_day[current_date].append((req_id, sub_id, sub_name, start_dt, end_dt, status, notes))
                     current += timedelta(days=1)
             except Exception:
                 continue
@@ -271,22 +279,48 @@ def show_isolation_requests(app, instance=None):
         for day_name in ["Δευ", "Τρί", "Τετ", "Πέμ", "Παρ", "Σάβ", "Κυρ"]:
             calendar_grid.add_widget(Label(text=day_name, size_hint_y=None, height=30, bold=True))
 
-        first_weekday = datetime(year, month, 1).weekday()
-        days_in_month = monthrange(year, month)[1]
+        # Build a continuous range starting from the Monday of the week
+        # containing the month's first day, and ending on the Sunday of the
+        # week containing the month's last day. This shows leading/trailing
+        # days from adjacent months.
+        from datetime import date
 
-        for _ in range(first_weekday):
-            calendar_grid.add_widget(Label(text=""))
+        first_of_month = datetime(year, month, 1).date()
+        last_of_month = datetime(year, month, monthrange(year, month)[1]).date()
 
-        for day in range(1, days_in_month + 1):
+        start_date = first_of_month - timedelta(days=first_of_month.weekday())
+        end_date = last_of_month + timedelta(days=(6 - last_of_month.weekday()))
+
+        current_day = start_date
+        while current_day <= end_date:
+            is_current_month = (current_day.month == month and current_day.year == year)
+            is_leading = current_day < first_of_month
+            is_trailing = current_day > last_of_month
             day_box = BoxLayout(orientation="vertical", size_hint_y=None, height=100)
-            day_box.add_widget(Label(text=str(day), size_hint_y=0.3, bold=True))
 
-            if day in requests_by_day:
+            # Day number label: different color for leading vs trailing month days
+            if is_leading:
+                day_label_color = (0.55, 0.55, 0.7, 1)
+            elif is_trailing:
+                day_label_color = (0.55, 0.7, 0.55, 1)
+            else:
+                day_label_color = (1, 1, 1, 1)
+            day_label_kwargs = dict(size_hint_y=0.3)
+            if is_current_month:
+                day_label = Label(text=str(current_day.day), bold=True, **day_label_kwargs, **font_kwargs)
+            else:
+                # Show different (muted) style for previous/next month days
+                day_label = Label(text=str(current_day.day), color=day_label_color, bold=False, font_size="12sp", **day_label_kwargs)
+
+            day_box.add_widget(day_label)
+
+            # Show requests if any for this calendar date (including leading/trailing)
+            if current_day in requests_by_day:
                 scroll = ScrollView(size_hint_y=0.7)
                 requests_layout = GridLayout(cols=1, size_hint_y=None, spacing=2, padding=2)
                 requests_layout.bind(minimum_height=requests_layout.setter("height"))
 
-                for req_id, _sub_id, sub_name, _start_dt, _end_dt, status, _notes in requests_by_day[day]:
+                for req_id, _sub_id, sub_name, _start_dt, _end_dt, status, _notes in requests_by_day[current_day]:
                     if status == "Accepted":
                         color = (0.2, 0.8, 0.2, 1)
                     elif status == "Cancelled":
@@ -312,6 +346,7 @@ def show_isolation_requests(app, instance=None):
                 day_box.add_widget(Label(text="", size_hint_y=0.7))
 
             calendar_grid.add_widget(day_box)
+            current_day += timedelta(days=1)
 
         calendar_container.add_widget(calendar_grid)
 
@@ -400,6 +435,40 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         selected_element_ids = {row[0] for row in c.fetchall()}
         existing_attachment_path = str(request_record[7] or "").strip()
         storage_folder_path = str(request_record[8] or "").strip()
+
+        # Normalize legacy ISO_/Αίτηση storage and recover the attachment path
+        # when the DB row has only the folder stored.
+        storage_result = ensure_isolation_request_storage(
+            app.conn,
+            request_id=request_record[0],
+            substation_id=request_record[1],
+            start_datetime=request_record[3],
+            attachment_paths=None,
+            storage_folder_path=storage_folder_path,
+            request_file_path=existing_attachment_path,
+            db_path=getattr(app, "db_path", None),
+        )
+        storage_folder_path = storage_result.get("storage_folder") or storage_folder_path
+        stored_files = storage_result.get("stored_files") or []
+        if (not existing_attachment_path) or (existing_attachment_path and not os.path.exists(existing_attachment_path)):
+            if stored_files:
+                existing_attachment_path = stored_files[0]
+
+        if existing_attachment_path != str(request_record[7] or "").strip() or storage_folder_path != str(request_record[8] or "").strip():
+            c.execute(
+                """
+                UPDATE isolation_requests
+                SET request_file_path=?, storage_folder_path=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    existing_attachment_path or None,
+                    storage_folder_path or None,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    request_id,
+                ),
+            )
+            app.conn.commit()
 
     title = "Επεξεργασία Αίτησης Απομόνωσης" if request_id else "Νέα Αίτηση Απομόνωσης"
     popup = Popup(title=title, size_hint=(0.88, 0.95))
@@ -503,13 +572,48 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
             ask_open_file(title="Select request file", filetypes=(("All files", "*.*"),)) or attachment_input.text,
         )
     )
-    open_attachment_btn.bind(
-        on_press=lambda _x: (
-            open_file(attachment_input.text.strip())
-            if attachment_input.text.strip()
-            else show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν έχει οριστεί συνημμένο αρχείο.")
-        )
-    )
+
+    def _open_attachment(_x):
+        nonlocal existing_attachment_path, storage_folder_path
+        attachment_path = attachment_input.text.strip()
+        if (not attachment_path) and request_id and request_record:
+            storage_result = ensure_isolation_request_storage(
+                app.conn,
+                request_id=request_record[0],
+                substation_id=request_record[1],
+                start_datetime=request_record[3],
+                attachment_paths=None,
+                storage_folder_path=storage_folder_path,
+                request_file_path=existing_attachment_path,
+                db_path=getattr(app, "db_path", None),
+            )
+            storage_folder_path = storage_result.get("storage_folder") or storage_folder_path
+            stored_files = storage_result.get("stored_files") or []
+            if stored_files:
+                attachment_path = stored_files[0]
+                existing_attachment_path = attachment_path
+                attachment_input.text = attachment_path
+                c.execute(
+                    """
+                    UPDATE isolation_requests
+                    SET request_file_path=?, storage_folder_path=?, updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        attachment_path,
+                        storage_folder_path or None,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        request_id,
+                    ),
+                )
+                app.conn.commit()
+
+        if attachment_path:
+            open_file(attachment_path)
+        else:
+            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν έχει οριστεί συνημμένο αρχείο.")
+
+    open_attachment_btn.bind(on_press=_open_attachment)
     clear_attachment_btn.bind(on_press=lambda _x: setattr(attachment_input, "text", ""))
 
     content.add_widget(Label(text="Στοιχεία που θα απομονωθούν:", size_hint_y=None, height=30, bold=True))
@@ -654,6 +758,7 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     main_layout.add_widget(scroll)
 
     buttons_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+    buttons_layout.size_hint_x = 1
 
     def _validate_datetimes():
         start_dt = start_input.text.strip()
@@ -714,13 +819,15 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 copied_attachment_paths = [selected_attachment]
 
         stored_attachment_path = existing_attachment_path if selected_attachment == existing_attachment_path else ""
-        if copied_attachment_paths or (selected_attachment and not storage_folder_path):
+        if copied_attachment_paths or selected_attachment or storage_folder_path:
             storage_result = ensure_isolation_request_storage(
                 app.conn,
                 request_id=request_id,
                 substation_id=substation_id,
                 start_datetime=start_dt,
                 attachment_paths=copied_attachment_paths,
+                storage_folder_path=storage_folder_path,
+                request_file_path=selected_attachment or existing_attachment_path,
                 db_path=getattr(app, "db_path", None),
             )
             storage_folder_path = storage_result.get("storage_folder") or storage_folder_path
@@ -778,6 +885,7 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         )
 
     save_btn = Button(text=S["BUTTONS"]["SAVE"] if is_new_request else S["BUTTONS"].get("UPDATE", S["BUTTONS"]["SAVE"]))
+    save_btn.size_hint_x = 1
     save_btn.bind(on_press=lambda _x: save_request())
     buttons_layout.add_widget(save_btn)
 
@@ -808,12 +916,13 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 yes_color=(1, 0, 0, 1),
             )
 
-        delete_btn = IconOnlyButton(icon_type="delete", icon_color=(1, 0.0, 0.0, 1), size=(35, 35))
-        delete_btn.size_hint_x = 0.2
+        delete_btn = Button(text=S["BUTTONS"].get("DELETE", "Delete"))
+        delete_btn.size_hint_x = 1
         delete_btn.bind(on_press=lambda _x: delete_request())
         buttons_layout.add_widget(delete_btn)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"] if is_new_request else S["BUTTONS"]["CLOSE"])
+    cancel_btn.size_hint_x = 1
     cancel_btn.bind(on_press=popup.dismiss)
     buttons_layout.add_widget(cancel_btn)
 

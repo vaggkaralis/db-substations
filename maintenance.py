@@ -61,8 +61,37 @@ def show_maintenance_menu_popup(app, ui):
     except Exception:
         pass
 
+    def _open_history_choice(_instance=None):
+        # present chooser between full history and undone maintenances
+        choice_popup = Popup(title=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint=(0.5, 0.35))
+        ch_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        info = Label(text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"), size_hint_y=None, height=30)
+        ch_layout.add_widget(info)
+
+        btns = BoxLayout(orientation="vertical", spacing=8)
+        complete_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=None, height=50)
+        undone_btn = Button(text=S["MESSAGES"].get("UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"), size_hint_y=None, height=50)
+
+        def _on_complete(_btn):
+            choice_popup.dismiss()
+            menu_popup.dismiss()
+            app.show_maintenance_history(None)
+
+        def _on_undone(_btn):
+            choice_popup.dismiss()
+            menu_popup.dismiss()
+            app.show_undone_maintenances(parent_popup=menu_popup)
+
+        complete_btn.bind(on_press=_on_complete)
+        undone_btn.bind(on_press=_on_undone)
+        btns.add_widget(complete_btn)
+        btns.add_widget(undone_btn)
+        ch_layout.add_widget(btns)
+        choice_popup.content = ch_layout
+        choice_popup.open()
+
     history_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=None, height=60)
-    history_btn.bind(on_press=lambda x: (menu_popup.dismiss(), app.show_maintenance_history(None)))
+    history_btn.bind(on_press=_open_history_choice)
     layout.add_widget(history_btn)
 
     # Measurements history (global) - opens a list of measurement instances

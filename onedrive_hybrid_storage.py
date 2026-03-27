@@ -52,6 +52,8 @@ _DIR_DGA_PARTS = ("Φυσικοχημικές", "Αεριοχρωματογρα�
 _DIR_DGA = "Φυσικοχημικές_Αεριοχρωματογραφία"
 _MAINTENANCE_INSTANCE_PREFIX = "Συντ_"
 _FAULT_INSTANCE_PREFIX = "Βλαβ_"
+_ISOLATION_INSTANCE_PREFIX = "Απομ_"
+_LEGACY_ISOLATION_INSTANCE_PREFIX = "ISO_"
 
 _DIR_MEDIA = "Φωτογραφίες_Video"
 _DIR_REPORTS = "Αναφορές"
@@ -62,6 +64,7 @@ _DIR_REPORTS_OTHER = "Λοιπά"
 _REPORT_PREFIX = "Αναφ_"
 _REPORT_FILENAME_MAX_STEM = 120
 _REPORT_FULL_PATH_MAX = 258
+_ISOLATION_OPEN_PATH_MAX = 240
 
 
 def _join_parts(parts: tuple[str, ...] | list[str] | str) -> str:
@@ -359,12 +362,8 @@ def ensure_reference_structure(
         isolation_root,
         "Οι αιτήσεις απομόνωσης ανήκουν στο επίπεδο του υποσταθμού και δημιουργούνται μόνο όταν υπάρχει σχετική αίτηση.",
     )
-    isolation_example = os.path.join(isolation_root, "ISO_20260326_1200_Υποσταθμός_Δείγμα_321")
+    isolation_example = os.path.join(isolation_root, "Απομ_20260326_1200_Υποσταθμός_Δείγμα_321")
     _ensure_folder(isolation_example, "Παράδειγμα φακέλου αίτησης απομόνωσης.")
-    _ensure_folder(
-        os.path.join(isolation_example, "Αίτηση"),
-        "Ο συνημμένος φάκελος με το αρχείο της αίτησης απομόνωσης.",
-    )
 
     return {"created": int(created), "described": int(described)}
 
@@ -806,6 +805,52 @@ def _instance_slug_short_fallback(
     return f"{dt_part}_{sub}_M{maintenance_id}"
 
 
+def _isolation_instance_short_fallback(
+    start_datetime: str | None,
+    substation_name: str | None,
+    request_id: int,
+) -> str:
+    try:
+        dt = datetime.strptime(start_datetime or "", "%Y-%m-%d %H:%M")
+    except Exception:
+        dt = None
+
+    dt_part = dt.strftime("%Y%m%d_%H%M") if dt else datetime.now().strftime("%Y%m%d_%H%M")
+
+    sub = _safe_name(substation_name or "", fallback="substation")
+    sub = re.sub(r"[()]", "", sub)
+    sub = re.sub(r"\s+", "_", sub).strip("_")
+    if len(sub) > 16:
+        sub = sub[:16].rstrip("_")
+
+    return f"{dt_part}_{sub}_{request_id}"
+
+
+def _isolation_instance_folder_name(
+    start_datetime: str | None,
+    *,
+    substation_name: str | None,
+    request_id: int,
+    isolation_root: str | None = None,
+) -> str:
+    try:
+        dt = datetime.strptime(start_datetime or "", "%Y-%m-%d %H:%M")
+        slug_date = dt.strftime("%Y%m%d_%H%M")
+    except Exception:
+        slug_date = _slug(start_datetime or "unknown", fallback="unknown")
+
+    prefixed = f"{_ISOLATION_INSTANCE_PREFIX}{slug_date}_{_slug(substation_name, fallback='substation')}_{request_id}"
+    if not isolation_root:
+        return prefixed
+
+    projected_len = len(os.path.join(isolation_root, prefixed, f"Αίτηση_{request_id}.xlsx"))
+    if projected_len <= _ISOLATION_OPEN_PATH_MAX:
+        return prefixed
+
+    fallback = _isolation_instance_short_fallback(start_datetime, substation_name, request_id)
+    return f"{_ISOLATION_INSTANCE_PREFIX}{fallback}"
+
+
 def _maintenance_instance_folder_name(
     date_time: str | None,
     *,
@@ -980,7 +1025,8 @@ def copy_files_to_folder(source_paths: Iterable[str], target_folder: str | None)
             continue
         try:
             src_path = Path(src)
-            if not src_path.exists() or not src_path.is_file():
+            src_abs = str(src_path)
+            if not os.path.exists(_win_path(src_abs)) or not os.path.isfile(_win_path(src_abs)):
                 continue
 
             os.makedirs(_win_path(target), exist_ok=True)
@@ -997,6 +1043,94 @@ def copy_files_to_folder(source_paths: Iterable[str], target_folder: str | None)
             continue
 
     return copied
+
+
+def _move_files_to_folder(source_paths: Iterable[str], target_folder: str | None) -> int:
+    if not target_folder:
+        return 0
+
+    moved = 0
+    target = str(target_folder).strip()
+    if not target:
+        return 0
+
+    for src in source_paths or []:
+        if not src:
+            continue
+        try:
+            src_path = Path(src)
+            src_abs = str(src_path)
+            if not os.path.exists(_win_path(src_abs)) or not os.path.isfile(_win_path(src_abs)):
+                continue
+
+            os.makedirs(_win_path(target), exist_ok=True)
+            dest = Path(target) / src_path.name
+            base = dest.stem
+            ext = dest.suffix
+            idx = 1
+            while dest.exists() and os.path.normcase(str(dest)) != os.path.normcase(str(src_path)):
+                dest = Path(target) / f"{base}_{idx}{ext}"
+                idx += 1
+
+            if os.path.normcase(str(dest)) == os.path.normcase(str(src_path)):
+                moved += 1
+                continue
+
+            shutil.move(_win_path(str(src_path)), _win_path(str(dest)))
+            moved += 1
+        except Exception:
+            continue
+
+    return moved
+
+
+def _list_direct_files(folder_path: str | None) -> list[str]:
+    if not folder_path:
+        return []
+    try:
+        files = []
+        with os.scandir(_win_path(folder_path)) as entries:
+            for entry in entries:
+                try:
+                    if entry.is_file():
+                        files.append(os.path.join(folder_path, entry.name))
+                except Exception:
+                    continue
+        return sorted(files)
+    except Exception:
+        return []
+
+
+def _canonical_isolation_attachment_name(request_id: int, index: int, suffix: str) -> str:
+    suffix_text = "" if index == 1 else f"_{index}"
+    return f"Αίτηση_{request_id}{suffix_text}{suffix}"
+
+
+def _normalize_isolation_attachment_files(folder_path: str | None, request_id: int) -> list[str]:
+    files = _list_direct_files(folder_path)
+    if not files:
+        return []
+
+    normalized_files = []
+    for index, src in enumerate(files, start=1):
+        try:
+            src_path = Path(src)
+            suffix = src_path.suffix or ""
+            candidate = Path(folder_path) / _canonical_isolation_attachment_name(request_id, index, suffix)
+            candidate_index = index
+            while candidate.exists() and os.path.normcase(str(candidate)) != os.path.normcase(str(src_path)):
+                candidate_index += 1
+                candidate = Path(folder_path) / _canonical_isolation_attachment_name(request_id, candidate_index, suffix)
+
+            if os.path.normcase(str(candidate)) != os.path.normcase(str(src_path)):
+                shutil.move(_win_path(str(src_path)), _win_path(str(candidate)))
+                src_path = candidate
+        except Exception:
+            src_path = Path(src)
+
+        normalized_files.append(str(src_path))
+
+    return sorted(normalized_files)
 
 
 _REPORT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx"}
@@ -1193,17 +1327,13 @@ def ensure_isolation_request_storage(
     substation_id: int,
     start_datetime: str,
     attachment_paths: Iterable[str] | None = None,
+    storage_folder_path: str | None = None,
+    request_file_path: str | None = None,
     db_path: str | None = None,
 ) -> dict:
     base = ensure_substation_structure(conn, substation_id, db_path=db_path)
     substation_root = base["substation_root"]
     substation_name = base["substation_name"]
-
-    try:
-        dt = datetime.strptime(start_datetime, "%Y-%m-%d %H:%M")
-        slug_date = dt.strftime("%Y%m%d_%H%M")
-    except Exception:
-        slug_date = _slug(start_datetime or "unknown", fallback="unknown")
 
     queue_payload = {
         "kind": "ensure_isolation_structure",
@@ -1215,25 +1345,71 @@ def ensure_isolation_request_storage(
     isolation_root = os.path.join(substation_root, _DIR_ISOLATIONS)
     instance_root = os.path.join(
         isolation_root,
-        f"ISO_{slug_date}_{_slug(substation_name, fallback='substation')}_{request_id}",
+        _isolation_instance_folder_name(
+            start_datetime,
+            substation_name=substation_name,
+            request_id=request_id,
+            isolation_root=isolation_root,
+        ),
     )
-    attachments_root = os.path.join(instance_root, "Αίτηση")
+    try:
+        dt = datetime.strptime(start_datetime, "%Y-%m-%d %H:%M")
+        slug_date = dt.strftime("%Y%m%d_%H%M")
+    except Exception:
+        slug_date = _slug(start_datetime or "unknown", fallback="unknown")
+    legacy_instance_root = os.path.join(
+        isolation_root,
+        f"{_LEGACY_ISOLATION_INSTANCE_PREFIX}{slug_date}_{_slug(substation_name, fallback='substation')}_{request_id}",
+    )
+    attachments_root = instance_root
 
     _ensure_dir(isolation_root, queue_payload=queue_payload)
     _ensure_dir(instance_root, queue_payload=queue_payload)
-    _ensure_dir(attachments_root, queue_payload=queue_payload)
+
+    candidate_roots = []
+    for candidate in (storage_folder_path, legacy_instance_root, instance_root):
+        if not candidate:
+            continue
+        try:
+            normalized = os.path.normcase(os.path.abspath(candidate))
+        except Exception:
+            normalized = str(candidate)
+        if normalized not in candidate_roots:
+            candidate_roots.append(normalized)
+
+    normalized_to_path = {}
+    for candidate in (storage_folder_path, legacy_instance_root, instance_root):
+        if not candidate:
+            continue
+        try:
+            normalized_to_path[os.path.normcase(os.path.abspath(candidate))] = candidate
+        except Exception:
+            normalized_to_path[str(candidate)] = candidate
+
+    # Migrate legacy files from older folder names and from the old "Αίτηση" subfolder
+    for candidate_key in candidate_roots:
+        candidate_path = normalized_to_path.get(candidate_key)
+        if not candidate_path or not os.path.isdir(_win_path(candidate_path)):
+            continue
+
+        legacy_attachment_dir = os.path.join(candidate_path, "Αίτηση")
+        if os.path.isdir(legacy_attachment_dir):
+            _move_files_to_folder(_list_direct_files(legacy_attachment_dir), attachments_root)
+            _prune_empty_dir(legacy_attachment_dir, stop_at=isolation_root)
+
+        if os.path.normcase(os.path.abspath(candidate_path)) != os.path.normcase(os.path.abspath(instance_root)):
+            _move_files_to_folder(_list_direct_files(candidate_path), attachments_root)
+            _prune_empty_dir(candidate_path, stop_at=isolation_root)
+
+    # Preserve a directly selected existing file even when the DB row has no request_file_path yet.
+    if request_file_path and os.path.isfile(_win_path(request_file_path)):
+        request_parent = os.path.dirname(os.path.abspath(request_file_path))
+        if os.path.normcase(request_parent) != os.path.normcase(os.path.abspath(attachments_root)):
+            copy_files_to_folder([request_file_path], attachments_root)
 
     copy_files_to_folder(attachment_paths or [], attachments_root)
 
-    stored_files = []
-    try:
-        stored_files = [
-            os.path.join(attachments_root, name)
-            for name in sorted(os.listdir(attachments_root))
-            if os.path.isfile(os.path.join(attachments_root, name))
-        ]
-    except Exception:
-        stored_files = []
+    stored_files = _normalize_isolation_attachment_files(attachments_root, request_id)
 
     return {
         "storage_folder": instance_root,
@@ -1244,7 +1420,7 @@ def ensure_isolation_request_storage(
 
 def _is_dir_empty(path: str) -> bool:
     try:
-        with os.scandir(path) as it:
+        with os.scandir(_win_path(path)) as it:
             for _entry in it:
                 return False
         return True
