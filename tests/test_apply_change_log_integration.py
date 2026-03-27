@@ -9,12 +9,35 @@ def test_apply_change_log_maintenance_inserts(tmp_path):
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
     # Minimal schema
-    cur.executescript("""
-        CREATE TABLE elements (id INTEGER PRIMARY KEY, substation_id INTEGER, name TEXT, maintenance_date TEXT);
-        CREATE TABLE maintenance (id INTEGER PRIMARY KEY, substation_id INTEGER, date_time TEXT, overall_comments TEXT, maintenance_type TEXT, user_name TEXT);
-        CREATE TABLE maintenance_elements (maintenance_id INTEGER, element_id INTEGER, element_comments TEXT);
-        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, adoption_date TEXT);
-        """)
+    cur.executescript(
+        """
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            name TEXT,
+            maintenance_date TEXT
+        );
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT,
+            overall_comments TEXT,
+            maintenance_type TEXT,
+            user_name TEXT
+        );
+        CREATE TABLE maintenance_elements (
+            maintenance_id INTEGER,
+            element_id INTEGER,
+            element_comments TEXT
+        );
+        CREATE TABLE substations (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            location TEXT,
+            adoption_date TEXT
+        );
+        """
+    )
     conn.commit()
 
     # Prepare change-log JSONL

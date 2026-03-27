@@ -33,7 +33,13 @@ def make_db_with_substations(path):
     conn = sqlite3.connect(path)
     cur = conn.cursor()
     cur.execute(
-        "CREATE TABLE IF NOT EXISTS substations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, location TEXT, adoption_date TEXT)"
+        (
+            "CREATE TABLE IF NOT EXISTS substations ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "name TEXT UNIQUE, "
+            "location TEXT, "
+            "adoption_date TEXT)"
+        )
     )
     cur.execute(
         "INSERT INTO substations (name, location, adoption_date) VALUES (?, ?, ?)",
@@ -70,7 +76,13 @@ def test_csv_export_import_roundtrip(tmp_path):
     dest_conn = sqlite3.connect(":memory:")
     cur = dest_conn.cursor()
     cur.execute(
-        "CREATE TABLE substations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, location TEXT, adoption_date TEXT)"
+        (
+            "CREATE TABLE substations ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "name TEXT UNIQUE, "
+            "location TEXT, "
+            "adoption_date TEXT)"
+        )
     )
     dest_conn.commit()
 
