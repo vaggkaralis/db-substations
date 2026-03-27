@@ -4,6 +4,8 @@ These thin wrappers call the app instance methods to keep behavior unchanged
 while allowing incremental extraction.
 """
 
+import sqlite3
+
 from strings_proxy import STRINGS as S
 from onedrive_hybrid_storage import resolve_shared_root, sync_substation_gate_folders
 from validation import validate_breaker_category_required, validate_gate_assignment
@@ -398,146 +400,196 @@ def show_add_element_popup(app, instance):
     buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
     def add_element():
-        substation_name = substation_spinner.text
-        substation_id = app.substations_map[substation_name]
-        element_type = element_spinner.text
+        try:
+            add_btn.disabled = True
+        except Exception:
+            pass
 
-        name_val = (
-            field_inputs["name"].text
-            if hasattr(field_inputs["name"], "text")
-            else field_inputs["name"].text
-        )
-        if not name_val:
-            show_message_popup(
-                S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_ELEMENT_NAME"]
-            )
+        try:
+            substation_name = substation_spinner.text
+            substation_id = app.substations_map[substation_name]
+            element_type = element_spinner.text
 
-            return
+            name_val = (
+                field_inputs["name"].text
+                if hasattr(field_inputs["name"], "text")
+                else field_inputs["name"].text
+            ).strip()
+            if not name_val:
+                show_message_popup(
+                    S["TITLES"]["ERROR"], S["MESSAGES"]["ENTER_ELEMENT_NAME"]
+                )
+                return
 
-        values = {
-            key: (
-                field_inputs[key].text
-                if hasattr(field_inputs[key], "text")
-                else field_inputs[key].text
-            )
-            for key in field_inputs
-        }
-        if "operating_status" in values and hasattr(
-            field_inputs["operating_status"], "text"
-        ):
-            values["operating_status"] = field_inputs["operating_status"].text
-
-        if element_type == app.ELEM_BREAKER_YT:
-            is_main_switch = 1
-        elif element_type == app.ELEM_BREAKER_MT:
-            if breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_CENTRAL", "Κεντρικός"
+            values = {
+                key: (
+                    field_inputs[key].text
+                    if hasattr(field_inputs[key], "text")
+                    else field_inputs[key].text
+                )
+                for key in field_inputs
+            }
+            values["name"] = name_val
+            if "operating_status" in values and hasattr(
+                field_inputs["operating_status"], "text"
             ):
+                values["operating_status"] = field_inputs["operating_status"].text
+
+            if element_type == app.ELEM_BREAKER_YT:
                 is_main_switch = 1
-            elif breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
-            ):
-                is_main_switch = 2
-            elif breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"
-            ):
-                is_main_switch = 3
+            elif element_type == app.ELEM_BREAKER_MT:
+                if breaker_type_spinner.text == S["MESSAGES"].get(
+                    "BREAKER_LABEL_CENTRAL", "Κεντρικός"
+                ):
+                    is_main_switch = 1
+                elif breaker_type_spinner.text == S["MESSAGES"].get(
+                    "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
+                ):
+                    is_main_switch = 2
+                elif breaker_type_spinner.text == S["MESSAGES"].get(
+                    "BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"
+                ):
+                    is_main_switch = 3
+                else:
+                    is_main_switch = 0
             else:
                 is_main_switch = 0
-        else:
-            is_main_switch = 0
 
-        gate_value = (
-            gate_spinner.text
-            if gate_spinner.text
-            != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
-            else ""
-        )
-
-        try:
-            validate_gate_assignment(
-                element_type, breaker_type_spinner.text, gate_value
+            gate_value = (
+                gate_spinner.text
+                if gate_spinner.text
+                != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+                else ""
             )
-        except ValueError as e:
-            show_message_popup(S["TITLES"]["ERROR"], str(e))
-            return
 
-        breaker_category_value = None
-        if element_type in app.BREAKER_ELEMENT_TYPES:
-            breaker_category_value = breaker_category_spinner.text
+            try:
+                validate_gate_assignment(
+                    element_type, breaker_type_spinner.text, gate_value
+                )
+            except ValueError as e:
+                show_message_popup(S["TITLES"]["ERROR"], str(e))
+                return
 
-        try:
-            validate_breaker_category_required(element_type, breaker_category_value)
-        except ValueError as e:
-            show_message_popup(S["TITLES"]["ERROR"], str(e))
-            return
+            breaker_category_value = None
+            if element_type in app.BREAKER_ELEMENT_TYPES:
+                breaker_category_value = breaker_category_spinner.text
 
-        model_id = None
-        if model_spinner.text in models_data:
-            model_id = models_data[model_spinner.text]["id"]
+            try:
+                validate_breaker_category_required(element_type, breaker_category_value)
+            except ValueError as e:
+                show_message_popup(S["TITLES"]["ERROR"], str(e))
+                return
 
-        rated_power_val = ""
-        try:
-            rated_power_val = rated_power_input.text.strip()
-        except Exception:
+            model_id = None
+            if model_spinner.text in models_data:
+                model_id = models_data[model_spinner.text]["id"]
+
             rated_power_val = ""
+            try:
+                rated_power_val = rated_power_input.text.strip()
+            except Exception:
+                rated_power_val = ""
 
-        maintenance_cycle = values.get("maintenance_cycle", "0")
-        try:
-            maintenance_cycle_int = int(maintenance_cycle) if maintenance_cycle else 0
-        except ValueError:
-            show_message_popup(
-                S["TITLES"]["ERROR"],
-                S["MESSAGES"].get(
-                    "MODEL_SERVICE_CYCLE_NUM",
-                    "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!",
-                ),
+            maintenance_cycle = values.get("maintenance_cycle", "0")
+            try:
+                maintenance_cycle_int = int(maintenance_cycle) if maintenance_cycle else 0
+            except ValueError:
+                show_message_popup(
+                    S["TITLES"]["ERROR"],
+                    S["MESSAGES"].get(
+                        "MODEL_SERVICE_CYCLE_NUM",
+                        "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!",
+                    ),
+                )
+                return
+
+            c = app.conn.cursor()
+            c.execute(
+                "SELECT id FROM elements WHERE substation_id=? AND TRIM(name)=?",
+                (substation_id, name_val),
             )
-            return
+            if c.fetchone():
+                show_message_popup(
+                    S["TITLES"]["ERROR"],
+                    S["MESSAGES"].get(
+                        "ELEMENT_DUPLICATE",
+                        f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
+                    ),
+                )
+                return
 
-        c = app.conn.cursor()
-        c.execute(
-            "SELECT id FROM elements WHERE substation_id=? AND name=?",
-            (substation_id, name_val),
-        )
-        if c.fetchone():
-            show_message_popup(
-                S["TITLES"]["ERROR"],
-                S["MESSAGES"].get(
-                    "ELEMENT_DUPLICATE",
-                    f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
-                ),
+            voltage_level_value = (
+                voltage_level_spinner.text
+                if voltage_level_spinner.text
+                != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+                else ""
             )
-            return
 
-        voltage_level_value = (
-            voltage_level_spinner.text
-            if voltage_level_spinner.text
-            != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
-            else ""
-        )
+            try:
+                c.execute(
+                    "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        substation_id,
+                        element_type,
+                        values.get("name", ""),
+                        (values.get("serial_number", "") or "").strip(),
+                        values.get("maintenance_date", ""),
+                        voltage_level_value,
+                        values.get("manufacturer", ""),
+                        values.get("model", ""),
+                        values.get("model_version", ""),
+                        values.get("installation_space", "Εσωτερικός"),
+                        values.get("operating_status", "Ενεργή"),
+                        maintenance_cycle_int,
+                        model_id,
+                        values.get("manufacture_year", ""),
+                        gate_value,
+                        is_main_switch,
+                        breaker_category_value,
+                        (
+                            (
+                                None
+                                if rated_power_val == ""
+                                else float(rated_power_val.replace(",", "."))
+                            )
+                            if rated_power_val
+                            else None
+                        ),
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                app.conn.rollback()
+                show_message_popup(
+                    S["TITLES"]["ERROR"],
+                    S["MESSAGES"].get(
+                        "ELEMENT_DUPLICATE",
+                        f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
+                    ),
+                )
+                return
 
-        c.execute(
-            "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                substation_id,
-                element_type,
-                values.get("name", ""),
-                (values.get("serial_number", "") or "").strip(),
-                values.get("maintenance_date", ""),
-                voltage_level_value,
-                values.get("manufacturer", ""),
-                values.get("model", ""),
-                values.get("model_version", ""),
-                values.get("installation_space", "Εσωτερικός"),
-                values.get("operating_status", "Ενεργή"),
-                maintenance_cycle_int,
-                model_id,
-                values.get("manufacture_year", ""),
-                gate_value,
-                is_main_switch,
-                breaker_category_value,
-                (
+            element_id = c.lastrowid
+
+            element_data = {
+                "id": element_id,
+                "substation_id": substation_id,
+                "element_type": element_type,
+                "name": values.get("name", ""),
+                "serial_number": (values.get("serial_number", "") or "").strip(),
+                "maintenance_date": values.get("maintenance_date", ""),
+                "voltage_level": voltage_level_value,
+                "manufacturer": values.get("manufacturer", ""),
+                "model": values.get("model", ""),
+                "model_version": values.get("model_version", ""),
+                "installation_space": values.get("installation_space", "Εσωτερικός"),
+                "operating_status": values.get("operating_status", "Ενεργή"),
+                "maintenance_cycle": maintenance_cycle_int,
+                "element_model_id": model_id,
+                "manufacture_year": values.get("manufacture_year", ""),
+                "gate": gate_value,
+                "is_main_switch": is_main_switch,
+                "breaker_category": breaker_category_value,
+                "power_mva": (
                     (
                         None
                         if rated_power_val == ""
@@ -546,85 +598,57 @@ def show_add_element_popup(app, instance):
                     if rated_power_val
                     else None
                 ),
-            ),
-        )
-        element_id = c.lastrowid
+            }
+            app._append_change_log("insert", "elements", element_data)
 
-        # Track change for desktop sync
-        element_data = {
-            "id": element_id,
-            "substation_id": substation_id,
-            "element_type": element_type,
-            "name": values.get("name", ""),
-            "serial_number": (values.get("serial_number", "") or "").strip(),
-            "maintenance_date": values.get("maintenance_date", ""),
-            "voltage_level": voltage_level_value,
-            "manufacturer": values.get("manufacturer", ""),
-            "model": values.get("model", ""),
-            "model_version": values.get("model_version", ""),
-            "installation_space": values.get("installation_space", "Εσωτερικός"),
-            "operating_status": values.get("operating_status", "Ενεργή"),
-            "maintenance_cycle": maintenance_cycle_int,
-            "element_model_id": model_id,
-            "manufacture_year": values.get("manufacture_year", ""),
-            "gate": gate_value,
-            "is_main_switch": is_main_switch,
-            "breaker_category": breaker_category_value,
-            "power_mva": (
-                (
-                    None
-                    if rated_power_val == ""
-                    else float(rated_power_val.replace(",", "."))
+            try:
+                sync_substation_gate_folders(
+                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
                 )
-                if rated_power_val
-                else None
-            ),
-        }
-        app._append_change_log("insert", "elements", element_data)
-
-        try:
-            sync_substation_gate_folders(
-                app.conn, substation_id, db_path=getattr(app, "db_path", None)
-            )
-        except Exception as exc:
-            app.conn.rollback()
-            show_message_popup(
-                S["TITLES"].get("ERROR", "Σφάλμα"),
-                S["MESSAGES"]
-                .get(
-                    "GATE_FOLDERS_SYNC_CREATE_FAILED_FMT",
-                    "Failed to sync gate folders.\nElement creation was cancelled.\n\n{error}",
-                )
-                .format(error=str(exc)),
-            )
-            return
-
-        app.conn.commit()
-
-        try:
-            if model_id and rated_power_val:
-                rp_val = (
-                    None
-                    if rated_power_val == ""
-                    else float(rated_power_val.replace(",", "."))
-                )
-                if rp_val is not None:
-                    c.execute(
-                        "UPDATE element_models SET power_mva=? WHERE id=?",
-                        (rp_val, model_id),
+            except Exception as exc:
+                app.conn.rollback()
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"]
+                    .get(
+                        "GATE_FOLDERS_SYNC_CREATE_FAILED_FMT",
+                        "Failed to sync gate folders.\nElement creation was cancelled.\n\n{error}",
                     )
-                    app.conn.commit()
-        except Exception:
-            pass
+                    .format(error=str(exc)),
+                )
+                return
 
-        popup.dismiss()
-        show_message_popup(
-            S["TITLES"]["SUCCESS"],
-            S["MESSAGES"].get(
-                "ELEMENT_ADDED", f"Στοιχείο προστέθηκε στον {substation_name}!"
-            ),
-            callback=lambda: app._display_substations(substation_name),
-        )
+            app.conn.commit()
+
+            try:
+                if model_id and rated_power_val:
+                    rp_val = (
+                        None
+                        if rated_power_val == ""
+                        else float(rated_power_val.replace(",", "."))
+                    )
+                    if rp_val is not None:
+                        c.execute(
+                            "UPDATE element_models SET power_mva=? WHERE id=?",
+                            (rp_val, model_id),
+                        )
+                        app.conn.commit()
+            except Exception:
+                pass
+
+            popup.dismiss()
+            show_message_popup(
+                S["TITLES"]["SUCCESS"],
+                S["MESSAGES"].get(
+                    "ELEMENT_ADDED", f"Στοιχείο προστέθηκε στον {substation_name}!"
+                ),
+                callback=lambda: app._display_substations(substation_name),
+            )
+        finally:
+            try:
+                add_btn.disabled = False
+            except Exception:
+                pass
 
     add_btn = Button(text=S["BUTTONS"]["ADD"])
     add_btn.bind(on_press=lambda x: add_element())
@@ -1479,194 +1503,214 @@ def show_edit_element_popup(
     buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
     def save_changes():
-        name_val = field_inputs["name"].text.strip()
-        if not name_val:
-            show_message_popup(
-                S["TITLES"]["ERROR"],
-                S["MESSAGES"].get("NAME_REQUIRED", "Το όνομα είναι υποχρεωτικό!"),
-            )
-            return
+        try:
+            save_btn.disabled = True
+        except Exception:
+            pass
 
         try:
-            cycle_val = (
-                int(field_inputs["maintenance_cycle"].text)
-                if field_inputs["maintenance_cycle"].text
-                else 0
+            name_val = field_inputs["name"].text.strip()
+            if not name_val:
+                show_message_popup(
+                    S["TITLES"]["ERROR"],
+                    S["MESSAGES"].get("NAME_REQUIRED", "Το όνομα είναι υποχρεωτικό!"),
+                )
+                return
+
+            try:
+                cycle_val = (
+                    int(field_inputs["maintenance_cycle"].text)
+                    if field_inputs["maintenance_cycle"].text
+                    else 0
+                )
+            except ValueError:
+                show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
+                return
+
+            c = app.conn.cursor()
+            c.execute(
+                "SELECT id FROM elements WHERE substation_id=? AND TRIM(name)=? AND id!=?",
+                (substation_id, name_val, element_id),
             )
-        except ValueError:
-            show_message_popup("Σφάλμα", "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!")
-            return
+            if c.fetchone():
+                show_message_popup(
+                    "Σφάλμα",
+                    f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
+                )
+                return
 
-        c = app.conn.cursor()
-        c.execute(
-            "SELECT id FROM elements WHERE substation_id=? AND name=? AND id!=?",
-            (substation_id, name_val, element_id),
-        )
-        if c.fetchone():
-            show_message_popup(
-                "Σφάλμα",
-                f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
+            new_model_id = (
+                models_data[model_spinner.text]["id"]
+                if model_spinner.text in models_data
+                else None
             )
-            return
 
-        new_model_id = (
-            models_data[model_spinner.text]["id"]
-            if model_spinner.text in models_data
-            else None
-        )
-
-        gate_value = (
-            gate_spinner.text
-            if gate_spinner.text
-            != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
-            else ""
-        )
-
-        breaker_category_value = None
-        if elem_type in app.BREAKER_ELEMENT_TYPES:
-            breaker_category_value = breaker_category_spinner.text
-
-        if elem_type in app.BREAKER_ELEMENT_TYPES and (
-            breaker_category_value is None or str(breaker_category_value).strip() == ""
-        ):
-            show_message_popup(
-                S["TITLES"].get("ERROR", "Σφάλμα"),
-                S["MESSAGES"].get(
-                    "PLEASE_SELECT_BREAKER_CATEGORY",
-                    "Η κατηγορία διακόπτη είναι υποχρεωτική για τους διακόπτες!",
-                ),
+            gate_value = (
+                gate_spinner.text
+                if gate_spinner.text
+                != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+                else ""
             )
-            return
 
-        if elem_type == app.ELEM_BREAKER_YT:
-            new_is_main_switch = 1
-        elif elem_type == app.ELEM_BREAKER_MT:
-            if breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_CENTRAL", "Κεντρικός"
+            breaker_category_value = None
+            if elem_type in app.BREAKER_ELEMENT_TYPES:
+                breaker_category_value = breaker_category_spinner.text
+
+            if elem_type in app.BREAKER_ELEMENT_TYPES and (
+                breaker_category_value is None or str(breaker_category_value).strip() == ""
             ):
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get(
+                        "PLEASE_SELECT_BREAKER_CATEGORY",
+                        "Η κατηγορία διακόπτη είναι υποχρεωτική για τους διακόπτες!",
+                    ),
+                )
+                return
+
+            if elem_type == app.ELEM_BREAKER_YT:
                 new_is_main_switch = 1
-            elif breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
-            ):
-                new_is_main_switch = 2
-            elif breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"
-            ):
-                new_is_main_switch = 3
+            elif elem_type == app.ELEM_BREAKER_MT:
+                if breaker_type_spinner.text == S["MESSAGES"].get(
+                    "BREAKER_LABEL_CENTRAL", "Κεντρικός"
+                ):
+                    new_is_main_switch = 1
+                elif breaker_type_spinner.text == S["MESSAGES"].get(
+                    "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
+                ):
+                    new_is_main_switch = 2
+                elif breaker_type_spinner.text == S["MESSAGES"].get(
+                    "BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"
+                ):
+                    new_is_main_switch = 3
+                else:
+                    new_is_main_switch = 0
             else:
                 new_is_main_switch = 0
-        else:
-            new_is_main_switch = 0
 
-        voltage_level_value = (
-            voltage_level_spinner.text
-            if voltage_level_spinner.text
-            != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
-            else ""
-        )
+            voltage_level_value = (
+                voltage_level_spinner.text
+                if voltage_level_spinner.text
+                != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+                else ""
+            )
 
-        try:
-            validate_gate_assignment(elem_type, breaker_type_spinner.text, gate_value)
-        except ValueError as e:
-            show_message_popup("Σφάλμα", str(e))
-            return
+            try:
+                validate_gate_assignment(elem_type, breaker_type_spinner.text, gate_value)
+            except ValueError as e:
+                show_message_popup("Σφάλμα", str(e))
+                return
 
-        try:
-            if elem_type in app.BREAKER_ELEMENT_TYPES:
-                if is_main_switch == 1 and (
-                    new_is_main_switch != 1 or gate_value != (gate or "")
-                ):
-                    old_gate = gate or ""
-                    c.execute(
-                        "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
-                        (substation_id, old_gate, elem_type, element_id),
-                    )
-                    remaining = c.fetchone()[0]
-                    if remaining == 0:
-                        show_message_popup(
-                            S["TITLES"].get("ERROR", "Σφάλμα"),
-                            f"Η πύλη '{old_gate or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό {app.ELEM_BREAKER_YT if elem_type == app.ELEM_BREAKER_YT else app.ELEM_BREAKER_MT}.",
+            try:
+                if elem_type in app.BREAKER_ELEMENT_TYPES:
+                    if is_main_switch == 1 and (
+                        new_is_main_switch != 1 or gate_value != (gate or "")
+                    ):
+                        old_gate = gate or ""
+                        c.execute(
+                            "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
+                            (substation_id, old_gate, elem_type, element_id),
                         )
-                        return
-        except Exception:
-            pass
+                        remaining = c.fetchone()[0]
+                        if remaining == 0:
+                            show_message_popup(
+                                S["TITLES"].get("ERROR", "Σφάλμα"),
+                                f"Η πύλη '{old_gate or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό {app.ELEM_BREAKER_YT if elem_type == app.ELEM_BREAKER_YT else app.ELEM_BREAKER_MT}.",
+                            )
+                            return
+            except Exception:
+                pass
 
-        try:
-            rp_txt = rated_power_input.text.strip()
-            power_val_to_set = None if rp_txt == "" else float(rp_txt.replace(",", "."))
-        except Exception:
-            power_val_to_set = None
+            try:
+                rp_txt = rated_power_input.text.strip()
+                power_val_to_set = None if rp_txt == "" else float(rp_txt.replace(",", "."))
+            except Exception:
+                power_val_to_set = None
 
-        c.execute(
-            """UPDATE elements SET 
-                            name=?, serial_number=?, maintenance_date=?, voltage_level=?, manufacturer=?, model=?, model_version=?,
-                            installation_space=?, operating_status=?, 
-                            maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, is_main_switch=?, breaker_category=?, power_mva=?
-                            WHERE id=?""",
-            (
-                name_val,
-                field_inputs["serial_number"].text.strip(),
-                field_inputs["maintenance_date"].text.strip(),
-                voltage_level_value,
-                field_inputs["manufacturer"].text.strip(),
-                field_inputs["model"].text.strip(),
-                field_inputs["model_version"].text.strip(),
-                field_inputs["installation_space"].text,
-                field_inputs["operating_status"].text,
-                cycle_val,
-                field_inputs["manufacture_year"].text.strip(),
-                new_model_id,
-                gate_value,
-                new_is_main_switch,
-                breaker_category_value,
-                power_val_to_set,
-                element_id,
-            ),
-        )
-
-        try:
-            sync_substation_gate_folders(
-                app.conn, substation_id, db_path=getattr(app, "db_path", None)
-            )
-        except Exception as exc:
-            app.conn.rollback()
-            show_message_popup(
-                S["TITLES"].get("ERROR", "Σφάλμα"),
-                S["MESSAGES"]
-                .get(
-                    "GATE_FOLDERS_SYNC_EDIT_FAILED_FMT",
-                    "Failed to sync gate folders.\nChanges were cancelled.\n\n{error}",
-                )
-                .format(error=str(exc)),
-            )
-            return
-
-        app.conn.commit()
-        try:
-            if new_model_id and power_val_to_set is not None:
+            try:
                 c.execute(
-                    "UPDATE element_models SET power_mva=? WHERE id=?",
-                    (power_val_to_set, new_model_id),
+                    """UPDATE elements SET 
+                                    name=?, serial_number=?, maintenance_date=?, voltage_level=?, manufacturer=?, model=?, model_version=?,
+                                    installation_space=?, operating_status=?, 
+                                    maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, is_main_switch=?, breaker_category=?, power_mva=?
+                                    WHERE id=?""",
+                    (
+                        name_val,
+                        field_inputs["serial_number"].text.strip(),
+                        field_inputs["maintenance_date"].text.strip(),
+                        voltage_level_value,
+                        field_inputs["manufacturer"].text.strip(),
+                        field_inputs["model"].text.strip(),
+                        field_inputs["model_version"].text.strip(),
+                        field_inputs["installation_space"].text,
+                        field_inputs["operating_status"].text,
+                        cycle_val,
+                        field_inputs["manufacture_year"].text.strip(),
+                        new_model_id,
+                        gate_value,
+                        new_is_main_switch,
+                        breaker_category_value,
+                        power_val_to_set,
+                        element_id,
+                    ),
                 )
-                app.conn.commit()
-        except Exception:
-            pass
-        popup.dismiss()
-        parent_popup.dismiss()
-        if grandparent_popup:
-            grandparent_popup.dismiss()
-        if substation_name:
-            show_message_popup(
-                "Επιτυχία",
-                "Οι αλλαγές αποθηκεύτηκαν!",
-                callback=lambda: app._display_substations(substation_name),
-            )
-        else:
-            show_message_popup(
-                "Επιτυχία",
-                "Οι αλλαγές αποθηκεύτηκαν!",
-                callback=lambda: app.show_records(None),
-            )
+            except sqlite3.IntegrityError:
+                app.conn.rollback()
+                show_message_popup(
+                    "Σφάλμα",
+                    f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
+                )
+                return
+
+            try:
+                sync_substation_gate_folders(
+                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
+                )
+            except Exception as exc:
+                app.conn.rollback()
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"]
+                    .get(
+                        "GATE_FOLDERS_SYNC_EDIT_FAILED_FMT",
+                        "Failed to sync gate folders.\nChanges were cancelled.\n\n{error}",
+                    )
+                    .format(error=str(exc)),
+                )
+                return
+
+            app.conn.commit()
+            try:
+                if new_model_id and power_val_to_set is not None:
+                    c.execute(
+                        "UPDATE element_models SET power_mva=? WHERE id=?",
+                        (power_val_to_set, new_model_id),
+                    )
+                    app.conn.commit()
+            except Exception:
+                pass
+
+            popup.dismiss()
+            parent_popup.dismiss()
+            if grandparent_popup:
+                grandparent_popup.dismiss()
+            if substation_name:
+                show_message_popup(
+                    "Επιτυχία",
+                    "Οι αλλαγές αποθηκεύτηκαν!",
+                    callback=lambda: app._display_substations(substation_name),
+                )
+            else:
+                show_message_popup(
+                    "Επιτυχία",
+                    "Οι αλλαγές αποθηκεύτηκαν!",
+                    callback=lambda: app.show_records(None),
+                )
+        finally:
+            try:
+                save_btn.disabled = False
+            except Exception:
+                pass
 
     save_btn = Button(text=S["BUTTONS"]["SAVE"])
     save_btn.bind(on_press=lambda x: save_changes())

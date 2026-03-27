@@ -293,6 +293,49 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     except Exception:
         pass
 
+    # Block new duplicate element names within a substation without forcing a
+    # destructive cleanup of older duplicate rows that may already exist.
+    try:
+        cursor.execute("DROP TRIGGER IF EXISTS trg_elements_no_duplicate_insert")
+        cursor.execute("DROP TRIGGER IF EXISTS trg_elements_no_duplicate_update")
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_elements_no_duplicate_insert
+            BEFORE INSERT ON elements
+            FOR EACH ROW
+            WHEN TRIM(COALESCE(NEW.name, '')) != ''
+             AND EXISTS (
+                SELECT 1
+                FROM elements e
+                WHERE e.substation_id = NEW.substation_id
+                  AND TRIM(COALESCE(e.name, '')) = TRIM(COALESCE(NEW.name, ''))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'duplicate element name in substation');
+            END;
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_elements_no_duplicate_update
+            BEFORE UPDATE OF substation_id, name ON elements
+            FOR EACH ROW
+            WHEN TRIM(COALESCE(NEW.name, '')) != ''
+             AND EXISTS (
+                SELECT 1
+                FROM elements e
+                WHERE e.substation_id = NEW.substation_id
+                  AND TRIM(COALESCE(e.name, '')) = TRIM(COALESCE(NEW.name, ''))
+                  AND e.id != NEW.id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'duplicate element name in substation');
+            END;
+            """
+        )
+    except Exception:
+        pass
+
     # Add breaker_category column to elements table
     cursor.execute("PRAGMA table_info(elements)")
     elem_columns = [column[1] for column in cursor.fetchall()]

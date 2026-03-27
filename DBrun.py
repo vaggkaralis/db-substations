@@ -15,6 +15,8 @@ import sqlite3
 import sys
 import logging
 import subprocess
+import faulthandler
+import traceback
 
 import webbrowser
 from datetime import datetime, timedelta
@@ -257,6 +259,57 @@ try:
 
     _os_for_kivy_env.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
     _os_for_kivy_env.environ.setdefault("KIVY_LOG_LEVEL", "warning")
+except Exception:
+    pass
+
+try:
+    _log_dir = os.path.abspath(os.path.dirname(__file__))
+    _crash_log_path = os.path.join(_log_dir, "app_crash.log")
+    _fault_log_path = os.path.join(_log_dir, "faulthandler.log")
+    _fault_stream = None
+
+    _root_logger = logging.getLogger()
+    _root_logger.setLevel(logging.WARNING)
+
+    if not any(
+        isinstance(handler, logging.FileHandler)
+        and getattr(handler, "baseFilename", None)
+        == os.path.abspath(_crash_log_path)
+        for handler in _root_logger.handlers
+    ):
+        _file_handler = logging.FileHandler(_crash_log_path, encoding="utf-8")
+        _file_handler.setLevel(logging.ERROR)
+        _file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        _root_logger.addHandler(_file_handler)
+
+    try:
+        _fault_stream = open(_fault_log_path, "a", encoding="utf-8")
+        faulthandler.enable(file=_fault_stream)
+    except Exception:
+        _fault_stream = None
+
+    _previous_excepthook = sys.excepthook
+
+    def _log_uncaught_exception(exc_type, exc_value, exc_tb):
+        try:
+            _root_logger.error(
+                "Uncaught exception", exc_info=(exc_type, exc_value, exc_tb)
+            )
+        except Exception:
+            pass
+        try:
+            with open(_crash_log_path, "a", encoding="utf-8") as crash_handle:
+                traceback.print_exception(exc_type, exc_value, exc_tb, file=crash_handle)
+        except Exception:
+            pass
+        try:
+            _previous_excepthook(exc_type, exc_value, exc_tb)
+        except Exception:
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _log_uncaught_exception
 except Exception:
     pass
 
