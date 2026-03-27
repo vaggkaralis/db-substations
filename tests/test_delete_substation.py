@@ -39,10 +39,7 @@ def test_delete_substation_cascades():
         (100, 10, 1, "ok"),
     )
     c.execute(
-        (
-            "INSERT INTO people (id, name, role) "
-            "VALUES (?,?,?)"
-        ),
+        ("INSERT INTO people (id, name, role) VALUES (?,?,?)"),
         (200, "P1", "tech"),
     )
     c.execute(
