@@ -317,10 +317,14 @@ def _show_import_maintenance_eml_dialog(app, ui, parent_popup=None):
         try:
             if parent_popup:
                 parent_popup.dismiss()
+
+            app._import_maintenance_from_email_file(fp)
+            return
         except Exception:
-            pass
-        app._import_maintenance_from_email_file(fp)
-        return
+            import traceback
+
+            traceback.print_exc()
+            return
 
     if not allow_fallback:
         return

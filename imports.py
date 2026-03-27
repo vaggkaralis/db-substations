@@ -167,10 +167,8 @@ def show_import_menu(app, instance=None):
         from kivy.uix.button import Button
         from kivy.uix.label import Label
         from kivy.uix.popup import Popup
-        from popups import show_message_popup
     except Exception:
         Popup = BoxLayout = Label = Button = object
-        show_message_popup = None
 
     menu_popup = Popup(
         title=S["TITLES"].get("IMPORT_MENU", "Εισαγωγή από αρχείο"),
