@@ -4,7 +4,7 @@ import sys
 # Ensure project root is on sys.path when running from tests/ directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from android_app import SubstationAndroidApp
+from android_app import SubstationAndroidApp  # noqa: E402
 
 
 class DummyLayout:

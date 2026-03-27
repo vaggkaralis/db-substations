@@ -79,15 +79,35 @@ def test_import_elements_csv_model_mapping(monkeypatch):
     cur = conn.cursor()
     cur.execute("CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT UNIQUE)")
     cur.execute(
-        "CREATE TABLE element_models (id INTEGER PRIMARY KEY, element_category TEXT, model_name TEXT, manufacturer TEXT)"
+        "CREATE TABLE element_models ("
+        "id INTEGER PRIMARY KEY, "
+        "element_category TEXT, "
+        "model_name TEXT, "
+        "manufacturer TEXT"
+        ")"
     )
     cur.execute(
-        "CREATE TABLE elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, gate TEXT, is_main_switch INTEGER, breaker_category TEXT, element_model_id INTEGER, operating_status TEXT)"
+        "CREATE TABLE elements ("
+        "id INTEGER PRIMARY KEY, "
+        "substation_id INTEGER, "
+        "element_type TEXT, "
+        "name TEXT, "
+        "serial_number TEXT, "
+        "maintenance_date TEXT, "
+        "voltage_level TEXT, "
+        "manufacturer TEXT, "
+        "gate TEXT, "
+        "is_main_switch INTEGER, "
+        "breaker_category TEXT, "
+        "element_model_id INTEGER, "
+        "operating_status TEXT"
+        ")"
     )
     cur.execute("INSERT INTO substations (id, name) VALUES (?,?)", (1, "S1"))
     # insert model
     cur.execute(
-        "INSERT INTO element_models (element_category, model_name, manufacturer) VALUES (?,?,?)",
+        "INSERT INTO element_models (element_category, model_name, manufacturer) "
+        "VALUES (?,?,?)",
         ("Διακόπτης ΜΤ", "M200", "Acme"),
     )
     conn.commit()
