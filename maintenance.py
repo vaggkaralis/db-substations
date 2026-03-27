@@ -44,11 +44,35 @@ def show_maintenance_menu_popup(app, ui):
     layout.add_widget(Label(text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"), size_hint_y=None, height=45))
 
     add_btn = Button(text=S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"), size_hint_y=None, height=60)
-    add_btn.bind(on_press=lambda x: app.show_maintenance_menu(parent_popup=menu_popup))
+    def _on_add(_instance=None):
+        try:
+            app.show_maintenance_menu(parent_popup=menu_popup)
+        except Exception as exc:
+            try:
+                import traceback, sys
+                tb = traceback.format_exc()
+                log_path = os.path.join(os.path.dirname(__file__), "maintenance_error.log")
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now().isoformat()}] Error opening maintenance form:\n{tb}\n")
+                except Exception:
+                    pass
+                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά το άνοιγμα φόρμας συντήρησης. Δείτε log: {log_path}")
+            except Exception:
+                pass
+    add_btn.bind(on_press=_on_add)
     layout.add_widget(add_btn)
 
     import_email_btn = Button(text=S["MESSAGES"].get("IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"), size_hint_y=None, height=60)
-    import_email_btn.bind(on_press=lambda x: app._show_import_maintenance_email_dialog(menu_popup))
+    def _on_import_email(_instance=None):
+        try:
+            app._show_import_maintenance_email_dialog(menu_popup)
+        except Exception as exc:
+            try:
+                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά την εισαγωγή από e-mail:\n{exc}")
+            except Exception:
+                pass
+    import_email_btn.bind(on_press=_on_import_email)
     layout.add_widget(import_email_btn)
 
     # Export maintenances (Excel)
@@ -91,12 +115,29 @@ def show_maintenance_menu_popup(app, ui):
         choice_popup.open()
 
     history_btn = Button(text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"), size_hint_y=None, height=60)
-    history_btn.bind(on_press=_open_history_choice)
+    def _on_history(_instance=None):
+        try:
+            _open_history_choice()
+        except Exception as exc:
+            try:
+                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά το άνοιγμα ιστορικού συντηρήσεων:\n{exc}")
+            except Exception:
+                pass
+    history_btn.bind(on_press=_on_history)
     layout.add_widget(history_btn)
 
     # Measurements history (global) - opens a list of measurement instances
     meas_btn = Button(text=S["MESSAGES"].get("MEASUREMENTS_HISTORY_LABEL", "Ιστορικό Μετρήσεων"), size_hint_y=None, height=60)
-    meas_btn.bind(on_press=lambda x: (menu_popup.dismiss(), app.show_measurements_history(parent_popup=menu_popup)))
+    def _on_meas(_instance=None):
+        try:
+            menu_popup.dismiss()
+            app.show_measurements_history(parent_popup=menu_popup)
+        except Exception as exc:
+            try:
+                ui.get("show_message_popup", lambda *a, **k: None)(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), f"Σφάλμα κατά το άνοιγμα ιστορικού μετρήσεων:\n{exc}")
+            except Exception:
+                pass
+    meas_btn.bind(on_press=_on_meas)
     layout.add_widget(meas_btn)
 
     cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=60)

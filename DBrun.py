@@ -10080,7 +10080,22 @@ class SubstationApp(App):
                     values.append(label)
 
             isolation_spinner.values = values
-            target_id = preferred_request_id if preferred_request_id is not None else linked_isolation_request_id
+            # Determine the target isolation id to select. Priority:
+            # 1) preferred_request_id (explicit caller preference)
+            # 2) linked_isolation_request_id (existing value)
+            # 3) most recent isolation for the substation (if any)
+            if preferred_request_id is not None:
+                target_id = preferred_request_id
+            elif linked_isolation_request_id is not None:
+                target_id = linked_isolation_request_id
+            else:
+                # Pick the most recent non-null request id from the values list
+                target_id = None
+                for lbl in values[1:]:
+                    rid = isolation_options_by_label.get(lbl)
+                    if rid is not None:
+                        target_id = rid
+                        break
             selected_label = "Χωρίς σύνδεση"
             for label, req_id in isolation_options_by_label.items():
                 if req_id == target_id:
@@ -10464,20 +10479,139 @@ class SubstationApp(App):
         _resize_comments()
         content_layout.add_widget(overall_comments)
 
-        # Completed / Incomplete marker + tasks left input
-        completed_row = BoxLayout(size_hint_y=None, height=40, spacing=6)
-        mark_complete_cb = CheckBox(size_hint=(None, None), size=(28, 28))
-        mark_complete_label = Label(text=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Ολοκληρώθηκε"), size_hint_x=0.85, valign="middle")
-        completed_row.add_widget(mark_complete_label)
-        completed_row.add_widget(mark_complete_cb)
-        content_layout.add_widget(completed_row)
-
+        # Completed / Incomplete marker (toggle button) + tasks left input
+        # Default: incomplete (Δεν ολοκηρώθηκε) — user can toggle to completed
         tasks_default_text = globals().get('pending_tasks_text_default', '') if 'pending_tasks_text_default' in globals() else ''
         try:
             # prefer the value fetched earlier when editing
             tasks_default_text = pending_tasks_text_default
         except Exception:
             tasks_default_text = ''
+
+        # Completion state maintained in this boolean (False => incomplete)
+        completed_state = False if not (maintenance_record and False) else False
+
+        # Use a colored container behind a transparent button so theme
+        # class-level button images don't obscure the intended color.
+        completion_btn_container = BoxLayout(size_hint_y=None, height=40)
+
+        # Draw a rectangle on the container's canvas.before and keep refs
+        try:
+            with completion_btn_container.canvas.before:
+                _bg_color = Color(1, 1, 1, 1)
+                _bg_rect = Rectangle(pos=completion_btn_container.pos, size=completion_btn_container.size)
+
+            def _sync_container_rect(*_a):
+                try:
+                    _bg_rect.pos = completion_btn_container.pos
+                    _bg_rect.size = completion_btn_container.size
+                except Exception:
+                    pass
+
+            try:
+                completion_btn_container.bind(pos=_sync_container_rect, size=_sync_container_rect)
+            except Exception:
+                pass
+            completion_btn_container._bg_color = _bg_color
+            completion_btn_container._bg_rect = _bg_rect
+        except Exception:
+            pass
+
+        # Inner button is kept transparent so the container's color shows
+        completion_btn = Button(
+            text=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Δεν ολοκηρώθηκε"),
+            size_hint=(1, None),
+            height=40,
+            background_normal="",
+            background_down="",
+            background_color=(0, 0, 0, 0),
+        )
+
+        def _update_completion_ui():
+            try:
+                # update label and container color
+                if completed_state:
+                    completion_btn.text = S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Ολοκληρώθηκε")
+                    try:
+                        if getattr(completion_btn_container, "_bg_color", None) is not None:
+                            completion_btn_container._bg_color.rgba = (0.12, 0.65, 0.12, 1)
+                        else:
+                            completion_btn.background_color = (0.12, 0.65, 0.12, 1)
+                    except Exception:
+                        try:
+                            completion_btn.background_color = (0.12, 0.65, 0.12, 1)
+                        except Exception:
+                            pass
+                    try:
+                        completion_btn.color = self.theme.get("text_on_primary", (1, 1, 1, 1))
+                    except Exception:
+                        pass
+
+                    # hide/remove tasks input when completed
+                    try:
+                        if getattr(content_layout, "remove_widget", None) and getattr(tasks_input, "parent", None) is not None:
+                            content_layout.remove_widget(tasks_input)
+                    except Exception:
+                        pass
+                    try:
+                        tasks_input.opacity = 0
+                        tasks_input.disabled = True
+                        tasks_input.height = 0
+                    except Exception:
+                        pass
+                else:
+                    completion_btn.text = S["MESSAGES"].get("MARK_INCOMPLETE_LABEL", "Δεν ολοκηρώθηκε")
+                    try:
+                        if getattr(completion_btn_container, "_bg_color", None) is not None:
+                            completion_btn_container._bg_color.rgba = (0.85, 0.12, 0.12, 1)
+                        else:
+                            completion_btn.background_color = (0.85, 0.12, 0.12, 1)
+                    except Exception:
+                        try:
+                            completion_btn.background_color = (0.85, 0.12, 0.12, 1)
+                        except Exception:
+                            pass
+                    try:
+                        completion_btn.color = self.theme.get("text_on_primary", (1, 1, 1, 1))
+                    except Exception:
+                        pass
+
+                    # If tasks_input isn't already in the scroll content, insert it
+                    try:
+                        if getattr(content_layout, "add_widget", None) and getattr(tasks_input, "parent", None) is None:
+                            # add after the completion container so it appears underneath
+                            try:
+                                content_layout.add_widget(tasks_input)
+                            except Exception:
+                                # best-effort: try insert at end
+                                try:
+                                    content_layout.add_widget(tasks_input)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                    try:
+                        tasks_input.opacity = 1
+                        tasks_input.disabled = False
+                        tasks_input.height = 100
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        def _toggle_completion(_instance=None):
+            nonlocal completed_state
+            completed_state = not completed_state
+            _update_completion_ui()
+
+        completion_btn.bind(on_press=_toggle_completion)
+
+        # put the transparent button inside the colored container
+        try:
+            completion_btn_container.add_widget(completion_btn)
+        except Exception:
+            pass
 
         tasks_input = TextInput(
             hint_text=S["MESSAGES"].get("TASKS_LEFT_LABEL", "Εργασίες που απομένουν..."),
@@ -10486,27 +10620,19 @@ class SubstationApp(App):
             height=100,
             multiline=True,
         )
-        # hide by default when marked complete
-        if tasks_default_text:
-            mark_complete_cb.active = False
+
+        # If there are pending tasks loaded, the maintenance is incomplete.
+        # Otherwise default to completed (previously saved maintenances are complete).
+        if tasks_default_text and tasks_default_text.strip():
+            completed_state = False
         else:
-            mark_complete_cb.active = True
-            tasks_input.opacity = 0
-            tasks_input.disabled = True
-            tasks_input.height = 0
+            completed_state = True
 
-        def _toggle_tasks_visibility(cb, value):
-            if value:
-                tasks_input.opacity = 0
-                tasks_input.disabled = True
-                tasks_input.height = 0
-            else:
-                tasks_input.opacity = 1
-                tasks_input.disabled = False
-                tasks_input.height = 100
-
-        mark_complete_cb.bind(active=_toggle_tasks_visibility)
-        content_layout.add_widget(tasks_input)
+        _update_completion_ui()
+        # NOTE: do not add `tasks_input` or `completion_btn` to the scrollable
+        # content here; they will be inserted at the end of the scrollable area
+        # later so the completion button appears as the last item in the
+        # scrollable content.
 
         # OneDrive Media Folder Link
         content_layout.add_widget(
@@ -12020,6 +12146,29 @@ class SubstationApp(App):
 
         content_layout.add_widget(add_element_row)
 
+        # Insert completion toggle at the very bottom of the scrollable area
+        # so it appears last in the form. If editing an existing incomplete
+        # maintenance that has pending tasks, show the editable tasks input
+        # inline; otherwise the tasks input remains hidden and is only
+        # requested via the temporary-save or the post-save prompt.
+        try:
+            # Show tasks input only when editing an existing maintenance that
+            # already has pending tasks text loaded.
+            if maintenance_id and not completed_state:
+                content_layout.add_widget(tasks_input)
+            # Always show the completion toggle container as the last item in the scroll
+            try:
+                content_layout.add_widget(completion_btn_container)
+            except Exception:
+                # fallback to adding the inner button if container fails
+                try:
+                    content_layout.add_widget(completion_btn)
+                except Exception:
+                    pass
+        except Exception:
+            # Best-effort UI insertion; ignore failures in headless tests
+            pass
+
         # Buttons at the bottom (not scrollable)
         buttons_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
 
@@ -12048,6 +12197,69 @@ class SubstationApp(App):
                 show_message_popup(
                     S["TITLES"]["ERROR"], S["MESSAGES"].get("RESPONSIBLE_REQUIRED", "Ο υπεύθυνος συντήρησης είναι υποχρεωτικός!")
                 )
+                return
+
+            # If user left maintenance as incomplete but did not provide
+            # pending tasks (and this is a permanent save), prompt them to
+            # confirm and optionally enter the remaining TODOs.
+            if not completed_state and not (tasks_input.text and tasks_input.text.strip()):
+                conf = Popup(title=S["MESSAGES"].get("CONFIRM_INCOMPLETE_TITLE", S["MESSAGES"].get("CONFIRM_TITLE", "Επιβεβαίωση")), size_hint=(0.7, 0.4))
+                conf_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+                conf_msg = S["MESSAGES"].get(
+                    "CONFIRM_INCOMPLETE_MSG",
+                    S["MESSAGES"].get("MAINT_NOT_COMPLETE_MSG", "Η συντήρηση δεν έχει ολοκληρωθεί"),
+                )
+                conf_layout.add_widget(Label(text=conf_msg))
+
+                btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+                def _on_confirm_incomplete(_instance=None):
+                    conf.dismiss()
+                    # Prompt for tasks (localized title)
+                    task_popup = Popup(title=S["MESSAGES"].get("ENTER_PENDING_TASKS_TITLE", "Εισαγωγή Εκκρεμών Εργασιών"), size_hint=(0.8, 0.6))
+                    tp_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+                    task_input = TextInput(hint_text=S["MESSAGES"].get("TASKS_LEFT_LABEL", "Εργασίες που απομένουν..."), multiline=True)
+
+                    def _save_tasks_and_continue(_btn=None):
+                        tasks_input.text = task_input.text.strip()
+                        nonlocal completed_state
+                        completed_state = False
+                        _update_completion_ui()
+                        task_popup.dismiss()
+                        # retry save now that tasks_input has text
+                        save_maintenance()
+
+                    def _cancel_tasks(_btn=None):
+                        task_popup.dismiss()
+
+                    tp_layout.add_widget(task_input)
+                    tp_btns = BoxLayout(size_hint_y=None, height=44, spacing=8)
+                    save_tasks_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"))
+                    save_tasks_btn.bind(on_press=_save_tasks_and_continue)
+                    tp_btns.add_widget(save_tasks_btn)
+                    cancel_tasks_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+                    cancel_tasks_btn.bind(on_press=_cancel_tasks)
+                    tp_btns.add_widget(cancel_tasks_btn)
+                    tp_layout.add_widget(tp_btns)
+                    task_popup.content = tp_layout
+                    task_popup.open()
+
+                def _on_mark_complete(_instance=None):
+                    nonlocal completed_state
+                    completed_state = True
+                    _update_completion_ui()
+                    conf.dismiss()
+                    save_maintenance()
+
+                yes_btn = Button(text=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Ολοκληρώθηκε"))
+                yes_btn.bind(on_press=_on_mark_complete)
+                no_btn = Button(text=S["MESSAGES"].get("MARK_INCOMPLETE_LABEL", "Δεν ολοκηρώθηκε"))
+                no_btn.bind(on_press=_on_confirm_incomplete)
+                btn_row.add_widget(yes_btn)
+                btn_row.add_widget(no_btn)
+                conf_layout.add_widget(btn_row)
+                conf.content = conf_layout
+                conf.open()
                 return
 
             # Insert/update maintenance record with type and user
@@ -12436,7 +12648,7 @@ class SubstationApp(App):
 
             # Persist pending tasks for incomplete maintenances
             try:
-                if mark_complete_cb.active:
+                if completed_state:
                     c.execute(
                         "DELETE FROM maintenance_pending_tasks WHERE maintenance_id=?",
                         (maintenance_id,),
@@ -12496,11 +12708,45 @@ class SubstationApp(App):
                     S["MESSAGES"].get("MAINTENANCE_UPDATED" if maintenance_record else "MAINTENANCE_CREATED", success_msg),
                 )
 
-        save_btn = Button(text=S["BUTTONS"]["SAVE"])
+        # Temporary save button: prompts for TODOs and saves maintenance as incomplete
+        def _prompt_temp_tasks(_instance=None):
+            temp_popup = Popup(title=S["MESSAGES"].get("TEMP_SAVE_TITLE", "Προσωρινή Αποθήκευση"), size_hint=(0.8, 0.5))
+            temp_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+            temp_tasks = TextInput(hint_text=S["MESSAGES"].get("TASKS_LEFT_LABEL", "Εργασίες που απομένουν..."), text=tasks_input.text or "", multiline=True)
+            temp_layout.add_widget(temp_tasks)
+            btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+            def _do_temp_save(_x=None):
+                # copy tasks into main field, force incomplete and save
+                tasks_input.text = temp_tasks.text.strip()
+                nonlocal completed_state
+                completed_state = False
+                _update_completion_ui()
+                temp_popup.dismiss()
+                save_maintenance()
+
+            def _cancel_temp(_x=None):
+                temp_popup.dismiss()
+
+            save_temp_btn = Button(text=S["MESSAGES"].get("TEMP_SAVE_BUTTON", "Προσωρινή Αποθήκευση"))
+            save_temp_btn.bind(on_press=_do_temp_save)
+            cancel_temp_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+            cancel_temp_btn.bind(on_press=_cancel_temp)
+            btn_row.add_widget(save_temp_btn)
+            btn_row.add_widget(cancel_temp_btn)
+            temp_layout.add_widget(btn_row)
+            temp_popup.content = temp_layout
+            temp_popup.open()
+
+        # Make three equal-width footer buttons: Save | Temporary Save | Cancel
+        save_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"), size_hint_x=0.333)
         save_btn.bind(on_press=lambda x: save_maintenance())
         buttons_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+        temp_save_btn = Button(text=S["MESSAGES"].get("TEMP_SAVE_BUTTON", "Προσωρινή Αποθήκευση"), size_hint_x=0.333)
+        temp_save_btn.bind(on_press=_prompt_temp_tasks)
+        buttons_layout.add_widget(temp_save_btn)
+
+        cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"), size_hint_x=0.333)
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
@@ -13030,7 +13276,17 @@ class SubstationApp(App):
                     text=S["MESSAGES"].get("MAINTENANCE_HEADER", "{type}: {name}").format(type=maint_type_display, name=display_name),
                     bold=True, size_hint_x=0.6,
                 ))
+                # If this maintenance has pending tasks, show an info icon with tooltip on hover
                 from ui.shared import IconOnlyButton
+                try:
+                    c.execute("SELECT tasks_text FROM maintenance_pending_tasks WHERE maintenance_id=?", (maint_id,))
+                    _row = c.fetchone()
+                    if _row and _row[0]:
+                        info_tasks = str(_row[0])
+                        info_btn = IconOnlyButton(icon_type="info", icon_color=(1, 0.45, 0, 1), size=(30, 30), tooltip=info_tasks)
+                        header.add_widget(info_btn)
+                except Exception:
+                    pass
 
                 # Helper function to open URL or local file path
                 def open_folder_or_url(path):
