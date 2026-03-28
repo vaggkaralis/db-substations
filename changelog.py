@@ -25,16 +25,70 @@ def import_android_changes_from_file(app, file_path):
         # If import fails, continue but operations will raise later
         apply_change_log_to_db = None
 
-    # Preview first few lines
+    # Try to produce a structured, human-readable preview of the change-log.
+    # Parse JSONL and render maintenance rows as a form-like summary so users
+    # can review what will be imported.
+    preview_items = []
     try:
-        with open(file_path, "r", encoding="utf-8") as fh:
-            lines = [next(fh).strip() for _ in range(5)]
-    except StopIteration:
-        lines = []
-    except Exception:
-        lines = []
+        # Try reading file with common encodings first
+        text = None
+        for enc in ("utf-8", "utf-8-sig", "latin-1"):
+            try:
+                with open(file_path, "r", encoding=enc) as fh:
+                    text = fh.read()
+                break
+            except Exception:
+                text = None
+        if text is None:
+            # Binary fallback
+            with open(file_path, "rb") as fh:
+                b = fh.read(65536)
+            text = b.decode("utf-8", errors="replace")
 
-    preview_text = "\n".join(lines) or "(empty or unreadable)"
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        for idx, ln in enumerate(lines[:50], start=1):
+            try:
+                obj = json.loads(ln)
+            except Exception:
+                preview_items.append(f"{idx}) (invalid JSON) {ln[:200]}")
+                continue
+
+            op = obj.get("operation")
+            table = obj.get("table")
+            data = obj.get("data") or {}
+
+            header = f"{idx}) {op.upper() if op else 'OP'} {table or ''}"
+            preview_items.append(header)
+
+            if table == "maintenance" and isinstance(data, dict):
+                # Render maintenance fields in a readable form
+                for key in ("id", "substation_id", "date_time", "maintenance_type", "overall_comments", "user_name"):
+                    if key in data:
+                        preview_items.append(f"   {key}: {data.get(key)}")
+                # Render elements with indentation
+                elems = data.get("elements") or []
+                if elems:
+                    preview_items.append("   elements:")
+                    for e in elems:
+                        eid = e.get("element_id") or e.get("id")
+                        e_comment = e.get("element_comments") or e.get("comments")
+                        preview_items.append(f"     - element_id: {eid}  comments: {e_comment}")
+                        # show any extra element fields (measurements)
+                        extras = {k: v for k, v in e.items() if k not in ("element_id", "id", "element_comments", "comments")}
+                        if extras:
+                            for ek, ev in extras.items():
+                                preview_items.append(f"         {ek}: {ev}")
+                preview_items.append("")
+            else:
+                # Generic pretty JSON for other tables
+                pretty = json.dumps(data, ensure_ascii=False, indent=2)
+                for pl in pretty.splitlines():
+                    preview_items.append(f"   {pl}")
+                preview_items.append("")
+    except Exception:
+        preview_items = ["(empty or unreadable)"]
+
+    preview_text = "\n".join(preview_items) if preview_items else "(empty or unreadable)"
 
     preview_popup = Popup(title="Preview change log", size_hint=(0.9, 0.9))
     layout = BoxLayout(orientation="vertical", spacing=10, padding=10)
