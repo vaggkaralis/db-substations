@@ -65,10 +65,10 @@ def show_sf6_management_popup(app, instance=None):
 
     c = app.conn.cursor()
     c.execute(
-            "SELECT DISTINCT substr(date_time, 1, 4) "
-            "FROM maintenance "
-            "WHERE date_time IS NOT NULL AND date_time != '' "
-            "ORDER BY 1 DESC"
+        "SELECT DISTINCT substr(date_time, 1, 4) "
+        "FROM maintenance "
+        "WHERE date_time IS NOT NULL AND date_time != '' "
+        "ORDER BY 1 DESC"
     )
     years = [row[0] for row in c.fetchall() if row[0] and row[0].isdigit()]
     if not years:
