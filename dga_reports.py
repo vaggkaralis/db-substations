@@ -778,6 +778,58 @@ def _load_dga_template_metadata_cached(template_path, mtime):
     }
 
 
+def _build_fallback_dga_metadata():
+    fallback = {
+        "sections": {
+            "meta": "Στοιχεία Δειγματοληψίας / Μέτρησης",
+            "gases": "Αέρια",
+            "physchem": "Φυσικοχημικές Μετρήσεις",
+        },
+        "fields": [],
+        "by_key": {},
+    }
+
+    for key, row, section, label in _DGA_FIELD_ROWS:
+        unit = ""
+        rules = []
+        good_rules = []
+        limit_text = ""
+        good_text = ""
+
+        if section == "gases":
+            label = _GAS_LABEL_OVERRIDES.get(key, label)
+            unit = _GAS_UNIT
+            limit_text = _GAS_LIMIT_OVERRIDES.get(key, "")
+            gas_rule = _parse_limit_rule(limit_text) if limit_text else None
+            if gas_rule:
+                rules = [gas_rule]
+                good_rules = [gas_rule]
+                good_text = limit_text
+        elif section == "physchem":
+            label = _PHYSCHEM_LABEL_OVERRIDES.get(key, label)
+            unit = _PHYSCHEM_UNIT_OVERRIDES.get(key, "")
+
+        field = {
+            "key": key,
+            "row": row,
+            "section": section,
+            "label": label,
+            "unit": unit,
+            "rules": rules,
+            "good_rules": good_rules,
+            "tolerable_rules": [],
+            "poor_rules": [],
+            "limit_text": limit_text,
+            "good_text": good_text,
+            "tolerable_text": "",
+            "poor_text": "",
+        }
+        fallback["fields"].append(field)
+        fallback["by_key"][key] = field
+
+    return fallback
+
+
 def load_dga_template_metadata(template_path):
     """Return field labels, categories and limit rules from the DGA template."""
     try:
@@ -785,34 +837,7 @@ def load_dga_template_metadata(template_path):
         mtime = os.path.getmtime(path)
         return _load_dga_template_metadata_cached(path, mtime)
     except Exception:
-        fallback = {
-            "sections": {
-                "meta": "Στοιχεία Δειγματοληψίας / Μέτρησης",
-                "gases": "Αέρια",
-                "physchem": "Φυσικοχημικές Μετρήσεις",
-            },
-            "fields": [],
-            "by_key": {},
-        }
-        for key, row, section, label in _DGA_FIELD_ROWS:
-            field = {
-                "key": key,
-                "row": row,
-                "section": section,
-                "label": label,
-                "unit": "",
-                "rules": [],
-                "good_rules": [],
-                "tolerable_rules": [],
-                "poor_rules": [],
-                "limit_text": "",
-                "good_text": "",
-                "tolerable_text": "",
-                "poor_text": "",
-            }
-            fallback["fields"].append(field)
-            fallback["by_key"][key] = field
-        return fallback
+        return _build_fallback_dga_metadata()
 
 
 def evaluate_dga_limits(values, template_path):
