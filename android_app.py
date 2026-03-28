@@ -867,6 +867,254 @@ class SubstationAndroidApp(App):
         Logger.info("APP: ========== BUILD METHOD STARTING ==========")
         Logger.info("APP: Building UI")
         try:
+            # If running on desktop, set the window size to match the
+            # Motorola Edge 60 Fusion aspect ratio, capping height to
+            # 95% of the current screen so the window fits neatly.
+            if platform != "android":
+                try:
+                    from kivy.core.window import Window
+
+                    # Known device specs (width, height) in pixels
+                    device_specs = {
+                        "motorola edge 60 fusion": (1080, 2400),
+                    }
+                    dev = "motorola edge 60 fusion"
+                    dev_w, dev_h = device_specs.get(dev, (1080, 2400))
+                    aspect = float(dev_w) / float(dev_h)
+
+                    work_left = 0
+                    work_top = 0
+                    chrome_w = 0
+                    chrome_h = 0
+                    try:
+                        if sys.platform.startswith("win"):
+                            import ctypes
+
+                            class RECT(ctypes.Structure):
+                                _fields_ = [
+                                    ("left", ctypes.c_long),
+                                    ("top", ctypes.c_long),
+                                    ("right", ctypes.c_long),
+                                    ("bottom", ctypes.c_long),
+                                ]
+
+                            rect = RECT()
+                            spi_getworkarea = 0x0030
+                            ctypes.windll.user32.SystemParametersInfoW(
+                                spi_getworkarea, 0, ctypes.byref(rect), 0
+                            )
+                            screen_w = max(1, rect.right - rect.left)
+                            screen_h = max(1, rect.bottom - rect.top)
+                            work_left = rect.left
+                            work_top = rect.top
+
+                            get_metric = ctypes.windll.user32.GetSystemMetrics
+                            frame_x = int(get_metric(32))
+                            frame_y = int(get_metric(33))
+                            caption_h = int(get_metric(4))
+                            padded_border = int(get_metric(92))
+                            chrome_w = 2 * (frame_x + padded_border)
+                            chrome_h = 2 * (frame_y + padded_border) + caption_h
+                        else:
+                            raise RuntimeError("non-windows")
+                    except Exception:
+                        try:
+                            screen_w, screen_h = Window.system_size
+                        except Exception:
+                            screen_w, screen_h = (Window.width, Window.height)
+
+                    # Fit the client area inside the work area after accounting for title bar and borders.
+                    # Leave a tiny safety margin because Windows/Kivy rounding can
+                    # otherwise push the outer window 1-2 px outside the work area.
+                    size_safety_px = 2 if sys.platform.startswith("win") else 0
+                    # When Windows draws the title bar, Kivy coordinate mapping can
+                    # make the visible client area appear shifted upwards by a few
+                    # pixels; apply a small downward offset to align visually.
+                    top_offset_px = 8 if sys.platform.startswith("win") else 0
+                    available_client_w = max(320, screen_w - chrome_w)
+                    available_client_h = max(320, screen_h - chrome_h - size_safety_px)
+
+                    target_h = int(max(1, available_client_h))
+                    target_w = int(max(320, round(target_h * aspect)))
+                    if target_w > available_client_w:
+                        target_w = int(max(320, available_client_w))
+                        target_h = int(max(1, round(target_w / aspect)))
+
+                    outer_w = target_w + chrome_w
+                    outer_h = target_h + chrome_h
+
+                    def _apply_window_size(dt):
+                        try:
+                            try:
+                                Window.position = "custom"
+                            except Exception:
+                                pass
+
+                            # If Kivy provides a system_size (physical client size), prefer its height
+                            sys_sz = None
+                            try:
+                                sys_sz = getattr(Window, "system_size", None)
+                            except Exception:
+                                sys_sz = None
+
+                            if sys_sz and isinstance(sys_sz, (list, tuple)) and len(sys_sz) >= 2:
+                                # sys_sz is Kivy's logical client size (dp). Window.size is physical pixels.
+                                sys_w_dp, sys_h_dp = int(sys_sz[0]), int(sys_sz[1])
+                                # Derive scale between physical pixels and Kivy dp units
+                                scale = 1.0
+                                try:
+                                    scale = float(max(1.0, float(Window.size[1]) / float(sys_h_dp)))
+                                except Exception:
+                                    scale = 1.0
+
+                                # Desired client height in Kivy units to match the work_area height in physical pixels
+                                desired_client_h_dp = int(round((screen_h - chrome_h) / scale))
+                                desired_client_w_dp = int(round(desired_client_h_dp * aspect))
+
+                                # available client width in Kivy dp units
+                                available_client_w_dp = int(round((screen_w - chrome_w) / scale))
+                                if desired_client_w_dp > available_client_w_dp:
+                                    desired_client_w_dp = available_client_w_dp
+                                    desired_client_h_dp = int(max(1, int(round(desired_client_w_dp / aspect))))
+
+                                # Final window size in Kivy units
+                                Window.size = (max(320, desired_client_w_dp), max(1, desired_client_h_dp))
+                            else:
+                                Window.size = (target_w, target_h)
+                            # Keep the window fully visible inside the monitor work area.
+                            try:
+                                Window.left = int(work_left + max(0, (screen_w - outer_w) / 2))
+                            except Exception:
+                                pass
+                            # On Windows, prefer maximize then adjust width so height fills work area.
+                            try:
+                                if sys.platform.startswith("win"):
+                                    try:
+                                        Window.maximize()
+                                    except Exception:
+                                        pass
+
+                                    def _after_max(dt):
+                                        try:
+                                            curr_w, curr_h = Window.size
+                                            client_h = curr_h
+                                            sys_sz_inner = getattr(Window, "system_size", None)
+                                            scale_inner = 1.0
+                                            if sys_sz_inner and isinstance(sys_sz_inner, (list, tuple)) and len(sys_sz_inner) >= 2:
+                                                try:
+                                                    sys_h_dp_inner = int(sys_sz_inner[1])
+                                                    scale_inner = float(max(1.0, float(client_h) / float(sys_h_dp_inner)))
+                                                except Exception:
+                                                    scale_inner = 1.0
+
+                                            desired_client_h_dp = int(round((screen_h - chrome_h - size_safety_px) / scale_inner))
+                                            desired_client_w_dp = int(round(desired_client_h_dp * aspect))
+                                            available_client_w_dp = int(round((screen_w - chrome_w) / scale_inner))
+                                            if desired_client_w_dp > available_client_w_dp:
+                                                desired_client_w_dp = available_client_w_dp
+                                                desired_client_h_dp = int(max(1, int(round(desired_client_w_dp / aspect))))
+
+                                            final_w_dp = max(320, desired_client_w_dp)
+                                            final_h_dp = max(1, desired_client_h_dp)
+
+                                            try:
+                                                Window.restore()
+                                            except Exception:
+                                                pass
+
+                                            def _apply_restored_size(_dt):
+                                                try:
+                                                    Window.size = (final_w_dp, final_h_dp)
+                                                    outer_w2_px = int(round(final_w_dp * scale_inner)) + chrome_w
+                                                    outer_h2_px = int(round(final_h_dp * scale_inner)) + chrome_h
+                                                    try:
+                                                        Window.left = int(work_left + max(0, (screen_w - outer_w2_px) / 2))
+                                                    except Exception:
+                                                        pass
+                                                    try:
+                                                        # small fixed nudge downwards (24px) to match visual alignment
+                                                        dyn_offset = int(top_offset_px) + 24
+                                                        Window.top = int(work_top + dyn_offset)
+                                                    except Exception:
+                                                        pass
+                                                    Logger.info(f"APP: Desktop preview size applied {Window.size} for {dev}")
+                                                    try:
+                                                        Logger.info(
+                                                            f"APP: VERIFY - Window.size={Window.size} work_area=({work_left},{work_top},{screen_w},{screen_h}) "
+                                                            f"chrome=({chrome_w},{chrome_h}) outer=({outer_w2_px},{outer_h2_px}) "
+                                                            f"Window.pos=({getattr(Window, 'left', None)},{getattr(Window, 'top', None)}) "
+                                                            f"Window.system_size={getattr(Window, 'system_size', (Window.width, Window.height))} Window.dpi={getattr(Window, 'dpi', None)}"
+                                                        )
+                                                    except Exception:
+                                                        pass
+                                                except Exception as resize_exc:
+                                                    Logger.warning(f"APP: Failed to apply restored size: {resize_exc}")
+
+                                            try:
+                                                Clock.schedule_once(_apply_restored_size, 0.05)
+                                            except Exception:
+                                                _apply_restored_size(0)
+                                        except Exception:
+                                            pass
+
+                                    try:
+                                        Clock.schedule_once(_after_max, 0.05)
+                                    except Exception:
+                                        _after_max(0)
+                                else:
+                                    try:
+                                        # small fixed nudge downwards (24px) to match visual alignment
+                                        dyn_offset = int(top_offset_px) + 24
+                                        Window.top = int(work_top + dyn_offset)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+
+                            if not sys.platform.startswith("win"):
+                                Logger.info(f"APP: Desktop preview size applied {Window.size} for {dev}")
+                                try:
+                                    Logger.info(
+                                        f"APP: VERIFY - Window.size={Window.size} work_area=({work_left},{work_top},{screen_w},{screen_h}) "
+                                        f"chrome=({chrome_w},{chrome_h}) outer=({outer_w},{outer_h}) "
+                                        f"Window.pos=({getattr(Window, 'left', None)},{getattr(Window, 'top', None)}) "
+                                        f"Window.system_size={getattr(Window, 'system_size', (Window.width, Window.height))} Window.dpi={getattr(Window, 'dpi', None)}"
+                                    )
+                                except Exception:
+                                    pass
+                        except Exception as e:
+                            Logger.warning(f"APP: Failed to apply Window.size: {e}")
+
+                    # Schedule size change on next frame to ensure the window exists
+                    try:
+                        Clock.schedule_once(_apply_window_size, 0)
+                    except Exception:
+                        # Fallback: apply immediately
+                        _apply_window_size(0)
+                except Exception as e:
+                    Logger.warning(f"APP: Could not set desktop preview size: {e}")
+                try:
+                    # Additional diagnostic info for desktop runs (useful when launching from VS Code)
+                    try:
+                        sys_platform = platform
+                    except Exception:
+                        sys_platform = "unknown"
+                    try:
+                        system_size = Window.system_size
+                    except Exception:
+                        system_size = (Window.width, Window.height)
+                    try:
+                        dpi = Window.dpi
+                    except Exception:
+                        dpi = None
+                    Logger.info(f"APP: STARTUP INFO - platform={sys_platform} Window.size={Window.size} screen={system_size} dpi={dpi}")
+                    Logger.info(f"APP: STARTUP INFO - python={sys.version.split()[0]} kivy={getattr(__import__('kivy'), '__version__', 'unknown')}")
+                    try:
+                        Logger.info(f"APP: STARTUP INFO - cwd={os.getcwd()} db_default_path={ANDROID_DEFAULT_DB_PATH}")
+                    except Exception:
+                        Logger.info("APP: STARTUP INFO - cwd/db path unavailable")
+                except Exception:
+                    pass
             Logger.info("APP: Setting window title")
             self.title = "DB Substations"
             # Ensure spinner dropdowns are fully opaque
