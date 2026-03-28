@@ -29,18 +29,35 @@ def normalize():
     cur = conn.cursor()
     # Map legacy english to greek
     cur.execute(
-        "UPDATE elements SET breaker_category='Ελαίου' WHERE breaker_category='Oil'"
+        "UPDATE elements SET breaker_category = 'Ελαίου' "
+        "WHERE breaker_category = 'Oil'"
     )
+
     # Fill empty/null from element_models
     cur.execute(
-        "UPDATE elements SET breaker_category=(SELECT breaker_category FROM element_models WHERE element_models.id=elements.element_model_id) WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_model_id IS NOT NULL"
+        "UPDATE elements SET breaker_category = ("
+        "SELECT breaker_category FROM element_models "
+        "WHERE element_models.id = elements.element_model_id) "
+        "WHERE (breaker_category IS NULL OR "
+        "TRIM(breaker_category) = '')"
+        " AND element_model_id IS NOT NULL"
     )
-    # If still empty, set a sensible default per element_type (SF6 for YT, Ελαίου for MT)
+
+    # If still empty, set a sensible default per element_type
+    # (SF6 for YT, Ελαίου for MT)
     cur.execute(
-        f"UPDATE elements SET breaker_category='SF6' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='{ELEM_BREAKER_YT}'"
+        "UPDATE elements SET breaker_category = ? "
+        "WHERE (breaker_category IS NULL OR "
+        "TRIM(breaker_category) = '')"
+        " AND element_type = ?",
+        ("SF6", ELEM_BREAKER_YT),
     )
     cur.execute(
-        f"UPDATE elements SET breaker_category='Ελαίου' WHERE (breaker_category IS NULL OR TRIM(breaker_category)='') AND element_type='{ELEM_BREAKER_MT}'"
+        "UPDATE elements SET breaker_category = ? "
+        "WHERE (breaker_category IS NULL OR "
+        "TRIM(breaker_category) = '') "
+        " AND element_type = ?",
+        ("Ελαίου", ELEM_BREAKER_MT),
     )
     conn.commit()
     logging.info(
