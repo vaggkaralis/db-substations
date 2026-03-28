@@ -209,7 +209,7 @@ def parse_pdf_file(path: str) -> dict:
     # ------------------------------------------------------------------
     # Step 3: extract body after the header block, drop quoted tail
     # ------------------------------------------------------------------
-    body_lines = lines[headers["body_start_index"]:]
+    body_lines = lines[headers["body_start_index"] :]
     body_lines = _trim_quoted_tail(body_lines)
     body = "\n".join(body_lines).strip()
 
