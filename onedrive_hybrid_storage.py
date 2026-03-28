@@ -3696,9 +3696,18 @@ def regenerate_maintenance_reports(
     delete_orphaned_maintenance_report_paths(conn)
     retrofit_shared_root_paths(conn, db_path=db_path, dry_run=False)
     query = """
-        SELECT DISTINCT m.id as maintenance_id, me.element_id, e.name as element_name,
-               e.gate, e.element_type, e.breaker_category, m.substation_id, m.name as maintenance_name,
-               m.maintenance_type, m.date_time, s.name as substation_name
+        SELECT DISTINCT
+            m.id as maintenance_id,
+            me.element_id,
+            e.name as element_name,
+            e.gate,
+            e.element_type,
+            e.breaker_category,
+            m.substation_id,
+            m.name as maintenance_name,
+            m.maintenance_type,
+            m.date_time,
+            s.name as substation_name
         FROM maintenance m
         INNER JOIN maintenance_elements me ON me.maintenance_id = m.id
         INNER JOIN elements e ON e.id = me.element_id
@@ -3870,7 +3879,10 @@ def regenerate_maintenance_reports(
             # Try canonical path first. If still too long, use a tighter
             # canonical filename in the same canonical folder.
             generated_path = None
-            tight_name = f"M{maintenance_id}_E{element_id}_{hashlib.sha1((substation_name + '|' + element_name).encode('utf-8')).hexdigest()[:8]}.pdf"
+            fingerprint = hashlib.sha1(
+                (substation_name + "|" + element_name).encode("utf-8")
+            ).hexdigest()[:8]
+            tight_name = f"M{maintenance_id}_E{element_id}_{fingerprint}.pdf"
             candidates = [
                 output_path,
                 os.path.join(subfolder, tight_name),
@@ -3905,9 +3917,11 @@ def regenerate_maintenance_reports(
         except Exception as exc:
             failed += 1
             if not quiet:
-                raise RuntimeError(
-                    f"Failed to generate report for maintenance {maintenance_id}, element {element_id} ({element_name}): {exc}"
-                ) from exc
+                msg = (
+                    f"Failed to generate report for maintenance {maintenance_id}, "
+                    f"element {element_id} ({element_name}): {exc}"
+                )
+                raise RuntimeError(msg) from exc
 
     overview_failed = 0
     for maintenance_id in sorted(all_maintenance_ids):
