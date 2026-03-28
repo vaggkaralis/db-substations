@@ -1020,8 +1020,7 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
             request_id, \
             existing_attachment_path, \
             storage_folder_path, \
-            request_record, \
-            is_new_request
+            request_record
         validated = _validate_datetimes()
         if not validated:
             return

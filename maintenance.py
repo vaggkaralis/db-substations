@@ -482,7 +482,6 @@ def _show_import_maintenance_pst_dialog(app, ui, parent_popup=None):
                         )
 
                         # Add progress bar on first email (lazy initialization)
-                        nonlocal progress_bar, progress_label, progress_bar_container
                         if progress_bar_container is None:
 
                             def add_progress_bar():
