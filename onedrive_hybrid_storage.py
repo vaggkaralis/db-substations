@@ -281,10 +281,14 @@ def ensure_reference_structure(
     _ensure_folder(reference_root)
 
     top_readme = (
-        "00_Αναφορά Δομής Φακέλων - Παράδειγμα δομής που μπορεί να δημιουργήσει η εφαρμογή.\n"
-        "Η πραγματική δομή είναι: Υποσταθμός -> Πύλη -> φάκελοι περιστατικών με πρόθεμα (π.χ. Συντ_, Βλαβ_).\n"
-        "Σε κάθε παράδειγμα φακέλου υπάρχει αρχείο Περιγραφή.txt με σύντομη περιγραφή του σκοπού του.\n"
-        "Οι αναφορές PDF τοποθετούνται μέσα στον αντίστοιχο φάκελο περιστατικού και όχι σε γενικό φάκελο Αναφορές.\n"
+        "00_Αναφορά Δομής Φακέλων - Παράδειγμα δομής που μπορεί να "
+        "δημιουργήσει η εφαρμογή.\n"
+        "Η πραγματική δομή είναι: Υποσταθμός -> Πύλη -> φάκελοι περιστατικών "
+        "με πρόθεμα (π.χ. Συντ_, Βλαβ_).\n"
+        "Σε κάθε παράδειγμα φακέλου υπάρχει αρχείο Περιγραφή.txt με σύντομη "
+        "περιγραφή του σκοπού του.\n"
+        "Οι αναφορές PDF τοποθετούνται μέσα στον αντίστοιχο φάκελο "
+        "περιστατικού και όχι σε γενικό φάκελο Αναφορές.\n"
     )
     try:
         _atomic_write(os.path.join(reference_root, "README.txt"), top_readme)
@@ -295,13 +299,21 @@ def ensure_reference_structure(
     sample_root = os.path.join(reference_root, sample_substation_name)
     _ensure_folder(
         sample_root,
-        "Παράδειγμα ρίζας υποσταθμού. Στον πραγματικό συγχρονισμό κάθε υποσταθμός εμφανίζεται ως ξεχωριστός φάκελος κάτω από την κοινή βάση.",
+        (
+            "Παράδειγμα ρίζας υποσταθμού. Στον πραγματικό συγχρονισμό κάθε "
+            "υποσταθμός εμφανίζεται ως ξεχωριστός φάκελος κάτω από την κοινή "
+            "βάση."
+        ),
     )
 
+    gate_note = (
+        "Παράδειγμα πύλης. Οι φάκελοι περιστατικών δημιουργούνται απευθείας "
+        "μέσα στην πύλη."
+    )
     gate_descriptions = {
-        _DIR_GATE_1: "Παράδειγμα πύλης. Οι φάκελοι περιστατικών δημιουργούνται απευθείας μέσα στην πύλη.",
-        _DIR_GATE_2: "Παράδειγμα πύλης. Οι φάκελοι περιστατικών δημιουργούνται απευθείας μέσα στην πύλη.",
-        _DIR_GATE_3: "Παράδειγμα πύλης. Οι φάκελοι περιστατικών δημιουργούνται απευθείας μέσα στην πύλη.",
+        _DIR_GATE_1: gate_note,
+        _DIR_GATE_2: gate_note,
+        _DIR_GATE_3: gate_note,
     }
     report_example_dirs = [
         _report_prefixed_name(_DIR_REPORTS_BREAKERS_HV),
@@ -320,7 +332,10 @@ def ensure_reference_structure(
         )
         _ensure_folder(
             maintenance_example,
-            "Παράδειγμα φακέλου συντήρησης. Η συνοπτική PDF αναφορά της συντήρησης αποθηκεύεται απευθείας εδώ.",
+            (
+                "Παράδειγμα φακέλου συντήρησης. Η συνοπτική PDF αναφορά της "
+                "συντήρησης αποθηκεύεται απευθείας εδώ."
+            ),
         )
         media_example = os.path.join(maintenance_example, _DIR_MEDIA)
         _ensure_folder(
@@ -330,7 +345,11 @@ def ensure_reference_structure(
         try:
             _atomic_write(
                 os.path.join(media_example, "Παραδείγματα_Ονομασίας.txt"),
-                "Παράδειγμα ονομασίας φωτογραφίας/βίντεο:\nIMG_20260326_001.jpg\nVIDEO_20260326_001.mp4\n",
+                (
+                    "Παράδειγμα ονομασίας φωτογραφίας/βίντεο:\n"
+                    "IMG_20260326_001.jpg\n"
+                    "VIDEO_20260326_001.mp4\n"
+                ),
             )
             described += 1
         except Exception:
@@ -338,7 +357,8 @@ def ensure_reference_structure(
         try:
             _atomic_write(
                 os.path.join(maintenance_example, "Παραδείγματα_Αναφορών.txt"),
-                "Παραδείγματα αναφορών που μπορούν να εμφανιστούν στον φάκελο περιστατικού:\n"
+                "Παραδείγματα αναφορών που μπορούν να εμφανιστούν στον "
+                "φάκελο περιστατικού:\n"
                 "Αναφ_Υποσταθμός_Δείγμα_M123_Overview.pdf\n"
                 "Αναφ_Υποσταθμός_Δείγμα_Στοιχείο_M123.pdf\n",
             )
@@ -349,7 +369,10 @@ def ensure_reference_structure(
         for report_dir in report_example_dirs:
             _ensure_folder(
                 os.path.join(maintenance_example, report_dir),
-                "Υποφάκελος αναφορών ανά κατηγορία στοιχείου. Δημιουργείται μόνο όταν υπάρχει αντίστοιχη αναφορά.",
+                (
+                    "Υποφάκελος αναφορών ανά κατηγορία στοιχείου. "
+                    "Δημιουργείται μόνο όταν υπάρχει αντίστοιχη αναφορά."
+                ),
             )
 
         fault_example = os.path.join(
@@ -357,7 +380,10 @@ def ensure_reference_structure(
         )
         _ensure_folder(
             fault_example,
-            "Παράδειγμα φακέλου βλάβης. Οι βλάβες αποθηκεύονται απευθείας στην πύλη με πρόθεμα Βλαβ_.",
+            (
+                "Παράδειγμα φακέλου βλάβης. Οι βλάβες αποθηκεύονται απευθείας "
+                "στην πύλη με πρόθεμα Βλαβ_."
+            ),
         )
         _ensure_folder(
             os.path.join(fault_example, _DIR_MEDIA),
@@ -366,7 +392,10 @@ def ensure_reference_structure(
 
         _ensure_folder(
             os.path.join(gate_path, _DIR_INSPECTIONS),
-            "Φάκελος επιθεωρήσεων για την πύλη. Δημιουργείται όταν αποθηκευτούν σχετικά αρχεία.",
+            (
+                "Φάκελος επιθεωρήσεων για την πύλη. Δημιουργείται όταν "
+                "αποθηκευτούν σχετικά αρχεία."
+            ),
         )
         dga_root = os.path.join(gate_path, _DIR_DGA)
         _ensure_folder(
@@ -375,13 +404,19 @@ def ensure_reference_structure(
         )
         _ensure_folder(
             os.path.join(dga_root, "20260326_Μετασχηματιστής_Δείγμα"),
-            "Παράδειγμα φακέλου μέτρησης DGA. Κάθε μέτρηση αποθηκεύεται ως ένας ενιαίος φάκελος με το κοινό Excel report.",
+            (
+                "Παράδειγμα φακέλου μέτρησης DGA. Κάθε μέτρηση αποθηκεύεται "
+                "ως ένας ενιαίος φάκελος με το κοινό Excel report."
+            ),
         )
 
     isolation_root = os.path.join(sample_root, _DIR_ISOLATIONS)
     _ensure_folder(
         isolation_root,
-        "Οι αιτήσεις απομόνωσης ανήκουν στο επίπεδο του υποσταθμού και δημιουργούνται μόνο όταν υπάρχει σχετική αίτηση.",
+        (
+            "Οι αιτήσεις απομόνωσης ανήκουν στο επίπεδο του υποσταθμού και "
+            "δημιουργούνται μόνο όταν υπάρχει σχετική αίτηση."
+        ),
     )
     isolation_example = os.path.join(
         isolation_root, "Απομ_20260326_1200_Υποσταθμός_Δείγμα_321"
@@ -899,7 +934,10 @@ def _isolation_instance_folder_name(
     except Exception:
         slug_date = _slug(start_datetime or "unknown", fallback="unknown")
 
-    prefixed = f"{_ISOLATION_INSTANCE_PREFIX}{slug_date}_{_slug(substation_name, fallback='substation')}_{request_id}"
+    prefixed = (
+        f"{_ISOLATION_INSTANCE_PREFIX}{slug_date}_"
+        f"{_slug(substation_name, fallback='substation')}_{request_id}"
+    )
     if not isolation_root:
         return prefixed
 
@@ -1261,7 +1299,10 @@ def _distribute_attachments_and_register(
             placeholders = ",".join(["?"] * len(element_ids))
             cur = conn.cursor()
             cur.execute(
-                f"SELECT id, gate, element_type, breaker_category FROM elements WHERE id IN ({placeholders})",
+                (
+                    "SELECT id, gate, element_type, breaker_category "
+                    f"FROM elements WHERE id IN ({placeholders})"
+                ),
                 tuple(element_ids),
             )
             for row in cur.fetchall() or []:
@@ -1322,7 +1363,8 @@ def _distribute_attachments_and_register(
                         except Exception:
                             pass
                 else:
-                    # No element mapping: copy into a generic reports_other of the first row
+                    # No element mapping: copy into a generic reports_other
+                    # of the first row
                     # NOTE: by design we DO NOT register a DB row for generic reports
                     # (element_id=0) to avoid creating placeholder entries without
                     # a proper element mapping. Files are still copied for manual
@@ -1468,7 +1510,10 @@ def ensure_isolation_request_storage(
         slug_date = _slug(start_datetime or "unknown", fallback="unknown")
     legacy_instance_root = os.path.join(
         isolation_root,
-        f"{_LEGACY_ISOLATION_INSTANCE_PREFIX}{slug_date}_{_slug(substation_name, fallback='substation')}_{request_id}",
+        (
+            f"{_LEGACY_ISOLATION_INSTANCE_PREFIX}{slug_date}_"
+            f"{_slug(substation_name, fallback='substation')}_{request_id}"
+        ),
     )
     attachments_root = instance_root
 
@@ -1514,7 +1559,8 @@ def ensure_isolation_request_storage(
             _move_files_to_folder(_list_direct_files(candidate_path), attachments_root)
             _prune_empty_dir(candidate_path, stop_at=isolation_root)
 
-    # Preserve a directly selected existing file even when the DB row has no request_file_path yet.
+    # Preserve a directly selected existing file even when the DB row has
+    # no request_file_path yet.
     if request_file_path and os.path.isfile(_win_path(request_file_path)):
         request_parent = os.path.dirname(os.path.abspath(request_file_path))
         if os.path.normcase(request_parent) != os.path.normcase(
@@ -2106,7 +2152,8 @@ def ensure_maintenance_folders(
     if total_copied == 0 and not existing_rows and not persist_storage_rows:
         for row in created_rows:
             try:
-                # Remove the instance folder tree if it's empty (prune up to substation root)
+                # Remove the instance folder tree if it's empty
+                # (prune up to substation root)
                 instance_folder = row.get("instance_folder")
                 if instance_folder:
                     _prune_empty_dir(
@@ -2120,7 +2167,15 @@ def ensure_maintenance_folders(
             cur.execute(
                 """
                 INSERT INTO maintenance_storage_paths
-                (maintenance_id, gate_key, gate_folder, instance_folder, media_folder, reports_folder, created_at)
+                (
+                    maintenance_id,
+                    gate_key,
+                    gate_folder,
+                    instance_folder,
+                    media_folder,
+                    reports_folder,
+                    created_at
+                )
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(maintenance_id, gate_key) DO UPDATE SET
                     gate_folder=excluded.gate_folder,
@@ -2310,7 +2365,8 @@ def ensure_dga_folder(
     }
 
     _ensure_dir(gate_root, queue_payload=queue_payload)
-    # NOTE: DGA root and measurement folders created on-demand when reports are generated
+    # NOTE: DGA root and measurement folders are created on-demand
+    # when reports are generated.
 
     try:
         dt = datetime.fromisoformat((measurement_date or "").replace("Z", "+00:00"))
@@ -2381,7 +2437,10 @@ def invalidate_maintenance_reports(
         for row in (cur.fetchall() or [])
     ]
     cur.execute(
-        "SELECT report_path FROM maintenance_overview_report_paths WHERE maintenance_id=?",
+        (
+            "SELECT report_path FROM maintenance_overview_report_paths "
+            "WHERE maintenance_id=?"
+        ),
         (maintenance_id,),
     )
     overview_paths = [
@@ -2489,7 +2548,8 @@ def upsert_maintenance_report_path(
     )
     if not cur.fetchone():
         raise ValueError(
-            f"Cannot track report for stale maintenance-element pair ({maintenance_id}, {element_id})"
+            "Cannot track report for stale maintenance-element pair "
+            f"({maintenance_id}, {element_id})"
         )
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cur.execute(
@@ -2622,7 +2682,10 @@ def get_maintenance_overview_targets(
                 )
 
                 cur.execute(
-                    "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+                    (
+                        "SELECT element_id FROM maintenance_elements "
+                        "WHERE maintenance_id=?"
+                    ),
                     (maintenance_id,),
                 )
                 element_ids = [
@@ -2712,7 +2775,9 @@ def relink_existing_maintenance_assets(
     Args:
         conn: Database connection
         db_path: Path to database file
-        progress_callback: Optional callable(operation, substation, current, total) for progress
+        progress_callback: Optional callable(
+            operation, substation, current, total
+        ) for progress
     """
     cur = conn.cursor()
 
@@ -2731,7 +2796,14 @@ def relink_existing_maintenance_assets(
 
     # Preload report rows so total_work is available for media-phase progress.
     cur.execute("""
-        SELECT m.id, me.element_id, e.name, e.element_type, e.gate, e.breaker_category, s.name
+        SELECT
+            m.id,
+            me.element_id,
+            e.name,
+            e.element_type,
+            e.gate,
+            e.breaker_category,
+            s.name
         FROM maintenance m
         JOIN maintenance_elements me ON me.maintenance_id = m.id
         JOIN elements e ON e.id = me.element_id
@@ -2858,6 +2930,12 @@ def relink_existing_maintenance_assets(
                     and legacy_subfolder not in search_dirs
                 ):
                     search_dirs.append(legacy_subfolder)
+                sanitized_element_name = (
+                    (element_name or "")
+                    .replace("/", "-")
+                    .replace("\\", "-")
+                    .replace(":", "-")
+                )
                 for search_dir in search_dirs:
                     for fname in os.listdir(search_dir):
                         if fname.lower().endswith(".pdf"):
@@ -2866,9 +2944,10 @@ def relink_existing_maintenance_assets(
                                 f"Maintenance_M{maintenance_id}_E{element_id}_"
                             ):
                                 legacy_matches.append(os.path.join(search_dir, fname))
-                            # Look for old element name prefix format: Maintenance_{element}_...
+                            # Look for old element name prefix format:
+                            # Maintenance_{element}_...
                             elif fname.startswith(
-                                f"Maintenance_{(element_name or '').replace('/', '-').replace('\\', '-').replace(':', '-')}_"
+                                f"Maintenance_{sanitized_element_name}_"
                             ):
                                 legacy_matches.append(os.path.join(search_dir, fname))
             except Exception:
@@ -3221,14 +3300,20 @@ def retrofit_maintenance_instance_folder_names(
             if (new_link or "") != (old_link or ""):
                 if not dry_run:
                     cur.execute(
-                        "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
+                        (
+                            "UPDATE maintenance SET "
+                            "onedrive_media_folder_link=? WHERE id=?"
+                        ),
                         (new_link, maintenance_id),
                     )
                 maintenance_links_updated += 1
 
             # Update tracked report paths for this maintenance.
             cur.execute(
-                "SELECT id, report_path FROM maintenance_report_paths WHERE maintenance_id=?",
+                (
+                    "SELECT id, report_path FROM maintenance_report_paths "
+                    "WHERE maintenance_id=?"
+                ),
                 (maintenance_id,),
             )
             rrows = cur.fetchall() or []
@@ -3246,7 +3331,10 @@ def retrofit_maintenance_instance_folder_names(
                 if (new_report_path or "") != (old_report_path or ""):
                     if not dry_run:
                         cur.execute(
-                            "UPDATE maintenance_report_paths SET report_path=?, updated_at=? WHERE id=?",
+                            (
+                                "UPDATE maintenance_report_paths "
+                                "SET report_path=?, updated_at=? WHERE id=?"
+                            ),
                             (
                                 new_report_path,
                                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -3301,7 +3389,10 @@ def retrofit_shared_root_paths(
     }
 
     cur.execute(
-        "SELECT maintenance_id, gate_key, instance_folder, media_folder, reports_folder FROM maintenance_storage_paths"
+        (
+            "SELECT maintenance_id, gate_key, instance_folder, media_folder, "
+            "reports_folder FROM maintenance_storage_paths"
+        )
     )
     for row in cur.fetchall() or []:
         maintenance_id, gate_key, instance_folder, media_folder, reports_folder = row
@@ -3352,7 +3443,9 @@ def retrofit_shared_root_paths(
         if (new_report_path or "") != (old_report_path or ""):
             if not dry_run:
                 cur.execute(
-                    "UPDATE maintenance_report_paths SET report_path=?, updated_at=? WHERE id=?",
+                    "UPDATE maintenance_report_paths "
+                    "SET report_path=?, updated_at=? "
+                    "WHERE id=?",
                     (new_report_path, timestamp, report_id),
                 )
             stats["report_paths_updated"] += 1
@@ -3363,7 +3456,9 @@ def retrofit_shared_root_paths(
         if (new_report_path or "") != (old_report_path or ""):
             if not dry_run:
                 cur.execute(
-                    "UPDATE maintenance_overview_report_paths SET report_path=?, updated_at=? WHERE id=?",
+                    "UPDATE maintenance_overview_report_paths "
+                    "SET report_path=?, updated_at=? "
+                    "WHERE id=?",
                     (new_report_path, timestamp, report_id),
                 )
             stats["overview_report_paths_updated"] += 1
@@ -3374,7 +3469,9 @@ def retrofit_shared_root_paths(
         if (new_report_path or "") != (old_report_path or ""):
             if not dry_run:
                 cur.execute(
-                    "UPDATE dga_measurements SET report_path=?, updated_at=? WHERE id=?",
+                    "UPDATE dga_measurements "
+                    "SET report_path=?, updated_at=? "
+                    "WHERE id=?",
                     (new_report_path, timestamp, measurement_id),
                 )
             stats["dga_report_paths_updated"] += 1
@@ -3569,11 +3666,14 @@ def retrofit_folder_labels_to_greek(
         old_path = row[1] if isinstance(row, (tuple, list)) else row["report_path"]
         elem_type = row[2] if isinstance(row, (tuple, list)) else row["element_type"]
         new_path = _map_folder_labels_in_path(old_path, element_type=elem_type)
+        new_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if (new_path or "") != (old_path or ""):
             if not dry_run:
                 cur.execute(
-                    "UPDATE maintenance_report_paths SET report_path=?, updated_at=? WHERE id=?",
-                    (new_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), rid),
+                    "UPDATE maintenance_report_paths "
+                    "SET report_path=?, updated_at=? "
+                    "WHERE id=?",
+                    (new_path, new_ts, rid),
                 )
             updated_report_paths += 1
 
