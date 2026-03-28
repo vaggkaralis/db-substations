@@ -3,26 +3,15 @@ name: Build Android APK
 # Manual trigger note: touch this file to trigger a fresh build via CI at 2026-03-28
 
 on:
-  workflow_run:
-    workflows: ["CI - Run tests"]
-    types: [completed]
   workflow_dispatch:
 
 jobs:
   build:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'main'
-      )
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
-      with:
-        ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
     - name: Set up Python
       uses: actions/setup-python@v5
