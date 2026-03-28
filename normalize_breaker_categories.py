@@ -29,8 +29,7 @@ def normalize():
     cur = conn.cursor()
     # Map legacy english to greek
     cur.execute(
-        "UPDATE elements SET breaker_category = 'Ελαίου' "
-        "WHERE breaker_category = 'Oil'"
+        "UPDATE elements SET breaker_category = 'Ελαίου' WHERE breaker_category = 'Oil'"
     )
 
     # Fill empty/null from element_models
