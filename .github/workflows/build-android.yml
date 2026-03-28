@@ -1,5 +1,7 @@
 name: Build Android APK
 
+# Manual trigger note: touch this file to trigger a fresh build via CI at 2026-03-28
+
 on:
   workflow_run:
     workflows: ["CI - Run tests"]
