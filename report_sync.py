@@ -658,14 +658,10 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
 
                 sub_elem_hash = hashlib.sha1(
                     (
-                        str(row["substation_name"])
-                        + "|"
-                        + str(row["element_name"])
+                        str(row["substation_name"]) + "|" + str(row["element_name"])
                     ).encode("utf-8")
                 ).hexdigest()[:8]
-                tight_name = (
-                    f"M{maintenance_id}_E{element_id}_{sub_elem_hash}.pdf"
-                )
+                tight_name = f"M{maintenance_id}_E{element_id}_{sub_elem_hash}.pdf"
                 tight_path = os.path.join(subfolder, tight_name)
                 if repair_pdf_access(tight_path):
                     canonical_exists = True
@@ -815,9 +811,8 @@ def export_missing_reports(
                 db_path=db_path,
                 overwrite=False,
             )
-            overview_generated += (
-                overview_res.get("generated", 0)
-                + overview_res.get("updated", 0)
+            overview_generated += overview_res.get("generated", 0) + overview_res.get(
+                "updated", 0
             )
             overview_errors.extend(overview_res.get("errors", []))
         except Exception as exc:
