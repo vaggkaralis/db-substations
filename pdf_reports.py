@@ -53,7 +53,8 @@ def _normalize_pdf_file(path: str) -> bool:
         logging.debug("pikepdf not available; skipping PDF normalization for %s", path)
         return False
     try:
-        # Open and re-save (linearize) to normalize filter chains (removes ASCII85, etc.)
+        # Open and re-save (linearize) to normalize filter chains
+        # (removes ASCII85, etc.)
         # allow_overwriting_input lets pikepdf write back to the same filename
         with pikepdf.Pdf.open(path, allow_overwriting_input=True) as pdf:
             pdf.save(path, linearize=True)
@@ -106,7 +107,9 @@ def _reset_windows_acl(path: str) -> bool:
 
 
 def _rewrite_pdf_in_place(path: str) -> bool:
-    """Rewrite a PDF via a sibling temp file so the final file inherits clean metadata."""
+    """Rewrite a PDF via a sibling temp file so the final file
+    inherits clean metadata.
+    """
     try:
         import pikepdf
     except Exception:
@@ -674,7 +677,8 @@ class MaintenanceReportGenerator:
                         # Register base font (embeds the TTF when possible)
                         pdfmetrics.registerFont(TTFont("GreekFont", font_path))
 
-                        # Attempt to find and register bold/italic variants adjacent to the base font
+                        # Attempt to find and register bold/italic variants
+                        # adjacent to the base font
                         base_dir = os.path.dirname(font_path)
                         base_name = os.path.splitext(os.path.basename(font_path))[0]
                         registered_variants = {}
@@ -728,7 +732,8 @@ class MaintenanceReportGenerator:
                             registerFontFamily("GreekFont", **fam_kwargs)
                         except Exception:
                             logging.debug(
-                                "Could not register font family variants; continuing with base font"
+                                "Could not register font family variants; "
+                                "continuing with base font"
                             )
 
                         self.greek_font = "GreekFont"
@@ -829,8 +834,16 @@ class MaintenanceReportGenerator:
         # Get maintenance record
         c.execute(
             """
-            SELECT m.id, m.substation_id, m.date_time, m.overall_comments, m.maintenance_type, m.user_name,
-                   s.name as substation_name, s.location, s.division
+            SELECT
+                m.id,
+                m.substation_id,
+                m.date_time,
+                m.overall_comments,
+                m.maintenance_type,
+                m.user_name,
+                s.name as substation_name,
+                s.location,
+                s.division
             FROM maintenance m
             JOIN substations s ON m.substation_id = s.id
             WHERE m.id = ?
@@ -857,9 +870,19 @@ class MaintenanceReportGenerator:
         # Get element details
         c.execute(
             """
-                 SELECT e.id, e.element_type, e.name, e.serial_number, e.manufacturer, e.model,
-                     e.breaker_category, e.voltage_level, e.gate, e.manufacture_year,
-                   em.manufacturer as model_manufacturer, em.model_name
+            SELECT
+                e.id,
+                e.element_type,
+                e.name,
+                e.serial_number,
+                e.manufacturer,
+                e.model,
+                e.breaker_category,
+                e.voltage_level,
+                e.gate,
+                e.manufacture_year,
+                em.manufacturer as model_manufacturer,
+                em.model_name
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
             WHERE e.id = ?
@@ -895,17 +918,36 @@ class MaintenanceReportGenerator:
         # Get maintenance measurements for this element
         c.execute(
             """
-            SELECT element_comments,
-                   insulation_closed_fa_ground, insulation_closed_fa_unit,
-                   insulation_closed_fb_ground, insulation_closed_fb_unit,
-                   insulation_closed_fc_ground, insulation_closed_fc_unit,
-                   insulation_open_fa_fa, insulation_open_fa_unit,
-                   insulation_open_fb_fb, insulation_open_fb_unit,
-                   insulation_open_fc_fc, insulation_open_fc_unit,
-                   contact_resistance_fa_fa, contact_resistance_fb_fb, contact_resistance_fc_fc,
-                   operations_count,
-                   sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
-                   vidar_fa, vidar_fb, vidar_fc
+            SELECT
+                element_comments,
+                insulation_closed_fa_ground,
+                insulation_closed_fa_unit,
+                insulation_closed_fb_ground,
+                insulation_closed_fb_unit,
+                insulation_closed_fc_ground,
+                insulation_closed_fc_unit,
+                insulation_open_fa_fa,
+                insulation_open_fa_unit,
+                insulation_open_fb_fb,
+                insulation_open_fb_unit,
+                insulation_open_fc_fc,
+                insulation_open_fc_unit,
+                contact_resistance_fa_fa,
+                contact_resistance_fb_fb,
+                contact_resistance_fc_fc,
+                operations_count,
+                sf6_n2_fa,
+                h2o_fa,
+                so2_fa,
+                sf6_n2_fb,
+                h2o_fb,
+                so2_fb,
+                sf6_n2_fc,
+                h2o_fc,
+                so2_fc,
+                vidar_fa,
+                vidar_fb,
+                vidar_fc
             FROM maintenance_elements
             WHERE maintenance_id = ? AND element_id = ?
         """,
@@ -915,7 +957,8 @@ class MaintenanceReportGenerator:
 
         if not measurements:
             raise ValueError(
-                f"No maintenance data found for element {element_id} in maintenance {maintenance_id}"
+                f"No maintenance data found for element {element_id} "
+                f"in maintenance {maintenance_id}"
             )
 
         # Ensure parent directory exists (folder should be created by caller)
@@ -1082,11 +1125,19 @@ class MaintenanceReportGenerator:
                 spaceBefore=0,
                 spaceAfter=6,
             ),
-            Paragraph(
-                self.normalize_text(
-                    f"{document_kind} - Το παρόν έγγραφο παράγεται από το εταιρικό σύστημα DB Substations της ΔΕΔΔΗΕ και αποτυπώνει τα καταχωρημένα δεδομένα της συγκεκριμένης συντήρησης. Απαιτείται έλεγχος και υπογραφή από το αρμόδιο προσωπικό όπου προβλέπεται."
-                ),
-                note_style,
+            (
+                Paragraph(
+                    self.normalize_text(
+                        (
+                            f"{document_kind} - Το παρόν έγγραφο παράγεται από το "
+                            "εταιρικό σύστημα DB Substations της ΔΕΔΔΗΕ και "
+                            "αποτυπώνει τα καταχωρημένα δεδομένα της συγκεκριμένης "
+                            "συντήρησης. Απαιτείται έλεγχος και υπογραφή από το "
+                            "αρμόδιο προσωπικό όπου προβλέπεται."
+                        )
+                    ),
+                    note_style,
+                )
             ),
             Spacer(1, 4),
             Paragraph(
@@ -1576,7 +1627,19 @@ class MaintenanceReportGenerator:
             # Look for latest DGA measurement for this element in the same maintenance
             cur.execute(
                 """
-                SELECT h2, c2h2, c2h4, c2h6, co, co2, ch4, o2, c3h8, n2, h2o, measurement_date
+                SELECT
+                    h2,
+                    c2h2,
+                    c2h4,
+                    c2h6,
+                    co,
+                    co2,
+                    ch4,
+                    o2,
+                    c3h8,
+                    n2,
+                    h2o,
+                    measurement_date
                 FROM dga_measurements
                 WHERE maintenance_id = ? AND element_id = ?
                 ORDER BY measurement_date DESC, created_at DESC
@@ -1637,7 +1700,9 @@ class MaintenanceReportGenerator:
                         )
                     # Add up to two findings
                     for f in findings[:2]:
-                        line = f"{f.get('label') or f.get('code')}: {f.get('summary') or ''}"
+                        label_txt = f.get("label") or f.get("code")
+                        summary_txt = f.get("summary") or ""
+                        line = f"{label_txt}: {summary_txt}"
                         story.append(Paragraph(self.normalize_text(line), body_style))
                     story.append(Spacer(1, 6))
         except Exception:
@@ -1743,7 +1808,8 @@ def generate_maintenance_report(conn, maintenance_id, element_id, output_path=No
     """
     if output_path is None:
         raise ValueError(
-            "output_path is required. Use report_sync.safe_generate_and_store_report() instead."
+            "output_path is required. Use report_sync.safe_generate_and_store_report() "
+            "instead."
         )
 
     generator = MaintenanceReportGenerator(conn)
@@ -1762,11 +1828,20 @@ def generate_maintenance_overview_report(conn, maintenance_id, output_path=None)
     cursor = conn.cursor()
     cursor.execute(
         """
-         SELECT m.id, m.date_time, m.name, m.maintenance_type, m.overall_comments, m.user_name,
-             s.name, s.location, s.division, p.name
+        SELECT
+            m.id,
+            m.date_time,
+            m.name,
+            m.maintenance_type,
+            m.overall_comments,
+            m.user_name,
+            s.name,
+            s.location,
+            s.division,
+            p.name
         FROM maintenance m
         JOIN substations s ON s.id = m.substation_id
-         LEFT JOIN people p ON p.id = m.responsible_id
+        LEFT JOIN people p ON p.id = m.responsible_id
         WHERE m.id = ?
         """,
         (maintenance_id,),
@@ -2063,14 +2138,18 @@ class InspectionReportGenerator:
                                         pdfmetrics.registerFont(TTFont(name, cand_path))
                                         registered_variants[label] = name
                                         logging.debug(
-                                            "Registered inspection font variant %s -> %s",
+                                            "Registered inspection font variant %s "
+                                            "-> %s",
                                             label,
                                             cand_path,
                                         )
                                         return True
                                     except Exception:
                                         logging.exception(
-                                            "Failed to register inspection font variant %s at %s",
+                                            (
+                                                "Failed to register inspection font "
+                                                "variant %s at %s"
+                                            ),
                                             label,
                                             cand_path,
                                         )
@@ -2088,7 +2167,8 @@ class InspectionReportGenerator:
                             registerFontFamily("GreekFontInspection", **fam_kwargs)
                         except Exception:
                             logging.debug(
-                                "Could not register inspection font family variants; proceeding with base font"
+                                "Could not register inspection font family variants; "
+                                "proceeding with base font"
                             )
 
                         self.greek_font = "GreekFontInspection"
