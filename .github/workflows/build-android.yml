@@ -129,14 +129,39 @@ jobs:
         done
 
     - name: Upload APK artifact
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: db-substations-apk-debug
         path: bin/*.apk
         retention-days: 90
-        
+
+    - name: Upload Android build diagnostics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-build-diagnostics
+        path: |
+          bin/**
+          .buildozer/**/buildozer.log
+          .buildozer/android/platform/python-for-android/dist/*/build.log
+          .buildozer/android/platform/python-for-android/dist/*/logs/**
+          ~/.buildozer/android/platform/python-for-android/dist/*/build.log
+          ~/.buildozer/android/platform/python-for-android/dist/*/logs/**
+        if-no-files-found: warn
+        retention-days: 14
+
     - name: List built APK
+      if: success()
       run: |
         ls -lh bin/
-        echo "✅ Production APK built successfully!"
-        echo "📦 Download from Actions artifacts"
+        echo "Production APK built successfully"
+        echo "Download from Actions artifacts"
+
+    - name: Print diagnostic locations
+      if: always()
+      run: |
+        echo "bin contents:"
+        ls -la bin || true
+        echo "Searching for buildozer logs:"
+        find . ~/.buildozer -type f \( -name "buildozer.log" -o -name "build.log" \) 2>/dev/null || true
