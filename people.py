@@ -92,9 +92,24 @@ class PeopleManager:
         def refresh_list():
             list_layout.clear_widgets()
             c = self.app.conn.cursor()
-            c.execute(
-                "SELECT id, name, role, email, report_receiver, active FROM people ORDER BY active DESC, CASE\n                    WHEN role LIKE '%Τομεαρ%' COLLATE NOCASE OR role LIKE '%Τομεάρχ%' COLLATE NOCASE THEN 0\n                    WHEN role LIKE '%Υποτο%' COLLATE NOCASE THEN 1\n                    WHEN role LIKE '%Ειδικ%' COLLATE NOCASE OR role LIKE '%Ειδικό Στέλεχος%' COLLATE NOCASE THEN 2\n                    WHEN role LIKE '%Μηχανικ%' COLLATE NOCASE THEN 3\n                    WHEN role LIKE '%Εργοδηγ%' COLLATE NOCASE THEN 4\n                    WHEN role LIKE '%Αρχιτεχν%' COLLATE NOCASE THEN 5\n                    WHEN role LIKE '%Τεχν%' COLLATE NOCASE THEN 6\n                    WHEN role LIKE '%Χειριστ%' COLLATE NOCASE THEN 7\n                    WHEN role LIKE '%Υποστ%' COLLATE NOCASE THEN 8\n                    ELSE 99 END, COALESCE(surname, name) COLLATE NOCASE"
+            sql = (
+                "SELECT id, name, role, email, report_receiver, active "
+                "FROM people "
+                "ORDER BY active DESC, CASE "
+                "WHEN role LIKE '%Τομεαρ%' COLLATE NOCASE "
+                "OR role LIKE '%Τομεάρχ%' COLLATE NOCASE THEN 0 "
+                "WHEN role LIKE '%Υποτο%' COLLATE NOCASE THEN 1 "
+                "WHEN role LIKE '%Ειδικ%' COLLATE NOCASE "
+                "OR role LIKE '%Ειδικό Στέλεχος%' COLLATE NOCASE THEN 2 "
+                "WHEN role LIKE '%Μηχανικ%' COLLATE NOCASE THEN 3 "
+                "WHEN role LIKE '%Εργοδηγ%' COLLATE NOCASE THEN 4 "
+                "WHEN role LIKE '%Αρχιτεχν%' COLLATE NOCASE THEN 5 "
+                "WHEN role LIKE '%Τεχν%' COLLATE NOCASE THEN 6 "
+                "WHEN role LIKE '%Χειριστ%' COLLATE NOCASE THEN 7 "
+                "WHEN role LIKE '%Υποστ%' COLLATE NOCASE THEN 8 "
+                "ELSE 99 END, COALESCE(surname, name) COLLATE NOCASE"
             )
+            c.execute(sql)
             rows = c.fetchall()
             grouped = group_people_by_category(rows)
             for cat, items in grouped.items():
@@ -145,12 +160,11 @@ class PeopleManager:
                         if report_receiver
                         else S["BUTTONS"].get("NO", "Όχι")
                     )
-                    row.add_widget(
-                        Label(
-                            text=f"{name} ({role}) | {email_text} | Παραλήπτης: {receiver_text} | {status}",
-                            size_hint_x=0.8,
-                        )
+                    label_text = (
+                        f"{name} ({role}) | {email_text} | "
+                        f"Παραλήπτης: {receiver_text} | {status}"
                     )
+                    row.add_widget(Label(text=label_text, size_hint_x=0.8))
 
                     edit_btn = IconOnlyButton(
                         icon_type="edit", icon_color=(0.2, 0.6, 1, 1), size=(35, 35)
@@ -187,18 +201,20 @@ class PeopleManager:
                 return
             composite = f"{surname} {given}".strip()
             c = self.app.conn.cursor()
-            c.execute(
-                "INSERT INTO people (name, given_name, surname, role, email, report_receiver, active) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    composite,
-                    given,
-                    surname,
-                    role,
-                    email,
-                    1 if receiver_checkbox.active else 0,
-                    1 if active_checkbox.active else 0,
-                ),
+            sql = (
+                "INSERT INTO people (name, given_name, surname, role, email, "
+                "report_receiver, active) VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
+            params = (
+                composite,
+                given,
+                surname,
+                role,
+                email,
+                1 if receiver_checkbox.active else 0,
+                1 if active_checkbox.active else 0,
+            )
+            c.execute(sql, params)
             self.app.conn.commit()
             surname_input.text = ""
             given_input.text = ""
@@ -413,10 +429,11 @@ class PeopleManager:
 
     def _show_edit_person_popup(self, person_id, refresh_cb=None):
         c = self.app.conn.cursor()
-        c.execute(
-            "SELECT name, given_name, surname, role, email, report_receiver, active FROM people WHERE id=?",
-            (person_id,),
+        sql = (
+            "SELECT name, given_name, surname, role, email, "
+            "report_receiver, active FROM people WHERE id=?"
         )
+        c.execute(sql, (person_id,))
         row = c.fetchone()
         if not row:
             show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["PERSON_NOT_FOUND"])
@@ -488,19 +505,21 @@ class PeopleManager:
                 )
                 return
             composite = f"{new_surname} {new_given}".strip()
-            c.execute(
-                "UPDATE people SET name=?, given_name=?, surname=?, role=?, email=?, report_receiver=?, active=? WHERE id=?",
-                (
-                    composite,
-                    new_given,
-                    new_surname,
-                    new_role,
-                    new_email,
-                    1 if receiver_checkbox.active else 0,
-                    1 if active_checkbox.active else 0,
-                    person_id,
-                ),
+            sql = (
+                "UPDATE people SET name=?, given_name=?, surname=?, role=?, email=?, "
+                "report_receiver=?, active=? WHERE id=?"
             )
+            params = (
+                composite,
+                new_given,
+                new_surname,
+                new_role,
+                new_email,
+                1 if receiver_checkbox.active else 0,
+                1 if active_checkbox.active else 0,
+                person_id,
+            )
+            c.execute(sql, params)
             self.app.conn.commit()
             popup.dismiss()
             if refresh_cb:
