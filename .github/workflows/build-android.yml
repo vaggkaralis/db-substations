@@ -20,12 +20,12 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v5
       with:
         ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -113,20 +113,39 @@ jobs:
         fi
 
     - name: Build APK with Buildozer
+      shell: bash
       run: |
+        set -o pipefail
         export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
         export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
+        build_log="$RUNNER_TEMP/buildozer-android.log"
+        : > "$build_log"
+        build_succeeded=0
         for attempt in 1 2 3; do
-          echo "Buildozer attempt $attempt"
-          if buildozer -v android debug; then
+          echo "Buildozer attempt $attempt" | tee -a "$build_log"
+          if buildozer -v android debug 2>&1 | tee -a "$build_log"; then
+            build_succeeded=1
             break
           fi
           if [ "$attempt" -lt 3 ]; then
             sleep $((attempt * 15))
           else
+            echo "Android build failed after $attempt attempts." | tee -a "$build_log"
+            echo "Last 200 lines of the Buildozer log:" | tee -a "$build_log"
+            tail -n 200 "$build_log"
+            {
+              echo "## Android build failure excerpt"
+              echo
+              echo '```text'
+              tail -n 200 "$build_log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
         done
+        if [ "$build_succeeded" -eq 1 ]; then
+          cp "$build_log" buildozer-android.log
+        fi
 
     - name: Upload APK artifact
       if: success()
@@ -142,12 +161,14 @@ jobs:
       with:
         name: android-build-diagnostics
         path: |
+          buildozer-android.log
           bin/**
           .buildozer/**/buildozer.log
           .buildozer/android/platform/python-for-android/dist/*/build.log
           .buildozer/android/platform/python-for-android/dist/*/logs/**
           ~/.buildozer/android/platform/python-for-android/dist/*/build.log
           ~/.buildozer/android/platform/python-for-android/dist/*/logs/**
+          ${{ runner.temp }}/buildozer-android.log
         if-no-files-found: warn
         retention-days: 14
 
