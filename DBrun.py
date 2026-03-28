@@ -1,5 +1,8 @@
 """Main application runtime and startup orchestration."""
 
+# Allow module-level environment setup before imports (Kivy needs env vars)
+# flake8: noqa: E402
+
 # Ensure Kivy does not print verbose INFO logs to the console by setting
 # environment variables before any module importing Kivy runs.
 import os as _env
