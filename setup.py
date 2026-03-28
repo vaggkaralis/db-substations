@@ -1,8 +1,5 @@
 from pathlib import Path
 
-from setuptools import find_namespace_packages, setup
-
-
 ROOT = Path(__file__).parent
 EXCLUDED_MODULES = {
     "build_exe",
@@ -12,6 +9,9 @@ EXCLUDED_MODULES = {
 
 
 def build_setup_kwargs():
+    # avoid importing setuptools at module import time — import inside the function
+    from setuptools import find_namespace_packages
+
     py_modules = sorted(
         path.stem
         for path in ROOT.glob("*.py")
@@ -31,4 +31,7 @@ def build_setup_kwargs():
 
 
 if __name__ == "__main__":
+    # import setup only when the script is executed directly
+    from setuptools import setup
+
     setup(**build_setup_kwargs())
