@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # enable debug sizing prints
 os.environ["MAINT_DEBUG"] = "1"
 
-from DBrun import SubstationApp
+from DBrun import SubstationApp  # noqa: E402
 
 
 class PreviewApp(SubstationApp):

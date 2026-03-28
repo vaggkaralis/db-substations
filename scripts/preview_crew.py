@@ -10,7 +10,6 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from validation import group_people_by_category
 
 # sample people with long names to force wrapping
 people = [
@@ -39,6 +38,9 @@ class CrewPreviewApp(App):
         preferred_col_width = 280
         cols = max(1, min(5, int(Window.width // preferred_col_width)))
         min_cell_h = 20
+
+        from validation import group_people_by_category
+
         grouped = group_people_by_category(people)
         for cat, members in grouped.items():
             if not members:
@@ -90,9 +92,12 @@ class CrewPreviewApp(App):
                         except Exception:
                             pass
                         if os.environ.get("MAINT_DEBUG"):
-                            print(
-                                f"MAINT_DEBUG: '{name_val}' -> cell_h={h}, label_w={inst.width}, checkbox_h={checkbox.height}"
+                            msg = (
+                                f"MAINT_DEBUG: '{name_val}' -> "
+                                f"cell_h={h}, label_w={inst.width}, "
+                                f"checkbox_h={checkbox.height}"
                             )
+                            print(msg)
                     except Exception:
                         pass
 

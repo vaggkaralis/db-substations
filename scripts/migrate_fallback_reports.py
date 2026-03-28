@@ -22,15 +22,6 @@ import argparse
 # Add parent dir to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from onedrive_hybrid_storage import (
-    ensure_maintenance_folders,
-    upsert_maintenance_report_path,
-    get_transformer_report_targets,
-    _report_subfolder_name_for_element,
-    resolve_shared_root,
-)
-from settings import DB_PATH
-
 
 def win_path(path):
     abs_path = os.path.abspath(path)
@@ -43,6 +34,9 @@ def win_path(path):
 
 def get_shared_root():
     """Get the shared reports root path."""
+    from onedrive_hybrid_storage import resolve_shared_root
+    from settings import DB_PATH
+
     return resolve_shared_root(DB_PATH)
 
 
@@ -80,10 +74,18 @@ def safe_name(value):
 
 
 def canonical_report_name(substation_name, element_name, maintenance_id):
-    return f"{safe_name(substation_name)}_{safe_name(element_name)}_Maintenance_M{maintenance_id}.pdf"
+    return (
+        f"{safe_name(substation_name)}_{safe_name(element_name)}"
+        f"_Maintenance_M{maintenance_id}.pdf"
+    )
 
 
 def build_target_path(conn, db_path, maintenance_id, element_row):
+    from onedrive_hybrid_storage import (
+        _report_subfolder_name_for_element,
+        get_transformer_report_targets,
+    )
+
     element_id = element_row["element_id"]
     gate_value = element_row["gate"]
     targets = get_transformer_report_targets(
@@ -204,6 +206,12 @@ def match_files_to_elements(maintenance_id, source_files, element_rows):
 
 def migrate_fallback_reports(*, conflict_policy: str = "skip"):
     """Main migration logic."""
+    from onedrive_hybrid_storage import (
+        ensure_maintenance_folders,
+        upsert_maintenance_report_path,
+    )
+    from settings import DB_PATH
+
     db_path = DB_PATH
     shared_root = get_shared_root()
 
@@ -271,7 +279,8 @@ def migrate_fallback_reports(*, conflict_policy: str = "skip"):
 
             # Check if maintenance has storage paths
             cursor.execute(
-                "SELECT COUNT(*) as cnt FROM maintenance_storage_paths WHERE maintenance_id = ?",
+                "SELECT COUNT(*) as cnt FROM maintenance_storage_paths "
+                "WHERE maintenance_id = ?",
                 (maintenance_id,),
             )
             has_paths = cursor.fetchone()["cnt"] > 0
@@ -320,7 +329,8 @@ def migrate_fallback_reports(*, conflict_policy: str = "skip"):
                 )
                 for row in unmatched_elements[:5]:
                     print(
-                        f"  UNMATCHED ELEMENT: E{row['element_id']} {row['element_name']}"
+                        f"  UNMATCHED ELEMENT: E{row['element_id']} "
+                        f"{row['element_name']}"
                     )
 
             element_by_id = {row["element_id"]: row for row in element_rows}
@@ -342,18 +352,21 @@ def migrate_fallback_reports(*, conflict_policy: str = "skip"):
                             os.remove(source_fs)
                             stats["removed_duplicates"] += 1
                             print(
-                                f"  M{maintenance_id}_E{element_id}: Removed duplicate fallback copy"
+                                f"  M{maintenance_id}_E{element_id}: "
+                                "Removed duplicate fallback copy"
                             )
                         else:
                             if conflict_policy == "prefer-canonical":
                                 stats["db_pointed_to_canonical_on_conflict"] += 1
                                 print(
-                                    f"  M{maintenance_id}_E{element_id}: Conflict at target, DB pointed to canonical"
+                                    f"  M{maintenance_id}_E{element_id}: "
+                                    "Conflict at target, DB pointed to canonical"
                                 )
                             else:
                                 final_db_path = source_abs
                                 print(
-                                    f"  M{maintenance_id}_E{element_id}: Conflict at target, keeping fallback file"
+                                    f"  M{maintenance_id}_E{element_id}: "
+                                    "Conflict at target, keeping fallback file"
                                 )
                             stats["conflicts"] += 1
                     else:
@@ -363,7 +376,8 @@ def migrate_fallback_reports(*, conflict_policy: str = "skip"):
                         shutil.move(source_fs, target_fs)
                         stats["moved"] += 1
                         print(
-                            f"  M{maintenance_id}_E{element_id}: Moved → {os.path.relpath(target_abs, shared_root)}"
+                            f"  M{maintenance_id}_E{element_id}: "
+                            f"Moved -> {os.path.relpath(target_abs, shared_root)}"
                         )
                         final_db_path = target_abs
 
@@ -410,7 +424,8 @@ def migrate_fallback_reports(*, conflict_policy: str = "skip"):
     print(f"Reports moved: {stats['moved']}")
     print(f"Duplicate fallback copies removed: {stats['removed_duplicates']}")
     print(
-        f"Conflicts pointed to canonical in DB: {stats['db_pointed_to_canonical_on_conflict']}"
+        "Conflicts pointed to canonical in DB: "
+        f"{stats['db_pointed_to_canonical_on_conflict']}"
     )
     print(f"Storage paths created: {stats['storage_paths_created']}")
     print(f"DB updates: {stats['db_updated']}")
@@ -429,7 +444,7 @@ if __name__ == "__main__":
         "--conflict-policy",
         choices=["skip", "prefer-canonical"],
         default="skip",
-        help="On file-content conflict between fallback and canonical: skip or keep files and point DB to canonical",
+        help="Policy on file conflicts: 'skip' or 'prefer-canonical'.",
     )
     args = parser.parse_args()
     sys.exit(migrate_fallback_reports(conflict_policy=args.conflict_policy))
