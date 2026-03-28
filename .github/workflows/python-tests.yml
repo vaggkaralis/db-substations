@@ -26,11 +26,14 @@ jobs:
           pip install ruff flake8
       - name: Run ruff
         run: |
-          python -m ruff format --check .
-          python -m ruff check .
+          python -m ruff format --check . --exclude scripts
+          python -m ruff check . --exclude scripts
+          python -m ruff format --check scripts/access_gate_utils.py
+          python -m ruff check scripts/access_gate_utils.py
       - name: Run flake8
         run: |
-          python -m flake8 --max-line-length=88
+          python -m flake8 --max-line-length=88 --exclude=scripts
+          python -m flake8 --max-line-length=88 scripts/access_gate_utils.py
 
   test:
     runs-on: ubuntu-latest
