@@ -5,6 +5,33 @@ that shows a preview of a JSONL change-log, offers an optional DB backup, and ap
 the change-log using `apply_change_log_to_db` from `DBrun.py`.
 """
 
+import json
+
+
+def _normalize_change_log_text(raw_text):
+    text = (raw_text or "").strip()
+    if not text:
+        return ""
+
+    # Support files that contain a single JSON string wrapping the payload.
+    try:
+        decoded = json.loads(text)
+        if isinstance(decoded, str):
+            text = decoded.strip()
+        elif isinstance(decoded, dict):
+            return json.dumps(decoded, ensure_ascii=False)
+    except Exception:
+        pass
+
+    # Support files manually edited into: "{...}" or
+    # a leading quote on the first line and trailing quote on the last line.
+    if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+        inner = text[1:-1].strip()
+        if inner.startswith("{") or inner.startswith("["):
+            text = inner
+
+    return text
+
 
 def import_android_changes_from_file(app, file_path):
     try:
@@ -45,7 +72,12 @@ def import_android_changes_from_file(app, file_path):
                 b = fh.read(65536)
             text = b.decode("utf-8", errors="replace")
 
+        text = _normalize_change_log_text(text)
         lines = [ln for ln in text.splitlines() if ln.strip()]
+        if len(lines) == 1:
+            single_line = lines[0].strip()
+            if single_line.startswith("{") and single_line.endswith("}"):
+                lines = [single_line]
         for idx, ln in enumerate(lines[:50], start=1):
             try:
                 obj = json.loads(ln)
@@ -90,70 +122,100 @@ def import_android_changes_from_file(app, file_path):
 
     preview_text = "\n".join(preview_items) if preview_items else "(empty or unreadable)"
 
-    preview_popup = Popup(title="Preview change log", size_hint=(0.9, 0.9))
-    layout = BoxLayout(orientation="vertical", spacing=10, padding=10)
-    layout.add_widget(Label(text=f"File: {file_path}", size_hint_y=0.08))
-    preview_area = TextInput(text=preview_text, readonly=True)
-    layout.add_widget(preview_area)
-
-    btns = BoxLayout(size_hint_y=0.12, spacing=10)
-
-    def _backup_and_apply(_):
-        preview_popup.dismiss()
-        try:
-            # determine DB file path from connection
-            db_file = None
-            try:
-                r = app.conn.execute("PRAGMA database_list").fetchall()
-                for row in r:
-                    if row[1] == "main":
-                        db_file = row[2]
-                        break
-            except Exception:
-                db_file = None
-            if not db_file:
-                try:
-                    from settings import DB_PATH as _dbpath
-
-                    db_file = _dbpath
-                except Exception:
-                    db_file = "substations.db"
-            import shutil
-            import time
-
-            backup_path = f"{db_file}.backup.{int(time.time())}.bak"
-            shutil.copy2(db_file, backup_path)
-            if apply_change_log_to_db:
-                apply_change_log_to_db(app.conn, file_path)
-            show_message_popup(
-                "Εισαγωγή αλλαγών από Android",
-                f"Επιτυχής εισαγωγή. Backup: {backup_path}",
-            )
-        except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την εισαγωγή: {e}")
-
-    def _apply_only(_):
-        preview_popup.dismiss()
-        try:
-            if apply_change_log_to_db:
-                apply_change_log_to_db(app.conn, file_path)
-            show_message_popup("Εισαγωγή αλλαγών από Android", "Επιτυχής εισαγωγή.")
-        except Exception as e:
-            show_message_popup(S["TITLES"]["ERROR"], f"Σφάλμα κατά την εισαγωγή: {e}")
-
+    # If there is exactly one maintenance entry, open the real maintenance
+    # editor prefilled with that data. If multiple, present a chooser where
+    # each maintenance can be opened in the editor for review/editing.
     from strings_proxy import STRINGS as S
 
-    apply_btn = Button(text=S["BUTTONS"]["APPLY"])
-    apply_btn.bind(on_press=_apply_only)
-    backup_btn = Button(text=S["BUTTONS"]["BACKUP_APPLY"])
-    backup_btn.bind(on_press=_backup_and_apply)
-    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
-    cancel_btn.bind(on_press=preview_popup.dismiss)
+    maint_entries = []
+    for ln in text.splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            obj = json.loads(ln)
+        except Exception:
+            # try normalizing quoted line
+            try:
+                decoded = json.loads(ln.strip('"'))
+                obj = decoded
+            except Exception:
+                continue
+        if obj.get("table") == "maintenance":
+            maint_entries.append(obj.get("data") or {})
 
-    btns.add_widget(backup_btn)
-    btns.add_widget(apply_btn)
-    btns.add_widget(cancel_btn)
+    def _open_maintenance_in_editor(data):
+        # Build prefill similar to email payload handler
+        prefill = {}
+        prefill["substation_id"] = data.get("substation_id")
+        prefill["maintenance_type"] = data.get("maintenance_type")
+        prefill["date_time"] = data.get("date_time")
+        prefill["overall_comments"] = data.get("overall_comments")
+        prefill["responsible_id"] = None
+        elems = data.get("elements") or []
+        element_ids = [e.get("element_id") or e.get("id") for e in elems if e.get("element_id") or e.get("id")]
+        prefill["element_ids"] = element_ids
+        prefill["incomplete_elements"] = set(element_ids)
+        prefill["attachment_paths"] = []
+        prefill["_diag_origin"] = "android_change_log"
+        # Resolve substation name if possible
+        sub_name = None
+        try:
+            c = app.conn.cursor()
+            if prefill.get("substation_id") is not None:
+                c.execute("SELECT name FROM substations WHERE id=?", (prefill["substation_id"],))
+                r = c.fetchone()
+                if r:
+                    sub_name = r[0]
+        except Exception:
+            sub_name = None
 
-    layout.add_widget(btns)
-    preview_popup.content = layout
-    preview_popup.open()
+        # Open the desktop maintenance editor with prefill
+        try:
+            app.show_maintenance_menu(preselected_substation_name=sub_name, parent_popup=None, maintenance_id=None, after_save_callback=None, prefill_data=prefill)
+        except Exception:
+            try:
+                show_message_popup(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), "Αδύνατο άνοιγμα φόρμας συντήρησης")
+            except Exception:
+                pass
+
+    if len(maint_entries) == 0:
+        # No maintenance entries detected — fall back to textual preview
+        preview_popup = Popup(title="Preview change log", size_hint=(0.9, 0.9))
+        layout = BoxLayout(orientation="vertical", spacing=10, padding=10)
+        layout.add_widget(Label(text=f"File: {file_path}", size_hint_y=0.08))
+        preview_area = TextInput(text=preview_text, readonly=True)
+        layout.add_widget(preview_area)
+        btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=48)
+        btn.bind(on_press=preview_popup.dismiss)
+        layout.add_widget(btn)
+        preview_popup.content = layout
+        preview_popup.open()
+        return
+
+    if len(maint_entries) == 1:
+        _open_maintenance_in_editor(maint_entries[0])
+        return
+
+    # Multiple maint entries: present chooser
+    chooser = Popup(title=S.get("MESSAGES", {}).get("MAINT_CHOOSER", "Επιλέξτε συντήρηση"), size_hint=(0.9, 0.9))
+    layout = BoxLayout(orientation="vertical", spacing=8, padding=8)
+    layout.add_widget(Label(text=f"File: {file_path}", size_hint_y=None, height=28))
+    for idx, data in enumerate(maint_entries, start=1):
+        line = f"{idx}) substation_id={data.get('substation_id')} date_time={data.get('date_time')} type={data.get('maintenance_type')}"
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=42, spacing=8)
+        row.add_widget(Label(text=line))
+        btn = Button(text=S.get("BUTTONS", {}).get("OPEN", "Άνοιγμα"), size_hint_x=None, width=120)
+
+        def _make_open(d):
+            return lambda _btn: (_open_maintenance_in_editor(d), chooser.dismiss())
+
+        btn.bind(on_press=_make_open(data))
+        row.add_widget(btn)
+        layout.add_widget(row)
+
+    close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=48)
+    close_btn.bind(on_press=chooser.dismiss)
+    layout.add_widget(close_btn)
+    chooser.content = layout
+    chooser.open()
