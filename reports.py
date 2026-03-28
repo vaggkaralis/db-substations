@@ -65,7 +65,10 @@ def show_sf6_management_popup(app, instance=None):
 
     c = app.conn.cursor()
     c.execute(
-        "SELECT DISTINCT substr(date_time, 1, 4) FROM maintenance WHERE date_time IS NOT NULL AND date_time != '' ORDER BY 1 DESC"
+            "SELECT DISTINCT substr(date_time, 1, 4) "
+            "FROM maintenance "
+            "WHERE date_time IS NOT NULL AND date_time != '' "
+            "ORDER BY 1 DESC"
     )
     years = [row[0] for row in c.fetchall() if row[0] and row[0].isdigit()]
     if not years:
@@ -116,10 +119,18 @@ def show_sf6_management_popup(app, instance=None):
         active_elements = data["active_elements"]
         active_substations = data["active_substations"]
 
-        summary_text = (
-            f"Εγκατεστημένο SF6 (ενεργά): {installed_sf6:.2f} kg | "
-            f"Ενεργά στοιχεία SF6: {active_elements} | Υποσταθμοί με SF6: {active_substations}\n"
-            f"Έτος: {year_value} | Διαρροές: {total_leakage:.2f} kg | Ποσοστό: {percentage:.2f}%"
+        summary_text = "\n".join(
+            [
+                (
+                    f"Εγκατεστημένο SF6 (ενεργά): {installed_sf6:.2f} kg | "
+                    f"Ενεργά στοιχεία SF6: {active_elements} | "
+                    f"Υποσταθμοί με SF6: {active_substations}"
+                ),
+                (
+                    f"Έτος: {year_value} | Διαρροές: {total_leakage:.2f} kg | "
+                    f"Ποσοστό: {percentage:.2f}%"
+                ),
+            ]
         )
         summary_label.text = summary_text
 
@@ -265,11 +276,23 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
 
         def _show_success(path: str, action_taken: str):
             if action_taken == "replaced":
-                msg = f'Το αρχείο PDF για το στοιχείο "{element_name}"\nαντικαταστάθηκε επιτυχώς!\n\nΑποθηκεύτηκε στο:\n{path}'
+                msg = (
+                    f'Το αρχείο PDF για το στοιχείο "{element_name}"\n'
+                    "αντικαταστάθηκε επιτυχώς!\n\n"
+                    f"Αποθηκεύτηκε στο:\n{path}"
+                )
             elif action_taken == "opened":
-                msg = f'Το αρχείο PDF για το στοιχείο "{element_name}"\nυπάρχει ήδη.\n\nΤο αρχείο είναι:\n{path}'
+                msg = (
+                    f'Το αρχείο PDF για το στοιχείο "{element_name}"\n'
+                    "υπάρχει ήδη.\n\n"
+                    f"Το αρχείο είναι:\n{path}"
+                )
             else:
-                msg = f'Το αρχείο PDF για το στοιχείο "{element_name}"\nδημιουργήθηκε επιτυχώς!\n\nΑποθηκεύτηκε στο:\n{path}'
+                msg = (
+                    f'Το αρχείο PDF για το στοιχείο "{element_name}"\n'
+                    "δημιουργήθηκε επιτυχώς!\n\n"
+                    f"Αποθηκεύτηκε στο:\n{path}"
+                )
             show_message_popup(
                 "PDF Έτοιμο",
                 msg,
@@ -309,7 +332,10 @@ def generate_pdf_report(app, maintenance_id, element_id, element_name):
 
             show_confirm(
                 S["TITLES"].get("CONFIRM", "Επιβεβαίωση"),
-                f"Το PDF υπάρχει ήδη:\n{existing_path}\n\nΘέλετε αντικατάσταση ή άνοιγμα του υπάρχοντος;",
+                (
+                    f"Το PDF υπάρχει ήδη:\n{existing_path}\n\n"
+                    "Θέλετε αντικατάσταση ή άνοιγμα του υπάρχοντος;"
+                ),
                 yes_callback=_replace_existing,
                 yes_text="ΑΝΤΙΚΑΤΑΣΤΑΣΗ",
                 no_text="ΑΝΟΙΓΜΑ",
