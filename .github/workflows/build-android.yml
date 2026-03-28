@@ -1,17 +1,26 @@
 name: Build Android APK
 
 on:
-  push:
-    branches: [ main ]
+  workflow_run:
+    workflows: ["CI - Run tests"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -122,7 +131,7 @@ jobs:
       with:
         name: db-substations-apk-debug
         path: bin/*.apk
-        retention-days: 30
+        retention-days: 90
         
     - name: List built APK
       run: |

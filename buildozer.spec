@@ -4,7 +4,7 @@ package.name = dbsubstations
 package.domain = org.dbsubstations
 
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,ttf
+source.include_exts = py,png,jpg,kv,atlas,ttf,json,xlsx,pdf
 
 version = 1.0.0
 requirements = python3,kivy==2.3.0,plyer,pillow,certifi,urllib3,charset-normalizer,idna,requests
