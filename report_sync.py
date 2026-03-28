@@ -403,7 +403,10 @@ def safe_generate_and_store_report(
                 "success": False,
                 "path": report_path,
                 "exists": True,
-                "message": f"Report already exists at:\n{report_path}\n\nΕπιλέξτε: Αντικατάσταση, Άνοιγμα ή Ακύρωση",
+                "message": (
+                    f"Report already exists at:\n{report_path}\n\n"
+                    "Επιλέξτε: Αντικατάσταση, Άνοιγμα ή Ακύρωση"
+                ),
                 "action_taken": "prompt_user",
             }
 
@@ -482,7 +485,10 @@ def safe_generate_and_store_report(
             return {
                 "success": False,
                 "path": None,
-                "message": f"Report generation completed but file not found at:\n{generated_path}",
+                "message": (
+                    "Report generation completed but file not found at:\n"
+                    f"{generated_path}"
+                ),
                 "action_taken": "error",
             }
 
@@ -492,7 +498,10 @@ def safe_generate_and_store_report(
             return {
                 "success": False,
                 "path": None,
-                "message": f"Report file is suspiciously small ({file_size} bytes).\nGeneration may have failed.",
+                "message": (
+                    f"Report file is suspiciously small ({file_size} bytes).\n"
+                    "Generation may have failed."
+                ),
                 "action_taken": "error",
             }
 
@@ -525,7 +534,11 @@ def safe_generate_and_store_report(
         return {
             "success": True,
             "path": generated_path,
-            "message": f"Report successfully {action_msg}.\nFile: {generated_path}\nSize: {file_size} bytes",
+            "message": (
+                f"Report successfully {action_msg}.\n"
+                f"File: {generated_path}\n"
+                f"Size: {file_size} bytes"
+            ),
             "action_taken": action_msg,
         }
 
@@ -571,7 +584,8 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
             SELECT COUNT(*) as cnt
             FROM maintenance_report_paths mrp
             LEFT JOIN maintenance_elements me
-              ON me.maintenance_id = mrp.maintenance_id AND me.element_id = mrp.element_id
+                            ON me.maintenance_id = mrp.maintenance_id
+                            AND me.element_id = mrp.element_id
             WHERE mrp.report_type = 'pdf' AND me.maintenance_id IS NULL
             """)
         orphan_tracked = cursor.fetchone()["cnt"]
@@ -591,7 +605,9 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
             JOIN elements e ON e.id = me.element_id
             JOIN substations s ON s.id = m.substation_id
             LEFT JOIN maintenance_report_paths mrp
-              ON mrp.maintenance_id = m.id AND mrp.element_id = me.element_id AND mrp.report_type = 'pdf'
+                            ON mrp.maintenance_id = m.id
+                            AND mrp.element_id = me.element_id
+                            AND mrp.report_type = 'pdf'
             ORDER BY m.id DESC, me.element_id
             """)
         rows = cursor.fetchall()
@@ -640,7 +656,16 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
                     canonical_exists = True
                     break
 
-                tight_name = f"M{maintenance_id}_E{element_id}_{hashlib.sha1((str(row['substation_name']) + '|' + str(row['element_name'])).encode('utf-8')).hexdigest()[:8]}.pdf"
+                sub_elem_hash = hashlib.sha1(
+                    (
+                        str(row["substation_name"])
+                        + "|"
+                        + str(row["element_name"])
+                    ).encode("utf-8")
+                ).hexdigest()[:8]
+                tight_name = (
+                    f"M{maintenance_id}_E{element_id}_{sub_elem_hash}.pdf"
+                )
                 tight_path = os.path.join(subfolder, tight_name)
                 if repair_pdf_access(tight_path):
                     canonical_exists = True
@@ -714,7 +739,10 @@ def export_missing_reports(
         FROM maintenance m
         JOIN maintenance_elements me ON me.maintenance_id = m.id
         JOIN elements e ON e.id = me.element_id
-        LEFT JOIN maintenance_report_paths mrp ON mrp.maintenance_id = m.id AND mrp.element_id = me.element_id AND mrp.report_type='pdf'
+                LEFT JOIN maintenance_report_paths mrp
+                    ON mrp.maintenance_id = m.id
+                    AND mrp.element_id = me.element_id
+                    AND mrp.report_type='pdf'
         ORDER BY m.id
     """
     cur.execute(q)
@@ -787,8 +815,9 @@ def export_missing_reports(
                 db_path=db_path,
                 overwrite=False,
             )
-            overview_generated += overview_res.get("generated", 0) + overview_res.get(
-                "updated", 0
+            overview_generated += (
+                overview_res.get("generated", 0)
+                + overview_res.get("updated", 0)
             )
             overview_errors.extend(overview_res.get("errors", []))
         except Exception as exc:
