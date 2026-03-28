@@ -3603,7 +3603,9 @@ def sync_all_substation_structures(
         conn: Database connection
         db_path: Path to database file (for resolving shared root)
         quiet: If True, suppress exceptions for individual substations
-        progress_callback: Optional callable(operation, substation, current, total) for progress reporting
+        progress_callback: Optional callable(
+            operation, substation, current, total
+        ) for progress reporting
 
     Returns:
         Dictionary with sync statistics: total, synced, failed, skipped
@@ -3647,9 +3649,11 @@ def sync_all_substation_structures(
         except Exception as exc:
             failed += 1
             if not quiet:
-                raise RuntimeError(
-                    f"Failed to sync folder structure for substation '{substation_name}' (ID: {substation_id}): {exc}"
-                ) from exc
+                msg = (
+                    "Failed to sync folder structure for substation "
+                    f"'{substation_name}' (ID: {substation_id}): {exc}"
+                )
+                raise RuntimeError(msg) from exc
 
     return {
         "total": total,
@@ -3677,7 +3681,9 @@ def regenerate_maintenance_reports(
         db_path: Path to database file
         quiet: If True, suppress exceptions
         limit: Optional limit on number of records to process
-        progress_callback: Optional callable(operation, substation, current, total) for progress
+        progress_callback: Optional callable(
+            operation, substation, current, total
+        ) for progress
     """
     try:
         from pdf_reports import generate_maintenance_report, repair_pdf_access
