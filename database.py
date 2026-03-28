@@ -708,6 +708,12 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             )
         except Exception:
             pass
+    # Add a generic JSON blob on maintenance to store arbitrary extra fields
+    if "data_json" not in maint_columns:
+        try:
+            cursor.execute("ALTER TABLE maintenance ADD COLUMN data_json TEXT")
+        except Exception:
+            pass
     if "responsible_id" not in maint_columns:
         try:
             cursor.execute("ALTER TABLE maintenance ADD COLUMN responsible_id INTEGER")

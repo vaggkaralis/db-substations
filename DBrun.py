@@ -459,7 +459,39 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
     if not os.path.exists(file_path):
         raise FileNotFoundError(file_path)
 
+    def _normalize_change_log_text(raw_text):
+        text = (raw_text or "").strip()
+        if not text:
+            return ""
+
+        try:
+            decoded = json.loads(text)
+            if isinstance(decoded, str):
+                text = decoded.strip()
+            elif isinstance(decoded, dict):
+                return json.dumps(decoded, ensure_ascii=False)
+        except Exception:
+            pass
+
+        if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+            inner = text[1:-1].strip()
+            if inner.startswith("{") or inner.startswith("["):
+                text = inner
+
+        return text
+
     cur = conn.cursor()
+
+    # Fetch table columns for maintenance_elements and maintenance so we can
+    # store extra/unmapped fields into `data_json` to avoid losing data.
+    try:
+        me_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance_elements)")]
+    except Exception:
+        me_cols = []
+    try:
+        maint_cols = [r[1] for r in cur.execute("PRAGMA table_info(maintenance)")]
+    except Exception:
+        maint_cols = []
 
     def _refresh_maintenance_dates(substation_id, element_ids):
         unique_ids = sorted({int(x) for x in (element_ids or []) if x is not None})
@@ -495,7 +527,8 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
             )
 
     with open(file_path, "r", encoding="utf-8") as fh:
-        for line in fh:
+        raw_text = _normalize_change_log_text(fh.read())
+        for line in raw_text.splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -699,29 +732,71 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                     if elem_id in seen_element_ids:
                         continue
                     seen_element_ids.add(elem_id)
-                    cur.execute(
-                        """
-                        INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments)
-                        SELECT ?, ?, ?
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM maintenance_elements
-                            WHERE maintenance_id = ? AND element_id = ?
+                    # Preserve any extra per-element fields by serializing them
+                    # into the `data_json` column if present.
+                    extra_elem = {
+                        k: v
+                        for k, v in elem.items()
+                        if k
+                        not in ("element_id", "id", "element_comments", "comments")
+                    }
+                    data_json = json.dumps(extra_elem, ensure_ascii=False) if extra_elem else None
+
+                    if "data_json" in me_cols:
+                        cur.execute(
+                            """
+                            INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments, data_json)
+                            SELECT ?, ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM maintenance_elements
+                                WHERE maintenance_id = ? AND element_id = ?
+                            )
+                            """,
+                            (
+                                maintenance_id,
+                                elem_id,
+                                elem_comments,
+                                data_json,
+                                maintenance_id,
+                                elem_id,
+                            ),
                         )
-                        """,
-                        (
-                            maintenance_id,
-                            elem_id,
-                            elem_comments,
-                            maintenance_id,
-                            elem_id,
-                        ),
-                    )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments)
+                            SELECT ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM maintenance_elements
+                                WHERE maintenance_id = ? AND element_id = ?
+                            )
+                            """,
+                            (
+                                maintenance_id,
+                                elem_id,
+                                elem_comments,
+                                maintenance_id,
+                                elem_id,
+                            ),
+                        )
                     if data.get("date_time") and elem_id:
                         cur.execute(
                             "UPDATE elements SET maintenance_date=? WHERE id=?",
                             (data.get("date_time"), elem_id),
                         )
                 conn.commit()
+                # Store any extra maintenance-level fields into maintenance.data_json
+                try:
+                    extra_maint = {k: v for k, v in data.items() if k not in maint_cols}
+                    if extra_maint and "data_json" in maint_cols:
+                        cur.execute(
+                            "UPDATE maintenance SET data_json=? WHERE id=?",
+                            (json.dumps(extra_maint, ensure_ascii=False), maintenance_id),
+                        )
+                        conn.commit()
+                except Exception:
+                    # Best-effort: don't fail the whole import if we can't store extras
+                    pass
                 continue
 
             # Generic insert: map keys to existing table columns
@@ -3837,7 +3912,7 @@ class SubstationApp(App):
         return bool(_f([col_name], keywords))
 
     def show_inspection_entry_popup(
-        self, instance=None, preselected_substation_name=None, parent_popup=None
+        self, instance=None, preselected_substation_name=None, parent_popup=None, prefill_data=None
     ):
         if parent_popup:
             try:
@@ -3858,6 +3933,48 @@ class SubstationApp(App):
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         content_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
         content_layout.bind(minimum_height=content_layout.setter("height"))
+
+        # Optional navigation row when invoked by importer (prefill_data may contain _nav)
+        try:
+            nav = prefill_data.get("_nav") if isinstance(prefill_data, dict) else None
+        except Exception:
+            nav = None
+        if nav:
+            try:
+                nav_index = int(nav.get("index", 0))
+                nav_total = int(nav.get("total", 1))
+            except Exception:
+                nav_index = 0
+                nav_total = 1
+            nav_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+            back_btn = Button(text=S.get("BUTTONS", {}).get("BACK", "Πίσω"), size_hint_x=None, width=90)
+            idx_label = Label(text=f"{nav_index+1}/{nav_total}", size_hint_x=0.3)
+            next_btn = Button(text=S.get("BUTTONS", {}).get("NEXT", "Επόμενο"), size_hint_x=None, width=90)
+            back_btn.disabled = (nav_index <= 0) or (not nav.get("on_prev"))
+            next_btn.disabled = (nav_index + 1 >= nav_total) or (not nav.get("on_next"))
+
+            def _call_prev(_inst=None):
+                cb = nav.get("on_prev")
+                if callable(cb):
+                    try:
+                        cb(popup)
+                    except Exception:
+                        pass
+
+            def _call_next(_inst=None):
+                cb = nav.get("on_next")
+                if callable(cb):
+                    try:
+                        cb(popup)
+                    except Exception:
+                        pass
+
+            back_btn.bind(on_press=_call_prev)
+            next_btn.bind(on_press=_call_next)
+            nav_row.add_widget(back_btn)
+            nav_row.add_widget(idx_label)
+            nav_row.add_widget(next_btn)
+            content_layout.add_widget(nav_row)
 
         content_layout.add_widget(
             Label(text=S["MESSAGES"]["SELECT_SUBSTATION"], size_hint_y=None, height=35)
@@ -4169,6 +4286,43 @@ class SubstationApp(App):
         main_layout.add_widget(scroll)
 
         buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+
+        # Apply prefill values if provided
+        if isinstance(prefill_data, dict):
+            try:
+                # substation
+                if prefill_data.get("substation_name"):
+                    substation_input.text = prefill_data.get("substation_name")
+                elif prefill_data.get("substation_id"):
+                    for sid, sname in substations:
+                        if sid == prefill_data.get("substation_id"):
+                            substation_input.text = sname
+                            break
+                # basic fields
+                if prefill_data.get("form_number"):
+                    form_number_input.text = str(prefill_data.get("form_number"))
+                if prefill_data.get("date_time"):
+                    date_input.text = prefill_data.get("date_time")
+                if prefill_data.get("region"):
+                    region_input.text = prefill_data.get("region")
+                if prefill_data.get("inspector") and prefill_data.get("inspector") in people:
+                    inspector_spinner.text = prefill_data.get("inspector")
+                # custom fields mapping
+                fmap = prefill_data.get("fields") or {}
+                if isinstance(fmap, dict):
+                    for label, ti in fields_inputs:
+                        if label in fmap and fmap.get(label) is not None:
+                            try:
+                                ti.text = str(fmap.get(label))
+                            except Exception:
+                                ti.text = ""
+                # refresh derived date meta
+                try:
+                    update_date_meta()
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
         def save_inspection():
             substation_name = substation_input.text
@@ -11837,6 +11991,50 @@ class SubstationApp(App):
         scroll_view = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         content_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
         content_layout.bind(minimum_height=content_layout.setter("height"))
+
+        # Optional navigation controls when opened via importer (prefill_data["_nav"])
+        try:
+            nav = prefill_data.get("_nav") if isinstance(prefill_data, dict) else None
+        except Exception:
+            nav = None
+        if nav:
+            try:
+                nav_index = int(nav.get("index", 0))
+                nav_total = int(nav.get("total", 1))
+            except Exception:
+                nav_index = 0
+                nav_total = 1
+            nav_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+            back_btn = Button(text=S.get("BUTTONS", {}).get("BACK", "Πίσω"), size_hint_x=None, width=90)
+            idx_label = Label(text=f"{nav_index+1}/{nav_total}", size_hint_x=0.3)
+            next_btn = Button(text=S.get("BUTTONS", {}).get("NEXT", "Επόμενο"), size_hint_x=None, width=90)
+            back_btn.disabled = (nav_index <= 0) or (not nav.get("on_prev"))
+            next_btn.disabled = (nav_index + 1 >= nav_total) or (not nav.get("on_next"))
+
+            def _call_prev(_inst=None):
+                cb = nav.get("on_prev")
+                if callable(cb):
+                    try:
+                        cb(popup)
+                    except Exception:
+                        pass
+
+            def _call_next(_inst=None):
+                cb = nav.get("on_next")
+                if callable(cb):
+                    try:
+                        cb(popup)
+                    except Exception:
+                        pass
+
+            back_btn.bind(on_press=_call_prev)
+            next_btn.bind(on_press=_call_next)
+            nav_row.add_widget(back_btn)
+            nav_row.add_widget(idx_label)
+            nav_row.add_widget(next_btn)
+            # add navigation row as the first element
+            content_layout.add_widget(nav_row)
+        
 
         # Substation selection
         content_layout.add_widget(
