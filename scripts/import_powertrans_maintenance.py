@@ -22,10 +22,12 @@ from access_gate_utils import (  # noqa: E402
 )
 
 ACCDB_PATH = Path(
-    r"C:\Users\e.karalis\OneDrive - Hellenic Electricity Distribution Network Operator S.A\60_Projects\DB Substations\substation_asset_maintenance.accdb"
+    r"C:\Users\e.karalis\OneDrive - Hellenic Electricity Distribution Network "
+    r"Operator S.A\60_Projects\DB Substations\substation_asset_maintenance.accdb"
 )
 SQLITE_PATH = Path(
-    r"C:\Users\e.karalis\OneDrive - Hellenic Electricity Distribution Network Operator S.A\60_Projects\DB Substations\substations.db"
+    r"C:\Users\e.karalis\OneDrive - Hellenic Electricity Distribution Network "
+    r"Operator S.A\60_Projects\DB Substations\substations.db"
 )
 REPORT_PATH = SQLITE_PATH.parent / "reports" / "powertrans_access_import_report.json"
 BACKUP_DIR = SQLITE_PATH.parent / "backups" / "access_imports"
@@ -133,7 +135,8 @@ def load_access_transformers():
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT [HVMVTransformer ID], [Υποσταθμός], [Ονομασία], [Serial No], [Τύπος] FROM tblPowerTransformers"
+            "SELECT [HVMVTransformer ID], [Υποσταθμός], [Ονομασία], "
+            "[Serial No], [Τύπος] FROM tblPowerTransformers"
         )
         for row in cursor.fetchall():
             transformers[str(row[0])] = {
@@ -146,7 +149,8 @@ def load_access_transformers():
             }
 
         cursor.execute(
-            "SELECT [HVMVTransformer ID], [Ονομασία], [Serial No] FROM qryPowerTransformersActive"
+            "SELECT [HVMVTransformer ID], [Ονομασία], [Serial No] "
+            "FROM qryPowerTransformersActive"
         )
         for row in cursor.fetchall():
             transformer_id = str(row[0])
@@ -167,7 +171,8 @@ def load_access_transformers():
                 item["serial_no"] = row[2]
 
         cursor.execute(
-            "SELECT DISTINCT [HVMVTransformer ID], [Transformer] FROM qryAssetTransformer"
+            "SELECT DISTINCT [HVMVTransformer ID], [Transformer] "
+            "FROM qryAssetTransformer"
         )
         for row in cursor.fetchall():
             transformer_id = str(row[0])
@@ -206,7 +211,9 @@ def load_access_maintenance_rows():
     with build_access_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT ID, [Ημ/νία], [Μετασχηματιστής], [Συντηρητής], [Περιγραφή], [Ολοκληρώθηκε] FROM tblPowerTransMaintenanceData ORDER BY ID"
+            "SELECT ID, [Ημ/νία], [Μετασχηματιστής], [Συντηρητής], "
+            "[Περιγραφή], [Ολοκληρώθηκε] "
+            "FROM tblPowerTransMaintenanceData ORDER BY ID"
         )
         for row in cursor.fetchall():
             rows.append(
@@ -357,7 +364,8 @@ def sync_maintenance_people(conn, maintenance_id, responsible_id, description):
     )
     if responsible_id:
         conn.execute(
-            "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, 'responsible')",
+            "INSERT INTO maintenance_people "
+            "(maintenance_id, person_id, role) VALUES (?, ?, 'responsible')",
             (maintenance_id, responsible_id),
         )
 
@@ -370,7 +378,8 @@ def sync_maintenance_people(conn, maintenance_id, responsible_id, description):
     )
     for person_id in crew_ids:
         conn.execute(
-            "INSERT INTO maintenance_people (maintenance_id, person_id, role) VALUES (?, ?, 'crew')",
+            "INSERT INTO maintenance_people "
+            "(maintenance_id, person_id, role) VALUES (?, ?, 'crew')",
             (maintenance_id, person_id),
         )
     return crew_ids
@@ -524,7 +533,9 @@ def main():
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO maintenance (id, substation_id, name, date_time, overall_comments, responsible_id)
+                INSERT INTO maintenance (
+                    id, substation_id, name, date_time, overall_comments, responsible_id
+                )
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -541,7 +552,9 @@ def main():
 
             cursor.execute(
                 """
-                INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments)
+                INSERT INTO maintenance_elements (
+                    maintenance_id, element_id, element_comments
+                )
                 VALUES (?, ?, ?)
                 """,
                 (maintenance_id, element["element_id"], row["description"]),

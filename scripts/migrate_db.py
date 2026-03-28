@@ -74,7 +74,8 @@ def create_migration(version_new: str, migration_name: str, app_version: str) ->
             f"--\n"
             f"-- Example:\n"
             f"-- ALTER TABLE maintenance ADD COLUMN created_by TEXT;\n"
-            f"-- CREATE TABLE user_logs (id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT, timestamp DATETIME);\n"
+            f"-- CREATE TABLE user_logs (id INTEGER PRIMARY KEY, user_id INTEGER, "
+            f"action TEXT, timestamp DATETIME);\n"
             f"\n"
         )
 
@@ -92,7 +93,8 @@ def create_migration(version_new: str, migration_name: str, app_version: str) ->
         print("    DB_COMPATIBILITY = {")
         print("        \"2.0.0\": {'min_db': \"1.0.0\", 'max_db': \"1.0.0'},")
         print(
-            f'        "{app_version}": {{\'min_db\': "?.?.?", \'max_db\': "{version_new}"}},  # <- ADD THIS'
+            f'        "{app_version}": {{\'min_db\': "?.?.?", '
+            f'\'max_db\': "{version_new}"}},  # <- ADD THIS'
         )
         print("    }\n")
         print("Next steps:")
