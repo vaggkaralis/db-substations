@@ -272,7 +272,17 @@ try:
     _fault_stream = None
 
     _root_logger = logging.getLogger()
-    _root_logger.setLevel(logging.WARNING)
+    # Show startup progress in terminal at INFO level so users see progress
+    _root_logger.setLevel(logging.INFO)
+
+    # Ensure there's a console StreamHandler so logs appear in the terminal
+    if not any(isinstance(h, logging.StreamHandler) for h in _root_logger.handlers):
+        _console_handler = logging.StreamHandler()
+        _console_handler.setLevel(logging.INFO)
+        _console_handler.setFormatter(
+            logging.Formatter("[%(levelname)-7s] [%(name)-10s] %(message)s")
+        )
+        _root_logger.addHandler(_console_handler)
 
     if not any(
         isinstance(handler, logging.FileHandler)
@@ -306,6 +316,13 @@ try:
                 traceback.print_exception(
                     exc_type, exc_value, exc_tb, file=crash_handle
                 )
+        except Exception:
+            pass
+        try:
+            # Also print the traceback to stderr so crashes are visible in terminal
+            import sys as _sys
+
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=_sys.stderr)
         except Exception:
             pass
         try:
