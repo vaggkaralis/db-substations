@@ -7,8 +7,8 @@
 # environment variables before any module importing Kivy runs.
 import os as _env
 
-_env.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
-_env.environ.setdefault("KIVY_LOG_LEVEL", "warning")
+_env.environ.setdefault("KIVY_NO_CONSOLELOG", "0")
+_env.environ.setdefault("KIVY_LOG_LEVEL", "info")
 
 import json
 import os
@@ -247,10 +247,10 @@ except Exception:
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("PIL.PngImagePlugin").setLevel(logging.WARNING)
-    # Reduce Kivy startup noise (most info-level Kivy logs are noisy in terminal)
+    # Allow Kivy to emit console INFO logs so users see startup progress
     try:
-        logging.getLogger("kivy").setLevel(logging.WARNING)
-        logging.getLogger("kivy_deps").setLevel(logging.WARNING)
+        logging.getLogger("kivy").setLevel(logging.INFO)
+        logging.getLogger("kivy_deps").setLevel(logging.INFO)
     except Exception:
         pass
 # (validation imports moved to top to satisfy lint rules)
@@ -260,8 +260,8 @@ except Exception:
 try:
     import os as _os_for_kivy_env
 
-    _os_for_kivy_env.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
-    _os_for_kivy_env.environ.setdefault("KIVY_LOG_LEVEL", "warning")
+    _os_for_kivy_env.environ.setdefault("KIVY_NO_CONSOLELOG", "0")
+    _os_for_kivy_env.environ.setdefault("KIVY_LOG_LEVEL", "info")
 except Exception:
     pass
 
