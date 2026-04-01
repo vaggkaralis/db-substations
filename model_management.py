@@ -740,6 +740,23 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                 ),
             )
             app_instance.conn.commit()
+            model_id = c.lastrowid
+            app_instance._append_change_log(
+                "insert",
+                "element_models",
+                {
+                    "id": model_id,
+                    "element_category": category_spinner.text,
+                    "model_name": model_name_input.text.strip(),
+                    "manufacturer": manufacturer_input.text.strip(),
+                    "maintenance_cycle": cycle,
+                    "installation_space": space_spinner.text,
+                    "breaker_category": breaker_cat,
+                    "sf6_capacity_kg": sf6_capacity_val,
+                    "power_mva": power_val,
+                    "onedrive_manual_link": None,
+                },
+            )
             popup.dismiss()
 
             # Handle different callback scenarios
@@ -984,6 +1001,21 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         )
 
         app_instance.conn.commit()
+        app_instance._append_change_log(
+            "update",
+            "element_models",
+            {
+                "id": model_id,
+                "model_name": model_name_input.text.strip(),
+                "manufacturer": manufacturer_input.text.strip(),
+                "maintenance_cycle": cycle_val,
+                "installation_space": space_spinner.text,
+                "breaker_category": breaker_cat_val,
+                "sf6_capacity_kg": sf6_capacity_val,
+                "power_mva": power_val,
+                "onedrive_manual_link": onedrive_manual_link,
+            },
+        )
         popup.dismiss()
         parent_popup.dismiss()
         show_message_popup(
@@ -1204,6 +1236,15 @@ def _select_manual_pdf(app_instance, model_id, parent_popup=None):
             (file_path, link_val, model_id),
         )
         app_instance.conn.commit()
+        app_instance._append_change_log(
+            "update",
+            "element_models",
+            {
+                "id": model_id,
+                "manual_pdf": file_path,
+                "onedrive_manual_link": link_val,
+            },
+        )
         popup.dismiss()
 
         if parent_popup:

@@ -69,6 +69,171 @@ def _record_exists_with_data(cur, table: str, record_id, expected_data: dict) ->
         return "none"
 
 
+def _apply_generic_table_change(
+    cur,
+    conn: sqlite3.Connection,
+    table: str,
+    op: str,
+    data: dict,
+) -> str:
+    """Apply a simple id-based insert/update/delete change.
+
+    Returns one of: accepted, already_applied, conflict, ignored.
+    """
+    record_id = data.get("id")
+
+    if op == "delete":
+        if not record_id:
+            return "conflict"
+        cur.execute(f"SELECT 1 FROM {table} WHERE id=?", (record_id,))
+        if not cur.fetchone():
+            return "already_applied"
+        cur.execute(f"DELETE FROM {table} WHERE id=?", (record_id,))
+        conn.commit()
+        return "accepted"
+
+    cols_info = [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
+
+    if op == "update":
+        if not record_id:
+            return "conflict"
+        cur.execute(f"SELECT 1 FROM {table} WHERE id=?", (record_id,))
+        if not cur.fetchone():
+            return "conflict"
+
+        update_keys = [k for k in data.keys() if k in cols_info and k != "id"]
+        if not update_keys:
+            return "ignored"
+
+        assignments = ",".join([f"{key}=?" for key in update_keys])
+        cur.execute(
+            f"UPDATE {table} SET {assignments} WHERE id=?",
+            [data[key] for key in update_keys] + [record_id],
+        )
+        conn.commit()
+        return "accepted"
+
+    if op != "insert":
+        return "ignored"
+
+    if record_id:
+        existence = _record_exists_with_data(cur, table, record_id, data)
+        if existence == "identical":
+            return "already_applied"
+        if existence == "different":
+            return "conflict"
+
+    insert_keys = [k for k in data.keys() if k in cols_info]
+    if not insert_keys:
+        return "ignored"
+
+    placeholders = ",".join(["?"] * len(insert_keys))
+    columns = ",".join(insert_keys)
+    try:
+        cur.execute(
+            f"INSERT INTO {table} ({columns}) VALUES ({placeholders})",
+            [data[k] for k in insert_keys],
+        )
+        conn.commit()
+        return "accepted"
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return "conflict"
+
+
+def _apply_isolation_request_change(
+    cur,
+    conn: sqlite3.Connection,
+    op: str,
+    data: dict,
+) -> str:
+    request_id = data.get("id")
+    request_cols = [r[1] for r in cur.execute("PRAGMA table_info(isolation_requests)")]
+
+    if op == "delete":
+        if not request_id:
+            return "conflict"
+        cur.execute("SELECT 1 FROM isolation_requests WHERE id=?", (request_id,))
+        if not cur.fetchone():
+            return "already_applied"
+        cur.execute(
+            "UPDATE maintenance SET isolation_request_id=NULL WHERE isolation_request_id=?",
+            (request_id,),
+        )
+        cur.execute(
+            "DELETE FROM isolation_request_elements WHERE request_id=?", (request_id,)
+        )
+        cur.execute("DELETE FROM isolation_requests WHERE id=?", (request_id,))
+        conn.commit()
+        return "accepted"
+
+    element_ids = []
+    for elem in data.get("elements") or []:
+        elem_id = elem.get("element_id") or elem.get("id")
+        if elem_id:
+            element_ids.append(elem_id)
+
+    if op == "update":
+        if not request_id:
+            return "conflict"
+        cur.execute("SELECT 1 FROM isolation_requests WHERE id=?", (request_id,))
+        if not cur.fetchone():
+            return "conflict"
+
+        update_keys = [k for k in data.keys() if k in request_cols and k != "id"]
+        if update_keys:
+            assignments = ",".join([f"{key}=?" for key in update_keys])
+            cur.execute(
+                f"UPDATE isolation_requests SET {assignments} WHERE id=?",
+                [data[key] for key in update_keys] + [request_id],
+            )
+        if "elements" in data:
+            cur.execute(
+                "DELETE FROM isolation_request_elements WHERE request_id=?",
+                (request_id,),
+            )
+            for elem_id in sorted(set(element_ids)):
+                cur.execute(
+                    "INSERT OR IGNORE INTO isolation_request_elements (request_id, element_id) VALUES (?, ?)",
+                    (request_id, elem_id),
+                )
+        conn.commit()
+        return "accepted"
+
+    if op != "insert":
+        return "ignored"
+
+    if request_id:
+        existence = _record_exists_with_data(cur, "isolation_requests", request_id, data)
+        if existence == "identical":
+            return "already_applied"
+        if existence == "different":
+            return "conflict"
+
+    insert_keys = [k for k in data.keys() if k in request_cols]
+    if not insert_keys:
+        return "ignored"
+
+    placeholders = ",".join(["?"] * len(insert_keys))
+    columns = ",".join(insert_keys)
+    try:
+        cur.execute(
+            f"INSERT INTO isolation_requests ({columns}) VALUES ({placeholders})",
+            [data[k] for k in insert_keys],
+        )
+        request_id = request_id or cur.lastrowid
+        for elem_id in sorted(set(element_ids)):
+            cur.execute(
+                "INSERT OR IGNORE INTO isolation_request_elements (request_id, element_id) VALUES (?, ?)",
+                (request_id, elem_id),
+            )
+        conn.commit()
+        return "accepted"
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return "conflict"
+
+
 def resolve_db_path(explicit_db_path: str | None = None) -> str:
     if explicit_db_path:
         return os.path.abspath(explicit_db_path)
@@ -450,32 +615,23 @@ def _apply_change_log_to_db(
                     conn.rollback()
                 continue
 
-            # For other tables (elements, substations, etc.)
-            record_id = data.get("id")
-            if record_id:
-                existence = _record_exists_with_data(cur, table, record_id, data)
-                if existence == "identical":
+            if table == "isolation_requests":
+                result = _apply_isolation_request_change(cur, conn, op, data)
+                if result == "accepted":
+                    accepted += 1
+                elif result == "already_applied":
                     already_applied += 1
-                    continue
-                elif existence == "different":
+                elif result == "conflict":
                     conflicts += 1
-                    continue
-
-            cols_info = [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
-            insert_keys = [k for k in data.keys() if k in cols_info]
-            if not insert_keys:
                 continue
 
-            try:
-                placeholders = ",".join(["?"] * len(insert_keys))
-                columns = ",".join(insert_keys)
-                sql = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
-                cur.execute(sql, [data[k] for k in insert_keys])
-                conn.commit()
+            result = _apply_generic_table_change(cur, conn, table, op, data)
+            if result == "accepted":
                 accepted += 1
-            except sqlite3.IntegrityError:
+            elif result == "already_applied":
+                already_applied += 1
+            elif result == "conflict":
                 conflicts += 1
-                conn.rollback()
 
     return (accepted, already_applied, conflicts)
 

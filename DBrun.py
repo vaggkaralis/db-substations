@@ -2499,6 +2499,17 @@ class SubstationApp(App):
             )
             self.conn.commit()
             new_substation_id = c.lastrowid
+            self._append_change_log(
+                "insert",
+                "substations",
+                {
+                    "id": new_substation_id,
+                    "name": new_name,
+                    "location": "",
+                    "adoption_date": "",
+                    "division": "ΤΜΘ",
+                },
+            )
             substation_names.append(new_name)
             spinner.values = substation_names
             spinner.text = new_name
@@ -9460,8 +9471,47 @@ class SubstationApp(App):
                 {"operation": operation, "table": table, "data": data}
             )
             self._update_sync_button_status()
+            # Schedule a debounced export so changes become actionable in the
+            # shared sync inbox without waiting for app exit. Uses Clock to avoid
+            # blocking the UI and a guard flag to avoid scheduling many exports.
+            try:
+                if getattr(self, "db_path", None) and not getattr(
+                    self, "_export_scheduled", False
+                ):
+                    self._export_scheduled = True
+                    try:
+                        Clock.schedule_once(self._do_export_pending_changes, 0.5)
+                    except Exception:
+                        logging.exception("Failed to schedule pending export")
+                        self._export_scheduled = False
+            except Exception:
+                logging.exception("Failed to schedule export of pending changes")
         except Exception:
             logging.exception("Failed to append change log")
+
+    def _do_export_pending_changes(self, dt=None, show_popup=False):
+        """Export pending changes (called by Clock). Clears the scheduled flag."""
+        rescheduled = False
+        try:
+            if not getattr(self, "db_path", None):
+                return
+            conn = getattr(self, "conn", None)
+            if conn is not None and getattr(conn, "in_transaction", False):
+                Clock.schedule_once(self._do_export_pending_changes, 0.2)
+                rescheduled = True
+                return
+            try:
+                # Delegate to existing exporter; show_popup default is False when
+                # called from scheduler.
+                self._export_pending_changes(show_popup=show_popup)
+            except Exception:
+                logging.exception("Export pending changes failed")
+        finally:
+            if not rescheduled:
+                try:
+                    self._export_scheduled = False
+                except Exception:
+                    pass
 
     def _export_pending_changes(self, show_popup=False):
         """Export all pending changes to JSONL file in sync inbox."""
@@ -10865,6 +10915,23 @@ class SubstationApp(App):
                         ),
                     ),
                 )
+                self._append_change_log(
+                    "insert",
+                    "element_models",
+                    {
+                        "id": cursor.lastrowid,
+                        "element_category": model["category"],
+                        "model_name": model["name"],
+                        "manufacturer": model["manufacturer"],
+                        "maintenance_cycle": mcycle,
+                        "installation_space": model["data"]["space"],
+                        "breaker_category": (
+                            model["data"].get("breaker_category")
+                            if model.get("data")
+                            else None
+                        ),
+                    },
+                )
             else:
                 # When breaker_category column is absent, behave similarly but without breaker info
                 is_transformer = False
@@ -10904,6 +10971,18 @@ class SubstationApp(App):
                         mcycle,
                         model["data"]["space"],
                     ),
+                )
+                self._append_change_log(
+                    "insert",
+                    "element_models",
+                    {
+                        "id": cursor.lastrowid,
+                        "element_category": model["category"],
+                        "model_name": model["name"],
+                        "manufacturer": model["manufacturer"],
+                        "maintenance_cycle": mcycle,
+                        "installation_space": model["data"]["space"],
+                    },
                 )
 
         # Update conflicting models if user chose to
@@ -10950,6 +11029,25 @@ class SubstationApp(App):
                             model["manufacturer"],
                         ),
                     )
+                    cursor.execute(
+                        "SELECT id FROM element_models WHERE element_category=? AND model_name=? AND manufacturer=?",
+                        (model["category"], model["name"], model["manufacturer"]),
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        model_id = row[0]
+                        self._append_change_log(
+                            "update",
+                            "element_models",
+                            {
+                                "id": model_id,
+                                "maintenance_cycle": mcycle,
+                                "installation_space": model["new"]["space"],
+                                "breaker_category": model.get("new", {}).get(
+                                    "breaker_category"
+                                ),
+                            },
+                        )
                 else:
                     # No breaker_category column: still enforce transformer model cycle 6 when applicable
                     is_transformer = False
@@ -10981,6 +11079,22 @@ class SubstationApp(App):
                             model["manufacturer"],
                         ),
                     )
+                    cursor.execute(
+                        "SELECT id FROM element_models WHERE element_category=? AND model_name=? AND manufacturer=?",
+                        (model["category"], model["name"], model["manufacturer"]),
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        model_id = row[0]
+                        self._append_change_log(
+                            "update",
+                            "element_models",
+                            {
+                                "id": model_id,
+                                "maintenance_cycle": mcycle,
+                                "installation_space": model["new"]["space"],
+                            },
+                        )
 
         self.conn.commit()
         prompt_popup.dismiss()
@@ -11330,6 +11444,7 @@ class SubstationApp(App):
         # Then delete the substation
         c.execute("DELETE FROM substations WHERE id=?", (substation_id,))
         self.conn.commit()
+        self._append_change_log("delete", "substations", {"id": substation_id})
         # Try to preserve scroll position in the listing popup
         prev_scroll = None
         try:
@@ -11481,6 +11596,18 @@ class SubstationApp(App):
                     ),
                 )
             self.conn.commit()
+            self._append_change_log(
+                "update",
+                "substations",
+                {
+                    "id": substation_id,
+                    "name": new_name,
+                    "location": location_input.text,
+                    "adoption_date": date_input.text,
+                    "division": division_spinner.text,
+                    "is_thessaloniki": 1 if th_checkbox.active else 0,
+                },
+            )
             popup.dismiss()
             parent_popup.dismiss()
             show_message_popup(

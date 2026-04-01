@@ -1130,6 +1130,23 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
             )
 
         app.conn.commit()
+        app._append_change_log(
+            "update" if request_record else "insert",
+            "isolation_requests",
+            {
+                "id": request_id,
+                "substation_id": substation_id,
+                "start_datetime": start_dt,
+                "end_datetime": end_dt,
+                "status": status_value,
+                "notes": notes_value,
+                "request_file_path": stored_attachment_path or None,
+                "storage_folder_path": storage_folder_path or None,
+                "elements": [
+                    {"element_id": element_id} for element_id in sorted(selected_ids)
+                ],
+            },
+        )
         existing_attachment_path = stored_attachment_path
         attachment_input.text = stored_attachment_path or ""
 
@@ -1189,6 +1206,9 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
                 )
                 c.execute("DELETE FROM isolation_requests WHERE id=?", (request_id,))
                 app.conn.commit()
+                app._append_change_log(
+                    "delete", "isolation_requests", {"id": request_id}
+                )
                 try:
                     popup.dismiss()
                 except Exception:

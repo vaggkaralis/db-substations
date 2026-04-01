@@ -3,7 +3,12 @@ import sqlite3
 import time
 
 from database import init_db
-from sync_service import create_snapshot, prune_hot_backups, process_sync_inbox
+from sync_service import (
+    _apply_change_log_to_db,
+    create_snapshot,
+    prune_hot_backups,
+    process_sync_inbox,
+)
 
 
 def _seed_db(conn: sqlite3.Connection) -> tuple[int, int]:
@@ -99,3 +104,126 @@ def test_create_snapshot_and_prune_hot(tmp_path):
     assert manifest.exists()
     lines = manifest.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 4
+
+
+def test_apply_change_log_to_db_updates_and_deletes_people(tmp_path):
+    db_path = tmp_path / "main.db"
+    conn = init_db(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO people (name, role, email, report_receiver, active) VALUES (?, ?, ?, ?, ?)",
+        ("Doe John", "Engineer", "john@example.com", 0, 1),
+    )
+    person_id = cur.lastrowid
+    conn.commit()
+
+    update_path = tmp_path / "people_update.jsonl"
+    update_payload = {
+        "operation": "update",
+        "table": "people",
+        "data": {
+            "id": person_id,
+            "email": "john.doe@example.com",
+            "report_receiver": 1,
+            "active": 0,
+        },
+    }
+    update_path.write_text(
+        json.dumps(update_payload, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    accepted, already_applied, conflicts = _apply_change_log_to_db(
+        conn, str(update_path), {}, update_path.name
+    )
+
+    assert (accepted, already_applied, conflicts) == (1, 0, 0)
+    updated = cur.execute(
+        "SELECT email, report_receiver, active FROM people WHERE id=?", (person_id,)
+    ).fetchone()
+    assert updated == ("john.doe@example.com", 1, 0)
+
+    delete_path = tmp_path / "people_delete.jsonl"
+    delete_payload = {
+        "operation": "delete",
+        "table": "people",
+        "data": {"id": person_id},
+    }
+    delete_path.write_text(
+        json.dumps(delete_payload, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    accepted, already_applied, conflicts = _apply_change_log_to_db(
+        conn, str(delete_path), {}, delete_path.name
+    )
+
+    assert (accepted, already_applied, conflicts) == (1, 0, 0)
+    assert cur.execute("SELECT 1 FROM people WHERE id=?", (person_id,)).fetchone() is None
+    conn.close()
+
+
+def test_apply_change_log_to_db_updates_isolation_request_elements(tmp_path):
+    db_path = tmp_path / "main.db"
+    conn = init_db(str(db_path))
+    cur = conn.cursor()
+
+    cur.execute("INSERT INTO substations (name, location) VALUES (?, ?)", ("S1", "L1"))
+    sub_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO elements (substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?)",
+        (sub_id, "Διακόπτης ΜΤ", "E1", "SF6"),
+    )
+    elem1_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO elements (substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?)",
+        (sub_id, "Διακόπτης ΜΤ", "E2", "SF6"),
+    )
+    elem2_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO isolation_requests (substation_id, start_datetime, end_datetime, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            sub_id,
+            "2026-03-01 08:00:00",
+            "2026-03-01 12:00:00",
+            "Requested",
+            "initial",
+            "2026-03-01 07:00:00",
+            "2026-03-01 07:00:00",
+        ),
+    )
+    request_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO isolation_request_elements (request_id, element_id) VALUES (?, ?)",
+        (request_id, elem1_id),
+    )
+    conn.commit()
+
+    update_path = tmp_path / "isolation_update.jsonl"
+    update_payload = {
+        "operation": "update",
+        "table": "isolation_requests",
+        "data": {
+            "id": request_id,
+            "status": "Approved",
+            "notes": "updated",
+            "elements": [{"element_id": elem2_id}],
+        },
+    }
+    update_path.write_text(
+        json.dumps(update_payload, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    accepted, already_applied, conflicts = _apply_change_log_to_db(
+        conn, str(update_path), {}, update_path.name
+    )
+
+    assert (accepted, already_applied, conflicts) == (1, 0, 0)
+    row = cur.execute(
+        "SELECT status, notes FROM isolation_requests WHERE id=?", (request_id,)
+    ).fetchone()
+    assert row == ("Approved", "updated")
+    linked = cur.execute(
+        "SELECT element_id FROM isolation_request_elements WHERE request_id=? ORDER BY element_id",
+        (request_id,),
+    ).fetchall()
+    assert linked == [(elem2_id,)]
+    conn.close()

@@ -78,9 +78,12 @@ jobs:
         
         # Download and setup command line tools
         wget -q --tries=5 --waitretry=5 --timeout=30 https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
-        unzip -q commandlinetools-linux-10406996_latest.zip
+        tmp_tools_dir=$(mktemp -d)
+        unzip -q -o commandlinetools-linux-10406996_latest.zip -d "$tmp_tools_dir"
         mkdir -p android-sdk/cmdline-tools
-        mv cmdline-tools android-sdk/cmdline-tools/latest
+        rm -rf android-sdk/cmdline-tools/latest
+        mv "$tmp_tools_dir/cmdline-tools" android-sdk/cmdline-tools/latest
+        rm -rf "$tmp_tools_dir"
         
         export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
         export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH

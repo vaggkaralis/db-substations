@@ -770,6 +770,7 @@ def delete_element(app, element_id, substation_id, parent_popup, substation_name
         )
     except Exception:
         pass
+    app._append_change_log("delete", "elements", {"id": element_id})
     app.conn.commit()
     if substation_name:
         app._display_substations(
@@ -1715,6 +1716,29 @@ def show_edit_element_popup(
                 )
                 return
 
+            element_data = {
+                "id": element_id,
+                "substation_id": substation_id,
+                "element_type": elem_type,
+                "name": name_val,
+                "serial_number": field_inputs["serial_number"].text.strip(),
+                "maintenance_date": field_inputs["maintenance_date"].text.strip(),
+                "voltage_level": voltage_level_value,
+                "manufacturer": field_inputs["manufacturer"].text.strip(),
+                "model": field_inputs["model"].text.strip(),
+                "model_version": field_inputs["model_version"].text.strip(),
+                "installation_space": field_inputs["installation_space"].text,
+                "operating_status": field_inputs["operating_status"].text,
+                "maintenance_cycle": cycle_val,
+                "manufacture_year": field_inputs["manufacture_year"].text.strip(),
+                "element_model_id": new_model_id,
+                "gate": gate_value,
+                "is_main_switch": new_is_main_switch,
+                "breaker_category": breaker_category_value,
+                "power_mva": power_val_to_set,
+            }
+            app._append_change_log("update", "elements", element_data)
+
             try:
                 sync_substation_gate_folders(
                     app.conn, substation_id, db_path=getattr(app, "db_path", None)
@@ -1740,6 +1764,11 @@ def show_edit_element_popup(
                         (power_val_to_set, new_model_id),
                     )
                     app.conn.commit()
+                    app._append_change_log(
+                        "update",
+                        "element_models",
+                        {"id": new_model_id, "power_mva": power_val_to_set},
+                    )
             except Exception:
                 pass
 

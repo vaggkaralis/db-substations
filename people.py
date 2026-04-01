@@ -216,6 +216,21 @@ class PeopleManager:
             )
             c.execute(sql, params)
             self.app.conn.commit()
+            person_id = c.lastrowid
+            self.app._append_change_log(
+                "insert",
+                "people",
+                {
+                    "id": person_id,
+                    "name": composite,
+                    "given_name": given,
+                    "surname": surname,
+                    "role": role,
+                    "email": email,
+                    "report_receiver": 1 if receiver_checkbox.active else 0,
+                    "active": 1 if active_checkbox.active else 0,
+                },
+            )
             surname_input.text = ""
             given_input.text = ""
             role_spinner.text = PEOPLE_ROLES[0] if PEOPLE_ROLES else ""
@@ -348,6 +363,9 @@ class PeopleManager:
         c = self.app.conn.cursor()
         c.execute("UPDATE people SET active=? WHERE id=?", (active, person_id))
         self.app.conn.commit()
+        self.app._append_change_log(
+            "update", "people", {"id": person_id, "active": active}
+        )
         if refresh_cb:
             refresh_cb()
 
@@ -358,6 +376,11 @@ class PeopleManager:
             (report_receiver, person_id),
         )
         self.app.conn.commit()
+        self.app._append_change_log(
+            "update",
+            "people",
+            {"id": person_id, "report_receiver": report_receiver},
+        )
         if refresh_cb:
             refresh_cb()
 
@@ -376,6 +399,7 @@ class PeopleManager:
         def confirm_delete():
             c.execute("DELETE FROM people WHERE id=?", (person_id,))
             self.app.conn.commit()
+            self.app._append_change_log("delete", "people", {"id": person_id})
             if refresh_cb:
                 refresh_cb()
 
@@ -521,6 +545,20 @@ class PeopleManager:
             )
             c.execute(sql, params)
             self.app.conn.commit()
+            self.app._append_change_log(
+                "update",
+                "people",
+                {
+                    "id": person_id,
+                    "name": composite,
+                    "given_name": new_given,
+                    "surname": new_surname,
+                    "role": new_role,
+                    "email": new_email,
+                    "report_receiver": 1 if receiver_checkbox.active else 0,
+                    "active": 1 if active_checkbox.active else 0,
+                },
+            )
             popup.dismiss()
             if refresh_cb:
                 refresh_cb()
