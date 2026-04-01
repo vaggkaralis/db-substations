@@ -79,6 +79,11 @@ try:
     Spinner = importlib.import_module("kivy.uix.spinner").Spinner
     Clock = importlib.import_module("kivy.clock").Clock
     platform = importlib.import_module("kivy.utils").platform
+    try:
+        shared = importlib.import_module("ui.shared")
+        autosize_button_text = getattr(shared, "autosize_button_text", None)
+    except Exception:
+        autosize_button_text = None
 except Exception as e:
     Logger.warning(f"APP: Kivy import failed: {str(e)}")
     platform = "unknown"
@@ -815,6 +820,11 @@ class SubstationAndroidApp(App):
                     size_hint_x=None,
                     width=140,
                 )
+                try:
+                    if autosize_button_text:
+                        autosize_button_text(retry_btn, max_sp=20, min_sp=10)
+                except Exception:
+                    pass
 
                 def _on_retry(_):
                     try:
@@ -1024,20 +1034,19 @@ class SubstationAndroidApp(App):
 
                                             def _apply_restored_size(_dt):
                                                 try:
-                                                    Window.size = (final_w_dp, final_h_dp)
+                                                    # Only update width; preserve current height and vertical position
+                                                    try:
+                                                        cur_h = int(Window.size[1])
+                                                    except Exception:
+                                                        cur_h = final_h_dp
+                                                    Window.size = (final_w_dp, cur_h)
                                                     outer_w2_px = int(round(final_w_dp * scale_inner)) + chrome_w
-                                                    outer_h2_px = int(round(final_h_dp * scale_inner)) + chrome_h
+                                                    outer_h2_px = int(round(cur_h * scale_inner)) + chrome_h
                                                     try:
                                                         Window.left = int(work_left + max(0, (screen_w - outer_w2_px) / 2))
                                                     except Exception:
                                                         pass
-                                                    try:
-                                                        # small fixed nudge downwards (24px) to match visual alignment
-                                                        dyn_offset = int(top_offset_px) + 24
-                                                        Window.top = int(work_top + dyn_offset)
-                                                    except Exception:
-                                                        pass
-                                                    Logger.info(f"APP: Desktop preview size applied {Window.size} for {dev}")
+                                                    Logger.info(f"APP: Desktop preview width applied {Window.size[0]} for {dev}")
                                                     try:
                                                         Logger.info(
                                                             f"APP: VERIFY - Window.size={Window.size} work_area=({work_left},{work_top},{screen_w},{screen_h}) "
@@ -1056,32 +1065,12 @@ class SubstationAndroidApp(App):
                                                 _apply_restored_size(0)
                                         except Exception:
                                             pass
-
                                     try:
                                         Clock.schedule_once(_after_max, 0.05)
                                     except Exception:
                                         _after_max(0)
-                                else:
-                                    try:
-                                        # small fixed nudge downwards (24px) to match visual alignment
-                                        dyn_offset = int(top_offset_px) + 24
-                                        Window.top = int(work_top + dyn_offset)
-                                    except Exception:
-                                        pass
                             except Exception:
                                 pass
-
-                            if not sys.platform.startswith("win"):
-                                Logger.info(f"APP: Desktop preview size applied {Window.size} for {dev}")
-                                try:
-                                    Logger.info(
-                                        f"APP: VERIFY - Window.size={Window.size} work_area=({work_left},{work_top},{screen_w},{screen_h}) "
-                                        f"chrome=({chrome_w},{chrome_h}) outer=({outer_w},{outer_h}) "
-                                        f"Window.pos=({getattr(Window, 'left', None)},{getattr(Window, 'top', None)}) "
-                                        f"Window.system_size={getattr(Window, 'system_size', (Window.width, Window.height))} Window.dpi={getattr(Window, 'dpi', None)}"
-                                    )
-                                except Exception:
-                                    pass
                         except Exception as e:
                             Logger.warning(f"APP: Failed to apply Window.size: {e}")
 
@@ -1530,6 +1519,11 @@ class SubstationAndroidApp(App):
                         size_hint_x=None,
                         width=180,
                     )
+                    try:
+                        if autosize_button_text:
+                            autosize_button_text(copy_btn, max_sp=20, min_sp=10)
+                    except Exception:
+                        pass
 
                     def _copy_path(_):
                         try:
@@ -2512,7 +2506,8 @@ class SubstationAndroidApp(App):
         for substation in self.substations:
             name = substation.get("name", "-")
             name_font = _name_font_for_button(name)
-            btn_text = f"[b][size={name_font}]{name}[/size][/b]"
+            # avoid forcing a markup size here; let autosize_button_text pick the font
+            btn_text = f"[b]{name}[/b]"
 
             substation_btn = Button(
                 text=btn_text,
@@ -2526,6 +2521,11 @@ class SubstationAndroidApp(App):
                 padding=[5, 5],
                 background_color=(0.18, 0.34, 0.52, 1),
             )
+            try:
+                if autosize_button_text:
+                    autosize_button_text(substation_btn, max_sp=40, min_sp=12)
+            except Exception:
+                pass
             substation_btn.bind(
                 size=lambda inst, _size: setattr(
                     inst, "text_size", (inst.width - 10, inst.height - 8)

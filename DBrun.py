@@ -97,7 +97,7 @@ from dga_reports import (
     evaluate_dga_limits,
 )
 
-from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput, StatusButton
+from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput, StatusButton, autosize_button_text, enable_global_button_autosize
 
 
 # Lazy-evaluated strings (called at runtime, not import time)
@@ -1485,6 +1485,10 @@ class SubstationApp(App):
             font_size="12sp",
             text_color=(1, 1, 1, 1),
         )
+        try:
+            autosize_button_text(self.sync_onedrive_btn, max_sp=18, min_sp=10)
+        except Exception:
+            pass
         self.sync_onedrive_btn.bind(on_press=self.sync_onedrive_now)
         top_bar.add_widget(self.sync_onedrive_btn)
         self.app_info_btn = Button(
@@ -1494,6 +1498,10 @@ class SubstationApp(App):
             width=130,
             font_size="12sp",
         )
+        try:
+            autosize_button_text(self.app_info_btn, max_sp=16, min_sp=10)
+        except Exception:
+            pass
         self.app_info_btn.bind(on_press=self.show_app_info_popup)
         top_bar.add_widget(self.app_info_btn)
         # drag-drop handler bound (no visual debug indicator)
@@ -3948,8 +3956,16 @@ class SubstationApp(App):
                 nav_total = 1
             nav_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
             back_btn = Button(text=S.get("BUTTONS", {}).get("BACK", "Πίσω"), size_hint_x=None, width=90)
+            try:
+                autosize_button_text(back_btn, max_sp=16, min_sp=10)
+            except Exception:
+                pass
             idx_label = Label(text=f"{nav_index+1}/{nav_total}", size_hint_x=0.3)
             next_btn = Button(text=S.get("BUTTONS", {}).get("NEXT", "Επόμενο"), size_hint_x=None, width=90)
+            try:
+                autosize_button_text(next_btn, max_sp=16, min_sp=10)
+            except Exception:
+                pass
             back_btn.disabled = (nav_index <= 0) or (not nav.get("on_prev"))
             next_btn.disabled = (nav_index + 1 >= nav_total) or (not nav.get("on_next"))
 

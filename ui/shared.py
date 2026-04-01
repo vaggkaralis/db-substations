@@ -1,7 +1,46 @@
 import math
 
-from kivy.core.window import Window
-from kivy.graphics import Color, Ellipse, Line, Rectangle
+# Kivy imports are optional for test environments. Provide lightweight
+# fallbacks when Kivy isn't available so unit tests can import this module.
+try:
+    from kivy.core.text import Label as CoreLabel
+    from kivy.core.window import Window
+    from kivy.graphics import Color, Ellipse, Line, Rectangle
+    from kivy.metrics import dp, sp
+except Exception:
+    # Minimal CoreLabel stub that exposes the attributes used by
+    # `autosize_button_text` (text, font_size, font_name, markup, refresh,
+    # texture.size).
+    class _StubTexture:
+        def __init__(self, size):
+            self.size = size
+
+    class CoreLabel:
+        def __init__(self, text="", font_size=12, font_name=None, markup=False):
+            self.text = text
+            self.font_size = font_size
+            self.font_name = font_name
+            self.markup = markup
+            # approximate width: avg char width ~0.6 * font_size
+            approx_w = max(1, int(len(text) * (0.6 * (font_size or 12))))
+            approx_h = int(font_size or 12)
+            self.texture = _StubTexture((approx_w, approx_h))
+
+        def refresh(self):
+            return None
+
+    # Lightweight Window stub used by some input helpers (only `modifiers`
+    # and basic attributes are required for tests).
+    class Window:
+        modifiers = set()
+        width = 800
+        height = 600
+
+    def dp(x):
+        return x
+
+    def sp(x):
+        return x
 from kivy.properties import ListProperty, StringProperty
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -429,6 +468,78 @@ class IconWidget(Widget):
                     ],
                     width=max(1.0, line_w),
                 )
+
+
+def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8):
+    """Adjust `widget.font_size` so its text fits within widget.width on one line.
+
+    Uses CoreLabel to measure rendered width for candidate font sizes and sets
+    the largest size that fits (bounded by min_sp and max_sp). Binds to
+    widget.width so it recalculates when resized.
+    """
+
+    def _compute_and_apply(_=None):
+        try:
+            text = (getattr(widget, "text", "") or "")
+            if not text:
+                return
+            padding = dp(padding_dp)
+            avail = max(1, widget.width - padding * 2)
+            for size in range(int(max_sp), int(min_sp) - 1, -1):
+                lbl = CoreLabel(
+                    text=text,
+                    font_size=sp(size),
+                    font_name=getattr(widget, "font_name", None),
+                    markup=getattr(widget, "markup", False),
+                )
+                lbl.refresh()
+                w, _ = lbl.texture.size
+                if w <= avail:
+                    widget.font_size = sp(size)
+                    return
+            widget.font_size = sp(min_sp)
+        except Exception:
+            return
+
+    try:
+        widget.text_size = (None, None)
+        widget.halign = getattr(widget, "halign", "center")
+        widget.valign = getattr(widget, "valign", "middle")
+    except Exception:
+        pass
+
+    widget.bind(width=lambda i, v: _compute_and_apply())
+    _compute_and_apply()
+
+
+def enable_global_button_autosize(max_sp=32, min_sp=8, padding_dp=8):
+    """Monkeypatch Kivy Button to auto-apply autosize on creation."""
+
+    try:
+        from kivy.uix.button import Button as KivyButton
+    except Exception:
+        return
+
+    if getattr(KivyButton, "_autosize_patched", False):
+        return
+
+    orig_init = KivyButton.__init__
+
+    def _patched_init(self, *a, **k):
+        orig_init(self, *a, **k)
+        try:
+            if getattr(self, "text", None):
+                autosize_button_text(
+                    self,
+                    max_sp=max_sp,
+                    min_sp=min_sp,
+                    padding_dp=padding_dp,
+                )
+        except Exception:
+            pass
+
+    KivyButton.__init__ = _patched_init
+    setattr(KivyButton, "_autosize_patched", True)
 
 
 class ShiftSelectableTextInput(TextInput):
