@@ -204,7 +204,9 @@ def _apply_isolation_request_change(
         return "ignored"
 
     if request_id:
-        existence = _record_exists_with_data(cur, "isolation_requests", request_id, data)
+        existence = _record_exists_with_data(
+            cur, "isolation_requests", request_id, data
+        )
         if existence == "identical":
             return "already_applied"
         if existence == "different":

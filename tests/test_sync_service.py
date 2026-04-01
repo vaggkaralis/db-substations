@@ -157,7 +157,9 @@ def test_apply_change_log_to_db_updates_and_deletes_people(tmp_path):
     )
 
     assert (accepted, already_applied, conflicts) == (1, 0, 0)
-    assert cur.execute("SELECT 1 FROM people WHERE id=?", (person_id,)).fetchone() is None
+    assert (
+        cur.execute("SELECT 1 FROM people WHERE id=?", (person_id,)).fetchone() is None
+    )
     conn.close()
 
 
