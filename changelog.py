@@ -45,12 +45,9 @@ def import_android_changes_from_file(app, file_path):
 
     from popups import show_message_popup
 
-    # Reuse apply_change_log_to_db from DBrun (kept at module level there)
-    try:
-        from DBrun import apply_change_log_to_db as _apply_change_log_to_db
-    except Exception:
-        # If import fails, continue but operations will raise later
-        _apply_change_log_to_db = None
+    # Note: `apply_change_log_to_db` lives in `DBrun.py`; this module does not
+    # call it directly so we avoid importing it here to prevent unused-name
+    # lints in CI.
 
     # Try to produce a structured, human-readable preview of the change-log.
     # Parse JSONL and render maintenance rows as a form-like summary so users
