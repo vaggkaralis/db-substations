@@ -41,6 +41,8 @@ except Exception:
 
     def sp(x):
         return x
+
+
 from kivy.properties import ListProperty, StringProperty
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -480,7 +482,7 @@ def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8):
 
     def _compute_and_apply(_=None):
         try:
-            text = (getattr(widget, "text", "") or "")
+            text = getattr(widget, "text", "") or ""
             if not text:
                 return
             padding = dp(padding_dp)

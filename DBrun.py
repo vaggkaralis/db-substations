@@ -111,7 +111,14 @@ from dga_reports import (
     evaluate_dga_limits,
 )
 
-from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput, StatusButton, autosize_button_text, enable_global_button_autosize
+from ui.shared import (
+    IconButton,
+    IconOnlyButton,
+    ShiftSelectableTextInput,
+    StatusButton,
+    autosize_button_text,
+    enable_global_button_autosize,
+)
 
 
 def _safe_console_stream(preferred_stream):
@@ -839,10 +846,13 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                     extra_elem = {
                         k: v
                         for k, v in elem.items()
-                        if k
-                        not in ("element_id", "id", "element_comments", "comments")
+                        if k not in ("element_id", "id", "element_comments", "comments")
                     }
-                    data_json = json.dumps(extra_elem, ensure_ascii=False) if extra_elem else None
+                    data_json = (
+                        json.dumps(extra_elem, ensure_ascii=False)
+                        if extra_elem
+                        else None
+                    )
 
                     if "data_json" in me_cols:
                         cur.execute(
@@ -893,7 +903,10 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                     if extra_maint and "data_json" in maint_cols:
                         cur.execute(
                             "UPDATE maintenance SET data_json=? WHERE id=?",
-                            (json.dumps(extra_maint, ensure_ascii=False), maintenance_id),
+                            (
+                                json.dumps(extra_maint, ensure_ascii=False),
+                                maintenance_id,
+                            ),
                         )
                         conn.commit()
                 except Exception:
@@ -4061,7 +4074,11 @@ class SubstationApp(App):
         return bool(_f([col_name], keywords))
 
     def show_inspection_entry_popup(
-        self, instance=None, preselected_substation_name=None, parent_popup=None, prefill_data=None
+        self,
+        instance=None,
+        preselected_substation_name=None,
+        parent_popup=None,
+        prefill_data=None,
     ):
         if parent_popup:
             try:
@@ -4096,13 +4113,21 @@ class SubstationApp(App):
                 nav_index = 0
                 nav_total = 1
             nav_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
-            back_btn = Button(text=S.get("BUTTONS", {}).get("BACK", "Πίσω"), size_hint_x=None, width=90)
+            back_btn = Button(
+                text=S.get("BUTTONS", {}).get("BACK", "Πίσω"),
+                size_hint_x=None,
+                width=90,
+            )
             try:
                 autosize_button_text(back_btn, max_sp=16, min_sp=10)
             except Exception:
                 pass
-            idx_label = Label(text=f"{nav_index+1}/{nav_total}", size_hint_x=0.3)
-            next_btn = Button(text=S.get("BUTTONS", {}).get("NEXT", "Επόμενο"), size_hint_x=None, width=90)
+            idx_label = Label(text=f"{nav_index + 1}/{nav_total}", size_hint_x=0.3)
+            next_btn = Button(
+                text=S.get("BUTTONS", {}).get("NEXT", "Επόμενο"),
+                size_hint_x=None,
+                width=90,
+            )
             try:
                 autosize_button_text(next_btn, max_sp=16, min_sp=10)
             except Exception:
@@ -4462,7 +4487,10 @@ class SubstationApp(App):
                     date_input.text = prefill_data.get("date_time")
                 if prefill_data.get("region"):
                     region_input.text = prefill_data.get("region")
-                if prefill_data.get("inspector") and prefill_data.get("inspector") in people:
+                if (
+                    prefill_data.get("inspector")
+                    and prefill_data.get("inspector") in people
+                ):
                     inspector_spinner.text = prefill_data.get("inspector")
                 # custom fields mapping
                 fmap = prefill_data.get("fields") or {}
@@ -12162,9 +12190,17 @@ class SubstationApp(App):
                 nav_index = 0
                 nav_total = 1
             nav_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
-            back_btn = Button(text=S.get("BUTTONS", {}).get("BACK", "Πίσω"), size_hint_x=None, width=90)
-            idx_label = Label(text=f"{nav_index+1}/{nav_total}", size_hint_x=0.3)
-            next_btn = Button(text=S.get("BUTTONS", {}).get("NEXT", "Επόμενο"), size_hint_x=None, width=90)
+            back_btn = Button(
+                text=S.get("BUTTONS", {}).get("BACK", "Πίσω"),
+                size_hint_x=None,
+                width=90,
+            )
+            idx_label = Label(text=f"{nav_index + 1}/{nav_total}", size_hint_x=0.3)
+            next_btn = Button(
+                text=S.get("BUTTONS", {}).get("NEXT", "Επόμενο"),
+                size_hint_x=None,
+                width=90,
+            )
             back_btn.disabled = (nav_index <= 0) or (not nav.get("on_prev"))
             next_btn.disabled = (nav_index + 1 >= nav_total) or (not nav.get("on_next"))
 
@@ -12191,7 +12227,6 @@ class SubstationApp(App):
             nav_row.add_widget(next_btn)
             # add navigation row as the first element
             content_layout.add_widget(nav_row)
-        
 
         # Substation selection
         content_layout.add_widget(

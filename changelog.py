@@ -94,7 +94,14 @@ def import_android_changes_from_file(app, file_path):
 
             if table == "maintenance" and isinstance(data, dict):
                 # Render maintenance fields in a readable form
-                for key in ("id", "substation_id", "date_time", "maintenance_type", "overall_comments", "user_name"):
+                for key in (
+                    "id",
+                    "substation_id",
+                    "date_time",
+                    "maintenance_type",
+                    "overall_comments",
+                    "user_name",
+                ):
                     if key in data:
                         preview_items.append(f"   {key}: {data.get(key)}")
                 # Render elements with indentation
@@ -104,9 +111,16 @@ def import_android_changes_from_file(app, file_path):
                     for e in elems:
                         eid = e.get("element_id") or e.get("id")
                         e_comment = e.get("element_comments") or e.get("comments")
-                        preview_items.append(f"     - element_id: {eid}  comments: {e_comment}")
+                        preview_items.append(
+                            f"     - element_id: {eid}  comments: {e_comment}"
+                        )
                         # show any extra element fields (measurements)
-                        extras = {k: v for k, v in e.items() if k not in ("element_id", "id", "element_comments", "comments")}
+                        extras = {
+                            k: v
+                            for k, v in e.items()
+                            if k
+                            not in ("element_id", "id", "element_comments", "comments")
+                        }
                         if extras:
                             for ek, ev in extras.items():
                                 preview_items.append(f"         {ek}: {ev}")
@@ -120,7 +134,9 @@ def import_android_changes_from_file(app, file_path):
     except Exception:
         preview_items = ["(empty or unreadable)"]
 
-    preview_text = "\n".join(preview_items) if preview_items else "(empty or unreadable)"
+    preview_text = (
+        "\n".join(preview_items) if preview_items else "(empty or unreadable)"
+    )
 
     # If there is exactly one maintenance entry, open the real maintenance
     # editor prefilled with that data. If multiple, present a chooser where
@@ -151,7 +167,10 @@ def import_android_changes_from_file(app, file_path):
         try:
             c = app.conn.cursor()
             if data.get("substation_id") is not None:
-                c.execute("SELECT name FROM substations WHERE id=?", (data.get("substation_id"),))
+                c.execute(
+                    "SELECT name FROM substations WHERE id=?",
+                    (data.get("substation_id"),),
+                )
                 r = c.fetchone()
                 if r:
                     sub_name = r[0]
@@ -169,7 +188,11 @@ def import_android_changes_from_file(app, file_path):
         prefill["overall_comments"] = data.get("overall_comments")
         prefill["responsible_id"] = None
         elems = data.get("elements") or []
-        element_ids = [e.get("element_id") or e.get("id") for e in elems if e.get("element_id") or e.get("id")]
+        element_ids = [
+            e.get("element_id") or e.get("id")
+            for e in elems
+            if e.get("element_id") or e.get("id")
+        ]
         prefill["element_ids"] = element_ids
         prefill["incomplete_elements"] = set(element_ids)
         prefill["attachment_paths"] = []
@@ -180,7 +203,10 @@ def import_android_changes_from_file(app, file_path):
             try:
                 c = app.conn.cursor()
                 if prefill.get("substation_id") is not None:
-                    c.execute("SELECT name FROM substations WHERE id=?", (prefill["substation_id"],))
+                    c.execute(
+                        "SELECT name FROM substations WHERE id=?",
+                        (prefill["substation_id"],),
+                    )
                     r = c.fetchone()
                     if r:
                         sub_name = r[0]
@@ -189,10 +215,19 @@ def import_android_changes_from_file(app, file_path):
 
         # Open the desktop maintenance editor with prefill
         try:
-            app.show_maintenance_menu(preselected_substation_name=sub_name, parent_popup=None, maintenance_id=None, after_save_callback=None, prefill_data=prefill)
+            app.show_maintenance_menu(
+                preselected_substation_name=sub_name,
+                parent_popup=None,
+                maintenance_id=None,
+                after_save_callback=None,
+                prefill_data=prefill,
+            )
         except Exception:
             try:
-                show_message_popup(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), "Αδύνατο άνοιγμα φόρμας συντήρησης")
+                show_message_popup(
+                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
+                    "Αδύνατο άνοιγμα φόρμας συντήρησης",
+                )
             except Exception:
                 pass
 
@@ -203,7 +238,11 @@ def import_android_changes_from_file(app, file_path):
         layout.add_widget(Label(text=f"File: {file_path}", size_hint_y=0.08))
         preview_area = TextInput(text=preview_text, readonly=True)
         layout.add_widget(preview_area)
-        btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=48)
+        btn = Button(
+            text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"),
+            size_hint_y=None,
+            height=48,
+        )
         btn.bind(on_press=preview_popup.dismiss)
         layout.add_widget(btn)
         preview_popup.content = layout
@@ -213,23 +252,42 @@ def import_android_changes_from_file(app, file_path):
     if len(entries) == 1:
         entry = entries[0]
         if entry.get("type") == "maintenance":
-            _open_maintenance_in_editor(entry.get("data"), entry.get("_substation_name"))
+            _open_maintenance_in_editor(
+                entry.get("data"), entry.get("_substation_name")
+            )
         else:
             # Open inspection editor (prefill support requires DBrun.show_inspection_entry_popup to accept prefill_data)
-            prefill = {"substation_id": entry.get("data", {}).get("substation_id"), "form_number": entry.get("data", {}).get("form_number"), "date_time": entry.get("data", {}).get("date_time"), "region": entry.get("data", {}).get("region"), "fields": entry.get("data", {}).get("fields")}
+            prefill = {
+                "substation_id": entry.get("data", {}).get("substation_id"),
+                "form_number": entry.get("data", {}).get("form_number"),
+                "date_time": entry.get("data", {}).get("date_time"),
+                "region": entry.get("data", {}).get("region"),
+                "fields": entry.get("data", {}).get("fields"),
+            }
             if entry.get("_substation_name"):
                 prefill["substation_name"] = entry.get("_substation_name")
             try:
-                app.show_inspection_entry_popup(None, preselected_substation_name=entry.get("_substation_name"), parent_popup=None, prefill_data=prefill)
+                app.show_inspection_entry_popup(
+                    None,
+                    preselected_substation_name=entry.get("_substation_name"),
+                    parent_popup=None,
+                    prefill_data=prefill,
+                )
             except Exception:
                 try:
-                    show_message_popup(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), "Αδύνατο άνοιγμα φόρμας ελέγχου")
+                    show_message_popup(
+                        S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
+                        "Αδύνατο άνοιγμα φόρμας ελέγχου",
+                    )
                 except Exception:
                     pass
         return
 
     # Multiple entries (maintenance and/or inspection): present chooser
-    chooser = Popup(title=S.get("MESSAGES", {}).get("MAINT_CHOOSER", "Επιλέξτε συντήρηση"), size_hint=(0.9, 0.9))
+    chooser = Popup(
+        title=S.get("MESSAGES", {}).get("MAINT_CHOOSER", "Επιλέξτε συντήρηση"),
+        size_hint=(0.9, 0.9),
+    )
     layout = BoxLayout(orientation="vertical", spacing=8, padding=8)
     layout.add_widget(Label(text=f"File: {file_path}", size_hint_y=None, height=28))
     for idx, entry in enumerate(entries, start=1):
@@ -245,23 +303,45 @@ def import_android_changes_from_file(app, file_path):
             time_val = data.get("date") or data.get("date_time")
 
         line = f"{idx}) {type_label} @ substation={sub_display} time={time_val}"
-        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=42, spacing=8)
+        row = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height=42, spacing=8
+        )
         row.add_widget(Label(text=line))
-        btn = Button(text=S.get("BUTTONS", {}).get("OPEN", "Άνοιγμα"), size_hint_x=None, width=120)
+        btn = Button(
+            text=S.get("BUTTONS", {}).get("OPEN", "Άνοιγμα"),
+            size_hint_x=None,
+            width=120,
+        )
 
         def _make_open(ent):
             def _open_and_close(_btn):
                 if ent.get("type") == "maintenance":
-                    _open_maintenance_in_editor(ent.get("data"), ent.get("_substation_name"))
+                    _open_maintenance_in_editor(
+                        ent.get("data"), ent.get("_substation_name")
+                    )
                 else:
-                    prefill = {"substation_id": ent.get("data", {}).get("substation_id"), "form_number": ent.get("data", {}).get("form_number"), "date_time": ent.get("data", {}).get("date_time"), "region": ent.get("data", {}).get("region"), "fields": ent.get("data", {}).get("fields")}
+                    prefill = {
+                        "substation_id": ent.get("data", {}).get("substation_id"),
+                        "form_number": ent.get("data", {}).get("form_number"),
+                        "date_time": ent.get("data", {}).get("date_time"),
+                        "region": ent.get("data", {}).get("region"),
+                        "fields": ent.get("data", {}).get("fields"),
+                    }
                     if ent.get("_substation_name"):
                         prefill["substation_name"] = ent.get("_substation_name")
                     try:
-                        app.show_inspection_entry_popup(None, preselected_substation_name=ent.get("_substation_name"), parent_popup=None, prefill_data=prefill)
+                        app.show_inspection_entry_popup(
+                            None,
+                            preselected_substation_name=ent.get("_substation_name"),
+                            parent_popup=None,
+                            prefill_data=prefill,
+                        )
                     except Exception:
                         try:
-                            show_message_popup(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), "Αδύνατο άνοιγμα φόρμας ελέγχου")
+                            show_message_popup(
+                                S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
+                                "Αδύνατο άνοιγμα φόρμας ελέγχου",
+                            )
                         except Exception:
                             pass
                 try:
@@ -274,6 +354,7 @@ def import_android_changes_from_file(app, file_path):
         btn.bind(on_press=_make_open(entry))
         row.add_widget(btn)
         layout.add_widget(row)
+
     def _open_for_index(i, dismiss_popup=None):
         if dismiss_popup:
             try:
@@ -309,7 +390,11 @@ def import_android_changes_from_file(app, file_path):
             prefill["maintenance_type"] = data.get("maintenance_type")
             prefill["date_time"] = data.get("date_time")
             prefill["overall_comments"] = data.get("overall_comments")
-            prefill["element_ids"] = [e.get("element_id") or e.get("id") for e in (data.get("elements") or []) if e.get("element_id") or e.get("id")]
+            prefill["element_ids"] = [
+                e.get("element_id") or e.get("id")
+                for e in (data.get("elements") or [])
+                if e.get("element_id") or e.get("id")
+            ]
             prefill["attachment_paths"] = []
         else:
             # inspection prefill
@@ -333,23 +418,43 @@ def import_android_changes_from_file(app, file_path):
 
         try:
             if entry.get("type") == "maintenance":
-                app.show_maintenance_menu(preselected_substation_name=entry.get("_substation_name"), parent_popup=None, maintenance_id=None, after_save_callback=None, prefill_data=prefill)
+                app.show_maintenance_menu(
+                    preselected_substation_name=entry.get("_substation_name"),
+                    parent_popup=None,
+                    maintenance_id=None,
+                    after_save_callback=None,
+                    prefill_data=prefill,
+                )
             else:
-                app.show_inspection_entry_popup(None, preselected_substation_name=entry.get("_substation_name"), parent_popup=None, prefill_data=prefill)
+                app.show_inspection_entry_popup(
+                    None,
+                    preselected_substation_name=entry.get("_substation_name"),
+                    parent_popup=None,
+                    prefill_data=prefill,
+                )
         except Exception:
             try:
-                show_message_popup(S.get("TITLES", {}).get("ERROR", "Σφάλμα"), "Αδύνατο άνοιγμα φόρμας")
+                show_message_popup(
+                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"), "Αδύνατο άνοιγμα φόρμας"
+                )
             except Exception:
                 pass
 
-    open_all_btn = Button(text=S.get("BUTTONS", {}).get("OPEN_ALL", "Άνοιγμα όλων"), size_hint_y=None, height=48)
+    open_all_btn = Button(
+        text=S.get("BUTTONS", {}).get("OPEN_ALL", "Άνοιγμα όλων"),
+        size_hint_y=None,
+        height=48,
+    )
+
     def _on_open_all(_inst=None):
         _open_for_index(0, dismiss_popup=chooser)
 
     open_all_btn.bind(on_press=_on_open_all)
     layout.add_widget(open_all_btn)
 
-    close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=48)
+    close_btn = Button(
+        text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=48
+    )
     close_btn.bind(on_press=chooser.dismiss)
     layout.add_widget(close_btn)
     chooser.content = layout

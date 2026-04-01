@@ -967,33 +967,54 @@ class SubstationAndroidApp(App):
                             except Exception:
                                 sys_sz = None
 
-                            if sys_sz and isinstance(sys_sz, (list, tuple)) and len(sys_sz) >= 2:
+                            if (
+                                sys_sz
+                                and isinstance(sys_sz, (list, tuple))
+                                and len(sys_sz) >= 2
+                            ):
                                 # sys_sz is Kivy's logical client size (dp). Window.size is physical pixels.
                                 sys_w_dp, sys_h_dp = int(sys_sz[0]), int(sys_sz[1])
                                 # Derive scale between physical pixels and Kivy dp units
                                 scale = 1.0
                                 try:
-                                    scale = float(max(1.0, float(Window.size[1]) / float(sys_h_dp)))
+                                    scale = float(
+                                        max(
+                                            1.0, float(Window.size[1]) / float(sys_h_dp)
+                                        )
+                                    )
                                 except Exception:
                                     scale = 1.0
 
                                 # Desired client height in Kivy units to match the work_area height in physical pixels
-                                desired_client_h_dp = int(round((screen_h - chrome_h) / scale))
-                                desired_client_w_dp = int(round(desired_client_h_dp * aspect))
+                                desired_client_h_dp = int(
+                                    round((screen_h - chrome_h) / scale)
+                                )
+                                desired_client_w_dp = int(
+                                    round(desired_client_h_dp * aspect)
+                                )
 
                                 # available client width in Kivy dp units
-                                available_client_w_dp = int(round((screen_w - chrome_w) / scale))
+                                available_client_w_dp = int(
+                                    round((screen_w - chrome_w) / scale)
+                                )
                                 if desired_client_w_dp > available_client_w_dp:
                                     desired_client_w_dp = available_client_w_dp
-                                    desired_client_h_dp = int(max(1, int(round(desired_client_w_dp / aspect))))
+                                    desired_client_h_dp = int(
+                                        max(1, int(round(desired_client_w_dp / aspect)))
+                                    )
 
                                 # Final window size in Kivy units
-                                Window.size = (max(320, desired_client_w_dp), max(1, desired_client_h_dp))
+                                Window.size = (
+                                    max(320, desired_client_w_dp),
+                                    max(1, desired_client_h_dp),
+                                )
                             else:
                                 Window.size = (target_w, target_h)
                             # Keep the window fully visible inside the monitor work area.
                             try:
-                                Window.left = int(work_left + max(0, (screen_w - outer_w) / 2))
+                                Window.left = int(
+                                    work_left + max(0, (screen_w - outer_w) / 2)
+                                )
                             except Exception:
                                 pass
                             # On Windows, prefer maximize then adjust width so height fills work area.
@@ -1008,21 +1029,67 @@ class SubstationAndroidApp(App):
                                         try:
                                             curr_w, curr_h = Window.size
                                             client_h = curr_h
-                                            sys_sz_inner = getattr(Window, "system_size", None)
+                                            sys_sz_inner = getattr(
+                                                Window, "system_size", None
+                                            )
                                             scale_inner = 1.0
-                                            if sys_sz_inner and isinstance(sys_sz_inner, (list, tuple)) and len(sys_sz_inner) >= 2:
+                                            if (
+                                                sys_sz_inner
+                                                and isinstance(
+                                                    sys_sz_inner, (list, tuple)
+                                                )
+                                                and len(sys_sz_inner) >= 2
+                                            ):
                                                 try:
-                                                    sys_h_dp_inner = int(sys_sz_inner[1])
-                                                    scale_inner = float(max(1.0, float(client_h) / float(sys_h_dp_inner)))
+                                                    sys_h_dp_inner = int(
+                                                        sys_sz_inner[1]
+                                                    )
+                                                    scale_inner = float(
+                                                        max(
+                                                            1.0,
+                                                            float(client_h)
+                                                            / float(sys_h_dp_inner),
+                                                        )
+                                                    )
                                                 except Exception:
                                                     scale_inner = 1.0
 
-                                            desired_client_h_dp = int(round((screen_h - chrome_h - size_safety_px) / scale_inner))
-                                            desired_client_w_dp = int(round(desired_client_h_dp * aspect))
-                                            available_client_w_dp = int(round((screen_w - chrome_w) / scale_inner))
-                                            if desired_client_w_dp > available_client_w_dp:
-                                                desired_client_w_dp = available_client_w_dp
-                                                desired_client_h_dp = int(max(1, int(round(desired_client_w_dp / aspect))))
+                                            desired_client_h_dp = int(
+                                                round(
+                                                    (
+                                                        screen_h
+                                                        - chrome_h
+                                                        - size_safety_px
+                                                    )
+                                                    / scale_inner
+                                                )
+                                            )
+                                            desired_client_w_dp = int(
+                                                round(desired_client_h_dp * aspect)
+                                            )
+                                            available_client_w_dp = int(
+                                                round(
+                                                    (screen_w - chrome_w) / scale_inner
+                                                )
+                                            )
+                                            if (
+                                                desired_client_w_dp
+                                                > available_client_w_dp
+                                            ):
+                                                desired_client_w_dp = (
+                                                    available_client_w_dp
+                                                )
+                                                desired_client_h_dp = int(
+                                                    max(
+                                                        1,
+                                                        int(
+                                                            round(
+                                                                desired_client_w_dp
+                                                                / aspect
+                                                            )
+                                                        ),
+                                                    )
+                                                )
 
                                             final_w_dp = max(320, desired_client_w_dp)
                                             final_h_dp = max(1, desired_client_h_dp)
@@ -1040,13 +1107,32 @@ class SubstationAndroidApp(App):
                                                     except Exception:
                                                         cur_h = final_h_dp
                                                     Window.size = (final_w_dp, cur_h)
-                                                    outer_w2_px = int(round(final_w_dp * scale_inner)) + chrome_w
-                                                    outer_h2_px = int(round(cur_h * scale_inner)) + chrome_h
+                                                    outer_w2_px = (
+                                                        int(
+                                                            round(
+                                                                final_w_dp * scale_inner
+                                                            )
+                                                        )
+                                                        + chrome_w
+                                                    )
+                                                    outer_h2_px = (
+                                                        int(round(cur_h * scale_inner))
+                                                        + chrome_h
+                                                    )
                                                     try:
-                                                        Window.left = int(work_left + max(0, (screen_w - outer_w2_px) / 2))
+                                                        Window.left = int(
+                                                            work_left
+                                                            + max(
+                                                                0,
+                                                                (screen_w - outer_w2_px)
+                                                                / 2,
+                                                            )
+                                                        )
                                                     except Exception:
                                                         pass
-                                                    Logger.info(f"APP: Desktop preview width applied {Window.size[0]} for {dev}")
+                                                    Logger.info(
+                                                        f"APP: Desktop preview width applied {Window.size[0]} for {dev}"
+                                                    )
                                                     try:
                                                         Logger.info(
                                                             f"APP: VERIFY - Window.size={Window.size} work_area=({work_left},{work_top},{screen_w},{screen_h}) "
@@ -1057,14 +1143,19 @@ class SubstationAndroidApp(App):
                                                     except Exception:
                                                         pass
                                                 except Exception as resize_exc:
-                                                    Logger.warning(f"APP: Failed to apply restored size: {resize_exc}")
+                                                    Logger.warning(
+                                                        f"APP: Failed to apply restored size: {resize_exc}"
+                                                    )
 
                                             try:
-                                                Clock.schedule_once(_apply_restored_size, 0.05)
+                                                Clock.schedule_once(
+                                                    _apply_restored_size, 0.05
+                                                )
                                             except Exception:
                                                 _apply_restored_size(0)
                                         except Exception:
                                             pass
+
                                     try:
                                         Clock.schedule_once(_after_max, 0.05)
                                     except Exception:
@@ -1096,10 +1187,16 @@ class SubstationAndroidApp(App):
                         dpi = Window.dpi
                     except Exception:
                         dpi = None
-                    Logger.info(f"APP: STARTUP INFO - platform={sys_platform} Window.size={Window.size} screen={system_size} dpi={dpi}")
-                    Logger.info(f"APP: STARTUP INFO - python={sys.version.split()[0]} kivy={getattr(__import__('kivy'), '__version__', 'unknown')}")
+                    Logger.info(
+                        f"APP: STARTUP INFO - platform={sys_platform} Window.size={Window.size} screen={system_size} dpi={dpi}"
+                    )
+                    Logger.info(
+                        f"APP: STARTUP INFO - python={sys.version.split()[0]} kivy={getattr(__import__('kivy'), '__version__', 'unknown')}"
+                    )
                     try:
-                        Logger.info(f"APP: STARTUP INFO - cwd={os.getcwd()} db_default_path={ANDROID_DEFAULT_DB_PATH}")
+                        Logger.info(
+                            f"APP: STARTUP INFO - cwd={os.getcwd()} db_default_path={ANDROID_DEFAULT_DB_PATH}"
+                        )
                     except Exception:
                         Logger.info("APP: STARTUP INFO - cwd/db path unavailable")
                 except Exception:
