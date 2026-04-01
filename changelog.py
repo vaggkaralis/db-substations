@@ -47,10 +47,10 @@ def import_android_changes_from_file(app, file_path):
 
     # Reuse apply_change_log_to_db from DBrun (kept at module level there)
     try:
-        from DBrun import apply_change_log_to_db
+        from DBrun import apply_change_log_to_db as _apply_change_log_to_db
     except Exception:
         # If import fails, continue but operations will raise later
-        apply_change_log_to_db = None
+        _apply_change_log_to_db = None
 
     # Try to produce a structured, human-readable preview of the change-log.
     # Parse JSONL and render maintenance rows as a form-like summary so users

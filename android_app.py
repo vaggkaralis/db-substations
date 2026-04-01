@@ -940,7 +940,7 @@ class SubstationAndroidApp(App):
                     # When Windows draws the title bar, Kivy coordinate mapping can
                     # make the visible client area appear shifted upwards by a few
                     # pixels; apply a small downward offset to align visually.
-                    top_offset_px = 8 if sys.platform.startswith("win") else 0
+                    _top_offset_px = 8 if sys.platform.startswith("win") else 0
                     available_client_w = max(320, screen_w - chrome_w)
                     available_client_h = max(320, screen_h - chrome_h - size_safety_px)
 
@@ -951,7 +951,7 @@ class SubstationAndroidApp(App):
                         target_h = int(max(1, round(target_w / aspect)))
 
                     outer_w = target_w + chrome_w
-                    outer_h = target_h + chrome_h
+                    _outer_h = target_h + chrome_h
 
                     def _apply_window_size(dt):
                         try:
@@ -973,7 +973,7 @@ class SubstationAndroidApp(App):
                                 and len(sys_sz) >= 2
                             ):
                                 # sys_sz is Kivy's logical client size (dp). Window.size is physical pixels.
-                                sys_w_dp, sys_h_dp = int(sys_sz[0]), int(sys_sz[1])
+                                _sys_w_dp, sys_h_dp = int(sys_sz[0]), int(sys_sz[1])
                                 # Derive scale between physical pixels and Kivy dp units
                                 scale = 1.0
                                 try:
@@ -2602,7 +2602,7 @@ class SubstationAndroidApp(App):
 
         for substation in self.substations:
             name = substation.get("name", "-")
-            name_font = _name_font_for_button(name)
+            _name_font = _name_font_for_button(name)
             # avoid forcing a markup size here; let autosize_button_text pick the font
             btn_text = f"[b]{name}[/b]"
 

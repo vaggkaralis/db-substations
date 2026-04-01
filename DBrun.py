@@ -117,7 +117,6 @@ from ui.shared import (
     ShiftSelectableTextInput,
     StatusButton,
     autosize_button_text,
-    enable_global_button_autosize,
 )
 
 
