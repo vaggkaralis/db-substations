@@ -20,10 +20,24 @@ import logging
 import subprocess
 import faulthandler
 import traceback
+import threading
 
 import webbrowser
 from datetime import datetime, timedelta
 from database import init_db
+
+# Make stdout line-buffered in environments like VS Code so startup
+# prints/logging appear immediately instead of after process end.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    try:
+        import functools
+
+        print = functools.partial(print, flush=True)
+    except Exception:
+        pass
 from email_text_utils import (
     normalize_text,
     tokenize_text,
@@ -98,6 +112,31 @@ from dga_reports import (
 )
 
 from ui.shared import IconButton, IconOnlyButton, ShiftSelectableTextInput, StatusButton, autosize_button_text, enable_global_button_autosize
+
+
+def _safe_console_stream(preferred_stream):
+    if preferred_stream is not None:
+        return preferred_stream
+    if sys.__stdout__ is not None:
+        return sys.__stdout__
+    if sys.stdout is not None:
+        return sys.stdout
+    return None
+
+
+def _safe_console_write(text, *, use_stderr=False):
+    stream = sys.__stderr__ if use_stderr else sys.__stdout__
+    if stream is None:
+        stream = sys.stderr if use_stderr else sys.stdout
+    if stream is None:
+        return
+    try:
+        stream.write(text)
+        if not text.endswith("\n"):
+            stream.write("\n")
+        stream.flush()
+    except Exception:
+        pass
 
 
 # Lazy-evaluated strings (called at runtime, not import time)
@@ -270,19 +309,55 @@ try:
     _crash_log_path = os.path.join(_log_dir, "app_crash.log")
     _fault_log_path = os.path.join(_log_dir, "faulthandler.log")
     _fault_stream = None
+    _console_stream = _safe_console_stream(sys.__stdout__)
 
     _root_logger = logging.getLogger()
-    # Show startup progress in terminal at INFO level so users see progress
     _root_logger.setLevel(logging.INFO)
 
-    # Ensure there's a console StreamHandler so logs appear in the terminal
-    if not any(isinstance(h, logging.StreamHandler) for h in _root_logger.handlers):
-        _console_handler = logging.StreamHandler()
-        _console_handler.setLevel(logging.INFO)
-        _console_handler.setFormatter(
-            logging.Formatter("[%(levelname)-7s] [%(name)-10s] %(message)s")
+    # Colored console formatter: INFO=green, WARNING=yellow, ERROR/CRITICAL=red
+    class _ColoredFormatter(logging.Formatter):
+        RESET = "\x1b[0m"
+        COLORS = {
+            "DEBUG": "\x1b[36m",
+            "INFO": "\x1b[32m",
+            "WARNING": "\x1b[33m",
+            "ERROR": "\x1b[31m",
+            "CRITICAL": "\x1b[31m",
+        }
+
+        def format(self, record):
+            orig_levelname = record.levelname
+            try:
+                color = self.COLORS.get(orig_levelname, "")
+                if color:
+                    record.levelname = f"{color}{orig_levelname}{self.RESET}"
+                return super().format(record)
+            finally:
+                record.levelname = orig_levelname
+
+    def _is_console_handler(handler):
+        return isinstance(handler, logging.StreamHandler) and not isinstance(
+            handler, logging.FileHandler
         )
+
+    if not any(_is_console_handler(h) for h in _root_logger.handlers):
+        _console_handler = logging.StreamHandler(_console_stream)
+        _console_handler.setLevel(logging.INFO)
+        try:
+            _console_handler.setFormatter(
+                _ColoredFormatter("[%(levelname)-7s] [%(name)-10s] %(message)s")
+            )
+        except Exception:
+            _console_handler.setFormatter(
+                logging.Formatter("[%(levelname)-7s] [%(name)-10s] %(message)s")
+            )
         _root_logger.addHandler(_console_handler)
+
+    APP_LOGGER = logging.getLogger("APP")
+    APP_LOGGER.setLevel(logging.INFO)
+
+    SYNC_LOGGER = logging.getLogger("SYNC")
+    SYNC_LOGGER.setLevel(logging.INFO)
 
     if not any(
         isinstance(handler, logging.FileHandler)
@@ -298,15 +373,13 @@ try:
 
     try:
         _fault_stream = open(_fault_log_path, "a", encoding="utf-8")
-        faulthandler.enable(file=_fault_stream)
+        faulthandler.enable(file=_fault_stream, all_threads=True)
     except Exception:
         _fault_stream = None
 
-    _previous_excepthook = sys.excepthook
-
     def _log_uncaught_exception(exc_type, exc_value, exc_tb):
         try:
-            _root_logger.error(
+            APP_LOGGER.critical(
                 "Uncaught exception", exc_info=(exc_type, exc_value, exc_tb)
             )
         except Exception:
@@ -319,20 +392,32 @@ try:
         except Exception:
             pass
         try:
-            # Also print the traceback to stderr so crashes are visible in terminal
-            import sys as _sys
-
-            traceback.print_exception(exc_type, exc_value, exc_tb, file=_sys.stderr)
+            _safe_console_write(
+                "".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
+                use_stderr=True,
+            )
         except Exception:
             pass
-        try:
-            _previous_excepthook(exc_type, exc_value, exc_tb)
-        except Exception:
-            sys.__excepthook__(exc_type, exc_value, exc_tb)
 
     sys.excepthook = _log_uncaught_exception
+
+    if hasattr(threading, "excepthook"):
+
+        def _threading_excepthook(args):
+            _log_uncaught_exception(args.exc_type, args.exc_value, args.exc_traceback)
+
+        threading.excepthook = _threading_excepthook
+
+    APP_LOGGER.info("========== Starting DB Substations Desktop App ==========")
+    APP_LOGGER.info("Python version: %s", sys.version)
+    APP_LOGGER.info("Python interpreter: %s", sys.executable)
+    APP_LOGGER.info("Working directory: %s", os.getcwd())
+    APP_LOGGER.info("Default DB path: %s", DB_PATH)
+    if "kivy" in sys.modules:
+        APP_LOGGER.info("Kivy version: %s", getattr(kivy, "__version__", "unknown"))
 except Exception:
-    pass
+    APP_LOGGER = logging.getLogger("APP")
+    SYNC_LOGGER = logging.getLogger("SYNC")
 
 # Gate color manager (consistent colors across the app)
 GATE_COLOR_PALETTE = [
@@ -830,7 +915,15 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
 
 
 # Maximize window on startup
+try:
+    APP_LOGGER.info("Preparing desktop window")
+except Exception:
+    pass
 Window.maximize()
+try:
+    APP_LOGGER.info("Desktop window maximize requested")
+except Exception:
+    pass
 
 
 class SubstationApp(App):
@@ -858,6 +951,11 @@ class SubstationApp(App):
         S["MESSAGES"].get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"),
     )
     BREAKER_ELEMENT_TYPES = [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
+
+    def __init__(self, **kwargs):
+        APP_LOGGER.info("Initializing SubstationApp")
+        super().__init__(**kwargs)
+        APP_LOGGER.info("SubstationApp initialized successfully")
 
     def _format_elem_type(self, elem_type, is_main_switch):
         """Return element type with breaker subtype in parentheses for breakers.
@@ -985,9 +1083,21 @@ class SubstationApp(App):
         return list(self.BREAKER_CATEGORIES_ALL)
 
     def build(self):
+        APP_LOGGER.info("========== BUILD METHOD STARTING ==========")
         self.title = S["MESSAGES"].get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ")
+        APP_LOGGER.info("Building desktop UI")
         self._apply_theme()
+        try:
+            APP_LOGGER.info(
+                "STARTUP INFO - Window.size=%s dpi=%s cwd=%s",
+                getattr(Window, "size", "unknown"),
+                getattr(Window, "dpi", "unknown"),
+                os.getcwd(),
+            )
+        except Exception:
+            APP_LOGGER.info("STARTUP INFO - window metrics unavailable")
         self.root_layout = BoxLayout(orientation="vertical")
+        APP_LOGGER.info("Root layout created")
         Window.bind(on_key_down=self._handle_tab_navigation)
         Window.bind(on_request_close=self._handle_request_close)
         try:
@@ -997,8 +1107,10 @@ class SubstationApp(App):
 
         self.loading_label = Label(text=S["MESSAGES"]["LOADING"], font_size="22sp")
         self.root_layout.add_widget(self.loading_label)
+        APP_LOGGER.info("Loading placeholder added")
 
         Clock.schedule_once(self._finish_build, 0)
+        APP_LOGGER.info("Scheduled deferred finish_build")
         return self.root_layout
 
     def _check_db_compatibility(self):
@@ -1123,16 +1235,22 @@ class SubstationApp(App):
         return True
 
     def _finish_build(self, *_args):
+        APP_LOGGER.info("========== FINISH_BUILD STARTING ==========")
         # Check DB compatibility before proceeding
+        APP_LOGGER.info("Checking database compatibility")
         if not self._check_db_compatibility():
+            APP_LOGGER.error("Database compatibility check failed")
             return
 
         # Check DB integrity before proceeding
+        APP_LOGGER.info("Checking database integrity")
         if not self._check_db_integrity():
+            APP_LOGGER.error("Database integrity check failed")
             return
 
         # Check if first-time setup is needed
         if self._needs_first_time_setup():
+            APP_LOGGER.info("First-time setup is required")
             self._show_first_use_setup_wizard(
                 on_complete=lambda: self.show_login_popup(
                     on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
@@ -1140,6 +1258,7 @@ class SubstationApp(App):
             )
         else:
             # Always show login popup at startup (will pre-select last user)
+            APP_LOGGER.info("Showing startup login popup")
             self.show_login_popup(
                 on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
             )
@@ -1471,6 +1590,7 @@ class SubstationApp(App):
 
     def _build_main_ui(self, *_args):
         """Build the main application UI after user login."""
+        APP_LOGGER.info("========== BUILD_MAIN_UI STARTING ==========")
         layout = self.root_layout
         # remove the temporary loading label added during build()
         try:
@@ -1479,6 +1599,7 @@ class SubstationApp(App):
                 del self.loading_label
         except Exception:
             pass
+        APP_LOGGER.info("Building main menu and top bar")
         self._add_logo_to_layout(layout, height=120, reserve=True)
 
         # Top bar with settings and app info
@@ -1607,12 +1728,14 @@ class SubstationApp(App):
         )
 
         selected_db_path = get_db_path() or DB_PATH
+        APP_LOGGER.info("Opening database: %s", selected_db_path)
         self.conn = init_db(selected_db_path)
         self.db_path = os.path.abspath(selected_db_path)
         self._last_sync_cycle_ts = 0
         self._pending_changes = []  # Track changes for export on close
         self._sync_attention_needed = False  # Probe detected work that user deferred
         self._check_previous_sync_issues()  # Check for rejected/conflict files
+        APP_LOGGER.info("Starting startup sync cycle")
         self._run_startup_sync_cycle()
         try:
             interval_minutes = int(get_app_setting("sync_auto_cycle_minutes", 15))
@@ -1629,6 +1752,7 @@ class SubstationApp(App):
             self._migrate_people_name_columns()
         except Exception:
             pass
+        APP_LOGGER.info("Main UI build completed successfully")
 
     def _handle_request_close(self, *args):
         self._cleanup_before_exit()
@@ -20742,4 +20866,12 @@ class SubstationApp(App):
 
 
 if __name__ == "__main__":
-    SubstationApp().run()
+    APP_LOGGER.info("========== Running main ==========")
+    try:
+        app = SubstationApp()
+        APP_LOGGER.info("App instance created")
+        app.run()
+        APP_LOGGER.info("App run completed")
+    except Exception:
+        APP_LOGGER.critical("FATAL ERROR in main", exc_info=True)
+        raise
