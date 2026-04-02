@@ -231,7 +231,7 @@ def ensure_reference_structure(
                 dest = os.path.join(
                     legacy_root, f"{name}_moved_{int(datetime.now().timestamp())}"
                 )
-            shutil.move(path, dest)
+            shutil.move(_win_path(path), _win_path(dest))
         except Exception:
             pass
 
@@ -1723,9 +1723,9 @@ def _merge_tree_into(src: str, dst: str) -> None:
                 while os.path.exists(candidate):
                     idx += 1
                     candidate = os.path.join(dst, f"{base}_legacy{idx}{ext}")
-                shutil.move(src_item, candidate)
+                shutil.move(_win_path(src_item), _win_path(candidate))
             else:
-                shutil.move(src_item, dst_item)
+                shutil.move(_win_path(src_item), _win_path(dst_item))
         else:
             if os.path.exists(dst_item):
                 base, ext = os.path.splitext(name)
@@ -1734,9 +1734,9 @@ def _merge_tree_into(src: str, dst: str) -> None:
                 while os.path.exists(candidate):
                     idx += 1
                     candidate = os.path.join(dst, f"{base}_legacy{idx}{ext}")
-                shutil.move(src_item, candidate)
+                shutil.move(_win_path(src_item), _win_path(candidate))
             else:
-                shutil.move(src_item, dst_item)
+                shutil.move(_win_path(src_item), _win_path(dst_item))
 
 
 def _merge_legacy_path(src: str, dst: str) -> bool:
@@ -3215,7 +3215,7 @@ def retrofit_maintenance_instance_folder_names(
                     old_parent = os.path.dirname(source_path)
                     if not dry_run:
                         os.makedirs(os.path.dirname(final_target), exist_ok=True)
-                        shutil.move(source_path, final_target)
+                        shutil.move(_win_path(source_path), _win_path(final_target))
                         _prune_empty_dir(old_parent, stop_at=gate_root)
                     renamed_folders += 1
                 except Exception as exc:
@@ -3237,7 +3237,7 @@ def retrofit_maintenance_instance_folder_names(
                                 os.makedirs(
                                     os.path.dirname(fallback_target), exist_ok=True
                                 )
-                                shutil.move(source_path, fallback_target)
+                                shutil.move(_win_path(source_path), _win_path(fallback_target))
                             renamed_folders += 1
                             final_target = fallback_target
                     except Exception:
@@ -3618,7 +3618,7 @@ def retrofit_folder_labels_to_greek(
                     if not dry_run:
                         os.makedirs(os.path.dirname(new_instance), exist_ok=True)
                         if not os.path.exists(new_instance):
-                            shutil.move(old_instance, new_instance)
+                            shutil.move(_win_path(old_instance), _win_path(new_instance))
                     moved += 1
         except Exception as exc:
             errors.append(f"maintenance {maintenance_id} gate {gate_key}: {exc}")
