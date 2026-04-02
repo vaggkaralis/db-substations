@@ -401,8 +401,62 @@ class SubstationAndroidApp(App):
     INSPECTION_FIELDS = _build_inspection_fields(S)
 
     def open_local_db_picker(self):
-        # Last working version: prompt for DB path and allow file selection
+        if platform == "android":
+            self._open_android_local_db_picker()
+            return
+
         self._prompt_local_db_path()
+
+    def _handle_local_db_selection(self, selection):
+        if not selection or len(selection) == 0:
+            self.show_error(
+                S["MESSAGES"].get(
+                    "PICKER_EMPTY_SELECTION",
+                    "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                )
+            )
+            return
+
+        raw_value = selection[0]
+        if raw_value is None:
+            self.show_error(
+                S["MESSAGES"].get(
+                    "PICKER_EMPTY_SELECTION",
+                    "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                )
+            )
+            return
+
+        if isinstance(raw_value, bytes):
+            selected_path = raw_value.decode("utf-8", errors="ignore")
+        else:
+            selected_path = str(raw_value)
+
+        if selected_path.strip().lower() in ("", "none", "null"):
+            self.show_error(
+                S["MESSAGES"].get(
+                    "PICKER_EMPTY_SELECTION",
+                    "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
+                )
+            )
+            return
+
+        Logger.info(f"APP: File chooser selected: {selected_path}")
+        Clock.schedule_once(lambda _dt: self.use_local_mode(selected_path), 0)
+
+    def _open_android_local_db_picker(self):
+        try:
+            self._open_android_document_picker(self._handle_local_db_selection)
+        except Exception as e:
+            Logger.error(f"APP: Android local DB picker failed: {str(e)}")
+            self.show_error(
+                S.get("MESSAGES", {})
+                .get(
+                    "PICKER_OPEN_ERROR",
+                    "Σφάλμα ανοίγματος επιλογέα: {err}",
+                )
+                .format(err=str(e))
+            )
 
     def _prompt_local_db_path(self):
         popup = Popup(
@@ -439,6 +493,7 @@ class SubstationAndroidApp(App):
                         )
                     )
                     return
+
                 raw_value = selection[0]
                 if raw_value is None:
                     self.show_error(
@@ -448,10 +503,12 @@ class SubstationAndroidApp(App):
                         )
                     )
                     return
+
                 if isinstance(raw_value, bytes):
                     selected_path = raw_value.decode("utf-8", errors="ignore")
                 else:
                     selected_path = str(raw_value)
+
                 if selected_path.strip().lower() in ("", "none", "null"):
                     self.show_error(
                         S["MESSAGES"].get(
@@ -460,6 +517,7 @@ class SubstationAndroidApp(App):
                         )
                     )
                     return
+
                 Logger.info(f"APP: File chooser selected: {selected_path}")
                 Clock.schedule_once(
                     lambda _dt: setattr(path_input, "text", selected_path), 0
@@ -467,46 +525,7 @@ class SubstationAndroidApp(App):
 
             try:
                 if platform == "android":
-                    # Ensure storage permissions are requested BEFORE opening SAF picker
-                    try:
-                        from android.permissions import (
-                            Permission,
-                            check_permission,
-                            request_permissions,
-                        )
-
-                        needed_perms = [
-                            Permission.READ_EXTERNAL_STORAGE,
-                            Permission.WRITE_EXTERNAL_STORAGE,
-                        ]
-                        perms_granted = all(check_permission(p) for p in needed_perms)
-                        if not perms_granted:
-                            # Request permissions and return; DO NOT show an error popup
-                            # immediately because the Android permission dialog is a
-                            # system UI overlay. Showing our own popup at the same
-                            # time leads to the UX problem where our popup appears
-                            # behind the permission dialog. The app should wait for
-                            # the system dialog to complete and the user to retry.
-                            request_permissions(needed_perms)
-                            Logger.info(
-                                "APP: Requested storage permissions; waiting for user to grant them."
-                            )
-                            # Show an in-app non-modal notice asking the user to
-                            # grant permissions and retry. We avoid showing an
-                            # error popup here because the system permission
-                            # dialog is a separate UI. The notice contains a
-                            # retry button that re-opens the local DB picker.
-                            try:
-                                self._show_permissions_requested_notice()
-                            except Exception:
-                                Logger.info("APP: Could not show permission notice")
-                            return
-                    except Exception:
-                        # Continue without explicit permission check if android.permissions not available
-                        pass
-
-                    # Use Android SAF picker
-                    self._open_android_document_picker(_selected)
+                    self._open_android_local_db_picker()
                     return
 
                 # Non-Android flow: prefer filechooser if available, otherwise fall back to list view or show error
@@ -634,9 +653,13 @@ class SubstationAndroidApp(App):
             # Check if permissions are already granted
             perms_granted = all(check_permission(p) for p in needed_perms)
             if not perms_granted:
-                # Request permissions and return, user must retry after granting
+                # Request permissions and return, user must retry after granting.
+                # Avoid stacking another popup over the Android system dialog.
                 request_permissions(needed_perms)
-                self.show_error(S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"])
+                try:
+                    self._show_permissions_requested_notice()
+                except Exception:
+                    self.show_error(S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"])
                 return
         except Exception as perm_e:
             Logger.warning(f"APP: Permission check/request failed: {str(perm_e)}")
@@ -669,13 +692,6 @@ class SubstationAndroidApp(App):
 
             def _activity_result(req_code, result_code, data):
                 if req_code != request_code:
-                    Logger.warning("APP: Activity result request code mismatch.")
-                    self.show_error(
-                        S["MESSAGES"].get(
-                            "FILECHOOSER_INTERNAL_ERROR",
-                            "Εσωτερικό σφάλμα επιλογέα αρχείων.",
-                        )
-                    )
                     return
                 activity.unbind(on_activity_result=_activity_result)
                 if result_code != Activity.RESULT_OK or data is None:
@@ -700,7 +716,7 @@ class SubstationAndroidApp(App):
                         return
                     uri_str = uri.toString()
                     Logger.info(f"APP: SAF selected: {uri_str}")
-                    on_selected([uri_str])
+                    Clock.schedule_once(lambda _dt: on_selected([uri_str]), 0)
                 except Exception as e:
                     Logger.warning(f"APP: SAF selection failed: {str(e)}")
                     self.show_error(
@@ -940,6 +956,83 @@ class SubstationAndroidApp(App):
                 Logger.warning(f"APP: Failed to show permission notice: {e}")
 
         Clock.schedule_once(_show, 0)
+
+    def _build_android_header(self, main_layout):
+        Logger.info("APP: Creating Android header")
+
+        image_cls = None
+        color_cls = None
+        rectangle_cls = None
+        try:
+            from kivy.graphics import Color, Rectangle
+            from kivy.uix.image import Image
+
+            image_cls = Image
+            color_cls = Color
+            rectangle_cls = Rectangle
+        except Exception as e:
+            Logger.warning(f"APP: Header image imports unavailable: {e}")
+
+        logo_candidates = [
+            os.path.join(os.path.dirname(__file__), "logo_deddie.png"),
+            os.path.join(os.path.dirname(__file__), "deddie_logo.png"),
+        ]
+        logo_path = next(
+            (path for path in logo_candidates if os.path.exists(path)), None
+        )
+
+        if logo_path and image_cls and color_cls and rectangle_cls:
+            try:
+                logo_container = BoxLayout(
+                    size_hint_y=None,
+                    height=100,
+                    padding=[8, 8, 8, 8],
+                )
+
+                def redraw_bg(inst, _val):
+                    logo_container.canvas.before.clear()
+                    with logo_container.canvas.before:
+                        color_cls(1, 1, 1, 1)
+                        rectangle_cls(size=inst.size, pos=inst.pos)
+
+                logo_container.bind(size=redraw_bg, pos=redraw_bg)
+                logo = image_cls(source=logo_path, size_hint=(1, 1))
+                if hasattr(logo, "fit_mode"):
+                    logo.fit_mode = "contain"
+                logo_container.add_widget(logo)
+                redraw_bg(logo_container, None)
+                main_layout.add_widget(logo_container)
+            except Exception as e:
+                Logger.warning(f"APP: Could not load logo: {e}")
+
+        top_bar = BoxLayout(
+            orientation="horizontal",
+            size_hint_y=None,
+            height=52,
+            spacing=10,
+            padding=[10, 6, 10, 6],
+        )
+
+        settings_btn = Button(
+            text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
+            size_hint_x=None,
+            width=130,
+            font_size="14sp",
+        )
+        settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
+        top_bar.add_widget(settings_btn)
+
+        header_label = Label(
+            text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
+            bold=True,
+            font_size="17sp",
+            halign="left",
+            valign="middle",
+        )
+        header_label.bind(size=header_label.setter("text_size"))
+        top_bar.add_widget(header_label)
+
+        main_layout.add_widget(top_bar)
 
     def build(self):
         Logger.info("APP: ========== BUILD METHOD STARTING ==========")
@@ -1290,71 +1383,7 @@ class SubstationAndroidApp(App):
             main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
             Logger.info("APP: Main layout created successfully")
 
-            # Header with app title and logo
-            Logger.info("APP: Creating header with logo")
-            header_box = BoxLayout(size_hint_y=0.12, spacing=10, padding=[10, 12])
-
-            # Try to add logo if it exists with white background
-            try:
-                from kivy.uix.image import Image
-                from kivy.graphics import Color, Rectangle
-
-                logo_path = os.path.join(os.path.dirname(__file__), "logo_deddie.png")
-                if os.path.exists(logo_path):
-                    # Create container for logo with white background (wider for better visibility)
-                    logo_container = BoxLayout(size_hint_x=None, width=150, padding=3)
-
-                    def redraw_bg(inst, val):
-                        logo_container.canvas.before.clear()
-                        with logo_container.canvas.before:
-                            Color(1, 1, 1, 1)  # White background
-                            Rectangle(size=inst.size, pos=inst.pos)
-
-                    # Bind size and pos updates to redraw background rectangle
-                    logo_container.bind(size=redraw_bg, pos=redraw_bg)
-
-                    logo = Image(source=logo_path, size_hint_x=1)
-                    if hasattr(logo, "fit_mode"):
-                        logo.fit_mode = "contain"
-                    logo_container.add_widget(logo)
-                    redraw_bg(logo_container, None)  # Draw initial background
-                    header_box.add_widget(logo_container)
-            except Exception as e:
-                Logger.warning(f"APP: Could not load logo: {e}")
-
-            header_label = Label(
-                text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
-                bold=True,
-                font_size="18sp",
-                halign="left",
-                valign="middle",
-            )
-            header_label.bind(size=header_label.setter("text_size"))
-            header_box.add_widget(header_label)
-
-            # Add spacer to push settings button to the right
-            spacer = BoxLayout(size_hint_x=1)  # Takes up remaining space
-            header_box.add_widget(spacer)
-
-            # Settings button in header - use IconOnlyButton from desktop ui.shared
-            try:
-                from ui.shared import IconOnlyButton
-
-                settings_btn = IconOnlyButton(
-                    icon_type="settings",
-                    icon_color=[0.05, 0.18, 0.36, 1],
-                    size=(60, 60),
-                )
-            except Exception:
-                # Fallback: use text button if IconOnlyButton not available
-                settings_btn = Button(
-                    text="⚙", font_size="28sp", size_hint_x=None, width=60
-                )
-
-            settings_btn.bind(on_press=lambda x: self._show_sync_settings())
-            header_box.add_widget(settings_btn)
-
-            main_layout.add_widget(header_box)
+            self._build_android_header(main_layout)
             Logger.info("APP: Header added")
 
             # Database selection bar (cleaner, single row)
@@ -1369,7 +1398,7 @@ class SubstationAndroidApp(App):
             self.mode_label.bind(size=self.mode_label.setter("text_size"))
 
             self.local_db_btn = Button(
-                text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Επιλογή ΒΔ"),
+                text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Τοπική Βάση"),
                 size_hint_x=0.35,
                 font_size="13sp",
             )
