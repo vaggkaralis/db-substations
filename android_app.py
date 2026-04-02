@@ -1849,8 +1849,32 @@ class SubstationAndroidApp(App):
         """Attempt to open the change log folder on Android, fallback to copying path."""
         self._ensure_change_log_path()
         change_log_path = getattr(self, "change_log_path", "change_log.txt")
+        # If jnius isn't available (desktop/tests), present a friendly fallback:
         try:
             from jnius import autoclass
+        except ModuleNotFoundError:
+            try:
+                import importlib
+
+                clip = importlib.import_module("kivy.core.clipboard")
+                if hasattr(clip, "copy"):
+                    clip.copy(change_log_path)
+                elif hasattr(clip, "Clipboard") and hasattr(
+                    clip.Clipboard, "copy"
+                ):
+                    clip.Clipboard.copy(change_log_path)
+            except Exception:
+                pass
+            # Inform the user the feature isn't available and we've copied the path
+            try:
+                self.show_error(
+                    f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} μη διαθέσιμο σε αυτήν την πλατφόρμα. Η διαδρομή αντιγράφηκε στο πρόχειρο.",
+                    is_info=True,
+                )
+            except Exception:
+                pass
+            return
+        try:
 
             Intent = autoclass("android.content.Intent")
             Uri = autoclass("android.net.Uri")
@@ -5344,8 +5368,32 @@ class SubstationAndroidApp(App):
         """
         if not file_path:
             raise RuntimeError("No file path provided")
+
+        # If jnius isn't available (desktop/tests), fallback: copy path to clipboard
         try:
             from jnius import autoclass
+        except ModuleNotFoundError:
+            try:
+                import importlib
+
+                clip = importlib.import_module("kivy.core.clipboard")
+                if hasattr(clip, "copy"):
+                    clip.copy(file_path)
+                elif hasattr(clip, "Clipboard") and hasattr(
+                    clip.Clipboard, "copy"
+                ):
+                    clip.Clipboard.copy(file_path)
+            except Exception:
+                pass
+            try:
+                self.show_error(
+                    "Κοινοποίηση μη διαθέσιμη σε αυτήν την πλατφόρμα. Η διαδρομή αντιγράφηκε στο πρόχειρο.",
+                    is_info=True,
+                )
+            except Exception:
+                pass
+            return
+        try:
 
             Intent = autoclass("android.content.Intent")
             Uri = autoclass("android.net.Uri")
