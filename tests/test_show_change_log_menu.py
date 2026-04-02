@@ -35,3 +35,25 @@ def test_show_change_log_menu_popup(monkeypatch, tmp_path):
                 btns.append(g.text)
     assert any("Κοινοποίηση" in t for t in btns)
     assert any("Άνοιγμα" in t for t in btns)
+    assert any("Καθαρισμός" in t for t in btns)
+
+
+def test_clear_change_log_empties_file(tmp_path):
+    app = android_app.SubstationAndroidApp()
+    app.user_data_dir = str(tmp_path)
+    app.change_log_path = None
+    app._ensure_change_log_path()
+
+    with open(app.change_log_path, "w", encoding="utf-8") as handle:
+        handle.write('{"operation": "insert"}\n')
+
+    messages = []
+    app.show_error = lambda text, is_info=False: messages.append((text, is_info))
+
+    app._clear_change_log()
+
+    with open(app.change_log_path, "r", encoding="utf-8") as handle:
+        assert handle.read() == ""
+
+    assert messages
+    assert messages[-1][1] is True

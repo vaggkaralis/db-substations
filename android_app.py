@@ -2000,12 +2000,76 @@ class SubstationAndroidApp(App):
             except Exception:
                 pass
 
+    def _clear_change_log(self):
+        self._ensure_change_log_path()
+        change_log_path = getattr(self, "change_log_path", "change_log.txt")
+        try:
+            with open(change_log_path, "w", encoding="utf-8"):
+                pass
+            self.show_error(
+                S.get("MESSAGES", {}).get(
+                    "CHANGE_LOG_CLEARED", "Το change log καθαρίστηκε."
+                ),
+                is_info=True,
+            )
+        except Exception as e:
+            self.show_error(f"Αποτυχία καθαρισμού change log: {e}")
+
+    def _confirm_clear_change_log(self, parent_popup=None):
+        try:
+            confirm_popup = Popup(
+                title=S.get("MESSAGES", {}).get(
+                    "CONFIRM_CLEAR_CHANGE_LOG_TITLE", "Επιβεβαίωση"
+                ),
+                size_hint=(0.9, 0.24),
+            )
+            layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+            layout.add_widget(
+                Label(
+                    text=S.get("MESSAGES", {}).get(
+                        "CONFIRM_CLEAR_CHANGE_LOG",
+                        "Να καθαριστεί το change log;",
+                    )
+                )
+            )
+            btns = BoxLayout(size_hint_y=None, height=48, spacing=8)
+            yes_btn = Button(text=S.get("BUTTONS", {}).get("YES", "Ναι"))
+            no_btn = Button(text=S.get("BUTTONS", {}).get("NO", "Όχι"))
+
+            def _on_yes(_):
+                try:
+                    confirm_popup.dismiss()
+                except Exception:
+                    pass
+                try:
+                    if parent_popup is not None:
+                        parent_popup.dismiss()
+                except Exception:
+                    pass
+                self._clear_change_log()
+
+            def _on_no(_):
+                try:
+                    confirm_popup.dismiss()
+                except Exception:
+                    pass
+
+            yes_btn.bind(on_press=_on_yes)
+            no_btn.bind(on_press=_on_no)
+            btns.add_widget(yes_btn)
+            btns.add_widget(no_btn)
+            layout.add_widget(btns)
+            confirm_popup.content = layout
+            confirm_popup.open()
+        except Exception as e:
+            self.show_error(f"Αποτυχία ανοίγματος επιβεβαίωσης: {e}")
+
     def show_change_log_menu(self):
         """Show a popup that allows opening or sharing the change-log file."""
         self._ensure_change_log_path()
         change_log_path = getattr(self, "change_log_path", "change_log.txt")
         try:
-            p = Popup(title="Change log actions", size_hint=(0.95, 0.28))
+            p = Popup(title="Change log actions", size_hint=(0.95, 0.32))
             layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
             # Show file path and basic file info so users can debug missing files
             try:
@@ -2048,6 +2112,11 @@ class SubstationAndroidApp(App):
             share_btn = Button(
                 text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση")
             )
+            clear_btn = Button(
+                text=S.get("MESSAGES", {}).get(
+                    "CLEAR_CHANGE_LOG", "Καθαρισμός change log"
+                )
+            )
 
             def _on_share(_):
                 try:
@@ -2072,8 +2141,10 @@ class SubstationAndroidApp(App):
                         pass
 
             share_btn.bind(on_press=_on_share)
+            clear_btn.bind(on_press=lambda _x: self._confirm_clear_change_log(p))
             btns.add_widget(open_btn)
             btns.add_widget(share_btn)
+            btns.add_widget(clear_btn)
             layout.add_widget(label)
             layout.add_widget(btns)
             p.content = layout
