@@ -131,6 +131,16 @@ def _check_sqlite_integrity(
             return
 
         result.add_error(f"SQLite integrity check failed: {integrity_errors[0]}")
+    except sqlite3.DatabaseError as e:
+        repaired_objects = _attempt_malformed_db_repair(conn, cursor, e)
+        if repaired_objects:
+            result.add_warning(
+                "SQLite malformed database condition was repaired automatically: "
+                + ", ".join(repaired_objects)
+            )
+            result.add_info("SQLite integrity check passed after automatic repair")
+            return
+        result.add_error(f"Could not perform SQLite integrity check: {e}")
     except Exception as e:
         result.add_error(f"Could not perform SQLite integrity check: {e}")
 
@@ -190,6 +200,86 @@ def _attempt_index_auto_repair(
         return recreated_indexes
 
     return []
+
+
+def _attempt_malformed_db_repair(
+    conn: sqlite3.Connection, cursor: sqlite3.Cursor, error: Exception
+) -> List[str]:
+    error_text = str(error).lower()
+    if "malformed" not in error_text and "disk image is malformed" not in error_text:
+        return []
+
+    try:
+        cursor.execute("REINDEX")
+        conn.commit()
+        if not _collect_integrity_errors(cursor):
+            return ["REINDEX"]
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+    recreated_indexes = _recreate_all_user_indexes(conn, cursor)
+    if not recreated_indexes:
+        return []
+
+    try:
+        if not _collect_integrity_errors(cursor):
+            return recreated_indexes
+    except Exception:
+        return []
+
+    return []
+
+
+def _recreate_all_user_indexes(
+    conn: sqlite3.Connection, cursor: sqlite3.Cursor
+) -> List[str]:
+    index_definitions = _get_recreatable_indexes(cursor)
+    if not index_definitions:
+        return []
+
+    recreated_indexes = []
+    for index_name, create_sql in index_definitions:
+        try:
+            cursor.execute(f"DROP INDEX IF EXISTS {_quote_identifier(index_name)}")
+            cursor.execute(create_sql)
+            recreated_indexes.append(index_name)
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return []
+
+    try:
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return []
+
+    return recreated_indexes
+
+
+def _get_recreatable_indexes(cursor: sqlite3.Cursor) -> List[tuple[str, str]]:
+    cursor.execute(
+        """
+        SELECT name, sql
+        FROM sqlite_master
+        WHERE type='index'
+          AND sql IS NOT NULL
+        ORDER BY name
+        """
+    )
+    return [
+        (row[0], row[1])
+        for row in cursor.fetchall()
+        if row and len(row) >= 2 and row[0] and row[1]
+    ]
 
 
 def _extract_repairable_index_names(integrity_errors: List[str]) -> List[str]:

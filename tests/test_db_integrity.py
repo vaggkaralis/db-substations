@@ -7,7 +7,9 @@ from unittest.mock import Mock
 
 from db_integrity import (
     _attempt_index_auto_repair,
+    _attempt_malformed_db_repair,
     _extract_repairable_index_names,
+    _recreate_all_user_indexes,
     check_database_integrity,
 )
 from database import init_db
@@ -247,4 +249,77 @@ def test_attempt_index_auto_repair_with_reindex_only():
     )
 
     assert repaired == ["idx_maintenance_overview_report_paths_maint_gate"]
+    fake_conn.commit.assert_called()
+
+
+def test_attempt_malformed_db_repair_with_reindex_only():
+    class FakeCursor:
+        def __init__(self):
+            self.last_sql = None
+            self.integrity_calls = 1
+
+        def execute(self, sql, params=None):
+            self.last_sql = sql.strip()
+            return self
+
+        def fetchall(self):
+            if self.last_sql == "PRAGMA integrity_check":
+                self.integrity_calls += 1
+                if self.integrity_calls == 1:
+                    raise sqlite3.DatabaseError("database disk image is malformed")
+                return [("ok",)]
+            return []
+
+        def fetchone(self):
+            return None
+
+    fake_conn = Mock()
+    fake_cursor = FakeCursor()
+
+    repaired = _attempt_malformed_db_repair(
+        fake_conn,
+        fake_cursor,
+        sqlite3.DatabaseError("database disk image is malformed"),
+    )
+
+    assert repaired == ["REINDEX"]
+    fake_conn.commit.assert_called()
+
+
+def test_recreate_all_user_indexes_rebuilds_declared_indexes():
+    class FakeCursor:
+        def __init__(self):
+            self.last_sql = None
+            self.executed_sql = []
+
+        def execute(self, sql, params=None):
+            normalized_sql = sql.strip()
+            self.last_sql = normalized_sql
+            self.executed_sql.append(normalized_sql)
+            return self
+
+        def fetchall(self):
+            if "FROM sqlite_master" in self.last_sql:
+                return [
+                    (
+                        "idx_demo",
+                        "CREATE INDEX idx_demo ON demo_table(example_column)",
+                    )
+                ]
+            return []
+
+        def fetchone(self):
+            return None
+
+    fake_conn = Mock()
+    fake_cursor = FakeCursor()
+
+    recreated = _recreate_all_user_indexes(fake_conn, fake_cursor)
+
+    assert recreated == ["idx_demo"]
+    assert 'DROP INDEX IF EXISTS "idx_demo"' in fake_cursor.executed_sql
+    assert (
+        "CREATE INDEX idx_demo ON demo_table(example_column)"
+        in fake_cursor.executed_sql
+    )
     fake_conn.commit.assert_called()
