@@ -228,6 +228,7 @@ if "Clock" not in globals():
 
         Clock = _Clock
     except Exception:
+
         class _DummyClock:
             @staticmethod
             def schedule_once(callback, timeout=0):
