@@ -1240,18 +1240,22 @@ class SubstationAndroidApp(App):
             Logger.info("APP: Setting window title")
             self.title = "DB Substations"
             # Ensure spinner dropdowns are fully opaque
-            from kivy.uix.spinner import SpinnerOption
+            from kivy.uix.spinner import Spinner, SpinnerOption
 
             primary = (0.05, 0.18, 0.36, 1)
             text_on_primary = (1, 1, 1, 1)
-            Spinner.background_normal = ""
-            Spinner.background_down = ""
-            Spinner.background_color = primary
-            Spinner.color = text_on_primary
-            SpinnerOption.background_normal = ""
-            SpinnerOption.background_down = ""
-            SpinnerOption.background_color = primary
-            SpinnerOption.color = text_on_primary
+            try:
+                Spinner.background_normal = ""
+                Spinner.background_down = ""
+                Spinner.background_color = primary
+                Spinner.color = text_on_primary
+                SpinnerOption.background_normal = ""
+                SpinnerOption.background_down = ""
+                SpinnerOption.background_color = primary
+                SpinnerOption.color = text_on_primary
+            except Exception:
+                # If Spinner isn't available for some runtime, skip styling
+                Logger.debug("APP: Spinner styling skipped (Spinner unavailable)")
             Logger.info("APP: Creating main_layout BoxLayout")
             main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
             Logger.info("APP: Main layout created successfully")
