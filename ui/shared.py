@@ -472,7 +472,9 @@ class IconWidget(Widget):
                 )
 
 
-def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8, break_on_space=False):
+def autosize_button_text(
+    widget, max_sp=32, min_sp=8, padding_dp=8, break_on_space=False
+):
     """Adjust `widget.font_size` so its text fits within widget.width on one line.
 
     Uses CoreLabel to measure rendered width for candidate font sizes and sets
@@ -526,7 +528,9 @@ def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8, break_on_spa
     # the UI shows the line break before autosizing.
     if break_on_space:
         try:
-            orig = getattr(widget, "_autosize_original_text", None) or getattr(widget, "text", "")
+            orig = getattr(widget, "_autosize_original_text", None) or getattr(
+                widget, "text", ""
+            )
             if " " in orig and "\n" not in orig:
                 widget.text = orig.replace(" ", "\n", 1)
         except Exception:

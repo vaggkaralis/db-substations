@@ -1859,9 +1859,7 @@ class SubstationAndroidApp(App):
                 clip = importlib.import_module("kivy.core.clipboard")
                 if hasattr(clip, "copy"):
                     clip.copy(change_log_path)
-                elif hasattr(clip, "Clipboard") and hasattr(
-                    clip.Clipboard, "copy"
-                ):
+                elif hasattr(clip, "Clipboard") and hasattr(clip.Clipboard, "copy"):
                     clip.Clipboard.copy(change_log_path)
             except Exception:
                 pass
@@ -1875,7 +1873,6 @@ class SubstationAndroidApp(App):
                 pass
             return
         try:
-
             Intent = autoclass("android.content.Intent")
             Uri = autoclass("android.net.Uri")
             File = autoclass("java.io.File")
@@ -2641,7 +2638,9 @@ class SubstationAndroidApp(App):
             )
             try:
                 if autosize_button_text:
-                    autosize_button_text(substation_btn, max_sp=40, min_sp=12, break_on_space=True)
+                    autosize_button_text(
+                        substation_btn, max_sp=40, min_sp=12, break_on_space=True
+                    )
             except Exception:
                 pass
             substation_btn.bind(
@@ -5379,9 +5378,7 @@ class SubstationAndroidApp(App):
                 clip = importlib.import_module("kivy.core.clipboard")
                 if hasattr(clip, "copy"):
                     clip.copy(file_path)
-                elif hasattr(clip, "Clipboard") and hasattr(
-                    clip.Clipboard, "copy"
-                ):
+                elif hasattr(clip, "Clipboard") and hasattr(clip.Clipboard, "copy"):
                     clip.Clipboard.copy(file_path)
             except Exception:
                 pass
@@ -5394,7 +5391,6 @@ class SubstationAndroidApp(App):
                 pass
             return
         try:
-
             Intent = autoclass("android.content.Intent")
             Uri = autoclass("android.net.Uri")
             File = autoclass("java.io.File")
