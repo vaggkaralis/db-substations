@@ -2617,7 +2617,7 @@ class SubstationAndroidApp(App):
             )
             try:
                 if autosize_button_text:
-                    autosize_button_text(substation_btn, max_sp=40, min_sp=12)
+                    autosize_button_text(substation_btn, max_sp=40, min_sp=12, break_on_space=True)
             except Exception:
                 pass
             substation_btn.bind(

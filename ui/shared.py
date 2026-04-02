@@ -472,7 +472,7 @@ class IconWidget(Widget):
                 )
 
 
-def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8):
+def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8, break_on_space=False):
     """Adjust `widget.font_size` so its text fits within widget.width on one line.
 
     Uses CoreLabel to measure rendered width for candidate font sizes and sets
@@ -485,11 +485,23 @@ def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8):
             text = getattr(widget, "text", "") or ""
             if not text:
                 return
+            # Optionally break the text at the first whitespace to allow
+            # a multiline label before measuring and autosizing. Store the
+            # original text so callers can still access it if needed.
+            if not hasattr(widget, "_autosize_original_text"):
+                try:
+                    widget._autosize_original_text = text
+                except Exception:
+                    pass
+            if break_on_space and " " in text and "\n" not in text:
+                display_text = text.replace(" ", "\n", 1)
+            else:
+                display_text = text
             padding = dp(padding_dp)
             avail = max(1, widget.width - padding * 2)
             for size in range(int(max_sp), int(min_sp) - 1, -1):
                 lbl = CoreLabel(
-                    text=text,
+                    text=display_text,
                     font_size=sp(size),
                     font_name=getattr(widget, "font_name", None),
                     markup=getattr(widget, "markup", False),
@@ -509,6 +521,16 @@ def autosize_button_text(widget, max_sp=32, min_sp=8, padding_dp=8):
         widget.valign = getattr(widget, "valign", "middle")
     except Exception:
         pass
+
+    # If requested, set the widget text to the broken-line display text so
+    # the UI shows the line break before autosizing.
+    if break_on_space:
+        try:
+            orig = getattr(widget, "_autosize_original_text", None) or getattr(widget, "text", "")
+            if " " in orig and "\n" not in orig:
+                widget.text = orig.replace(" ", "\n", 1)
+        except Exception:
+            pass
 
     widget.bind(width=lambda i, v: _compute_and_apply())
     _compute_and_apply()
