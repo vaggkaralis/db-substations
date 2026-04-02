@@ -1,10 +1,15 @@
 import os
 import sys
+from unittest.mock import patch
 
 # Ensure project root is on sys.path when running from tests/ directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from android_app import SubstationAndroidApp  # noqa: E402
+from android_app import (  # noqa: E402
+    SubstationAndroidApp,
+    _build_inspection_fields,
+    _configure_kivy_environment,
+)
 
 
 def test_copy_success():
@@ -51,9 +56,74 @@ def test_copy_failure():
     )
 
 
+def test_auto_load_saved_content_uri_uses_local_mode():
+    app = SubstationAndroidApp()
+    loaded_paths = []
+    app.local_db_path = None
+    app._get_saved_db_path = lambda: (
+        "content://com.android.providers.documents/document/1"
+    )
+    app.use_local_mode = lambda path: loaded_paths.append(path)
+
+    assert app._auto_load_saved_db() is True
+    assert loaded_paths == ["content://com.android.providers.documents/document/1"]
+
+
+def test_auto_load_saved_internal_storage_path_normalizes_before_loading():
+    app = SubstationAndroidApp()
+    loaded_paths = []
+    raw_path = "/Internal storage/Download/substations.db"
+    normalized_path = "/storage/emulated/0/Download/substations.db"
+    app.local_db_path = None
+    app._get_saved_db_path = lambda: raw_path
+    app.use_local_mode = lambda path: loaded_paths.append(path)
+
+    with patch(
+        "android_app.os.path.exists", side_effect=lambda path: path == normalized_path
+    ):
+        assert app._auto_load_saved_db() is True
+
+    assert loaded_paths == [normalized_path]
+
+
+def test_configure_kivy_environment_uses_android_private_dir(monkeypatch, tmp_path):
+    android_private = tmp_path / "private"
+    android_argument = android_private / "app"
+    monkeypatch.setenv("ANDROID_PRIVATE", str(android_private))
+    monkeypatch.setenv("ANDROID_ARGUMENT", str(android_argument))
+
+    kivy_home = _configure_kivy_environment()
+
+    assert kivy_home == str(android_private / ".kivy")
+    assert os.environ["HOME"] == str(android_private)
+    assert os.environ["KIVY_HOME"] == str(android_private / ".kivy")
+    assert os.path.isdir(android_private / ".kivy" / "icon")
+    assert os.path.isdir(android_private / ".kivy" / "logs")
+
+
+def test_build_inspection_fields_tolerates_missing_rows():
+    fields = _build_inspection_fields({"MESSAGES": {"INSPECTION_ROWS": []}})
+
+    section_titles = [field["title"] for field in fields if isinstance(field, dict)]
+    assert section_titles == [
+        "1. Έλεγχος Χώρων ΥΣ",
+        "2. Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV",
+        "3α. Υπαίθριες πύλες 20 kV",
+        "3β. Πίνακες 20 kV",
+        "4. Κτίριο χειρισμών & Τ.Α.Σ.",
+        "5. Αποζεύκτες Γραμμών",
+        "6. PC ΧΕΙΡΙΣΜΩΝ",
+        "7. Απόψεις",
+    ]
+
+
 if __name__ == "__main__":
     print("Running content URI success test")
     test_copy_success()
     print("Running content URI failure test")
     test_copy_failure()
+    print("Running content URI auto-load test")
+    test_auto_load_saved_content_uri_uses_local_mode()
+    print("Running internal storage auto-load normalization test")
+    test_auto_load_saved_internal_storage_path_normalizes_before_loading()
     print("Done")

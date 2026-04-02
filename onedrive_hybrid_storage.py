@@ -3237,7 +3237,9 @@ def retrofit_maintenance_instance_folder_names(
                                 os.makedirs(
                                     os.path.dirname(fallback_target), exist_ok=True
                                 )
-                                shutil.move(_win_path(source_path), _win_path(fallback_target))
+                                shutil.move(
+                                    _win_path(source_path), _win_path(fallback_target)
+                                )
                             renamed_folders += 1
                             final_target = fallback_target
                     except Exception:
@@ -3618,7 +3620,9 @@ def retrofit_folder_labels_to_greek(
                     if not dry_run:
                         os.makedirs(os.path.dirname(new_instance), exist_ok=True)
                         if not os.path.exists(new_instance):
-                            shutil.move(_win_path(old_instance), _win_path(new_instance))
+                            shutil.move(
+                                _win_path(old_instance), _win_path(new_instance)
+                            )
                     moved += 1
         except Exception as exc:
             errors.append(f"maintenance {maintenance_id} gate {gate_key}: {exc}")

@@ -10,6 +10,8 @@ Features:
 """
 
 import json
+import importlib
+import logging
 import os
 import shutil
 import sqlite3
@@ -18,8 +20,42 @@ import threading
 import traceback
 from datetime import datetime
 
-# Set up logging FIRST before any other imports
-from kivy.logger import Logger
+
+def _configure_kivy_environment():
+    """Point Kivy state to a writable app-private directory on Android."""
+    android_private = os.environ.get("ANDROID_PRIVATE", "").strip()
+    android_argument = os.environ.get("ANDROID_ARGUMENT", "").strip()
+    if not android_private and not android_argument:
+        return None
+
+    base_dir = android_private or os.path.dirname(android_argument.rstrip("\\/"))
+    if not base_dir:
+        return None
+
+    kivy_home = os.path.join(base_dir, ".kivy")
+    try:
+        os.makedirs(os.path.join(kivy_home, "icon"), exist_ok=True)
+        os.makedirs(os.path.join(kivy_home, "logs"), exist_ok=True)
+    except Exception:
+        return None
+
+    os.environ["HOME"] = base_dir
+    os.environ["KIVY_HOME"] = kivy_home
+    os.environ.setdefault("XDG_CONFIG_HOME", base_dir)
+    os.environ.setdefault("XDG_CACHE_HOME", base_dir)
+    return kivy_home
+
+
+_EARLY_LOGGER = logging.getLogger("android_app.bootstrap")
+_EARLY_KIVY_HOME = _configure_kivy_environment()
+
+# Set up logging FIRST before any other Kivy imports
+Logger = importlib.import_module("kivy.logger").Logger
+
+if _EARLY_KIVY_HOME:
+    Logger.info(f"APP: Kivy home redirected to {_EARLY_KIVY_HOME}")
+else:
+    _EARLY_LOGGER.debug("Kivy home redirection not applied")
 
 Logger.info("APP: ========== Starting DB Substations App ==========")
 Logger.info(f"APP: Python version: {sys.version}")
@@ -57,9 +93,102 @@ def _global_exception_handler(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = _global_exception_handler
 
-try:
-    import importlib
 
+def _build_inspection_fields(strings_map):
+    messages = strings_map.get("MESSAGES", {}) if isinstance(strings_map, dict) else {}
+    rows = list(messages.get("INSPECTION_ROWS", []) or [])
+    fields = []
+
+    sec1 = messages.get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
+    fields.extend(
+        [
+            {"type": "section", "title": f"1. {sec1}"},
+            messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
+                n=1, sec=sec1
+            ),
+        ]
+    )
+    fields.extend(rows[0:4])
+
+    sec2 = messages.get("INSPECTION_SECTION_3", "Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV")
+    fields.extend(
+        [
+            {"type": "section", "title": f"2. {sec2}"},
+            messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
+                n=2, sec=sec2
+            ),
+        ]
+    )
+    fields.extend(rows[4:12])
+
+    sec3a = messages.get("INSPECTION_SECTION_3A", "Υπαίθριες πύλες 20 kV")
+    fields.extend(
+        [
+            {"type": "section", "title": f"3α. {sec3a}"},
+            messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
+                n="3α", sec=sec3a
+            ),
+        ]
+    )
+    if len(rows) > 12:
+        fields.append(rows[12])
+
+    sec3b = messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV")
+    fields.extend(
+        [
+            {"type": "section", "title": f"3β. {sec3b}"},
+            messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
+                n="3β", sec=sec3b
+            ),
+        ]
+    )
+    fields.extend(rows[13:15])
+
+    sec4 = messages.get("INSPECTION_SECTION_4", "Κτίριο χειρισμών & Τ.Α.Σ.")
+    fields.extend(
+        [
+            {"type": "section", "title": f"4. {sec4}"},
+            messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
+                n=4, sec=sec4
+            ),
+        ]
+    )
+    fields.extend(rows[15:18])
+
+    sec5 = messages.get("INSPECTION_SECTION_5", "Αποζεύκτες Γραμμών")
+    fields.extend(
+        [
+            {"type": "section", "title": f"5. {sec5}"},
+            messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
+                n=5, sec=sec5
+            ),
+        ]
+    )
+    if len(rows) > 18:
+        fields.append(rows[18])
+
+    sec6 = messages.get("INSPECTION_SECTION_6", "PC ΧΕΙΡΙΣΜΩΝ")
+    fields.extend(
+        [
+            {"type": "section", "title": f"6. {sec6}"},
+            messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
+                n=6, sec=sec6
+            ),
+        ]
+    )
+    fields.extend(rows[19:21])
+
+    sec7 = messages.get("INSPECTION_SECTION_7", "Απόψεις")
+    fields.extend(
+        [
+            {"type": "section", "title": f"7. {sec7}"},
+            messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις"),
+        ]
+    )
+    return fields
+
+
+try:
     import kivy
 
     Logger.info(f"APP: Kivy version: {kivy.__version__}")
@@ -239,98 +368,7 @@ class SubstationAndroidApp(App):
             "hint": S.get("MESSAGES", {}).get("GATE_HINT", "π.χ. ΠΥΛΗ 1"),
         },
     ]
-    # Build INSPECTION_FIELDS from centralized strings to avoid duplication
-    INSPECTION_FIELDS = []
-    rows = S.get("MESSAGES", {}).get("INSPECTION_ROWS", [])
-    # Section 1
-    sec1 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"1. {sec1}"},
-            S.get("MESSAGES", {})
-            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
-            .format(n=1, sec=sec1),
-        ]
-    )
-    INSPECTION_FIELDS.extend(rows[0:4])
-    # Section 2
-    sec2 = S.get("MESSAGES", {}).get(
-        "INSPECTION_SECTION_3", "Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV"
-    )
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"2. {sec2}"},
-            S.get("MESSAGES", {})
-            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
-            .format(n=2, sec=sec2),
-        ]
-    )
-    INSPECTION_FIELDS.extend(rows[4:12])
-    # Section 3a
-    sec3a = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3A", "Υπαίθριες πύλες 20 kV")
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"3α. {sec3a}"},
-            S.get("MESSAGES", {})
-            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
-            .format(n="3α", sec=sec3a),
-        ]
-    )
-    INSPECTION_FIELDS.append(rows[12])
-    # Section 3b
-    sec3b = S.get("MESSAGES", {}).get("INSPECTION_SECTION_3B", "Πίνακες 20 kV")
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"3β. {sec3b}"},
-            S.get("MESSAGES", {})
-            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
-            .format(n="3β", sec=sec3b),
-        ]
-    )
-    INSPECTION_FIELDS.extend(rows[13:15])
-    # Section 4
-    sec4 = S.get("MESSAGES", {}).get(
-        "INSPECTION_SECTION_4", "Κτίριο χειρισμών & Τ.Α.Σ."
-    )
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"4. {sec4}"},
-            S.get("MESSAGES", {})
-            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
-            .format(n=4, sec=sec4),
-        ]
-    )
-    INSPECTION_FIELDS.extend(rows[15:18])
-    # Section 5
-    sec5 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_5", "Αποζεύκτες Γραμμών")
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"5. {sec5}"},
-            S.get("MESSAGES", {})
-            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
-            .format(n=5, sec=sec5),
-        ]
-    )
-    INSPECTION_FIELDS.append(rows[18])
-    # Section 6
-    sec6 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_6", "PC ΧΕΙΡΙΣΜΩΝ")
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"6. {sec6}"},
-            S.get("MESSAGES", {})
-            .get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})")
-            .format(n=6, sec=sec6),
-        ]
-    )
-    INSPECTION_FIELDS.extend(rows[19:21])
-    # Final section: opinions
-    sec7 = S.get("MESSAGES", {}).get("INSPECTION_SECTION_7", "Απόψεις")
-    INSPECTION_FIELDS.extend(
-        [
-            {"type": "section", "title": f"7. {sec7}"},
-            S.get("MESSAGES", {}).get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις"),
-        ]
-    )
+    INSPECTION_FIELDS = _build_inspection_fields(S)
 
     def open_local_db_picker(self):
         # Last working version: prompt for DB path and allow file selection
@@ -1399,19 +1437,33 @@ class SubstationAndroidApp(App):
     def _auto_load_saved_db(self):
         """Attempt to auto-load saved DB path if available. Returns True if loaded, False otherwise."""
         try:
-            db_path = getattr(self, "local_db_path", None)
-            if db_path and os.path.exists(db_path):
-                self.use_local_mode(db_path)
+            for raw_path in (
+                getattr(self, "local_db_path", None),
+                self._get_saved_db_path()
+                if hasattr(self, "_get_saved_db_path")
+                else None,
+            ):
+                loadable_path = self._get_auto_load_db_path(raw_path)
+                if not loadable_path:
+                    continue
+                self.use_local_mode(loadable_path)
                 return True
-            # Optionally, check for a saved DB path in persistent storage
-            if hasattr(self, "_get_saved_db_path"):
-                saved_path = self._get_saved_db_path()
-                if saved_path and os.path.exists(saved_path):
-                    self.use_local_mode(saved_path)
-                    return True
         except Exception as e:
             self.show_error(f"Auto-load DB error: {str(e)}")
         return False
+
+    def _get_auto_load_db_path(self, path_value):
+        if not path_value:
+            return None
+        candidate = str(path_value).strip()
+        if candidate.lower() in ("", "none", "null"):
+            return None
+        normalized = self._normalize_android_storage_path(candidate)
+        if normalized.startswith("content://"):
+            return normalized
+        if os.path.exists(normalized):
+            return normalized
+        return None
 
     def _local_fetch_substations(self):
         if not self.local_db_path or not os.path.exists(self.local_db_path):
