@@ -5298,8 +5298,16 @@ class SubstationAndroidApp(App):
                     data_parts = []
                     # Avoid duplicate display: if element comments exactly match
                     # the maintenance overall comments, only show the maintenance comments.
-                    maint_clean = (overall_comments or "").strip() if overall_comments is not None else ""
-                    elem_clean = (element_comments or "").strip() if element_comments is not None else ""
+                    maint_clean = (
+                        (overall_comments or "").strip()
+                        if overall_comments is not None
+                        else ""
+                    )
+                    elem_clean = (
+                        (element_comments or "").strip()
+                        if element_comments is not None
+                        else ""
+                    )
                     if elem_clean and elem_clean != maint_clean:
                         data_parts.append(
                             f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}"
@@ -5353,7 +5361,9 @@ class SubstationAndroidApp(App):
                                 width=lambda i, w: setattr(i, "text_size", (w, None))
                             )
                             inst.bind(
-                                texture_size=lambda i, s: setattr(i, "height", s[1] + 10)
+                                texture_size=lambda i, s: setattr(
+                                    i, "height", s[1] + 10
+                                )
                             )
 
                         _bind_data_size(data_label)
