@@ -640,6 +640,12 @@ class MaintenanceReportGenerator:
 
     def setup_fonts(self):
         """Setup fonts for Greek text support"""
+        # If ReportLab isn't available, skip font registration and use Helvetica
+        if not _HAS_REPORTLAB:
+            logging.warning("ReportLab not available; using Helvetica for PDFs")
+            self.greek_font = "Helvetica"
+            return
+
         # Register fonts with full Greek polytonic (accented) character support
         try:
             import platform

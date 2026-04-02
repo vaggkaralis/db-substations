@@ -2073,19 +2073,27 @@ class SubstationAndroidApp(App):
                 return
 
             Logger.info("SYNC: Starting startup sync cycle")
-            result = self._perform_sync()
 
-            # Show result if there were changes
-            if result:
-                sync_result = result.get("sync", {})
-                accepted = sync_result.get("accepted", 0)
-                conflicts = sync_result.get("conflicts", 0)
-                if accepted > 0 or conflicts > 0:
-                    msg = f"Εισήχθησαν {accepted} αλλαγές"
-                    if conflicts > 0:
-                        msg += f", {conflicts} συγκρούσεις"
-                    Logger.info(f"SYNC: {msg}")
-                    # Optionally show notification to user
+            def _sync_worker():
+                try:
+                    result = self._perform_sync()
+                    # Show result if there were changes
+                    if result:
+                        sync_result = result.get("sync", {})
+                        accepted = sync_result.get("accepted", 0)
+                        conflicts = sync_result.get("conflicts", 0)
+                        if accepted > 0 or conflicts > 0:
+                            msg = f"Εισήχθησαν {accepted} αλλαγές"
+                            if conflicts > 0:
+                                msg += f", {conflicts} συγκρούσεις"
+                            Logger.info(f"SYNC: {msg}")
+                    Clock.schedule_once(lambda dt: self._on_sync_complete(result), 0)
+                except Exception as e:
+                    err = str(e)
+                    Clock.schedule_once(lambda dt, msg=err: self._on_sync_error(msg), 0)
+
+            t = threading.Thread(target=_sync_worker, daemon=True)
+            t.start()
         except Exception as e:
             Logger.warning(f"SYNC: Startup sync error: {e}")
 
