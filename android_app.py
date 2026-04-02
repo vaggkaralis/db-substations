@@ -5296,7 +5296,11 @@ class SubstationAndroidApp(App):
 
                     # Element-specific data
                     data_parts = []
-                    if element_comments:
+                    # Avoid duplicate display: if element comments exactly match
+                    # the maintenance overall comments, only show the maintenance comments.
+                    maint_clean = (overall_comments or "").strip() if overall_comments is not None else ""
+                    elem_clean = (element_comments or "").strip() if element_comments is not None else ""
+                    if elem_clean and elem_clean != maint_clean:
                         data_parts.append(
                             f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}"
                         )
