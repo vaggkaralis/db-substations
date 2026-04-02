@@ -5327,27 +5327,37 @@ class SubstationAndroidApp(App):
 
                     if data_parts:
                         data_text = "\n".join(data_parts)
+                    elif overall_comments:
+                        # If there are no element-specific data parts but the
+                        # maintenance has overall comments, avoid showing the
+                        # placeholder "No specific data for element" — the
+                        # maintenance comments are shown separately below.
+                        data_text = ""
                     else:
                         data_text = "Δεν υπάρχουν συγκεκριμένα δεδομένα για το στοιχείο"
 
-                    data_label = Label(
-                        text=data_text,
-                        size_hint_y=None,
-                        markup=True,
-                        halign="left",
-                        valign="top",
-                        color=(0.5, 0.5, 0.5, 1),
-                    )
-
-                    def _bind_data_size(inst):
-                        inst.text_size = (inst.width, None)
-                        inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
-                        inst.bind(
-                            texture_size=lambda i, s: setattr(i, "height", s[1] + 10)
+                    # Only add the data label when there is something to show.
+                    if data_text and data_text.strip():
+                        data_label = Label(
+                            text=data_text,
+                            size_hint_y=None,
+                            markup=True,
+                            halign="left",
+                            valign="top",
+                            color=(0.5, 0.5, 0.5, 1),
                         )
 
-                    _bind_data_size(data_label)
-                    maint_layout.add_widget(data_label)
+                        def _bind_data_size(inst):
+                            inst.text_size = (inst.width, None)
+                            inst.bind(
+                                width=lambda i, w: setattr(i, "text_size", (w, None))
+                            )
+                            inst.bind(
+                                texture_size=lambda i, s: setattr(i, "height", s[1] + 10)
+                            )
+
+                        _bind_data_size(data_label)
+                        maint_layout.add_widget(data_label)
 
                     # Add overall comments if present
                     if overall_comments:
