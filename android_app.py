@@ -217,6 +217,35 @@ except Exception as e:
     Logger.warning(f"APP: Kivy import failed: {str(e)}")
     platform = "unknown"
 
+# Ensure `Clock` is always defined. On some runtime paths (or if Kivy
+# imports fail transiently) code later in the app expects `Clock` to exist.
+# Attempt a normal import first, otherwise provide a minimal dummy
+# implementation that executes scheduled callbacks immediately so the app
+# doesn't raise NameError on devices where the import path differs.
+if "Clock" not in globals():
+    try:
+        from kivy.clock import Clock as _Clock
+
+        Clock = _Clock
+    except Exception:
+        class _DummyClock:
+            @staticmethod
+            def schedule_once(callback, timeout=0):
+                try:
+                    callback(0)
+                except TypeError:
+                    callback()
+
+            @staticmethod
+            def schedule_interval(callback, interval):
+                try:
+                    callback(0)
+                except TypeError:
+                    callback()
+                return None
+
+        Clock = _DummyClock
+
 # Android-specific imports
 filechooser = None
 FileChooserListView = None
