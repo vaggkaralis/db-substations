@@ -3,8 +3,13 @@
 import os
 import sqlite3
 import tempfile
+from unittest.mock import Mock
 
-from db_integrity import check_database_integrity
+from db_integrity import (
+    _attempt_index_auto_repair,
+    _extract_repairable_index_names,
+    check_database_integrity,
+)
 from database import init_db
 
 
@@ -197,3 +202,49 @@ def test_integrity_result_summary():
     assert "Test error" in summary
     assert "Test warning" in summary
     assert "Test info" in summary
+
+
+def test_extract_repairable_index_names():
+    names = _extract_repairable_index_names(
+        [
+            "wrong # of entries in index idx_maintenance_overview_report_paths_maint_gate",
+            "row 7 missing from index idx_maintenance_report_paths_maint_elem",
+        ]
+    )
+
+    assert names == [
+        "idx_maintenance_overview_report_paths_maint_gate",
+        "idx_maintenance_report_paths_maint_elem",
+    ]
+
+
+def test_attempt_index_auto_repair_with_reindex_only():
+    class FakeCursor:
+        def __init__(self):
+            self.last_sql = None
+
+        def execute(self, sql, params=None):
+            self.last_sql = sql
+            return self
+
+        def fetchall(self):
+            if self.last_sql == "PRAGMA integrity_check":
+                return [("ok",)]
+            return []
+
+        def fetchone(self):
+            return None
+
+    fake_conn = Mock()
+    fake_cursor = FakeCursor()
+
+    repaired = _attempt_index_auto_repair(
+        fake_conn,
+        fake_cursor,
+        [
+            "wrong # of entries in index idx_maintenance_overview_report_paths_maint_gate"
+        ],
+    )
+
+    assert repaired == ["idx_maintenance_overview_report_paths_maint_gate"]
+    fake_conn.commit.assert_called()

@@ -8,6 +8,7 @@ This module performs comprehensive checks when loading a database to detect:
 - Inconsistent state (e.g., null values in required fields)
 """
 
+import re
 import sqlite3
 from typing import List
 
@@ -78,7 +79,7 @@ def check_database_integrity(
         cursor = conn.cursor()
 
         # 1. SQLite integrity check (built-in)
-        _check_sqlite_integrity(cursor, result)
+        _check_sqlite_integrity(conn, cursor, result)
 
         # 2. Schema validation (required tables exist)
         if not _check_schema(cursor, result):
@@ -109,18 +110,123 @@ def check_database_integrity(
     return result
 
 
-def _check_sqlite_integrity(cursor: sqlite3.Cursor, result: IntegrityCheckResult):
+def _check_sqlite_integrity(
+    conn: sqlite3.Connection, cursor: sqlite3.Cursor, result: IntegrityCheckResult
+):
     """Check SQLite's built-in integrity check."""
     try:
-        cursor.execute("PRAGMA integrity_check")
-        integrity_result = cursor.fetchone()
+        integrity_errors = _collect_integrity_errors(cursor)
 
-        if integrity_result and integrity_result[0] != "ok":
-            result.add_error(f"SQLite integrity check failed: {integrity_result[0]}")
-        else:
+        if not integrity_errors:
             result.add_info("SQLite integrity check passed")
+            return
+
+        repaired_indexes = _attempt_index_auto_repair(conn, cursor, integrity_errors)
+        if repaired_indexes:
+            result.add_warning(
+                "SQLite index corruption was repaired automatically: "
+                + ", ".join(repaired_indexes)
+            )
+            result.add_info("SQLite integrity check passed after automatic repair")
+            return
+
+        result.add_error(f"SQLite integrity check failed: {integrity_errors[0]}")
     except Exception as e:
         result.add_error(f"Could not perform SQLite integrity check: {e}")
+
+
+def _collect_integrity_errors(cursor: sqlite3.Cursor) -> List[str]:
+    cursor.execute("PRAGMA integrity_check")
+    return [row[0] for row in cursor.fetchall() if row and row[0] and row[0] != "ok"]
+
+
+def _attempt_index_auto_repair(
+    conn: sqlite3.Connection, cursor: sqlite3.Cursor, integrity_errors: List[str]
+) -> List[str]:
+    index_names = _extract_repairable_index_names(integrity_errors)
+    if not index_names:
+        return []
+
+    try:
+        cursor.execute("REINDEX")
+        conn.commit()
+        if not _collect_integrity_errors(cursor):
+            return index_names
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+    recreated_indexes = []
+    for index_name in index_names:
+        create_sql = _get_index_create_sql(cursor, index_name)
+        if not create_sql:
+            continue
+        try:
+            cursor.execute(f"DROP INDEX IF EXISTS {_quote_identifier(index_name)}")
+            cursor.execute(create_sql)
+            recreated_indexes.append(index_name)
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return []
+
+    if not recreated_indexes:
+        return []
+
+    try:
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return []
+
+    if not _collect_integrity_errors(cursor):
+        return recreated_indexes
+
+    return []
+
+
+def _extract_repairable_index_names(integrity_errors: List[str]) -> List[str]:
+    index_names = []
+    patterns = (
+        r"wrong # of entries in index (?P<name>\S+)",
+        r"row \d+ missing from index (?P<name>\S+)",
+        r"UNIQUE constraint error in (?P<name>\S+)",
+    )
+
+    for error in integrity_errors:
+        matched_name = None
+        for pattern in patterns:
+            match = re.search(pattern, error)
+            if match:
+                matched_name = match.group("name")
+                break
+        if not matched_name:
+            return []
+        if matched_name not in index_names:
+            index_names.append(matched_name)
+
+    return index_names
+
+
+def _get_index_create_sql(cursor: sqlite3.Cursor, index_name: str) -> str:
+    cursor.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name=?", (index_name,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        return ""
+    return row[0] or ""
+
+
+def _quote_identifier(value: str) -> str:
+    return '"' + str(value).replace('"', '""') + '"'
 
 
 def _check_schema(cursor: sqlite3.Cursor, result: IntegrityCheckResult) -> bool:
