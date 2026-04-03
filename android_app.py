@@ -401,10 +401,6 @@ class SubstationAndroidApp(App):
     INSPECTION_FIELDS = _build_inspection_fields(S)
 
     def open_local_db_picker(self):
-        if platform == "android":
-            self._open_android_local_db_picker()
-            return
-
         self._prompt_local_db_path()
 
     def _handle_local_db_selection(self, selection):
@@ -481,7 +477,9 @@ class SubstationAndroidApp(App):
         choose_btn = Button(
             text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου")
         )
-        choose_btn.disabled = not (filechooser or FileChooserListView)
+        choose_btn.disabled = platform != "android" and not (
+            filechooser or FileChooserListView
+        )
 
         def open_picker():
             def _selected(selection):
@@ -525,7 +523,7 @@ class SubstationAndroidApp(App):
 
             try:
                 if platform == "android":
-                    self._open_android_local_db_picker()
+                    self._open_android_document_picker(_selected)
                     return
 
                 # Non-Android flow: prefer filechooser if available, otherwise fall back to list view or show error
@@ -765,6 +763,38 @@ class SubstationAndroidApp(App):
             )
             return
 
+        def _begin_load(selected_db_path):
+            try:
+                if isinstance(selected_db_path, str) and selected_db_path.startswith(
+                    "content://"
+                ):
+
+                    def _on_copy_done(success, val):
+                        if not success:
+                            self.show_error(
+                                S["MESSAGES"].get(
+                                    "IMPORT_FAILED", "Αποτυχία ανοίγματος βάσης:"
+                                )
+                                + f" {val}"
+                            )
+                            return
+                        _continue_with_path(val)
+
+                    self._copy_content_uri_to_file_async(
+                        selected_db_path, _on_copy_done
+                    )
+                    return
+
+                resolved = self._prepare_local_db_path(selected_db_path)
+            except FileNotFoundError:
+                self.show_error("Το αρχείο βάσης δεν βρέθηκε")
+                return
+            except Exception as e:
+                self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
+                return
+
+            _continue_with_path(resolved)
+
         def _continue_with_path(resolved_path):
             self.local_db_path = resolved_path
             self._set_saved_db_path(resolved_path)
@@ -778,32 +808,19 @@ class SubstationAndroidApp(App):
             # Only load substations if DB is valid and loaded
             self.load_substations(None)
 
-        try:
-            if isinstance(db_path, str) and db_path.startswith("content://"):
+        if (
+            platform == "android"
+            and isinstance(db_path, str)
+            and not db_path.startswith("content://")
+        ):
+            normalized_path = self._normalize_android_storage_path(db_path)
+            if normalized_path.startswith("/storage/"):
+                if not self._request_android_storage_permissions(
+                    lambda: _begin_load(db_path)
+                ):
+                    return
 
-                def _on_copy_done(success, val):
-                    if not success:
-                        self.show_error(
-                            S["MESSAGES"].get(
-                                "IMPORT_FAILED", "Αποτυχία ανοίγματος βάσης:"
-                            )
-                            + f" {val}"
-                        )
-                        return
-                    _continue_with_path(val)
-
-                self._copy_content_uri_to_file_async(db_path, _on_copy_done)
-                return
-
-            resolved = self._prepare_local_db_path(db_path)
-        except FileNotFoundError:
-            self.show_error("Το αρχείο βάσης δεν βρέθηκε")
-            return
-        except Exception as e:
-            self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
-            return
-
-        _continue_with_path(resolved)
+        _begin_load(db_path)
 
     def _normalize_android_storage_path(self, path_value: str) -> str:
         if not path_value:
@@ -892,6 +909,76 @@ class SubstationAndroidApp(App):
             )
         except Exception:
             Logger.info("APP: Android permissions not available or not required")
+
+    def _request_android_storage_permissions(self, on_granted=None):
+        if platform != "android":
+            if on_granted is not None:
+                Clock.schedule_once(lambda _dt: on_granted(), 0)
+            return True
+
+        try:
+            from android.permissions import (
+                Permission,
+                check_permission,
+                request_permissions,
+            )
+        except Exception as perm_err:
+            Logger.info(
+                f"APP: Android permissions module unavailable, continuing: {perm_err}"
+            )
+            if on_granted is not None:
+                Clock.schedule_once(lambda _dt: on_granted(), 0)
+            return True
+
+        needed_perms = [
+            Permission.READ_EXTERNAL_STORAGE,
+            Permission.WRITE_EXTERNAL_STORAGE,
+        ]
+
+        try:
+            if all(check_permission(permission) for permission in needed_perms):
+                if on_granted is not None:
+                    Clock.schedule_once(lambda _dt: on_granted(), 0)
+                return True
+        except Exception as check_err:
+            Logger.info(f"APP: Permission check failed, continuing: {check_err}")
+            if on_granted is not None:
+                Clock.schedule_once(lambda _dt: on_granted(), 0)
+            return True
+
+        def _permission_callback(_permissions, grants):
+            try:
+                granted = all(bool(value) for value in grants)
+            except Exception:
+                granted = False
+
+            def _finish(_dt):
+                if granted:
+                    if on_granted is not None:
+                        on_granted()
+                    return
+                try:
+                    self._show_permissions_requested_notice()
+                except Exception:
+                    self.show_error(S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"])
+
+            Clock.schedule_once(_finish, 0)
+
+        try:
+            request_permissions(needed_perms, _permission_callback)
+        except TypeError:
+            request_permissions(needed_perms)
+            try:
+                self._show_permissions_requested_notice()
+            except Exception:
+                self.show_error(S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"])
+        except Exception as request_err:
+            Logger.info(f"APP: Permission request failed, continuing: {request_err}")
+            if on_granted is not None:
+                Clock.schedule_once(lambda _dt: on_granted(), 0)
+            return True
+
+        return False
 
     def _show_permissions_requested_notice(self):
         """Display a small non-modal notice in the app asking the user to grant storage permissions and retry."""

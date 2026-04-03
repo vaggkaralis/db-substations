@@ -13,22 +13,13 @@ def _collect_widget_texts(widget):
     return texts
 
 
-def test_open_local_db_picker_uses_android_direct_flow(monkeypatch):
+def test_open_local_db_picker_uses_android_popup_flow(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
 
     opened = []
-    monkeypatch.setattr(
-        app, "_open_android_local_db_picker", lambda: opened.append(True)
-    )
-    monkeypatch.setattr(
-        app,
-        "_prompt_local_db_path",
-        lambda: (_ for _ in ()).throw(
-            AssertionError("desktop popup should not open on android")
-        ),
-    )
+    monkeypatch.setattr(app, "_prompt_local_db_path", lambda: opened.append(True))
 
     app.open_local_db_picker()
 
@@ -171,3 +162,36 @@ def test_open_android_document_picker_runs_on_ui_thread(monkeypatch):
     assert unbound_callbacks == [bound_callbacks[0]]
     assert app._android_picker_active is False
     assert app._android_picker_callback is None
+
+
+def test_use_local_mode_requests_permissions_for_android_storage_path(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+
+    permission_requests = []
+    prepared = []
+    loaded = []
+
+    monkeypatch.setattr(
+        app,
+        "_request_android_storage_permissions",
+        lambda on_granted=None: permission_requests.append(on_granted) or False,
+    )
+    monkeypatch.setattr(
+        app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
+    )
+    monkeypatch.setattr(app, "_set_saved_db_path", lambda path: None)
+    monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
+    monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
+
+    app.use_local_mode("/storage/emulated/0/Download/substations.db")
+
+    assert len(permission_requests) == 1
+    assert prepared == []
+    assert loaded == []
+
+    permission_requests[0]()
+
+    assert prepared == ["/storage/emulated/0/Download/substations.db"]
+    assert loaded == [True]
