@@ -209,7 +209,9 @@ def test_on_resume_continues_pending_android_permission_action(monkeypatch):
         types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
     )
     monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
-    monkeypatch.setattr(app, "_show_android_loader_info", lambda message: infos.append(message))
+    monkeypatch.setattr(
+        app, "_show_android_loader_info", lambda message: infos.append(message)
+    )
 
     app._pending_android_permission_action = lambda: resumed.append(True)
     app._android_permission_request_in_flight = True
@@ -253,10 +255,16 @@ def test_request_android_storage_permissions_resumes_after_settings_return(monke
     permissions_module.request_permissions = request_permissions
     monkeypatch.setitem(sys.modules, "android.permissions", permissions_module)
 
-    monkeypatch.setattr(app, "_show_permissions_requested_notice", lambda: notices.append(True))
-    monkeypatch.setattr(app, "_show_android_loader_info", lambda message: infos.append(message))
+    monkeypatch.setattr(
+        app, "_show_permissions_requested_notice", lambda: notices.append(True)
+    )
+    monkeypatch.setattr(
+        app, "_show_android_loader_info", lambda message: infos.append(message)
+    )
 
-    assert app._request_android_storage_permissions(lambda: resumed.append(True)) is False
+    assert (
+        app._request_android_storage_permissions(lambda: resumed.append(True)) is False
+    )
     assert resumed == []
     assert notices == [True]
     assert len(infos) == 1

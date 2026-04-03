@@ -661,8 +661,7 @@ class SubstationAndroidApp(App):
                 self.use_local_mode(selected_path)
             except Exception as open_err:
                 Logger.error(
-                    "APP: Local DB open button failed for "
-                    f"{selected_path}: {open_err}"
+                    f"APP: Local DB open button failed for {selected_path}: {open_err}"
                 )
                 Logger.error(traceback.format_exc())
                 self.show_error(
