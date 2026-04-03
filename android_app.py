@@ -403,6 +403,52 @@ class SubstationAndroidApp(App):
     def open_local_db_picker(self):
         self._prompt_local_db_path()
 
+    def _show_android_loader_info(self, message):
+        Logger.info(f"APP: Android loader info: {message}")
+        try:
+            self.show_error(message, is_info=True)
+        except Exception as popup_err:
+            Logger.warning(
+                f"APP: Failed to show Android loader info popup: {popup_err}"
+            )
+
+    def _android_storage_permissions_granted(self):
+        if platform != "android":
+            return True
+
+        try:
+            from android.permissions import Permission, check_permission
+        except Exception as perm_err:
+            Logger.info(
+                "APP: Android permission check unavailable, assuming granted: "
+                f"{perm_err}"
+            )
+            return True
+
+        needed_perms = [
+            Permission.READ_EXTERNAL_STORAGE,
+            Permission.WRITE_EXTERNAL_STORAGE,
+        ]
+        try:
+            return all(check_permission(permission) for permission in needed_perms)
+        except Exception as check_err:
+            Logger.info(f"APP: Permission check failed, assuming granted: {check_err}")
+            return True
+
+    def _resume_pending_android_permission_action(self):
+        pending_action = getattr(self, "_pending_android_permission_action", None)
+        if pending_action is None:
+            return False
+        if not self._android_storage_permissions_granted():
+            if getattr(self, "_android_permission_request_in_flight", False):
+                return False
+            return False
+
+        self._pending_android_permission_action = None
+        self._android_permission_request_in_flight = False
+        Clock.schedule_once(lambda _dt: pending_action(), 0)
+        return True
+
     def _handle_local_db_selection(self, selection):
         if not selection or len(selection) == 0:
             self.show_error(
@@ -607,12 +653,28 @@ class SubstationAndroidApp(App):
 
         buttons = BoxLayout(size_hint_y=0.3, spacing=10)
         open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
-        open_btn.bind(
-            on_press=lambda _x: (
-                popup.dismiss(),
-                self.use_local_mode(path_input.text.strip()),
-            )
-        )
+
+        def _open_selected_path(_instance):
+            selected_path = path_input.text.strip()
+            try:
+                popup.dismiss()
+                self.use_local_mode(selected_path)
+            except Exception as open_err:
+                Logger.error(
+                    "APP: Local DB open button failed for "
+                    f"{selected_path}: {open_err}"
+                )
+                Logger.error(traceback.format_exc())
+                self.show_error(
+                    S.get("MESSAGES", {})
+                    .get(
+                        "OPEN_LOCAL_DB_ERROR",
+                        "Αποτυχία φόρτωσης τοπικής βάσης: {err}",
+                    )
+                    .format(err=str(open_err))
+                )
+
+        open_btn.bind(on_press=_open_selected_path)
         cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
         cancel_btn.bind(on_press=popup.dismiss)
         buttons.add_widget(open_btn)
@@ -888,11 +950,28 @@ class SubstationAndroidApp(App):
             self.change_log_path = None
             self._android_picker_active = False
             self._android_picker_callback = None
+            self._pending_android_permission_action = None
+            self._android_permission_request_in_flight = False
             Logger.info("APP: SubstationAndroidApp initialized successfully")
         except Exception as e:
             Logger.critical(f"APP: Error in __init__: {str(e)}")
             Logger.critical(f"APP: Traceback: {traceback.format_exc()}")
             raise
+
+    def on_resume(self):
+        try:
+            if self._resume_pending_android_permission_action():
+                self._show_android_loader_info(
+                    S.get("MESSAGES", {}).get(
+                        "STORAGE_PERMISSION_RESUMED",
+                        "Η πρόσβαση αποθήκευσης εγκρίθηκε. Η φόρτωση της βάσης συνεχίζεται.",
+                    )
+                )
+            elif getattr(self, "_pending_android_permission_action", None) is not None:
+                self._show_permissions_requested_notice()
+        except Exception as resume_err:
+            Logger.warning(f"APP: Android on_resume handling failed: {resume_err}")
+        return True
 
     def _request_android_permissions(self):
         if platform != "android":
@@ -937,14 +1016,21 @@ class SubstationAndroidApp(App):
 
         try:
             if all(check_permission(permission) for permission in needed_perms):
+                self._pending_android_permission_action = None
+                self._android_permission_request_in_flight = False
                 if on_granted is not None:
                     Clock.schedule_once(lambda _dt: on_granted(), 0)
                 return True
         except Exception as check_err:
             Logger.info(f"APP: Permission check failed, continuing: {check_err}")
+            self._pending_android_permission_action = None
+            self._android_permission_request_in_flight = False
             if on_granted is not None:
                 Clock.schedule_once(lambda _dt: on_granted(), 0)
             return True
+
+        self._pending_android_permission_action = on_granted
+        self._android_permission_request_in_flight = True
 
         def _permission_callback(_permissions, grants):
             try:
@@ -953,9 +1039,12 @@ class SubstationAndroidApp(App):
                 granted = False
 
             def _finish(_dt):
+                self._android_permission_request_in_flight = False
                 if granted:
-                    if on_granted is not None:
-                        on_granted()
+                    pending_action = self._pending_android_permission_action
+                    self._pending_android_permission_action = None
+                    if pending_action is not None:
+                        pending_action()
                     return
                 try:
                     self._show_permissions_requested_notice()
@@ -965,15 +1054,24 @@ class SubstationAndroidApp(App):
             Clock.schedule_once(_finish, 0)
 
         try:
+            self._show_android_loader_info(
+                S.get("MESSAGES", {}).get(
+                    "STORAGE_PERMISSION_REQUESTED",
+                    "Ζητήθηκε πρόσβαση αποθήκευσης από το Android. Αν ανοίξουν Ρυθμίσεις, δώστε πρόσβαση και επιστρέψτε στην εφαρμογή.",
+                )
+            )
             request_permissions(needed_perms, _permission_callback)
         except TypeError:
             request_permissions(needed_perms)
+            self._android_permission_request_in_flight = False
             try:
                 self._show_permissions_requested_notice()
             except Exception:
                 self.show_error(S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"])
         except Exception as request_err:
             Logger.info(f"APP: Permission request failed, continuing: {request_err}")
+            self._pending_android_permission_action = None
+            self._android_permission_request_in_flight = False
             if on_granted is not None:
                 Clock.schedule_once(lambda _dt: on_granted(), 0)
             return True
@@ -989,7 +1087,8 @@ class SubstationAndroidApp(App):
                 label = Label(
                     text=(
                         S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"] + " "
-                        "πατήστε 'Ξαναδοκίμασε' όταν τελειώσετε."
+                        "Αν άνοιξαν Ρυθμίσεις, δώστε πρόσβαση και επιστρέψτε στην εφαρμογή. "
+                        "Η φόρτωση θα συνεχιστεί αυτόματα ή πατήστε 'Ξαναδοκίμασε'."
                     ),
                     halign="left",
                     valign="middle",
@@ -1018,8 +1117,8 @@ class SubstationAndroidApp(App):
 
                 def _on_retry(_):
                     try:
-                        # Re-open the local DB picker flow
-                        self.open_local_db_picker()
+                        if not self._resume_pending_android_permission_action():
+                            self.open_local_db_picker()
                     except Exception as e:
                         Logger.warning(f"APP: Retry open_local_db_picker failed: {e}")
                     try:

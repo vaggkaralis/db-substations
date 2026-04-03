@@ -195,3 +195,77 @@ def test_use_local_mode_requests_permissions_for_android_storage_path(monkeypatc
 
     assert prepared == ["/storage/emulated/0/Download/substations.db"]
     assert loaded == [True]
+
+
+def test_on_resume_continues_pending_android_permission_action(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    resumed = []
+    infos = []
+
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
+    monkeypatch.setattr(app, "_show_android_loader_info", lambda message: infos.append(message))
+
+    app._pending_android_permission_action = lambda: resumed.append(True)
+    app._android_permission_request_in_flight = True
+
+    assert app.on_resume() is True
+    assert resumed == [True]
+    assert len(infos) == 1
+    assert app._pending_android_permission_action is None
+    assert app._android_permission_request_in_flight is False
+
+
+def test_request_android_storage_permissions_resumes_after_settings_return(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+
+    notices = []
+    infos = []
+    resumed = []
+    permission_state = {"granted": False}
+
+    permissions_module = types.ModuleType("android.permissions")
+
+    class FakePermission:
+        READ_EXTERNAL_STORAGE = "read"
+        WRITE_EXTERNAL_STORAGE = "write"
+
+    def check_permission(_permission):
+        return permission_state["granted"]
+
+    def request_permissions(_permissions):
+        return None
+
+    permissions_module.Permission = FakePermission
+    permissions_module.check_permission = check_permission
+    permissions_module.request_permissions = request_permissions
+    monkeypatch.setitem(sys.modules, "android.permissions", permissions_module)
+
+    monkeypatch.setattr(app, "_show_permissions_requested_notice", lambda: notices.append(True))
+    monkeypatch.setattr(app, "_show_android_loader_info", lambda message: infos.append(message))
+
+    assert app._request_android_storage_permissions(lambda: resumed.append(True)) is False
+    assert resumed == []
+    assert notices == [True]
+    assert len(infos) == 1
+    assert app._pending_android_permission_action is not None
+    assert app._android_permission_request_in_flight is False
+
+    permission_state["granted"] = True
+
+    assert app.on_resume() is True
+    assert resumed == [True]
+    assert len(infos) == 2
+    assert app._pending_android_permission_action is None
