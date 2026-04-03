@@ -638,37 +638,17 @@ class SubstationAndroidApp(App):
                 )
             )
             return
-        # Request permissions before proceeding
-        try:
-            from android.permissions import (
-                Permission,
-                check_permission,
-                request_permissions,
+        if getattr(self, "_android_picker_active", False):
+            Logger.info(
+                "APP: Android SAF picker already active; ignoring duplicate open"
             )
-
-            needed_perms = [
-                Permission.READ_EXTERNAL_STORAGE,
-                Permission.WRITE_EXTERNAL_STORAGE,
-            ]
-            # Check if permissions are already granted
-            perms_granted = all(check_permission(p) for p in needed_perms)
-            if not perms_granted:
-                # Request permissions and return, user must retry after granting.
-                # Avoid stacking another popup over the Android system dialog.
-                request_permissions(needed_perms)
-                try:
-                    self._show_permissions_requested_notice()
-                except Exception:
-                    self.show_error(S["MESSAGES"]["STORAGE_PERMISSIONS_REQUIRED"])
-                return
-        except Exception as perm_e:
-            Logger.warning(f"APP: Permission check/request failed: {str(perm_e)}")
-            # Continue, may work on older Android or if permissions not enforced
+            return
 
         try:
             from jnius import autoclass
 
             from android import activity
+            from android.runnable import run_on_ui_thread
         except Exception as e:
             Logger.warning(f"APP: Android SAF picker not available: {str(e)}")
             self.show_error(
@@ -687,21 +667,33 @@ class SubstationAndroidApp(App):
             intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
             intent.addCategory(Intent.CATEGORY_OPENABLE)
             intent.setType("*/*")
+            if hasattr(Intent, "FLAG_GRANT_READ_URI_PERMISSION"):
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if hasattr(Intent, "FLAG_GRANT_PERSISTABLE_URI_PERMISSION"):
+                intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
 
             request_code = 61423
+
+            def _clear_activity_result_binding():
+                callback = getattr(self, "_android_picker_callback", None)
+                if callback is None:
+                    self._android_picker_active = False
+                    return
+                try:
+                    activity.unbind(on_activity_result=callback)
+                except Exception as unbind_err:
+                    Logger.warning(
+                        f"APP: Failed to unbind SAF picker callback: {unbind_err}"
+                    )
+                self._android_picker_callback = None
+                self._android_picker_active = False
 
             def _activity_result(req_code, result_code, data):
                 if req_code != request_code:
                     return
-                activity.unbind(on_activity_result=_activity_result)
+                _clear_activity_result_binding()
                 if result_code != Activity.RESULT_OK or data is None:
                     Logger.warning("APP: Activity result not OK or data is None.")
-                    self.show_error(
-                        S["MESSAGES"].get(
-                            "FILECHOICE_CANCELLED",
-                            "Η επιλογή αρχείου απέτυχε ή ακυρώθηκε.",
-                        )
-                    )
                     return
                 try:
                     uri = data.getData()
@@ -714,6 +706,16 @@ class SubstationAndroidApp(App):
                             )
                         )
                         return
+                    try:
+                        current_activity.getContentResolver().takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    except Exception as persist_err:
+                        Logger.info(
+                            "APP: Persistable URI permission unavailable: "
+                            f"{persist_err}"
+                        )
                     uri_str = uri.toString()
                     Logger.info(f"APP: SAF selected: {uri_str}")
                     Clock.schedule_once(lambda _dt: on_selected([uri_str]), 0)
@@ -728,10 +730,25 @@ class SubstationAndroidApp(App):
                         .format(err=str(e))
                     )
 
-            activity.bind(on_activity_result=_activity_result)
             current_activity = PythonActivity.mActivity
-            current_activity.startActivityForResult(intent, request_code)
+            self._android_picker_active = True
+            self._android_picker_callback = _activity_result
+            activity.bind(on_activity_result=_activity_result)
+
+            @run_on_ui_thread
+            def _launch_picker():
+                current_activity.startActivityForResult(intent, request_code)
+
+            _launch_picker()
         except Exception as e:
+            callback = getattr(self, "_android_picker_callback", None)
+            if callback is not None:
+                try:
+                    activity.unbind(on_activity_result=callback)
+                except Exception:
+                    pass
+            self._android_picker_callback = None
+            self._android_picker_active = False
             Logger.warning(f"APP: Failed to open SAF picker: {str(e)}")
             self.show_error(
                 S.get("MESSAGES", {})
@@ -852,6 +869,8 @@ class SubstationAndroidApp(App):
             self.data_mode = "local"
             self.local_db_path = None
             self.change_log_path = None
+            self._android_picker_active = False
+            self._android_picker_callback = None
             Logger.info("APP: SubstationAndroidApp initialized successfully")
         except Exception as e:
             Logger.critical(f"APP: Error in __init__: {str(e)}")
