@@ -71,6 +71,38 @@ except Exception:
     S = {"BUTTONS": {}, "TITLES": {}, "MESSAGES": {}}
 
 
+_PENDING_UNCAUGHT_ERROR_MESSAGES = []
+
+
+def _format_uncaught_exception_message(exc_type, exc_value, exc_traceback):
+    formatted = traceback.format_exception(exc_type, exc_value, exc_traceback)
+    formatted_tail = "".join(formatted[-6:]).strip()
+    message_parts = [
+        "Android uncaught exception detected.",
+        f"{exc_type.__name__}: {exc_value}",
+    ]
+    if formatted_tail:
+        message_parts.append(formatted_tail[-1800:])
+    return "\n\n".join(message_parts)
+
+
+def _queue_uncaught_error_popup(message):
+    try:
+        app_class = globals().get("App")
+        running_app = app_class.get_running_app() if app_class else None
+    except Exception:
+        running_app = None
+
+    if running_app and hasattr(running_app, "show_error"):
+        try:
+            running_app.show_error(message)
+            return
+        except Exception as popup_err:
+            Logger.warning(f"APP: Failed to show uncaught error popup: {popup_err}")
+
+    _PENDING_UNCAUGHT_ERROR_MESSAGES.append(message)
+
+
 # Global exception handler to catch any uncaught exceptions
 def _global_exception_handler(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
@@ -82,16 +114,20 @@ def _global_exception_handler(exc_type, exc_value, exc_traceback):
         + "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
     )
     try:
-        from kivy.app import App
-
-        app = App.get_running_app()
-        if app and hasattr(app, "show_error"):
-            app.show_error(f"Uncaught error: {exc_value}")
+        _queue_uncaught_error_popup(
+            _format_uncaught_exception_message(exc_type, exc_value, exc_traceback)
+        )
     except Exception:
         pass
 
 
+def _global_thread_exception_handler(args):
+    _global_exception_handler(args.exc_type, args.exc_value, args.exc_traceback)
+
+
 sys.excepthook = _global_exception_handler
+if hasattr(threading, "excepthook"):
+    threading.excepthook = _global_thread_exception_handler
 
 
 def _build_inspection_fields(strings_map):
@@ -412,6 +448,12 @@ class SubstationAndroidApp(App):
                 f"APP: Failed to show Android loader info popup: {popup_err}"
             )
 
+    def _show_pending_uncaught_errors(self):
+        pending_messages = list(_PENDING_UNCAUGHT_ERROR_MESSAGES)
+        _PENDING_UNCAUGHT_ERROR_MESSAGES.clear()
+        for message in pending_messages:
+            self.show_error(message)
+
     def _android_storage_permissions_granted(self):
         if platform != "android":
             return True
@@ -500,7 +542,7 @@ class SubstationAndroidApp(App):
                 .format(err=str(e))
             )
 
-    def _prompt_local_db_path(self):
+    def _prompt_local_db_path(self, initial_path=None):
         popup = Popup(
             title=S["MESSAGES"].get("OPEN_LOCAL_DB_TITLE", "Άνοιγμα Τοπικής Βάσης"),
             size_hint=(0.9, 0.4),
@@ -513,7 +555,7 @@ class SubstationAndroidApp(App):
                 )
             )
         )
-        default_path = ANDROID_DEFAULT_DB_PATH
+        default_path = initial_path or ANDROID_DEFAULT_DB_PATH
         path_input = TextInput(
             text=default_path, hint_text=ANDROID_DEFAULT_DB_PATH, multiline=False
         )
@@ -528,6 +570,14 @@ class SubstationAndroidApp(App):
         )
 
         def open_picker():
+            current_path = path_input.text.strip() or default_path
+
+            def _reopen_popup(next_path=None):
+                Clock.schedule_once(
+                    lambda _dt: self._prompt_local_db_path(next_path or current_path),
+                    0,
+                )
+
             def _selected(selection):
                 if not selection or len(selection) == 0:
                     self.show_error(
@@ -563,13 +613,15 @@ class SubstationAndroidApp(App):
                     return
 
                 Logger.info(f"APP: File chooser selected: {selected_path}")
-                Clock.schedule_once(
-                    lambda _dt: setattr(path_input, "text", selected_path), 0
-                )
+                _reopen_popup(selected_path)
 
             try:
                 if platform == "android":
-                    self._open_android_document_picker(_selected)
+                    popup.dismiss()
+                    self._open_android_document_picker(
+                        _selected,
+                        on_cancel=lambda: _reopen_popup(current_path),
+                    )
                     return
 
                 # Non-Android flow: prefer filechooser if available, otherwise fall back to list view or show error
@@ -687,7 +739,7 @@ class SubstationAndroidApp(App):
         # The local nested implementation was removed to ensure permission checks
         # from the top-level picker are always used.
 
-    def _open_android_document_picker(self, on_selected):
+    def _open_android_document_picker(self, on_selected, on_cancel=None):
         if platform != "android":
             Logger.warning("APP: SAF picker only available on Android platform")
             self.show_error(
@@ -696,6 +748,8 @@ class SubstationAndroidApp(App):
                     "Ο επιλογέας αρχείων είναι διαθέσιμος μόνο σε Android.",
                 )
             )
+            if on_cancel is not None:
+                Clock.schedule_once(lambda _dt: on_cancel(), 0)
             return
         if getattr(self, "_android_picker_active", False):
             Logger.info(
@@ -716,6 +770,8 @@ class SubstationAndroidApp(App):
                     "Ο επιλογέας αρχείων δεν είναι διαθέσιμος",
                 )
             )
+            if on_cancel is not None:
+                Clock.schedule_once(lambda _dt: on_cancel(), 0)
             return
 
         try:
@@ -753,6 +809,8 @@ class SubstationAndroidApp(App):
                 _clear_activity_result_binding()
                 if result_code != Activity.RESULT_OK or data is None:
                     Logger.warning("APP: Activity result not OK or data is None.")
+                    if on_cancel is not None:
+                        Clock.schedule_once(lambda _dt: on_cancel(), 0)
                     return
                 try:
                     uri = data.getData()
@@ -764,6 +822,8 @@ class SubstationAndroidApp(App):
                                 "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
                             )
                         )
+                        if on_cancel is not None:
+                            Clock.schedule_once(lambda _dt: on_cancel(), 0)
                         return
                     try:
                         current_activity.getContentResolver().takePersistableUriPermission(
@@ -788,6 +848,8 @@ class SubstationAndroidApp(App):
                         )
                         .format(err=str(e))
                     )
+                    if on_cancel is not None:
+                        Clock.schedule_once(lambda _dt: on_cancel(), 0)
 
             current_activity = PythonActivity.mActivity
             self._android_picker_active = True
@@ -814,6 +876,8 @@ class SubstationAndroidApp(App):
                 .get("PICKER_OPEN_ERROR", "Αποτυχία ανοίγματος επιλογέα αρχείων: {err}")
                 .format(err=str(e))
             )
+            if on_cancel is not None:
+                Clock.schedule_once(lambda _dt: on_cancel(), 0)
 
     def use_local_mode(self, db_path):
         if not db_path or str(db_path).strip().lower() in ("none", "null"):
@@ -956,6 +1020,15 @@ class SubstationAndroidApp(App):
             Logger.critical(f"APP: Error in __init__: {str(e)}")
             Logger.critical(f"APP: Traceback: {traceback.format_exc()}")
             raise
+
+    def on_start(self):
+        try:
+            self._show_pending_uncaught_errors()
+        except Exception as start_err:
+            Logger.warning(
+                f"APP: Failed to display pending uncaught errors: {start_err}"
+            )
+        return True
 
     def on_resume(self):
         try:

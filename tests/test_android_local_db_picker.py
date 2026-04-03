@@ -164,6 +164,84 @@ def test_open_android_document_picker_runs_on_ui_thread(monkeypatch):
     assert app._android_picker_callback is None
 
 
+def test_open_android_document_picker_calls_cancel_callback(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+
+    canceled = []
+    launch_calls = []
+    bound_callbacks = []
+
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+
+    class FakeIntent:
+        ACTION_OPEN_DOCUMENT = "ACTION_OPEN_DOCUMENT"
+        CATEGORY_OPENABLE = "CATEGORY_OPENABLE"
+
+        def __init__(self, action):
+            self.action = action
+
+        def addCategory(self, _category):
+            return None
+
+        def setType(self, _mime_type):
+            return None
+
+        def addFlags(self, _flag):
+            return None
+
+    class FakeActivityClass:
+        RESULT_OK = 1
+
+    class FakeCurrentActivity:
+        def startActivityForResult(self, intent, request_code):
+            launch_calls.append((intent, request_code))
+
+    current_activity = FakeCurrentActivity()
+
+    class FakePythonActivity:
+        mActivity = current_activity
+
+    def fake_autoclass(name):
+        mapping = {
+            "android.content.Intent": FakeIntent,
+            "android.app.Activity": FakeActivityClass,
+            "org.kivy.android.PythonActivity": FakePythonActivity,
+        }
+        return mapping[name]
+
+    android_module = types.ModuleType("android")
+    activity_module = types.SimpleNamespace(
+        bind=lambda **kwargs: bound_callbacks.append(kwargs["on_activity_result"]),
+        unbind=lambda **_kwargs: None,
+    )
+    runnable_module = types.ModuleType("android.runnable")
+    runnable_module.run_on_ui_thread = lambda func: func
+    android_module.activity = activity_module
+
+    monkeypatch.setitem(
+        sys.modules, "jnius", types.SimpleNamespace(autoclass=fake_autoclass)
+    )
+    monkeypatch.setitem(sys.modules, "android", android_module)
+    monkeypatch.setitem(sys.modules, "android.runnable", runnable_module)
+
+    app._open_android_document_picker(
+        lambda _selection: None, on_cancel=lambda: canceled.append(True)
+    )
+
+    assert len(launch_calls) == 1
+    bound_callbacks[0](61423, 0, None)
+
+    assert canceled == [True]
+    assert app._android_picker_active is False
+    assert app._android_picker_callback is None
+
+
 def test_use_local_mode_requests_permissions_for_android_storage_path(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
@@ -277,3 +355,38 @@ def test_request_android_storage_permissions_resumes_after_settings_return(monke
     assert resumed == [True]
     assert len(infos) == 2
     assert app._pending_android_permission_action is None
+
+
+def test_on_start_shows_queued_uncaught_errors(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    shown = []
+    monkeypatch.setattr(
+        app,
+        "show_error",
+        lambda message, is_info=False: shown.append((message, is_info)),
+    )
+
+    android_app._PENDING_UNCAUGHT_ERROR_MESSAGES[:] = ["queued android error"]
+
+    assert app.on_start() is True
+    assert shown == [("queued android error", False)]
+    assert android_app._PENDING_UNCAUGHT_ERROR_MESSAGES == []
+
+
+def test_global_exception_handler_queues_popup_when_app_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        android_app, "App", types.SimpleNamespace(get_running_app=lambda: None)
+    )
+    android_app._PENDING_UNCAUGHT_ERROR_MESSAGES[:] = []
+
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+
+    android_app._global_exception_handler(exc_type, exc_value, exc_traceback)
+
+    assert len(android_app._PENDING_UNCAUGHT_ERROR_MESSAGES) == 1
+    assert "RuntimeError: boom" in android_app._PENDING_UNCAUGHT_ERROR_MESSAGES[0]
+    android_app._PENDING_UNCAUGHT_ERROR_MESSAGES[:] = []
