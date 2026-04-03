@@ -242,20 +242,59 @@ def test_open_android_document_picker_calls_cancel_callback(monkeypatch):
     assert app._android_picker_callback is None
 
 
-def test_use_local_mode_requests_permissions_for_android_storage_path(monkeypatch):
+def test_use_local_mode_prompts_saf_for_android_storage_path_without_permissions(
+    monkeypatch,
+):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
 
-    permission_requests = []
+    prepared = []
+    loaded = []
+    prompts = []
+    shown = []
+
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+    monkeypatch.setattr(
+        app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
+    )
+    monkeypatch.setattr(app, "_set_saved_db_path", lambda path: None)
+    monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
+    monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
+    monkeypatch.setattr(
+        app,
+        "show_error",
+        lambda message, is_info=False: shown.append((message, is_info)),
+    )
+    monkeypatch.setattr(
+        app,
+        "_prompt_local_db_path",
+        lambda initial_path=None: prompts.append(initial_path),
+    )
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+
+    app.use_local_mode("/storage/emulated/0/Download/substations.db")
+
+    assert prepared == []
+    assert loaded == []
+    assert prompts == [""]
+    assert len(shown) == 1
+    assert shown[0][1] is True
+
+
+def test_use_local_mode_allows_android_storage_path_with_permissions(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+
     prepared = []
     loaded = []
 
-    monkeypatch.setattr(
-        app,
-        "_request_android_storage_permissions",
-        lambda on_granted=None: permission_requests.append(on_granted) or False,
-    )
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
     monkeypatch.setattr(
         app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
     )
@@ -264,12 +303,6 @@ def test_use_local_mode_requests_permissions_for_android_storage_path(monkeypatc
     monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
 
     app.use_local_mode("/storage/emulated/0/Download/substations.db")
-
-    assert len(permission_requests) == 1
-    assert prepared == []
-    assert loaded == []
-
-    permission_requests[0]()
 
     assert prepared == ["/storage/emulated/0/Download/substations.db"]
     assert loaded == [True]
@@ -390,3 +423,14 @@ def test_global_exception_handler_queues_popup_when_app_unavailable(monkeypatch)
     assert len(android_app._PENDING_UNCAUGHT_ERROR_MESSAGES) == 1
     assert "RuntimeError: boom" in android_app._PENDING_UNCAUGHT_ERROR_MESSAGES[0]
     android_app._PENDING_UNCAUGHT_ERROR_MESSAGES[:] = []
+
+
+def test_get_auto_load_db_path_skips_android_storage_without_permissions(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+
+    result = app._get_auto_load_db_path("/storage/emulated/0/Download/substations.db")
+
+    assert result is None

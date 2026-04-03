@@ -130,6 +130,25 @@ if hasattr(threading, "excepthook"):
     threading.excepthook = _global_thread_exception_handler
 
 
+def _register_kivy_exception_handler():
+    try:
+        from kivy.base import ExceptionHandler, ExceptionManager
+    except Exception:
+        return
+
+    class _PopupExceptionHandler(ExceptionHandler):
+        def handle_exception(self, exception):
+            _global_exception_handler(
+                type(exception), exception, getattr(exception, "__traceback__", None)
+            )
+            return ExceptionManager.PASS
+
+    try:
+        ExceptionManager.add_handler(_PopupExceptionHandler())
+    except Exception as handler_err:
+        Logger.warning(f"APP: Failed to register Kivy exception handler: {handler_err}")
+
+
 def _build_inspection_fields(strings_map):
     messages = strings_map.get("MESSAGES", {}) if isinstance(strings_map, dict) else {}
     rows = list(messages.get("INSPECTION_ROWS", []) or [])
@@ -249,6 +268,7 @@ try:
         autosize_button_text = getattr(shared, "autosize_button_text", None)
     except Exception:
         autosize_button_text = None
+    _register_kivy_exception_handler()
 except Exception as e:
     Logger.warning(f"APP: Kivy import failed: {str(e)}")
     platform = "unknown"
@@ -555,7 +575,14 @@ class SubstationAndroidApp(App):
                 )
             )
         )
-        default_path = initial_path or ANDROID_DEFAULT_DB_PATH
+        saved_path = (
+            self._get_saved_db_path() if hasattr(self, "_get_saved_db_path") else None
+        )
+        default_path = initial_path or saved_path or ANDROID_DEFAULT_DB_PATH
+        if platform == "android":
+            normalized_default = self._normalize_android_storage_path(default_path)
+            if normalized_default.startswith("/storage/"):
+                default_path = ""
         path_input = TextInput(
             text=default_path, hint_text=ANDROID_DEFAULT_DB_PATH, multiline=False
         )
@@ -940,9 +967,17 @@ class SubstationAndroidApp(App):
         ):
             normalized_path = self._normalize_android_storage_path(db_path)
             if normalized_path.startswith("/storage/"):
-                if not self._request_android_storage_permissions(
-                    lambda: _begin_load(db_path)
-                ):
+                if not self._android_storage_permissions_granted():
+                    self.show_error(
+                        S.get("MESSAGES", {}).get(
+                            "ANDROID_SAF_REQUIRED",
+                            "Στο Android χρησιμοποίησε 'Αναζήτηση αρχείου' για να επιλέξεις τη βάση. Το άμεσο path /storage/... δεν θα ανοίξει χωρίς πρόσβαση που συχνά σε στέλνει στις Ρυθμίσεις.",
+                        ),
+                        is_info=True,
+                    )
+                    Clock.schedule_once(
+                        lambda _dt: self._prompt_local_db_path(initial_path=""), 0
+                    )
                     return
 
         _begin_load(db_path)
@@ -1801,6 +1836,12 @@ class SubstationAndroidApp(App):
         normalized = self._normalize_android_storage_path(candidate)
         if normalized.startswith("content://"):
             return normalized
+        if (
+            platform == "android"
+            and normalized.startswith("/storage/")
+            and not self._android_storage_permissions_granted()
+        ):
+            return None
         if os.path.exists(normalized):
             return normalized
         return None
