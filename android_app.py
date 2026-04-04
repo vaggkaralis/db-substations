@@ -621,9 +621,7 @@ class SubstationAndroidApp(App):
             btn_row = BoxLayout(size_hint_y=0.25, spacing=10)
 
             browse_btn = Button(
-                text=S.get("BUTTONS", {}).get(
-                    "BROWSE_FILE", "Αναζήτηση αρχείου"
-                ),
+                text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου"),
                 bold=True,
             )
 
@@ -668,7 +666,7 @@ class SubstationAndroidApp(App):
             popup.open()
             return
 
-        # ----- Storage permission IS granted: show in-app file browser -----
+        # ----- Show path input and chooser -----
         layout.add_widget(
             Label(
                 text=S.get("MESSAGES", {}).get(
@@ -685,59 +683,123 @@ class SubstationAndroidApp(App):
         )
         layout.add_widget(path_input)
 
-        # In-app Kivy file chooser (never leaves the app)
-        if FileChooserListView:
-            chooser_path = (
-                os.path.dirname(default_path)
-                if default_path and os.path.isdir(os.path.dirname(default_path))
-                else "/storage/emulated/0"
-            )
-            file_chooser = FileChooserListView(
-                filters=["*.db"], path=chooser_path, size_hint_y=0.7
-            )
+        # On Android we MUST prefer the Storage Access Framework (SAF) picker
+        # which does not create additional Kivy/SDL surfaces and avoids
+        # triggering hwui/SDL races that can cause native crashes. For desktop
+        # keep the existing filechooser flow.
+        if platform == "android":
+            btn_row2 = BoxLayout(size_hint_y=0.7, orientation="vertical", spacing=8)
 
-            def _file_list_selected(_instance, selection):
-                if selection:
-                    raw_value = selection[0]
-                    if raw_value is None:
-                        return
-                    if isinstance(raw_value, bytes):
-                        selected_path = raw_value.decode("utf-8", errors="ignore")
-                    else:
-                        selected_path = str(raw_value)
-                    if selected_path.strip().lower() not in ("", "none", "null"):
-                        Logger.info(f"APP: File list selected: {selected_path}")
-                        Clock.schedule_once(
-                            lambda _dt: setattr(path_input, "text", selected_path), 0
-                        )
-
-            file_chooser.bind(selection=_file_list_selected)
-            file_chooser.bind(
-                on_submit=lambda _instance, selection, _touch: _file_list_selected(
-                    _instance, selection
-                )
-            )
-            layout.add_widget(file_chooser)
-
-        # Desktop-only: external filechooser (safe, not SDL2)
-        if platform != "android" and filechooser and not FileChooserListView:
             choose_btn = Button(
                 text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου"),
-                size_hint_y=0.08,
+                size_hint_y=None,
+                height=48,
             )
 
-            def _desktop_picker(_inst):
-                try:
-                    filechooser.open_file(
-                        on_selection=lambda sel: (
-                            setattr(path_input, "text", str(sel[0])) if sel else None
-                        )
-                    )
-                except Exception as e:
-                    self.show_error(str(e))
+            def _launch_saf(_inst):
+                def _on_selected(selection):
+                    if selection:
+                        path_input.text = selection[0]
 
-            choose_btn.bind(on_press=_desktop_picker)
-            layout.add_widget(choose_btn)
+                self._open_android_document_picker(
+                    on_selected=_on_selected, on_cancel=None
+                )
+
+            choose_btn.bind(on_press=_launch_saf)
+            btn_row2.add_widget(choose_btn)
+
+            # Provide the normal open/cancel buttons as well
+            buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
+            open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
+
+            def _open_selected_path(_instance):
+                selected_path = path_input.text.strip()
+                try:
+                    popup.dismiss()
+                    self.use_local_mode(selected_path)
+                except Exception as open_err:
+                    Logger.error(
+                        f"APP: Local DB open button failed for {selected_path}: {open_err}"
+                    )
+                    Logger.error(traceback.format_exc())
+                    self.show_error(
+                        S.get("MESSAGES", {})
+                        .get(
+                            "OPEN_LOCAL_DB_ERROR",
+                            "Αποτυχία φόρτωσης τοπικής βάσης: {err}",
+                        )
+                        .format(err=str(open_err))
+                    )
+
+            open_btn.bind(on_press=_open_selected_path)
+            cancel_btn = (
+                Button(text=S["BUTTONS"]["CANCEL"])
+                if "CANCEL" in S["BUTTONS"]
+                else Button(text="Άκυρο")
+            )
+            cancel_btn.bind(on_press=popup.dismiss)
+            buttons.add_widget(open_btn)
+            buttons.add_widget(cancel_btn)
+
+            layout.add_widget(btn_row2)
+            layout.add_widget(buttons)
+        else:
+            # Non-Android: keep the existing in-app file chooser when available
+            if FileChooserListView:
+                chooser_path = (
+                    os.path.dirname(default_path)
+                    if default_path and os.path.isdir(os.path.dirname(default_path))
+                    else os.path.expanduser("~")
+                )
+                file_chooser = FileChooserListView(
+                    filters=["*.db"], path=chooser_path, size_hint_y=0.7
+                )
+
+                def _file_list_selected(_instance, selection):
+                    if selection:
+                        raw_value = selection[0]
+                        if raw_value is None:
+                            return
+                        if isinstance(raw_value, bytes):
+                            selected_path = raw_value.decode("utf-8", errors="ignore")
+                        else:
+                            selected_path = str(raw_value)
+                        if selected_path.strip().lower() not in ("", "none", "null"):
+                            Logger.info(f"APP: File list selected: {selected_path}")
+                            Clock.schedule_once(
+                                lambda _dt: setattr(path_input, "text", selected_path),
+                                0,
+                            )
+
+                file_chooser.bind(selection=_file_list_selected)
+                file_chooser.bind(
+                    on_submit=lambda _instance, selection, _touch: _file_list_selected(
+                        _instance, selection
+                    )
+                )
+                layout.add_widget(file_chooser)
+
+            # Desktop-only: external filechooser (safe, not SDL2)
+            if platform != "android" and filechooser and not FileChooserListView:
+                choose_btn = Button(
+                    text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου"),
+                    size_hint_y=0.08,
+                )
+
+                def _desktop_picker(_inst):
+                    try:
+                        filechooser.open_file(
+                            on_selection=lambda sel: (
+                                setattr(path_input, "text", str(sel[0]))
+                                if sel
+                                else None
+                            )
+                        )
+                    except Exception as e:
+                        self.show_error(str(e))
+
+                choose_btn.bind(on_press=_desktop_picker)
+                layout.add_widget(choose_btn)
 
         buttons = BoxLayout(size_hint_y=0.08, spacing=10)
         open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
