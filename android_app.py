@@ -478,6 +478,19 @@ class SubstationAndroidApp(App):
         if platform != "android":
             return True
 
+        # On API 30+ (Android 11+), check MANAGE_EXTERNAL_STORAGE via
+        # Environment.isExternalStorageManager().  The legacy READ/WRITE
+        # permissions are no-ops on modern Android.
+        try:
+            from jnius import autoclass
+
+            Environment = autoclass("android.os.Environment")
+            if hasattr(Environment, "isExternalStorageManager"):
+                return bool(Environment.isExternalStorageManager())
+        except Exception as env_err:
+            Logger.info(f"APP: isExternalStorageManager check failed: {env_err}")
+
+        # Fallback for older API: check legacy READ/WRITE permissions.
         try:
             from android.permissions import Permission, check_permission
         except Exception as perm_err:
@@ -563,164 +576,132 @@ class SubstationAndroidApp(App):
             )
 
     def _prompt_local_db_path(self, initial_path=None):
+        has_storage = self._android_storage_permissions_granted()
         popup = Popup(
             title=S["MESSAGES"].get("OPEN_LOCAL_DB_TITLE", "Άνοιγμα Τοπικής Βάσης"),
-            size_hint=(0.9, 0.4),
+            size_hint=(0.9, 0.85) if has_storage else (0.9, 0.45),
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        layout.add_widget(
-            Label(
-                text=S.get("MESSAGES", {}).get(
-                    "ENTER_PATH", "Δώσε πλήρες path του αρχείου .db"
-                )
-            )
-        )
+
         saved_path = (
             self._get_saved_db_path() if hasattr(self, "_get_saved_db_path") else None
         )
         default_path = initial_path or saved_path or ANDROID_DEFAULT_DB_PATH
-        if platform == "android":
-            normalized_default = self._normalize_android_storage_path(default_path)
-            if normalized_default.startswith("/storage/"):
-                default_path = ""
+
+        if not has_storage and platform == "android":
+            # No storage permission – show instructions instead of a file picker
+            # to avoid launching any external activity (which crashes SDL2 on
+            # modern Android).
+            layout.add_widget(
+                Label(
+                    text=(
+                        "Η εφαρμογή δεν έχει πρόσβαση στα αρχεία.\n\n"
+                        "Ανοίξτε τις Ρυθμίσεις Android:\n"
+                        " ❶  Εφαρμογές ▸ DB Substations ▸ Δικαιώματα\n"
+                        " ❷  Ενεργοποιήστε 'Πρόσβαση σε όλα τα αρχεία'\n"
+                        " ❸  Επιστρέψτε εδώ και πατήστε 'Έλεγχος'\n\n"
+                        "Ή γράψτε ολόκληρο path στο πεδίο παρακάτω."
+                    ),
+                    halign="left",
+                    valign="top",
+                    markup=False,
+                    size_hint_y=0.55,
+                )
+            )
+            path_input = TextInput(
+                text=default_path,
+                hint_text=ANDROID_DEFAULT_DB_PATH,
+                multiline=False,
+                size_hint_y=0.15,
+            )
+            layout.add_widget(path_input)
+
+            btn_row = BoxLayout(size_hint_y=0.2, spacing=10)
+            recheck_btn = Button(
+                text="Έλεγχος δικαιωμάτων",
+            )
+
+            def _recheck(_inst):
+                if self._android_storage_permissions_granted():
+                    popup.dismiss()
+                    self._prompt_local_db_path(initial_path=default_path)
+                else:
+                    self.show_error(
+                        "Η πρόσβαση δεν δόθηκε ακόμα. Ακολουθήστε τα βήματα.",
+                        is_info=True,
+                    )
+
+            recheck_btn.bind(on_press=_recheck)
+            btn_row.add_widget(recheck_btn)
+
+            open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
+
+            def _force_open(_inst):
+                p = path_input.text.strip()
+                if p:
+                    popup.dismiss()
+                    self.use_local_mode(p)
+                else:
+                    self.show_error(
+                        S.get("MESSAGES", {}).get(
+                            "NO_DB_SELECTED", "Δεν επιλέχθηκε αρχείο βάσης"
+                        )
+                    )
+
+            open_btn.bind(on_press=_force_open)
+            btn_row.add_widget(open_btn)
+
+            cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+            cancel_btn.bind(on_press=popup.dismiss)
+            btn_row.add_widget(cancel_btn)
+
+            layout.add_widget(btn_row)
+            popup.content = layout
+            popup.open()
+            return
+
+        # ----- Storage permission IS granted: show in-app file browser -----
+        layout.add_widget(
+            Label(
+                text=S.get("MESSAGES", {}).get(
+                    "ENTER_PATH", "Δώσε πλήρες path του αρχείου .db"
+                ),
+                size_hint_y=0.05,
+            )
+        )
         path_input = TextInput(
-            text=default_path, hint_text=ANDROID_DEFAULT_DB_PATH, multiline=False
+            text=default_path,
+            hint_text=ANDROID_DEFAULT_DB_PATH,
+            multiline=False,
+            size_hint_y=0.08,
         )
         layout.add_widget(path_input)
 
-        chooser_layout = BoxLayout(size_hint_y=0.25, spacing=10)
-        choose_btn = Button(
-            text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου")
-        )
-        choose_btn.disabled = platform != "android" and not (
-            filechooser or FileChooserListView
-        )
-
-        def open_picker():
-            current_path = path_input.text.strip() or default_path
-
-            def _reopen_popup(next_path=None):
-                Clock.schedule_once(
-                    lambda _dt: self._prompt_local_db_path(next_path or current_path),
-                    0,
-                )
-
-            def _selected(selection):
-                if not selection or len(selection) == 0:
-                    self.show_error(
-                        S["MESSAGES"].get(
-                            "PICKER_EMPTY_SELECTION",
-                            "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
-                        )
-                    )
-                    return
-
-                raw_value = selection[0]
-                if raw_value is None:
-                    self.show_error(
-                        S["MESSAGES"].get(
-                            "PICKER_EMPTY_SELECTION",
-                            "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
-                        )
-                    )
-                    return
-
-                if isinstance(raw_value, bytes):
-                    selected_path = raw_value.decode("utf-8", errors="ignore")
-                else:
-                    selected_path = str(raw_value)
-
-                if selected_path.strip().lower() in ("", "none", "null"):
-                    self.show_error(
-                        S["MESSAGES"].get(
-                            "PICKER_EMPTY_SELECTION",
-                            "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
-                        )
-                    )
-                    return
-
-                Logger.info(f"APP: File chooser selected: {selected_path}")
-                _reopen_popup(selected_path)
-
-            try:
-                if platform == "android":
-                    popup.dismiss()
-                    self._open_android_document_picker(
-                        _selected,
-                        on_cancel=lambda: _reopen_popup(current_path),
-                    )
-                    return
-
-                # Non-Android flow: prefer filechooser if available, otherwise fall back to list view or show error
-                if not filechooser:
-                    if FileChooserListView:
-                        self.show_error(
-                            S["MESSAGES"].get(
-                                "ANDROID_FILECHOOSER_FALLBACK",
-                                "Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.",
-                            )
-                        )
-                    else:
-                        self.show_error(
-                            S["MESSAGES"].get(
-                                "FILECHOOSER_NOT_AVAILABLE",
-                                "Ο επιλογέας αρχείων δεν είναι διαθέσιμος",
-                            )
-                        )
-                    return
-
-                # Use the available filechooser
-                filechooser.open_file(on_selection=_selected)
-            except Exception as e:
-                Logger.error(f"APP: Exception in open_picker: {str(e)}")
-                self.show_error(
-                    S.get("MESSAGES", {})
-                    .get(
-                        "PICKER_OPEN_ERROR",
-                        "Σφάλμα ανοίγματος επιλογέα: {err}",
-                    )
-                    .format(err=str(e))
-                )
-
-        choose_btn.bind(on_press=lambda _x: open_picker())
-        chooser_layout.add_widget(choose_btn)
-        layout.add_widget(chooser_layout)
-
+        # In-app Kivy file chooser (never leaves the app)
         if FileChooserListView:
             chooser_path = (
-                os.path.dirname(default_path) if default_path else "/storage/emulated/0"
+                os.path.dirname(default_path)
+                if default_path and os.path.isdir(os.path.dirname(default_path))
+                else "/storage/emulated/0"
             )
             file_chooser = FileChooserListView(
-                filters=["*.db"], path=chooser_path, size_hint_y=0.6
+                filters=["*.db"], path=chooser_path, size_hint_y=0.7
             )
 
             def _file_list_selected(_instance, selection):
                 if selection:
                     raw_value = selection[0]
                     if raw_value is None:
-                        self.show_error(
-                            S["MESSAGES"].get(
-                                "PICKER_EMPTY_SELECTION",
-                                "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
-                            )
-                        )
                         return
                     if isinstance(raw_value, bytes):
                         selected_path = raw_value.decode("utf-8", errors="ignore")
                     else:
                         selected_path = str(raw_value)
-                    if selected_path.strip().lower() in ("", "none", "null"):
-                        self.show_error(
-                            S["MESSAGES"].get(
-                                "PICKER_EMPTY_SELECTION",
-                                "Ο επιλογέας επέστρεψε κενή επιλογή (None).",
-                            )
+                    if selected_path.strip().lower() not in ("", "none", "null"):
+                        Logger.info(f"APP: File list selected: {selected_path}")
+                        Clock.schedule_once(
+                            lambda _dt: setattr(path_input, "text", selected_path), 0
                         )
-                        return
-                    Logger.info(f"APP: File list selected: {selected_path}")
-                    Clock.schedule_once(
-                        lambda _dt: setattr(path_input, "text", selected_path), 0
-                    )
 
             file_chooser.bind(selection=_file_list_selected)
             file_chooser.bind(
@@ -730,7 +711,27 @@ class SubstationAndroidApp(App):
             )
             layout.add_widget(file_chooser)
 
-        buttons = BoxLayout(size_hint_y=0.3, spacing=10)
+        # Desktop-only: external filechooser (safe, not SDL2)
+        if platform != "android" and filechooser and not FileChooserListView:
+            choose_btn = Button(
+                text=S.get("BUTTONS", {}).get("BROWSE_FILE", "Αναζήτηση αρχείου"),
+                size_hint_y=0.08,
+            )
+
+            def _desktop_picker(_inst):
+                try:
+                    filechooser.open_file(
+                        on_selection=lambda sel: (
+                            setattr(path_input, "text", str(sel[0])) if sel else None
+                        )
+                    )
+                except Exception as e:
+                    self.show_error(str(e))
+
+            choose_btn.bind(on_press=_desktop_picker)
+            layout.add_widget(choose_btn)
+
+        buttons = BoxLayout(size_hint_y=0.08, spacing=10)
         open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
 
         def _open_selected_path(_instance):
@@ -760,11 +761,6 @@ class SubstationAndroidApp(App):
         layout.add_widget(buttons)
         popup.content = layout
         popup.open()
-
-        # NOTE: the real Android SAF picker implementation lives as a class method
-        # further down in the file (`def _open_android_document_picker(self, on_selected):`).
-        # The local nested implementation was removed to ensure permission checks
-        # from the top-level picker are always used.
 
     def _open_android_document_picker(self, on_selected, on_cancel=None):
         if platform != "android":
@@ -968,17 +964,34 @@ class SubstationAndroidApp(App):
             normalized_path = self._normalize_android_storage_path(db_path)
             if normalized_path.startswith("/storage/"):
                 if not self._android_storage_permissions_granted():
-                    self.show_error(
-                        S.get("MESSAGES", {}).get(
-                            "ANDROID_SAF_REQUIRED",
-                            "Στο Android χρησιμοποίησε 'Αναζήτηση αρχείου' για να επιλέξεις τη βάση. Το άμεσο path /storage/... δεν θα ανοίξει χωρίς πρόσβαση που συχνά σε στέλνει στις Ρυθμίσεις.",
-                        ),
-                        is_info=True,
-                    )
-                    Clock.schedule_once(
-                        lambda _dt: self._prompt_local_db_path(initial_path=""), 0
-                    )
-                    return
+                    # Try to open anyway – the file might be accessible even
+                    # without broad storage (e.g. app-owned or legacy).
+                    if os.path.exists(normalized_path):
+                        Logger.info(
+                            "APP: No broad storage permission but file exists, "
+                            "attempting load"
+                        )
+                    else:
+                        # File is not accessible.  Show the permission-grant
+                        # instructions (never start an external activity which
+                        # would crash SDL2 on modern Android).
+                        self.show_error(
+                            S.get("MESSAGES", {}).get(
+                                "ANDROID_STORAGE_PERMISSION_NEEDED",
+                                "Δεν βρέθηκε ή δεν είναι προσβάσιμο. "
+                                "Ενεργοποιήστε 'Πρόσβαση σε όλα τα αρχεία' "
+                                "στις Ρυθμίσεις ▸ Εφαρμογές ▸ DB Substations "
+                                "▸ Δικαιώματα, και ξαναπροσπαθήστε.",
+                            ),
+                            is_info=True,
+                        )
+                        Clock.schedule_once(
+                            lambda _dt: self._prompt_local_db_path(
+                                initial_path=normalized_path
+                            ),
+                            0,
+                        )
+                        return
 
         _begin_load(db_path)
 
@@ -1076,6 +1089,15 @@ class SubstationAndroidApp(App):
                 )
             elif getattr(self, "_pending_android_permission_action", None) is not None:
                 self._show_permissions_requested_notice()
+            # If the user just granted All-Files-Access in Settings and came
+            # back, try to auto-load the saved DB path so the experience is
+            # seamless.
+            elif (
+                platform == "android"
+                and self._android_storage_permissions_granted()
+                and not getattr(self, "local_db_path", None)
+            ):
+                self._auto_load_saved_db()
         except Exception as resume_err:
             Logger.warning(f"APP: Android on_resume handling failed: {resume_err}")
         return True
@@ -1836,12 +1858,17 @@ class SubstationAndroidApp(App):
         normalized = self._normalize_android_storage_path(candidate)
         if normalized.startswith("content://"):
             return normalized
-        if (
-            platform == "android"
-            and normalized.startswith("/storage/")
-            and not self._android_storage_permissions_granted()
-        ):
-            return None
+        # For raw /storage/ paths, check both permission AND actual file
+        # existence.  Even without MANAGE_EXTERNAL_STORAGE the file might be
+        # accessible (legacy installs, app-owned files, etc.).  Only skip when
+        # the file is truly unreachable.
+        if platform == "android" and normalized.startswith("/storage/"):
+            if not self._android_storage_permissions_granted():
+                try:
+                    if not os.path.exists(normalized):
+                        return None
+                except Exception:
+                    return None
         if os.path.exists(normalized):
             return normalized
         return None

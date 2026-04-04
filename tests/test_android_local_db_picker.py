@@ -245,6 +245,8 @@ def test_open_android_document_picker_calls_cancel_callback(monkeypatch):
 def test_use_local_mode_prompts_saf_for_android_storage_path_without_permissions(
     monkeypatch,
 ):
+    """When file is inaccessible AND no broad storage permission, show
+    instructions popup and re-open the local-DB prompt."""
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
@@ -255,6 +257,8 @@ def test_use_local_mode_prompts_saf_for_android_storage_path_without_permissions
     shown = []
 
     monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+    # The file does NOT exist (inaccessible on modern Android)
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: False)
     monkeypatch.setattr(
         app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
     )
@@ -281,7 +285,7 @@ def test_use_local_mode_prompts_saf_for_android_storage_path_without_permissions
 
     assert prepared == []
     assert loaded == []
-    assert prompts == [""]
+    assert len(prompts) == 1
     assert len(shown) == 1
     assert shown[0][1] is True
 
@@ -430,7 +434,72 @@ def test_get_auto_load_db_path_skips_android_storage_without_permissions(monkeyp
 
     monkeypatch.setattr(android_app, "platform", "android")
     monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+    # File doesn't exist → should return None
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: False)
 
     result = app._get_auto_load_db_path("/storage/emulated/0/Download/substations.db")
 
     assert result is None
+
+
+def test_get_auto_load_db_path_loads_accessible_file_without_broad_permission(
+    monkeypatch,
+):
+    """If the file happens to exist even without MANAGE_EXTERNAL_STORAGE, load it."""
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
+
+    result = app._get_auto_load_db_path("/storage/emulated/0/Download/substations.db")
+
+    assert result == "/storage/emulated/0/Download/substations.db"
+
+
+def test_use_local_mode_loads_accessible_file_without_broad_permission(monkeypatch):
+    """If the file exists on disk even without MANAGE_EXTERNAL_STORAGE, just load it."""
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+
+    prepared = []
+    loaded = []
+
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+    # File IS accessible despite no broad permission
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
+    monkeypatch.setattr(
+        app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
+    )
+    monkeypatch.setattr(app, "_set_saved_db_path", lambda path: None)
+    monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
+    monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
+
+    app.use_local_mode("/storage/emulated/0/Download/substations.db")
+
+    assert prepared == ["/storage/emulated/0/Download/substations.db"]
+    assert loaded == [True]
+
+
+def test_on_resume_auto_loads_saved_db_after_permission_grant(monkeypatch):
+    """After user grants All-Files-Access in Settings and returns,
+    on_resume should try to auto-load the saved DB."""
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
+
+    auto_loaded = []
+    monkeypatch.setattr(
+        app,
+        "_auto_load_saved_db",
+        lambda: auto_loaded.append(True) or True,
+    )
+    # No pending action, no local_db_path loaded yet
+    app._pending_android_permission_action = None
+    app._android_permission_request_in_flight = False
+    app.local_db_path = None
+
+    assert app.on_resume() is True
+    assert auto_loaded == [True]
