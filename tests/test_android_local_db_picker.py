@@ -17,6 +17,7 @@ def test_open_local_db_picker_uses_android_popup_flow(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
 
     opened = []
     monkeypatch.setattr(app, "_prompt_local_db_path", lambda: opened.append(True))
@@ -24,6 +25,29 @@ def test_open_local_db_picker_uses_android_popup_flow(monkeypatch):
     app.open_local_db_picker()
 
     assert opened == [True]
+
+
+def test_open_local_db_picker_requests_android_permissions_first(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+
+    requested = []
+    opened = []
+
+    monkeypatch.setattr(
+        app,
+        "_request_android_storage_permissions",
+        lambda on_granted=None: requested.append(on_granted) or False,
+    )
+    monkeypatch.setattr(app, "_prompt_local_db_path", lambda: opened.append(True))
+
+    app.open_local_db_picker()
+
+    assert len(requested) == 1
+    assert callable(requested[0])
+    assert opened == []
 
 
 def test_handle_local_db_selection_uses_local_mode(monkeypatch):
@@ -242,22 +266,20 @@ def test_open_android_document_picker_calls_cancel_callback(monkeypatch):
     assert app._android_picker_callback is None
 
 
-def test_use_local_mode_prompts_saf_for_android_storage_path_without_permissions(
+def test_use_local_mode_requests_permissions_for_android_storage_path_without_permissions(
     monkeypatch,
 ):
-    """When file is inaccessible AND no broad storage permission, show
-    instructions popup and re-open the local-DB prompt."""
+    """When file is inaccessible and storage permission is missing, request it
+    inside the app and defer reopening the local-DB prompt."""
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
 
     prepared = []
     loaded = []
-    prompts = []
-    shown = []
+    requested = []
 
     monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
-    # The file does NOT exist (inaccessible on modern Android)
     monkeypatch.setattr(android_app.os.path, "exists", lambda _p: False)
     monkeypatch.setattr(
         app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
@@ -267,27 +289,16 @@ def test_use_local_mode_prompts_saf_for_android_storage_path_without_permissions
     monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
     monkeypatch.setattr(
         app,
-        "show_error",
-        lambda message, is_info=False: shown.append((message, is_info)),
-    )
-    monkeypatch.setattr(
-        app,
-        "_prompt_local_db_path",
-        lambda initial_path=None: prompts.append(initial_path),
-    )
-    monkeypatch.setattr(
-        android_app,
-        "Clock",
-        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+        "_request_android_storage_permissions",
+        lambda on_granted=None: requested.append(on_granted) or False,
     )
 
     app.use_local_mode("/storage/emulated/0/Download/substations.db")
 
     assert prepared == []
     assert loaded == []
-    assert len(prompts) == 1
-    assert len(shown) == 1
-    assert shown[0][1] is True
+    assert len(requested) == 1
+    assert callable(requested[0])
 
 
 def test_use_local_mode_allows_android_storage_path_with_permissions(monkeypatch):

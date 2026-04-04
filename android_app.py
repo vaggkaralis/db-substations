@@ -457,6 +457,11 @@ class SubstationAndroidApp(App):
     INSPECTION_FIELDS = _build_inspection_fields(S)
 
     def open_local_db_picker(self):
+        if platform == "android" and not self._android_storage_permissions_granted():
+            self._request_android_storage_permissions(
+                on_granted=lambda: self._prompt_local_db_path()
+            )
+            return
         self._prompt_local_db_path()
 
     def _show_android_loader_info(self, message):
@@ -478,19 +483,6 @@ class SubstationAndroidApp(App):
         if platform != "android":
             return True
 
-        # On API 30+ (Android 11+), check MANAGE_EXTERNAL_STORAGE via
-        # Environment.isExternalStorageManager().  The legacy READ/WRITE
-        # permissions are no-ops on modern Android.
-        try:
-            from jnius import autoclass
-
-            Environment = autoclass("android.os.Environment")
-            if hasattr(Environment, "isExternalStorageManager"):
-                return bool(Environment.isExternalStorageManager())
-        except Exception as env_err:
-            Logger.info(f"APP: isExternalStorageManager check failed: {env_err}")
-
-        # Fallback for older API: check legacy READ/WRITE permissions.
         try:
             from android.permissions import Permission, check_permission
         except Exception as perm_err:
@@ -505,10 +497,23 @@ class SubstationAndroidApp(App):
             Permission.WRITE_EXTERNAL_STORAGE,
         ]
         try:
-            return all(check_permission(permission) for permission in needed_perms)
+            if all(check_permission(permission) for permission in needed_perms):
+                return True
         except Exception as check_err:
-            Logger.info(f"APP: Permission check failed, assuming granted: {check_err}")
-            return True
+            Logger.info(f"APP: Permission check failed: {check_err}")
+
+        # If legacy runtime permissions are not granted, accept the broader
+        # Android 11+ all-files access as an alternative when it exists.
+        try:
+            from jnius import autoclass
+
+            Environment = autoclass("android.os.Environment")
+            if hasattr(Environment, "isExternalStorageManager"):
+                return bool(Environment.isExternalStorageManager())
+        except Exception as env_err:
+            Logger.info(f"APP: isExternalStorageManager check failed: {env_err}")
+
+        return False
 
     def _resume_pending_android_permission_action(self):
         pending_action = getattr(self, "_pending_android_permission_action", None)
@@ -589,18 +594,16 @@ class SubstationAndroidApp(App):
         default_path = initial_path or saved_path or ANDROID_DEFAULT_DB_PATH
 
         if not has_storage and platform == "android":
-            # No storage permission – show instructions instead of a file picker
-            # to avoid launching any external activity (which crashes SDL2 on
-            # modern Android).
+            # Keep the flow inside the app: request the normal Android storage
+            # permission first, then reopen the picker when granted.
             layout.add_widget(
                 Label(
                     text=(
                         "Η εφαρμογή δεν έχει πρόσβαση στα αρχεία.\n\n"
-                        "Ανοίξτε τις Ρυθμίσεις Android:\n"
-                        " ❶  Ρυθμίσεις ▸ Εφαρμογές ▸ DB Substations\n"
-                        " ❷  Πατήστε κάτω 'Πρόσβαση σε όλα τα αρχεία'\n"
-                        "     (ή 'Ειδική πρόσβαση εφαρμογών')\n"
-                        " ❸  Επιστρέψτε εδώ και πατήστε 'Έλεγχος'\n\n"
+                        "Πατήστε 'Δώσε πρόσβαση' ώστε το Android να ζητήσει "
+                        "δικαίωμα αποθήκευσης μέσα από την εφαρμογή.\n"
+                        "Αν το Android δεν εμφανίσει διάλογο, μπορείτε να "
+                        "γράψετε το πλήρες path χειροκίνητα παρακάτω.\n\n"
                         "Ή γράψτε ολόκληρο path στο πεδίο παρακάτω."
                     ),
                     halign="left",
@@ -618,22 +621,19 @@ class SubstationAndroidApp(App):
             layout.add_widget(path_input)
 
             btn_row = BoxLayout(size_hint_y=0.2, spacing=10)
-            recheck_btn = Button(
-                text="Έλεγχος δικαιωμάτων",
-            )
+            grant_btn = Button(text="Δώσε πρόσβαση")
 
-            def _recheck(_inst):
-                if self._android_storage_permissions_granted():
-                    popup.dismiss()
-                    self._prompt_local_db_path(initial_path=default_path)
-                else:
-                    self.show_error(
-                        "Η πρόσβαση δεν δόθηκε ακόμα. Ακολουθήστε τα βήματα.",
-                        is_info=True,
+            def _request_access(_inst):
+                next_path = path_input.text.strip() or default_path
+                popup.dismiss()
+                self._request_android_storage_permissions(
+                    on_granted=lambda: self._prompt_local_db_path(
+                        initial_path=next_path
                     )
+                )
 
-            recheck_btn.bind(on_press=_recheck)
-            btn_row.add_widget(recheck_btn)
+            grant_btn.bind(on_press=_request_access)
+            btn_row.add_widget(grant_btn)
 
             open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
 
@@ -973,24 +973,10 @@ class SubstationAndroidApp(App):
                             "attempting load"
                         )
                     else:
-                        # File is not accessible.  Show the permission-grant
-                        # instructions (never start an external activity which
-                        # would crash SDL2 on modern Android).
-                        self.show_error(
-                            S.get("MESSAGES", {}).get(
-                                "ANDROID_STORAGE_PERMISSION_NEEDED",
-                                "Δεν βρέθηκε ή δεν είναι προσβάσιμο. "
-                                "Ενεργοποιήστε 'Πρόσβαση σε όλα τα αρχεία' "
-                                "στις Ρυθμίσεις ▸ Εφαρμογές ▸ DB Substations "
-                                "▸ Δικαιώματα, και ξαναπροσπαθήστε.",
-                            ),
-                            is_info=True,
-                        )
-                        Clock.schedule_once(
-                            lambda _dt: self._prompt_local_db_path(
+                        self._request_android_storage_permissions(
+                            on_granted=lambda: self._prompt_local_db_path(
                                 initial_path=normalized_path
-                            ),
-                            0,
+                            )
                         )
                         return
 
