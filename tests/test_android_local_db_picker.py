@@ -13,26 +13,30 @@ def _collect_widget_texts(widget):
     return texts
 
 
-def test_open_local_db_picker_uses_android_popup_flow(monkeypatch):
+def test_open_local_db_picker_uses_android_document_picker(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
 
     opened = []
-    monkeypatch.setattr(app, "_prompt_local_db_path", lambda: opened.append(True))
+    monkeypatch.setattr(
+        app, "_open_android_local_db_picker", lambda: opened.append(True)
+    )
 
     app.open_local_db_picker()
 
     assert opened == [True]
 
 
-def test_open_local_db_picker_always_opens_prompt(monkeypatch):
-    """open_local_db_picker no longer checks permissions; it always opens the
-    prompt which will offer the SAF document picker on Android."""
+def test_open_local_db_picker_uses_desktop_prompt(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
-    monkeypatch.setattr(android_app, "platform", "android")
-    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
+    monkeypatch.setattr(android_app, "platform", "win")
 
     opened = []
     monkeypatch.setattr(app, "_prompt_local_db_path", lambda: opened.append(True))
@@ -67,6 +71,24 @@ def test_build_uses_local_database_button_label(monkeypatch):
 
     texts = _collect_widget_texts(root)
     assert expected in texts
+
+
+def test_build_hides_sync_button_on_android(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    root = app.build()
+
+    assert root is not None
+    assert app.sync_btn is None
 
 
 def test_open_android_document_picker_runs_on_ui_thread(monkeypatch):
@@ -258,20 +280,25 @@ def test_open_android_document_picker_calls_cancel_callback(monkeypatch):
     assert app._android_picker_callback is None
 
 
-def test_use_local_mode_shows_error_and_reopens_prompt_for_inaccessible_file(
+def test_use_local_mode_shows_error_and_reopens_picker_for_inaccessible_file(
     monkeypatch,
 ):
     """When a /storage/ file doesn't exist, show an error and reopen the
-    local-DB prompt (with SAF browse option) instead of requesting
+    Android picker instead of requesting
     permissions that can never be granted on targetSdk 34."""
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
 
     prepared = []
     loaded = []
     errors = []
-    prompts = []
+    picker_calls = []
 
     monkeypatch.setattr(android_app.os.path, "exists", lambda _p: False)
     monkeypatch.setattr(
@@ -287,8 +314,8 @@ def test_use_local_mode_shows_error_and_reopens_prompt_for_inaccessible_file(
     )
     monkeypatch.setattr(
         app,
-        "_prompt_local_db_path",
-        lambda initial_path=None: prompts.append(initial_path),
+        "_open_android_local_db_picker",
+        lambda: picker_calls.append(True),
     )
 
     app.use_local_mode("/storage/emulated/0/Download/substations.db")
@@ -296,8 +323,7 @@ def test_use_local_mode_shows_error_and_reopens_prompt_for_inaccessible_file(
     assert prepared == []
     assert loaded == []
     assert len(errors) == 1
-    assert len(prompts) == 1
-    assert prompts[0] == "/storage/emulated/0/Download/substations.db"
+    assert picker_calls == [True]
 
 
 def test_use_local_mode_allows_android_storage_path_with_permissions(monkeypatch):

@@ -457,10 +457,13 @@ class SubstationAndroidApp(App):
     INSPECTION_FIELDS = _build_inspection_fields(S)
 
     def open_local_db_picker(self):
-        # On modern Android (targetSdk 34+), READ/WRITE_EXTERNAL_STORAGE can
-        # never be granted.  Skip the broken permission request and go straight
-        # to the popup which offers an SAF document picker (no permissions
-        # required) as well as a manual path input.
+        if platform == "android":
+            # Keep the Android path as small as possible: opening the SAF picker
+            # directly avoids constructing extra Kivy popup/UI layers on the
+            # exact tap path that previously triggered native crashes.
+            Clock.schedule_once(lambda _dt: self._open_android_local_db_picker(), 0)
+            return
+
         self._prompt_local_db_path()
 
     def _show_android_loader_info(self, message):
@@ -1034,13 +1037,16 @@ class SubstationAndroidApp(App):
             normalized_path = self._normalize_android_storage_path(db_path)
             if normalized_path.startswith("/storage/"):
                 if not os.path.exists(normalized_path):
-                    # File is not accessible – offer the SAF picker so the
-                    # user can choose the file through Android's own UI.
+                    # File is not accessible. Re-route to the Android file
+                    # picker instead of reopening another popup.
                     self.show_error(
                         "Το αρχείο δεν είναι προσβάσιμο.\n"
                         "Χρησιμοποιήστε 'Αναζήτηση αρχείου' για να το βρείτε.",
                     )
-                    self._prompt_local_db_path(initial_path=normalized_path)
+                    Clock.schedule_once(
+                        lambda _dt: self._open_android_local_db_picker(),
+                        0,
+                    )
                     return
 
         _begin_load(db_path)
@@ -1345,46 +1351,49 @@ class SubstationAndroidApp(App):
         Logger.info("APP: Creating Android header")
 
         image_cls = None
-        color_cls = None
-        rectangle_cls = None
+        resource_find = None
         try:
-            from kivy.graphics import Color, Rectangle
+            from kivy.resources import resource_find as kivy_resource_find
             from kivy.uix.image import Image
 
             image_cls = Image
-            color_cls = Color
-            rectangle_cls = Rectangle
+            resource_find = kivy_resource_find
         except Exception as e:
             Logger.warning(f"APP: Header image imports unavailable: {e}")
 
         logo_candidates = [
+            resource_find("logo_deddie.png") if resource_find else None,
+            resource_find("deddie_logo.png") if resource_find else None,
             os.path.join(os.path.dirname(__file__), "logo_deddie.png"),
             os.path.join(os.path.dirname(__file__), "deddie_logo.png"),
         ]
         logo_path = next(
-            (path for path in logo_candidates if os.path.exists(path)), None
+            (path for path in logo_candidates if path and os.path.exists(path)),
+            None,
         )
 
-        if logo_path and image_cls and color_cls and rectangle_cls:
+        if logo_path and image_cls:
             try:
                 logo_container = BoxLayout(
+                    orientation="horizontal",
                     size_hint_y=None,
-                    height=100,
-                    padding=[8, 8, 8, 8],
+                    height=72,
+                    padding=[6, 4, 6, 0],
+                    spacing=0,
                 )
 
-                def redraw_bg(inst, _val):
-                    logo_container.canvas.before.clear()
-                    with logo_container.canvas.before:
-                        color_cls(1, 1, 1, 1)
-                        rectangle_cls(size=inst.size, pos=inst.pos)
-
-                logo_container.bind(size=redraw_bg, pos=redraw_bg)
-                logo = image_cls(source=logo_path, size_hint=(1, 1))
+                logo_container.add_widget(Label(size_hint_x=0.18, text=""))
+                logo = image_cls(source=logo_path, size_hint=(0.64, 1))
                 if hasattr(logo, "fit_mode"):
                     logo.fit_mode = "contain"
+                else:
+                    try:
+                        logo.allow_stretch = True
+                        logo.keep_ratio = True
+                    except Exception:
+                        pass
                 logo_container.add_widget(logo)
-                redraw_bg(logo_container, None)
+                logo_container.add_widget(Label(size_hint_x=0.18, text=""))
                 main_layout.add_widget(logo_container)
             except Exception as e:
                 Logger.warning(f"APP: Could not load logo: {e}")
@@ -1397,13 +1406,22 @@ class SubstationAndroidApp(App):
             padding=[10, 6, 10, 6],
         )
 
-        settings_btn = Button(
-            text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
-            size_hint_x=None,
-            width=180,
-            font_size="15sp",
-        )
-        settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
+        if platform == "android":
+            settings_btn = Button(
+                text="⚙",
+                size_hint_x=None,
+                width=52,
+                font_size="22sp",
+            )
+            settings_btn.bind(on_press=lambda _x: self._show_android_app_menu())
+        else:
+            settings_btn = Button(
+                text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
+                size_hint_x=None,
+                width=180,
+                font_size="15sp",
+            )
+            settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
         top_bar.add_widget(settings_btn)
 
         header_label = Label(
@@ -1417,6 +1435,33 @@ class SubstationAndroidApp(App):
         top_bar.add_widget(header_label)
 
         main_layout.add_widget(top_bar)
+
+    def _show_android_app_menu(self):
+        popup = Popup(title="Ρυθμίσεις", size_hint=(0.9, 0.28))
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        layout.add_widget(
+            Label(
+                text=(
+                    "Η Android έκδοση χρησιμοποιεί τοπική βάση και τον επιλογέα "
+                    "αρχείων του Android. Ο συγχρονισμός είναι απενεργοποιημένος."
+                )
+            )
+        )
+        buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
+        change_log_btn = Button(text="Change Log")
+        close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
+
+        def _open_change_log(_instance):
+            popup.dismiss()
+            self.show_change_log_menu()
+
+        change_log_btn.bind(on_press=_open_change_log)
+        close_btn.bind(on_press=popup.dismiss)
+        buttons.add_widget(change_log_btn)
+        buttons.add_widget(close_btn)
+        layout.add_widget(buttons)
+        popup.content = layout
+        popup.open()
 
     def build(self):
         Logger.info("APP: ========== BUILD METHOD STARTING ==========")
@@ -1821,9 +1866,12 @@ class SubstationAndroidApp(App):
             # SECONDARY ACTIONS ROW (smaller, system functions)
             secondary_row = BoxLayout(size_hint_y=0.45, spacing=8)
 
-            self.sync_btn = Button(text="Sync", font_size="16sp", bold=True)
-            self.sync_btn.bind(on_press=self._on_sync_button_pressed)
-            secondary_row.add_widget(self.sync_btn)
+            if platform != "android":
+                self.sync_btn = Button(text="Sync", font_size="16sp", bold=True)
+                self.sync_btn.bind(on_press=self._on_sync_button_pressed)
+                secondary_row.add_widget(self.sync_btn)
+            else:
+                self.sync_btn = None
 
             self.change_log_btn = Button(text="Change Log", font_size="16sp", bold=True)
             self.change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
@@ -1835,40 +1883,43 @@ class SubstationAndroidApp(App):
             Logger.info("APP: Buttons added (reorganized layout)")
 
             # Load data after UI is rendered (prevent ANR)
-            Logger.info(
-                "APP: Scheduling load_substations and startup sync to run after UI renders"
-            )
+            Logger.info("APP: Scheduling initial data load after UI renders")
             if not self._auto_load_saved_db():
                 Clock.schedule_once(self.load_substations, 0.5)
-                Clock.schedule_once(self._run_startup_sync, 1.0)
-                try:
-                    from config_manager import get_app_setting
+                if platform != "android":
+                    Clock.schedule_once(self._run_startup_sync, 1.0)
+                    try:
+                        from config_manager import get_app_setting
 
-                    minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)
-                except Exception:
-                    minutes = 15
-                # Schedule periodic silent startup-sync checks using minutes setting
-                try:
-                    Clock.schedule_interval(
-                        lambda dt: self._run_startup_sync(dt), int(minutes) * 60
-                    )
-                except Exception:
-                    pass
+                        minutes = int(
+                            get_app_setting("sync_auto_cycle_minutes", 15) or 15
+                        )
+                    except Exception:
+                        minutes = 15
+                    try:
+                        Clock.schedule_interval(
+                            lambda dt: self._run_startup_sync(dt), int(minutes) * 60
+                        )
+                    except Exception:
+                        pass
             else:
                 Clock.schedule_once(self.load_substations, 0.5)
-                Clock.schedule_once(self._run_startup_sync, 1.0)
-                try:
-                    from config_manager import get_app_setting
+                if platform != "android":
+                    Clock.schedule_once(self._run_startup_sync, 1.0)
+                    try:
+                        from config_manager import get_app_setting
 
-                    minutes = int(get_app_setting("sync_auto_cycle_minutes", 15) or 15)
-                except Exception:
-                    minutes = 15
-                try:
-                    Clock.schedule_interval(
-                        lambda dt: self._run_startup_sync(dt), int(minutes) * 60
-                    )
-                except Exception:
-                    pass
+                        minutes = int(
+                            get_app_setting("sync_auto_cycle_minutes", 15) or 15
+                        )
+                    except Exception:
+                        minutes = 15
+                    try:
+                        Clock.schedule_interval(
+                            lambda dt: self._run_startup_sync(dt), int(minutes) * 60
+                        )
+                    except Exception:
+                        pass
 
             Logger.info("APP: UI build completed successfully")
             return main_layout
@@ -2617,6 +2668,13 @@ class SubstationAndroidApp(App):
 
     def _on_sync_button_pressed(self, instance):
         """Handle manual sync button press."""
+        if platform == "android":
+            self.show_error(
+                "Ο συγχρονισμός δεν είναι διαθέσιμος στην Android έκδοση.",
+                is_info=True,
+            )
+            return
+
         if not hasattr(self, "local_db_path") or not self.local_db_path:
             self.show_error(
                 S.get("MESSAGES", {}).get("NO_DB", "Δεν φορτώθηκε βάση δεδομένων")
@@ -2640,6 +2698,10 @@ class SubstationAndroidApp(App):
 
     def _run_startup_sync(self, dt):
         """Run automatic sync on app startup if enabled."""
+        if platform == "android":
+            Logger.info("SYNC: Startup sync disabled on Android")
+            return
+
         try:
             if not hasattr(self, "local_db_path") or not self.local_db_path:
                 Logger.info("SYNC: Skipping startup sync - no DB loaded yet")
@@ -2734,8 +2796,9 @@ class SubstationAndroidApp(App):
 
     def _on_sync_complete(self, result):
         """Handle successful sync completion."""
-        self.sync_btn.disabled = False
-        self.sync_btn.text = "Sync"
+        if getattr(self, "sync_btn", None) is not None:
+            self.sync_btn.disabled = False
+            self.sync_btn.text = "Sync"
 
         if not result:
             self.show_error(
@@ -2765,12 +2828,17 @@ class SubstationAndroidApp(App):
 
     def _on_sync_error(self, error_msg):
         """Handle sync error."""
-        self.sync_btn.disabled = False
-        self.sync_btn.text = "Sync"
+        if getattr(self, "sync_btn", None) is not None:
+            self.sync_btn.disabled = False
+            self.sync_btn.text = "Sync"
         self.show_error(f"Σφάλμα συγχρονισμού:\n{error_msg}")
 
     def _show_sync_settings(self):
         """Show sync settings popup for configuring sync folder."""
+        if platform == "android":
+            self._show_android_app_menu()
+            return
+
         try:
             from config_manager import get_app_setting, set_app_setting
 
