@@ -18,11 +18,16 @@ android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERN
 # Bootstrap and backend
 p4a.bootstrap = sdl2
 p4a.backend = kivy
+# Pin p4a to the last stable release for reproducible builds
+p4a.branch = v2024.01.21
 
 orientation = portrait
 fullscreen = 0
 
-android.api = 31
+# Target API 34 (Android 14) — required for Android 16 devices.
+# API 31 caused the app to run in the legacy untrusted_app_30 SELinux domain,
+# triggering a native hwui mutex crash (FORTIFY SIGABRT) on startup.
+android.api = 34
 android.minapi = 21
 android.ndk = 25b
 android.archs = arm64-v8a
