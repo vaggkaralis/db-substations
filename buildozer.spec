@@ -24,9 +24,10 @@ p4a.branch = v2024.01.21
 orientation = portrait
 fullscreen = 0
 
-# Target API 34 (Android 14) — required for Android 16 devices.
-# API 31 caused the app to run in the legacy untrusted_app_30 SELinux domain,
-# triggering a native hwui mutex crash (FORTIFY SIGABRT) on startup.
+# Target API 34 (Android 14) to ensure modern permission model and Play Store
+# compatibility.  The native hwui mutex crash (FORTIFY SIGABRT in hwuiTask) on
+# Android 16 + SDL2 is resolved by disabling hardware acceleration in the
+# manifest (see android/AndroidManifest.tmpl and the CI sed patch).
 android.api = 34
 android.minapi = 21
 android.ndk = 25b

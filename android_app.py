@@ -457,11 +457,10 @@ class SubstationAndroidApp(App):
     INSPECTION_FIELDS = _build_inspection_fields(S)
 
     def open_local_db_picker(self):
-        if platform == "android" and not self._android_storage_permissions_granted():
-            self._request_android_storage_permissions(
-                on_granted=lambda: self._prompt_local_db_path()
-            )
-            return
+        # On modern Android (targetSdk 34+), READ/WRITE_EXTERNAL_STORAGE can
+        # never be granted.  Skip the broken permission request and go straight
+        # to the popup which offers an SAF document picker (no permissions
+        # required) as well as a manual path input.
         self._prompt_local_db_path()
 
     def _show_android_loader_info(self, message):
@@ -584,7 +583,7 @@ class SubstationAndroidApp(App):
         has_storage = self._android_storage_permissions_granted()
         popup = Popup(
             title=S["MESSAGES"].get("OPEN_LOCAL_DB_TITLE", "Άνοιγμα Τοπικής Βάσης"),
-            size_hint=(0.9, 0.85) if has_storage else (0.9, 0.45),
+            size_hint=(0.9, 0.85) if has_storage else (0.9, 0.55),
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -594,22 +593,21 @@ class SubstationAndroidApp(App):
         default_path = initial_path or saved_path or ANDROID_DEFAULT_DB_PATH
 
         if not has_storage and platform == "android":
-            # Keep the flow inside the app: request the normal Android storage
-            # permission first, then reopen the picker when granted.
+            # On modern Android (API 33+, targetSdk 34) the legacy
+            # READ/WRITE_EXTERNAL_STORAGE permissions are never granted.
+            # Use the Storage Access Framework (SAF) document picker instead
+            # – it needs no permissions at all.
             layout.add_widget(
                 Label(
                     text=(
-                        "Η εφαρμογή δεν έχει πρόσβαση στα αρχεία.\n\n"
-                        "Πατήστε 'Δώσε πρόσβαση' ώστε το Android να ζητήσει "
-                        "δικαίωμα αποθήκευσης μέσα από την εφαρμογή.\n"
-                        "Αν το Android δεν εμφανίσει διάλογο, μπορείτε να "
-                        "γράψετε το πλήρες path χειροκίνητα παρακάτω.\n\n"
+                        "Πατήστε 'Αναζήτηση' για να βρείτε το αρχείο .db\n"
+                        "μέσα από τον επιλογέα αρχείων του Android.\n\n"
                         "Ή γράψτε ολόκληρο path στο πεδίο παρακάτω."
                     ),
                     halign="left",
                     valign="top",
                     markup=False,
-                    size_hint_y=0.55,
+                    size_hint_y=0.40,
                 )
             )
             path_input = TextInput(
@@ -620,20 +618,29 @@ class SubstationAndroidApp(App):
             )
             layout.add_widget(path_input)
 
-            btn_row = BoxLayout(size_hint_y=0.2, spacing=10)
-            grant_btn = Button(text="Δώσε πρόσβαση")
+            btn_row = BoxLayout(size_hint_y=0.25, spacing=10)
 
-            def _request_access(_inst):
+            browse_btn = Button(
+                text=S.get("BUTTONS", {}).get(
+                    "BROWSE_FILE", "Αναζήτηση αρχείου"
+                ),
+                bold=True,
+            )
+
+            def _browse_saf(_inst):
                 next_path = path_input.text.strip() or default_path
                 popup.dismiss()
-                self._request_android_storage_permissions(
-                    on_granted=lambda: self._prompt_local_db_path(
+                self._open_android_document_picker(
+                    on_selected=lambda sel: (
+                        self.use_local_mode(sel[0]) if sel else None
+                    ),
+                    on_cancel=lambda: self._prompt_local_db_path(
                         initial_path=next_path
-                    )
+                    ),
                 )
 
-            grant_btn.bind(on_press=_request_access)
-            btn_row.add_widget(grant_btn)
+            browse_btn.bind(on_press=_browse_saf)
+            btn_row.add_widget(browse_btn)
 
             open_btn = Button(text=S["BUTTONS"].get("OPEN", "Άνοιγμα"))
 
@@ -964,21 +971,15 @@ class SubstationAndroidApp(App):
         ):
             normalized_path = self._normalize_android_storage_path(db_path)
             if normalized_path.startswith("/storage/"):
-                if not self._android_storage_permissions_granted():
-                    # Try to open anyway – the file might be accessible even
-                    # without broad storage (e.g. app-owned or legacy).
-                    if os.path.exists(normalized_path):
-                        Logger.info(
-                            "APP: No broad storage permission but file exists, "
-                            "attempting load"
-                        )
-                    else:
-                        self._request_android_storage_permissions(
-                            on_granted=lambda: self._prompt_local_db_path(
-                                initial_path=normalized_path
-                            )
-                        )
-                        return
+                if not os.path.exists(normalized_path):
+                    # File is not accessible – offer the SAF picker so the
+                    # user can choose the file through Android's own UI.
+                    self.show_error(
+                        "Το αρχείο δεν είναι προσβάσιμο.\n"
+                        "Χρησιμοποιήστε 'Αναζήτηση αρχείου' για να το βρείτε.",
+                    )
+                    self._prompt_local_db_path(initial_path=normalized_path)
+                    return
 
         _begin_load(db_path)
 
@@ -1337,8 +1338,8 @@ class SubstationAndroidApp(App):
         settings_btn = Button(
             text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
             size_hint_x=None,
-            width=130,
-            font_size="14sp",
+            width=180,
+            font_size="15sp",
         )
         settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
         top_bar.add_widget(settings_btn)

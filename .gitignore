@@ -20,6 +20,7 @@ app_settings.json
 
 # Bug reports (Android debugging)
 bugreport-*/
+bugreport-*.txt
 
 # Excel and CSV files (templates and imports)
 *.xlsx

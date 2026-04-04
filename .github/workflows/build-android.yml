@@ -107,6 +107,26 @@ jobs:
             -O freetype-2.10.1.tar.gz
         fi
 
+    - name: Pre-download and patch p4a
+      run: |
+        # Clone p4a to the location buildozer expects so we can patch it
+        P4A_DIR="$HOME/.buildozer/android/platform/python-for-android"
+        if [ ! -d "$P4A_DIR" ]; then
+          mkdir -p "$(dirname "$P4A_DIR")"
+          git clone --depth 1 --branch v2024.01.21 \
+            https://github.com/kivy/python-for-android.git "$P4A_DIR"
+        fi
+        # Disable hardware acceleration to fix hwui mutex crash (FORTIFY
+        # SIGABRT in hwuiTask/SDLActivity) on Android 16 + SDL2
+        TMPL="$P4A_DIR/pythonforandroid/bootstraps/sdl2/build/templates/AndroidManifest.tmpl.xml"
+        if [ -f "$TMPL" ]; then
+          sed -i 's/android:hardwareAccelerated="true"/android:hardwareAccelerated="false"/g' "$TMPL"
+          echo "Patched hardwareAccelerated in $TMPL"
+          grep -n "hardwareAccelerated" "$TMPL"
+        else
+          echo "WARNING: p4a SDL2 manifest template not found at $TMPL"
+        fi
+
     - name: Build APK with Buildozer
       shell: bash
       run: |
@@ -115,6 +135,11 @@ jobs:
         export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
         build_log="$RUNNER_TEMP/buildozer-android.log"
         : > "$build_log"
+        # Re-apply hwui patch to any already-rendered manifests from cache
+        find "$HOME/.buildozer" -name "AndroidManifest.xml" -path "*/dists/*" \
+          -exec sed -i 's/android:hardwareAccelerated="true"/android:hardwareAccelerated="false"/g' {} \; 2>/dev/null || true
+        find "$HOME/.buildozer" -name "AndroidManifest.tmpl.xml" -path "*/sdl2/*" \
+          -exec sed -i 's/android:hardwareAccelerated="true"/android:hardwareAccelerated="false"/g' {} \; 2>/dev/null || true
         build_succeeded=0
         for attempt in 1 2 3; do
           echo "Buildozer attempt $attempt" | tee -a "$build_log"

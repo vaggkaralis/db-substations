@@ -17,7 +17,6 @@ def test_open_local_db_picker_uses_android_popup_flow(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
-    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
 
     opened = []
     monkeypatch.setattr(app, "_prompt_local_db_path", lambda: opened.append(True))
@@ -27,27 +26,20 @@ def test_open_local_db_picker_uses_android_popup_flow(monkeypatch):
     assert opened == [True]
 
 
-def test_open_local_db_picker_requests_android_permissions_first(monkeypatch):
+def test_open_local_db_picker_always_opens_prompt(monkeypatch):
+    """open_local_db_picker no longer checks permissions; it always opens the
+    prompt which will offer the SAF document picker on Android."""
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
     monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
 
-    requested = []
     opened = []
-
-    monkeypatch.setattr(
-        app,
-        "_request_android_storage_permissions",
-        lambda on_granted=None: requested.append(on_granted) or False,
-    )
     monkeypatch.setattr(app, "_prompt_local_db_path", lambda: opened.append(True))
 
     app.open_local_db_picker()
 
-    assert len(requested) == 1
-    assert callable(requested[0])
-    assert opened == []
+    assert opened == [True]
 
 
 def test_handle_local_db_selection_uses_local_mode(monkeypatch):
@@ -266,20 +258,21 @@ def test_open_android_document_picker_calls_cancel_callback(monkeypatch):
     assert app._android_picker_callback is None
 
 
-def test_use_local_mode_requests_permissions_for_android_storage_path_without_permissions(
+def test_use_local_mode_shows_error_and_reopens_prompt_for_inaccessible_file(
     monkeypatch,
 ):
-    """When file is inaccessible and storage permission is missing, request it
-    inside the app and defer reopening the local-DB prompt."""
+    """When a /storage/ file doesn't exist, show an error and reopen the
+    local-DB prompt (with SAF browse option) instead of requesting
+    permissions that can never be granted on targetSdk 34."""
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
 
     prepared = []
     loaded = []
-    requested = []
+    errors = []
+    prompts = []
 
-    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: False)
     monkeypatch.setattr(android_app.os.path, "exists", lambda _p: False)
     monkeypatch.setattr(
         app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
@@ -289,16 +282,22 @@ def test_use_local_mode_requests_permissions_for_android_storage_path_without_pe
     monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
     monkeypatch.setattr(
         app,
-        "_request_android_storage_permissions",
-        lambda on_granted=None: requested.append(on_granted) or False,
+        "show_error",
+        lambda msg, is_info=False: errors.append(msg),
+    )
+    monkeypatch.setattr(
+        app,
+        "_prompt_local_db_path",
+        lambda initial_path=None: prompts.append(initial_path),
     )
 
     app.use_local_mode("/storage/emulated/0/Download/substations.db")
 
     assert prepared == []
     assert loaded == []
-    assert len(requested) == 1
-    assert callable(requested[0])
+    assert len(errors) == 1
+    assert len(prompts) == 1
+    assert prompts[0] == "/storage/emulated/0/Download/substations.db"
 
 
 def test_use_local_mode_allows_android_storage_path_with_permissions(monkeypatch):
@@ -310,6 +309,7 @@ def test_use_local_mode_allows_android_storage_path_with_permissions(monkeypatch
     loaded = []
 
     monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
     monkeypatch.setattr(
         app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
     )

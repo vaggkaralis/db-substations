@@ -2,13 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="${applicationId}">
 
-    <application android:label="${app_name}" android:icon="@mipmap/ic_launcher">
+    <!-- Disable hardware acceleration to work around an hwui mutex crash
+         (FORTIFY: pthread_mutex_lock on destroyed mutex in hwuiTask/SDLActivity)
+         that affects SDL2-based Kivy apps on Android 16.
+         NOTE: p4a's own template hardcodes hardwareAccelerated="true".
+         The CI build patches that template via sed; this file documents
+         the intended value for reference. -->
+    <application android:label="${app_name}"
+                 android:icon="@mipmap/ic_launcher"
+                 android:hardwareAccelerated="false">
 
-        <!-- Existing application entries are preserved by p4a; this template
-             adds a FileProvider which allows sharing internal files via
-             content:// URIs on Android 7+ devices. If you already have a
-             custom manifest, merge the <provider> entry below into your
-             <application> element. -->
+        <!-- FileProvider allows sharing internal files via content:// URIs
+             on Android 7+ devices. -->
 
         <provider
             android:name="androidx.core.content.FileProvider"
