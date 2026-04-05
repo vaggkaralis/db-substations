@@ -94,7 +94,7 @@ def create_migration(version_new: str, migration_name: str, app_version: str) ->
         print("        \"2.0.0\": {'min_db': \"1.0.0\", 'max_db': \"1.0.0'},")
         print(
             f'        "{app_version}": {{\'min_db\': "?.?.?", '
-            f'\'max_db\': "{version_new}"}},  # <- ADD THIS'
+            f"'max_db': \"{version_new}\"}},  # <- ADD THIS"
         )
         print("    }\n")
         print("Next steps:")

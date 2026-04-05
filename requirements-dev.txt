@@ -1,3 +1,6 @@
 pytest
 pytest-cov
 pyodbc
+ruff
+flake8
+pre-commit

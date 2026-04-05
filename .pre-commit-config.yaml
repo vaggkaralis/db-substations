@@ -1,0 +1,22 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff format (auto-fix)
+        # run ruff formatter on the whole repo during pre-commit to auto-fix
+        entry: python -m ruff format . --exclude=.venv,venv,dist,.dist,tests/test_ci_checks.py
+        language: system
+        pass_filenames: false
+
+      - id: flake8
+        name: flake8 (local)
+        entry: python -m flake8 --max-line-length=88 --exclude=.venv,venv,dist,.dist,tests/_shims,scripts
+        language: system
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest (pre-push)
+        entry: pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
