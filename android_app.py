@@ -482,10 +482,14 @@ class SubstationAndroidApp(App):
 
     def open_local_db_picker(self):
         if platform == "android":
-            # Keep the Android path as small as possible: opening the SAF picker
-            # directly avoids constructing extra Kivy popup/UI layers on the
-            # exact tap path that previously triggered native crashes.
-            Clock.schedule_once(lambda _dt: self._open_android_local_db_picker(), 0)
+            permission_ready = self._request_android_storage_permissions(
+                lambda: self._open_android_local_db_picker()
+            )
+            if permission_ready:
+                Clock.schedule_once(
+                    lambda _dt: self._open_android_local_db_picker(),
+                    0,
+                )
             return
 
         self._prompt_local_db_path()
@@ -1473,6 +1477,20 @@ class SubstationAndroidApp(App):
                 and not getattr(self, "local_db_path", None)
             ):
                 self._auto_load_saved_db()
+            elif (
+                platform == "android"
+                and not getattr(self, "local_db_path", None)
+                and getattr(self, "_pending_android_permission_action", None) is None
+            ):
+                saved_path = (
+                    self._get_saved_db_path()
+                    if hasattr(self, "_get_saved_db_path")
+                    else None
+                )
+                if saved_path and str(saved_path).startswith("/storage/"):
+                    self._request_android_storage_permissions(
+                        lambda: self._auto_load_saved_db()
+                    )
         except Exception as resume_err:
             Logger.warning(f"APP: Android on_resume handling failed: {resume_err}")
         return True
@@ -1518,8 +1536,63 @@ class SubstationAndroidApp(App):
             Permission.WRITE_EXTERNAL_STORAGE,
         ]
 
+        def _has_all_files_access():
+            try:
+                from jnius import autoclass
+
+                Environment = autoclass("android.os.Environment")
+                if hasattr(Environment, "isExternalStorageManager"):
+                    return bool(Environment.isExternalStorageManager())
+            except Exception as env_err:
+                Logger.info(f"APP: All-files access check failed: {env_err}")
+            return False
+
+        def _open_all_files_access_settings():
+            try:
+                from jnius import autoclass
+
+                from android.runnable import run_on_ui_thread
+
+                Intent = autoclass("android.content.Intent")
+                Settings = autoclass("android.provider.Settings")
+                Uri = autoclass("android.net.Uri")
+                PythonActivity = autoclass("org.kivy.android.PythonActivity")
+
+                current_activity = PythonActivity.mActivity
+                package_name = str(current_activity.getPackageName())
+
+                @run_on_ui_thread
+                def _launch_settings():
+                    if hasattr(
+                        Settings,
+                        "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
+                    ):
+                        intent = Intent(
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
+                        )
+                        intent.setData(Uri.parse(f"package:{package_name}"))
+                    elif hasattr(Settings, "ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION"):
+                        intent = Intent(
+                            Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
+                        )
+                    else:
+                        intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        intent.setData(Uri.parse(f"package:{package_name}"))
+                    current_activity.startActivity(intent)
+
+                _launch_settings()
+                return True
+            except Exception as settings_err:
+                Logger.info(
+                    f"APP: Failed to open all-files access settings: {settings_err}"
+                )
+                return False
+
         try:
-            if all(check_permission(permission) for permission in needed_perms):
+            perms_granted = all(
+                check_permission(permission) for permission in needed_perms
+            )
+            if perms_granted and _has_all_files_access():
                 self._pending_android_permission_action = None
                 self._android_permission_request_in_flight = False
                 if on_granted is not None:
@@ -1545,11 +1618,13 @@ class SubstationAndroidApp(App):
             def _finish(_dt):
                 self._android_permission_request_in_flight = False
                 if granted:
-                    pending_action = self._pending_android_permission_action
-                    self._pending_android_permission_action = None
-                    if pending_action is not None:
-                        pending_action()
-                    return
+                    if _has_all_files_access():
+                        pending_action = self._pending_android_permission_action
+                        self._pending_android_permission_action = None
+                        if pending_action is not None:
+                            pending_action()
+                        return
+                    _open_all_files_access_settings()
                 try:
                     self._show_permissions_requested_notice()
                 except Exception:
@@ -1565,9 +1640,11 @@ class SubstationAndroidApp(App):
                 )
             )
             request_permissions(needed_perms, _permission_callback)
+            _open_all_files_access_settings()
         except TypeError:
             request_permissions(needed_perms)
             self._android_permission_request_in_flight = False
+            _open_all_files_access_settings()
             try:
                 self._show_permissions_requested_notice()
             except Exception:
@@ -1721,8 +1798,6 @@ class SubstationAndroidApp(App):
             ),
             None,
         )
-        if logo_source is None and platform == "android":
-            logo_source = "logo_deddie.png"
 
         self.logo_area = BoxLayout(
             orientation="vertical",
@@ -1743,6 +1818,19 @@ class SubstationAndroidApp(App):
                 self.logo_area.add_widget(logo)
             except Exception as e:
                 Logger.warning(f"APP: Could not load logo: {e}")
+                logo_source = None
+        if not logo_source:
+            Logger.warning("APP: Logo asset unavailable; using text fallback")
+            fallback_logo = Label(
+                text="ΔΕΔΔΗΕ",
+                bold=True,
+                font_size="24sp",
+                color=(0.05, 0.18, 0.36, 1),
+                halign="center",
+                valign="middle",
+            )
+            fallback_logo.bind(size=fallback_logo.setter("text_size"))
+            self.logo_area.add_widget(fallback_logo)
         main_layout.add_widget(self.logo_area)
 
         self.header_area = BoxLayout(
@@ -1769,30 +1857,21 @@ class SubstationAndroidApp(App):
                     Logger.warning(
                         f"APP: Failed to build Android icon settings button: {icon_btn_err}"
                     )
-                    # Fallback: use a compact gear-only button (unicode gear) so
-                    # the Android header remains icon-only even if IconOnlyButton
-                    # implementation is unavailable.
                     settings_btn = Button(
-                        text="⚙",
+                        text="SET",
                         size_hint_x=None,
-                        width=48,
-                        font_size="20sp",
-                        background_normal="",
-                        background_color=(0, 0, 0, 0),
+                        width=52,
+                        font_size="12sp",
                     )
             else:
                 Logger.warning(
                     "APP: Android icon-only settings button unavailable; falling back to text button"
                 )
-                # If IconOnlyButton couldn't be imported, still show a gear-only
-                # button using a simple Button with a gear glyph.
                 settings_btn = Button(
-                    text="⚙",
+                    text="SET",
                     size_hint_x=None,
-                    width=48,
-                    font_size="20sp",
-                    background_normal="",
-                    background_color=(0, 0, 0, 0),
+                    width=52,
+                    font_size="12sp",
                 )
             settings_btn.bind(on_press=lambda _x: self._show_android_app_menu())
         else:

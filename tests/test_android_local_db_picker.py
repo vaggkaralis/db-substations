@@ -24,6 +24,11 @@ def test_open_local_db_picker_uses_android_document_picker(monkeypatch):
         "Clock",
         types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
     )
+    monkeypatch.setattr(
+        app,
+        "_request_android_storage_permissions",
+        lambda callback=None: (callback() if callback else None) or False,
+    )
 
     opened = []
     monkeypatch.setattr(
@@ -33,6 +38,30 @@ def test_open_local_db_picker_uses_android_document_picker(monkeypatch):
     app.open_local_db_picker()
 
     assert opened == [True]
+
+
+def test_open_local_db_picker_waits_for_android_permission(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+
+    monkeypatch.setattr(
+        app, "_request_android_storage_permissions", lambda *_args: False
+    )
+
+    opened = []
+    monkeypatch.setattr(
+        app, "_open_android_local_db_picker", lambda: opened.append(True)
+    )
+
+    app.open_local_db_picker()
+
+    assert opened == []
 
 
 def test_open_local_db_picker_uses_desktop_prompt(monkeypatch):
@@ -156,6 +185,64 @@ def test_build_uses_icon_only_settings_button_when_window_bind_fails(monkeypatch
     app.build()
 
     assert isinstance(app.settings_btn, IconOnlyButton)
+
+
+def test_build_falls_back_to_text_settings_button_when_icon_widget_fails(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    class BrokenIconOnlyButton:
+        def __init__(self, **_kwargs):
+            raise RuntimeError("broken icon widget")
+
+    shared_module = sys.modules.get("ui.shared")
+    original_icon_button = getattr(shared_module, "IconOnlyButton", None)
+    monkeypatch.setattr(shared_module, "IconOnlyButton", BrokenIconOnlyButton)
+
+    app.build()
+
+    assert app.settings_btn.text == "SET"
+
+    if original_icon_button is not None:
+        monkeypatch.setattr(shared_module, "IconOnlyButton", original_icon_button)
+
+
+def test_build_uses_logo_text_fallback_when_asset_unavailable(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    original_import = __import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        module = original_import(name, globals, locals, fromlist, level)
+        if name == "kivy.resources" and "resource_find" in fromlist:
+            module.resource_find = lambda *_args, **_kwargs: None
+        return module
+
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    root = app.build()
+
+    assert root is not None
+    texts = _collect_widget_texts(app.logo_area)
+    assert "ΔΕΔΔΗΕ" in texts
 
 
 def test_build_uses_proportional_main_menu_sections(monkeypatch):
@@ -478,6 +565,7 @@ def test_request_android_storage_permissions_resumes_after_settings_return(monke
     infos = []
     resumed = []
     permission_state = {"granted": False}
+    settings_opened = []
 
     permissions_module = types.ModuleType("android.permissions")
 
@@ -495,6 +583,61 @@ def test_request_android_storage_permissions_resumes_after_settings_return(monke
     permissions_module.check_permission = check_permission
     permissions_module.request_permissions = request_permissions
     monkeypatch.setitem(sys.modules, "android.permissions", permissions_module)
+    monkeypatch.setattr(
+        app,
+        "_request_android_storage_permissions",
+        app._request_android_storage_permissions,
+    )
+
+    jnius_module = types.ModuleType("jnius")
+
+    class FakeEnvironment:
+        @staticmethod
+        def isExternalStorageManager():
+            return permission_state["granted"]
+
+    class FakeIntent:
+        def __init__(self, action):
+            self.action = action
+            self.data = None
+
+        def setData(self, data):
+            self.data = data
+
+    class FakeSettings:
+        ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION = "app-all-files"
+
+    class FakeUri:
+        @staticmethod
+        def parse(value):
+            return value
+
+    class FakeActivity:
+        def getPackageName(self):
+            return "org.dbsubstations.dbsubstations"
+
+        def startActivity(self, intent):
+            settings_opened.append((intent.action, intent.data))
+
+    class FakePythonActivity:
+        mActivity = FakeActivity()
+
+    def fake_autoclass(name):
+        mapping = {
+            "android.os.Environment": FakeEnvironment,
+            "android.content.Intent": FakeIntent,
+            "android.provider.Settings": FakeSettings,
+            "android.net.Uri": FakeUri,
+            "org.kivy.android.PythonActivity": FakePythonActivity,
+        }
+        return mapping[name]
+
+    jnius_module.autoclass = fake_autoclass
+    monkeypatch.setitem(sys.modules, "jnius", jnius_module)
+
+    runnable_module = types.ModuleType("android.runnable")
+    runnable_module.run_on_ui_thread = lambda func: func
+    monkeypatch.setitem(sys.modules, "android.runnable", runnable_module)
 
     monkeypatch.setattr(
         app, "_show_permissions_requested_notice", lambda: notices.append(True)
@@ -511,6 +654,12 @@ def test_request_android_storage_permissions_resumes_after_settings_return(monke
     assert len(infos) == 1
     assert app._pending_android_permission_action is not None
     assert app._android_permission_request_in_flight is False
+    assert settings_opened == [
+        (
+            "app-all-files",
+            "package:org.dbsubstations.dbsubstations",
+        )
+    ]
 
     permission_state["granted"] = True
 
