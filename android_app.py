@@ -1763,21 +1763,30 @@ class SubstationAndroidApp(App):
                     Logger.warning(
                         f"APP: Failed to build Android icon settings button: {icon_btn_err}"
                     )
+                    # Fallback: use a compact gear-only button (unicode gear) so
+                    # the Android header remains icon-only even if IconOnlyButton
+                    # implementation is unavailable.
                     settings_btn = Button(
-                        text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
+                        text="⚙",
                         size_hint_x=None,
-                        width=120,
-                        font_size="15sp",
+                        width=48,
+                        font_size="20sp",
+                        background_normal="",
+                        background_color=(0, 0, 0, 0),
                     )
             else:
                 Logger.warning(
                     "APP: Android icon-only settings button unavailable; falling back to text button"
                 )
+                # If IconOnlyButton couldn't be imported, still show a gear-only
+                # button using a simple Button with a gear glyph.
                 settings_btn = Button(
-                    text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
+                    text="⚙",
                     size_hint_x=None,
-                    width=120,
-                    font_size="15sp",
+                    width=48,
+                    font_size="20sp",
+                    background_normal="",
+                    background_color=(0, 0, 0, 0),
                 )
             settings_btn.bind(on_press=lambda _x: self._show_android_app_menu())
         else:
