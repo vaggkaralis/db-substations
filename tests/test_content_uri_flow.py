@@ -179,6 +179,54 @@ def test_maybe_copy_android_sqlite_sidecars_from_document_uri(monkeypatch, tmp_p
     assert (tmp_path / "copied.db-shm").read_bytes() == b"shm-data"
 
 
+def test_maybe_copy_android_sqlite_sidecars_falls_back_when_raw_path_inaccessible(
+    monkeypatch, tmp_path
+):
+    app = SubstationAndroidApp()
+    target_db = tmp_path / "copied.db"
+    target_db.write_bytes(b"db")
+
+    monkeypatch.setattr("android_app.platform", "android")
+    monkeypatch.setattr(
+        app,
+        "_resolve_android_content_uri_to_raw_path",
+        lambda _uri: "/storage/emulated/0/Download/substations.db",
+    )
+    monkeypatch.setattr("android_app.os.path.exists", lambda _path: False)
+
+    fallback_calls = []
+    monkeypatch.setattr(
+        app,
+        "_maybe_copy_android_sqlite_sidecars_from_document_uri",
+        lambda source, target: fallback_calls.append((source, target)) or ["-wal"],
+    )
+
+    copied = app._maybe_copy_android_sqlite_sidecars(
+        "content://docs/document/primary:Download/substations.db", str(target_db)
+    )
+
+    assert copied == ["-wal"]
+    assert fallback_calls == [
+        ("content://docs/document/primary:Download/substations.db", str(target_db))
+    ]
+
+
+def test_clear_local_db_copy_targets_removes_stale_sidecars(tmp_path):
+    app = SubstationAndroidApp()
+    target_db = tmp_path / "copied.db"
+    target_db.write_bytes(b"db")
+    (tmp_path / "copied.db-wal").write_bytes(b"wal")
+    (tmp_path / "copied.db-shm").write_bytes(b"shm")
+    (tmp_path / "copied.db-journal").write_bytes(b"journal")
+
+    app._clear_local_db_copy_targets(str(target_db))
+
+    assert not target_db.exists()
+    assert not (tmp_path / "copied.db-wal").exists()
+    assert not (tmp_path / "copied.db-shm").exists()
+    assert not (tmp_path / "copied.db-journal").exists()
+
+
 def test_inspect_local_db_reports_substation_count(monkeypatch, tmp_path):
     import sqlite3
 

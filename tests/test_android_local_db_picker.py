@@ -68,11 +68,17 @@ def test_build_uses_local_database_button_label(monkeypatch):
 
     root = app.build()
 
-    expected = android_app.S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Τοπική Βάση")
-    assert app.local_db_btn.text == expected
+    button_label = android_app.S.get("MESSAGES", {}).get(
+        "LOCAL_DB_BUTTON", "Βάση Δεδομένων"
+    )
+    mode_label = android_app.S.get("MESSAGES", {}).get(
+        "MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"
+    )
+    assert app.local_db_btn.text == button_label
 
     texts = _collect_widget_texts(root)
-    assert expected in texts
+    assert button_label in texts
+    assert mode_label in texts
 
 
 def test_build_hides_sync_button_on_android(monkeypatch):

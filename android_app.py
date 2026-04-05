@@ -1150,6 +1150,7 @@ class SubstationAndroidApp(App):
             os.makedirs(target_dir, exist_ok=True)
             try:
                 target_path = os.path.join(target_dir, os.path.basename(normalized))
+                self._clear_local_db_copy_targets(target_path)
                 shutil.copy2(normalized, target_path)
                 conn = sqlite3.connect(f"file:{target_path}?mode=ro", uri=True)
                 conn.close()
@@ -1221,6 +1222,7 @@ class SubstationAndroidApp(App):
             if in_stream is None:
                 return False
 
+            self._clear_local_db_copy_targets(target_path, clear_main_file=False)
             with open(target_path, "wb") as out_stream:
                 buffer = bytearray(64 * 1024)
                 while True:
@@ -1242,6 +1244,26 @@ class SubstationAndroidApp(App):
                 f"{uri_value} -> {target_path}: {copy_err}"
             )
             return False
+
+    def _clear_local_db_copy_targets(self, target_path, clear_main_file=True):
+        if not target_path:
+            return
+
+        stale_targets = [
+            f"{target_path}{suffix}" for suffix in ("-wal", "-shm", "-journal")
+        ]
+        if clear_main_file:
+            stale_targets.insert(0, target_path)
+
+        for stale_path in stale_targets:
+            try:
+                if os.path.exists(stale_path):
+                    os.remove(stale_path)
+                    Logger.info(f"APP: Removed stale local DB artifact: {stale_path}")
+            except Exception as cleanup_err:
+                Logger.info(
+                    f"APP: Could not remove stale local DB artifact {stale_path}: {cleanup_err}"
+                )
 
     def _maybe_copy_android_sqlite_sidecars_from_document_uri(
         self, source_reference, target_path
@@ -1329,6 +1351,10 @@ class SubstationAndroidApp(App):
 
         source_path = self._normalize_android_storage_path(source_path)
         if not os.path.exists(source_path):
+            if is_content_uri:
+                return self._maybe_copy_android_sqlite_sidecars_from_document_uri(
+                    source_reference, target_path
+                )
             return []
 
         copied_suffixes = []
@@ -1703,7 +1729,7 @@ class SubstationAndroidApp(App):
                 logo = image_cls(
                     source=logo_source,
                     size_hint_y=None,
-                    height=68,
+                    height=56,
                     allow_stretch=False,
                     keep_ratio=True,
                 )
@@ -1716,7 +1742,7 @@ class SubstationAndroidApp(App):
         top_bar = BoxLayout(
             orientation="horizontal",
             size_hint_y=None,
-            height=52,
+            height=70,
             spacing=10,
             padding=[10, 6, 10, 6],
         )
@@ -1724,10 +1750,11 @@ class SubstationAndroidApp(App):
         if platform == "android":
             if icon_only_button_cls is not None:
                 try:
+                    Logger.info("APP: Using icon-only Android settings button")
                     settings_btn = icon_only_button_cls(
                         icon_type="settings",
                         icon_color=[0.05, 0.18, 0.36, 1],
-                        size=(40, 40),
+                        size=(34, 34),
                         tooltip=S.get("MESSAGES", {}).get(
                             "SETTINGS_TOOLTIP", "Ρυθμίσεις"
                         ),
@@ -1743,6 +1770,9 @@ class SubstationAndroidApp(App):
                         font_size="15sp",
                     )
             else:
+                Logger.warning(
+                    "APP: Android icon-only settings button unavailable; falling back to text button"
+                )
                 settings_btn = Button(
                     text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
                     size_hint_x=None,
@@ -1764,7 +1794,8 @@ class SubstationAndroidApp(App):
         header_label = Label(
             text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
             bold=True,
-            font_size="17sp",
+            size_hint_x=1,
+            font_size="15sp",
             halign="left",
             valign="middle",
         )
@@ -2156,7 +2187,7 @@ class SubstationAndroidApp(App):
             self.db_bar = BoxLayout(size_hint_y=0.06, spacing=8, padding=[10, 0])
 
             self.mode_label = Label(
-                text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Τοπική Βάση"),
+                text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"),
                 size_hint_x=0.65,
                 font_size="14sp",
                 halign="left",
@@ -2164,7 +2195,7 @@ class SubstationAndroidApp(App):
             self.mode_label.bind(size=self.mode_label.setter("text_size"))
 
             self.local_db_btn = Button(
-                text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Τοπική Βάση"),
+                text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Βάση Δεδομένων"),
                 size_hint_x=0.35,
                 font_size="13sp",
             )
