@@ -8,6 +8,13 @@ env/
 *.sqlite
 *.sqlite3
 
+# SQLite journal and WAL/SHM files
+*.db-wal
+*.db-shm
+*.db-journal
+substations.db-wal
+substations.db-shm
+
 # Runtime folders (auto-generated)
 backups_auto/
 sync_exchange/
