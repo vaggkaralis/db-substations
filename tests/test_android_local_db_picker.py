@@ -99,6 +99,24 @@ def test_build_hides_sync_button_on_android(monkeypatch):
     assert app.sync_btn is None
 
 
+def test_build_hides_sync_button_in_desktop_preview(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "win")
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    root = app.build()
+
+    assert root is not None
+    assert app.sync_btn is None
+
+
 def test_build_uses_icon_only_settings_button_on_android(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
@@ -138,6 +156,28 @@ def test_build_uses_icon_only_settings_button_when_window_bind_fails(monkeypatch
     app.build()
 
     assert isinstance(app.settings_btn, IconOnlyButton)
+
+
+def test_build_uses_proportional_main_menu_sections(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    app.build()
+
+    assert app.logo_area.size_hint_y == 0.10
+    assert app.header_area.size_hint_y == 0.10
+    assert app.db_bar.size_hint_y == 0.09
+    assert app.content_layout.size_hint_y == 0.53
+    assert app.refresh_area.size_hint_y == 0.08
+    assert app.actions_area.size_hint_y == 0.10
 
 
 def test_open_android_document_picker_runs_on_ui_thread(monkeypatch):
