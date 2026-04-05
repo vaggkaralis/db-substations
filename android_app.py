@@ -6150,24 +6150,8 @@ class SubstationAndroidApp(App):
                     _bind_header_size(header_label)
                     maint_layout.add_widget(header_label)
 
-                    # OneDrive Media Link Button (if available)
-                    if onedrive_media_link:
-                        onedrive_btn_layout = BoxLayout(
-                            size_hint_y=None, height=40, spacing=5
-                        )
-                        onedrive_btn = Button(
-                            text="Φάκελος OneDrive",
-                            size_hint_x=1,
-                            background_color=(0.3, 0.6, 0.8, 1),
-                            font_size="11sp",
-                        )
-                        onedrive_btn.bind(
-                            on_press=lambda x, link=onedrive_media_link: self._open_url(
-                                link
-                            )
-                        )
-                        onedrive_btn_layout.add_widget(onedrive_btn)
-                        maint_layout.add_widget(onedrive_btn_layout)
+                    # OneDrive Media Link removed for Android: mobile app should
+                    # not expose or open shared OneDrive folders. (Button omitted.)
 
                     # Element-specific data
                     data_parts = []
