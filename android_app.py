@@ -258,11 +258,14 @@ try:
     from popups import show_message_popup
 
     TextInput = importlib.import_module("kivy.uix.textinput").TextInput
-    Popup = importlib.import_module("kivy.uix.popup").Popup
     ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
     Spinner = importlib.import_module("kivy.uix.spinner").Spinner
     Clock = importlib.import_module("kivy.clock").Clock
     platform = importlib.import_module("kivy.utils").platform
+    try:
+        Popup = importlib.import_module("kivy.uix.popup").Popup
+    except Exception as popup_import_err:
+        Logger.warning(f"APP: Popup import failed during bootstrap: {popup_import_err}")
     try:
         shared = importlib.import_module("ui.shared")
         autosize_button_text = getattr(shared, "autosize_button_text", None)
@@ -271,7 +274,28 @@ try:
     _register_kivy_exception_handler()
 except Exception as e:
     Logger.warning(f"APP: Kivy import failed: {str(e)}")
-    platform = "unknown"
+    if "platform" not in globals():
+        platform = "unknown"
+
+# Ensure `platform` is resolved even if a non-critical widget import failed
+# during the main Kivy bootstrap block above.
+if "platform" not in globals() or platform == "unknown":
+    try:
+        from kivy.utils import platform as _kivy_platform
+
+        platform = _kivy_platform
+    except Exception:
+        platform = "unknown"
+
+# Ensure `Popup` is always explicitly imported. This both prevents NameError at
+# runtime and makes the dependency visible to Android packaging.
+if "Popup" not in globals():
+    try:
+        from kivy.uix.popup import Popup as _Popup
+
+        Popup = _Popup
+    except Exception as popup_import_err:
+        Logger.warning(f"APP: Popup fallback import failed: {popup_import_err}")
 
 # Ensure `Clock` is always defined. On some runtime paths (or if Kivy
 # imports fail transiently) code later in the app expects `Clock` to exist.
