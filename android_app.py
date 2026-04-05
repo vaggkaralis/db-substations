@@ -1724,28 +1724,34 @@ class SubstationAndroidApp(App):
         if logo_source is None and platform == "android":
             logo_source = "logo_deddie.png"
 
+        self.logo_area = BoxLayout(
+            orientation="vertical",
+            size_hint_y=0.10,
+            padding=[4, 4, 4, 4],
+        )
+        self.logo_area.size_hint_y = 0.10
         if logo_source and image_cls:
             try:
                 logo = image_cls(
                     source=logo_source,
-                    size_hint_y=None,
-                    height=56,
+                    size_hint=(1, 1),
                     allow_stretch=False,
                     keep_ratio=True,
                 )
                 if hasattr(logo, "fit_mode"):
                     logo.fit_mode = "contain"
-                main_layout.add_widget(logo)
+                self.logo_area.add_widget(logo)
             except Exception as e:
                 Logger.warning(f"APP: Could not load logo: {e}")
+        main_layout.add_widget(self.logo_area)
 
-        top_bar = BoxLayout(
+        self.header_area = BoxLayout(
             orientation="horizontal",
-            size_hint_y=None,
-            height=70,
+            size_hint_y=0.10,
             spacing=10,
             padding=[10, 6, 10, 6],
         )
+        self.header_area.size_hint_y = 0.10
 
         if platform == "android":
             if icon_only_button_cls is not None:
@@ -1790,51 +1796,91 @@ class SubstationAndroidApp(App):
                 )
             settings_btn.bind(on_press=lambda _x: self._show_android_app_menu())
         else:
-            settings_btn = Button(
-                text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
-                size_hint_x=None,
-                width=180,
-                font_size="15sp",
-            )
+            # Prefer icon-only settings button on desktop as well when available
+            if icon_only_button_cls is not None:
+                try:
+                    settings_btn = icon_only_button_cls(
+                        icon_type="settings",
+                        icon_color=[0.05, 0.18, 0.36, 1],
+                        size=(34, 34),
+                        tooltip=S.get("MESSAGES", {}).get(
+                            "SETTINGS_TOOLTIP", "Ρυθμίσεις"
+                        ),
+                    )
+                except Exception:
+                    settings_btn = Button(
+                        text="⚙",
+                        size_hint_x=None,
+                        width=48,
+                        font_size="20sp",
+                        background_normal="",
+                        background_color=(0, 0, 0, 0),
+                    )
+            else:
+                settings_btn = Button(
+                    text="⚙",
+                    size_hint_x=None,
+                    width=48,
+                    font_size="20sp",
+                    background_normal="",
+                    background_color=(0, 0, 0, 0),
+                )
             settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
         self.settings_btn = settings_btn
-        top_bar.add_widget(settings_btn)
+        self.header_area.add_widget(settings_btn)
 
         header_label = Label(
             text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
             bold=True,
             size_hint_x=1,
-            font_size="15sp",
+            font_size="14sp",
             halign="left",
             valign="middle",
+            shorten=True,
+            shorten_from="right",
         )
         header_label.bind(size=header_label.setter("text_size"))
-        top_bar.add_widget(header_label)
+        self.header_area.add_widget(header_label)
 
-        main_layout.add_widget(top_bar)
+        main_layout.add_widget(self.header_area)
 
     def _show_android_app_menu(self):
-        popup = Popup(title="Ρυθμίσεις", size_hint=(0.9, 0.28))
+        popup = Popup(title="Ρυθμίσεις", size_hint=(0.92, 0.36))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
         layout.add_widget(
             Label(
                 text=(
-                    "Η Android έκδοση χρησιμοποιεί τοπική βάση και τον επιλογέα "
-                    "αρχείων του Android. Ο συγχρονισμός είναι απενεργοποιημένος."
+                    "Η Android έκδοση χρησιμοποιεί μόνο τοπική βάση δεδομένων. "
+                    "Από εδώ ορίζεις μόνο το αρχείο της βάσης."
                 )
             )
         )
+        current_db = (
+            getattr(self, "local_db_path", None) or self._get_saved_db_path() or "-"
+        )
+        path_label = Label(
+            text=f"Τρέχουσα βάση: {current_db}",
+            halign="left",
+            valign="middle",
+            shorten=True,
+            shorten_from="left",
+        )
+        path_label.bind(size=path_label.setter("text_size"))
+        layout.add_widget(path_label)
+
         buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
-        change_log_btn = Button(text="Change Log")
+        select_db_btn = Button(
+            text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Βάση Δεδομένων")
+        )
         close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
 
-        def _open_change_log(_instance):
+        def _open_local_db(_instance):
             popup.dismiss()
-            self.show_change_log_menu()
+            self.open_local_db_picker()
 
-        change_log_btn.bind(on_press=_open_change_log)
+        select_db_btn.bind(on_press=_open_local_db)
         close_btn.bind(on_press=popup.dismiss)
-        buttons.add_widget(change_log_btn)
+        buttons.add_widget(select_db_btn)
         buttons.add_widget(close_btn)
         layout.add_widget(buttons)
         popup.content = layout
@@ -2186,20 +2232,24 @@ class SubstationAndroidApp(App):
                 # If Spinner isn't available for some runtime, skip styling
                 Logger.debug("APP: Spinner styling skipped (Spinner unavailable)")
             Logger.info("APP: Creating main_layout BoxLayout")
-            main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+            main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
             Logger.info("APP: Main layout created successfully")
 
             self._build_android_header(main_layout)
             Logger.info("APP: Header added")
 
             # Database selection bar (cleaner, single row)
-            self.db_bar = BoxLayout(size_hint_y=0.06, spacing=8, padding=[10, 0])
+            self.db_bar = BoxLayout(size_hint_y=0.09, spacing=8, padding=[10, 0, 10, 0])
+            self.db_bar.size_hint_y = 0.09
 
             self.mode_label = Label(
                 text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"),
                 size_hint_x=0.65,
-                font_size="14sp",
+                font_size="13sp",
                 halign="left",
+                valign="middle",
+                shorten=True,
+                shorten_from="right",
             )
             self.mode_label.bind(size=self.mode_label.setter("text_size"))
 
@@ -2207,6 +2257,13 @@ class SubstationAndroidApp(App):
                 text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Βάση Δεδομένων"),
                 size_hint_x=0.35,
                 font_size="13sp",
+                halign="center",
+                valign="middle",
+            )
+            self.local_db_btn.bind(
+                size=lambda inst, _size: setattr(
+                    inst, "text_size", (inst.width - 8, inst.height - 8)
+                )
             )
             self.local_db_btn.bind(on_press=lambda _x: self.open_local_db_picker())
 
@@ -2215,88 +2272,77 @@ class SubstationAndroidApp(App):
             main_layout.add_widget(self.db_bar)
 
             # Main content area
-            self.content_layout = BoxLayout(orientation="vertical", size_hint_y=0.74)
+            self.content_layout = BoxLayout(orientation="vertical", size_hint_y=0.53)
+            self.content_layout.size_hint_y = 0.53
             main_layout.add_widget(self.content_layout)
             Logger.info("APP: Content layout added")
 
-            # Bottom button area - reorganized for better UX
-            self.buttons_container = BoxLayout(
+            self.refresh_area = BoxLayout(
                 orientation="vertical",
-                size_hint_y=0.16,
-                spacing=5,
-                padding=[5, 0, 5, 5],
+                size_hint_y=0.08,
+                spacing=4,
+                padding=[5, 0, 5, 0],
             )
+            self.refresh_area.size_hint_y = 0.08
 
-            # PRIMARY ACTIONS ROW (larger, most common actions)
-            primary_row = BoxLayout(size_hint_y=0.55, spacing=8)
+            primary_row = BoxLayout(size_hint=(1, 1), spacing=8)
 
             self.refresh_btn = Button(
                 text=S.get("BUTTONS", {}).get("REFRESH", "Ανανέωση"),
-                font_size="16sp",
+                font_size="15sp",
                 bold=True,
+                halign="center",
+                valign="middle",
+            )
+            self.refresh_btn.bind(
+                size=lambda inst, _size: setattr(
+                    inst, "text_size", (inst.width - 8, inst.height - 8)
+                )
             )
             self.refresh_btn.bind(on_press=self.load_substations)
             primary_row.add_widget(self.refresh_btn)
 
-            self.buttons_container.add_widget(primary_row)
+            self.refresh_area.add_widget(primary_row)
+            main_layout.add_widget(self.refresh_area)
 
-            # SECONDARY ACTIONS ROW (smaller, system functions)
-            secondary_row = BoxLayout(size_hint_y=0.45, spacing=8)
+            self.actions_area = BoxLayout(
+                orientation="vertical",
+                size_hint_y=0.10,
+                spacing=4,
+                padding=[5, 0, 5, 5],
+            )
+            self.actions_area.size_hint_y = 0.10
 
-            if platform != "android":
-                self.sync_btn = Button(text="Sync", font_size="16sp", bold=True)
-                self.sync_btn.bind(on_press=self._on_sync_button_pressed)
-                secondary_row.add_widget(self.sync_btn)
-            else:
-                self.sync_btn = None
+            secondary_row = BoxLayout(size_hint=(1, 1), spacing=8)
 
-            self.change_log_btn = Button(text="Change Log", font_size="16sp", bold=True)
+            self.sync_btn = None
+
+            self.change_log_btn = Button(
+                text="Change Log",
+                font_size="14sp",
+                bold=True,
+                halign="center",
+                valign="middle",
+            )
+            self.change_log_btn.bind(
+                size=lambda inst, _size: setattr(
+                    inst, "text_size", (inst.width - 8, inst.height - 8)
+                )
+            )
             self.change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
             secondary_row.add_widget(self.change_log_btn)
 
-            self.buttons_container.add_widget(secondary_row)
+            self.actions_area.add_widget(secondary_row)
 
-            main_layout.add_widget(self.buttons_container)
-            Logger.info("APP: Buttons added (reorganized layout)")
+            main_layout.add_widget(self.actions_area)
+            Logger.info("APP: Buttons added (proportional layout)")
 
             # Load data after UI is rendered (prevent ANR)
             Logger.info("APP: Scheduling initial data load after UI renders")
             if not self._auto_load_saved_db():
                 Clock.schedule_once(self.load_substations, 0.5)
-                if platform != "android":
-                    Clock.schedule_once(self._run_startup_sync, 1.0)
-                    try:
-                        from config_manager import get_app_setting
-
-                        minutes = int(
-                            get_app_setting("sync_auto_cycle_minutes", 15) or 15
-                        )
-                    except Exception:
-                        minutes = 15
-                    try:
-                        Clock.schedule_interval(
-                            lambda dt: self._run_startup_sync(dt), int(minutes) * 60
-                        )
-                    except Exception:
-                        pass
             else:
                 Clock.schedule_once(self.load_substations, 0.5)
-                if platform != "android":
-                    Clock.schedule_once(self._run_startup_sync, 1.0)
-                    try:
-                        from config_manager import get_app_setting
-
-                        minutes = int(
-                            get_app_setting("sync_auto_cycle_minutes", 15) or 15
-                        )
-                    except Exception:
-                        minutes = 15
-                    try:
-                        Clock.schedule_interval(
-                            lambda dt: self._run_startup_sync(dt), int(minutes) * 60
-                        )
-                    except Exception:
-                        pass
 
             Logger.info("APP: UI build completed successfully")
             return main_layout
@@ -2763,22 +2809,19 @@ class SubstationAndroidApp(App):
                 self.local_db_btn.opacity = 1 if visible else 0
             if hasattr(self, "db_bar") and self.db_bar is not None:
                 self.db_bar.opacity = 1 if visible else 0
-                # Collapse the whole top bar in detail screens to reclaim space.
-                self.db_bar.size_hint_y = 0.06 if visible else 0
+                self.db_bar.size_hint_y = 0.09 if visible else 0
                 self.db_bar.height = 0 if not visible else self.db_bar.height
-            if (
-                hasattr(self, "buttons_container")
-                and self.buttons_container is not None
-            ):
-                self.buttons_container.opacity = 1 if visible else 0
-                # Collapse the whole bottom main-menu button area in detail screens.
-                self.buttons_container.size_hint_y = 0.16 if visible else 0
-                self.buttons_container.height = (
-                    0 if not visible else self.buttons_container.height
+            if hasattr(self, "refresh_area") and self.refresh_area is not None:
+                self.refresh_area.opacity = 1 if visible else 0
+                self.refresh_area.size_hint_y = 0.08 if visible else 0
+                self.refresh_area.height = (
+                    0 if not visible else self.refresh_area.height
                 )
-                self.buttons_container.spacing = 5 if visible else 0
-                self.buttons_container.padding = (
-                    [5, 0, 5, 5] if visible else [0, 0, 0, 0]
+            if hasattr(self, "actions_area") and self.actions_area is not None:
+                self.actions_area.opacity = 1 if visible else 0
+                self.actions_area.size_hint_y = 0.10 if visible else 0
+                self.actions_area.height = (
+                    0 if not visible else self.actions_area.height
                 )
         except Exception:
             pass
@@ -3211,150 +3254,8 @@ class SubstationAndroidApp(App):
         self.show_error(f"Σφάλμα συγχρονισμού:\n{error_msg}")
 
     def _show_sync_settings(self):
-        """Show sync settings popup for configuring sync folder."""
-        if platform == "android":
-            self._show_android_app_menu()
-            return
-
-        try:
-            from config_manager import get_app_setting, set_app_setting
-
-            p = Popup(
-                title=S.get("MESSAGES", {}).get(
-                    "SYNC_SETTINGS", "Ρυθμίσεις Συγχρονισμού"
-                ),
-                size_hint=(0.95, 0.6),
-            )
-            layout = BoxLayout(orientation="vertical", padding=15, spacing=15)
-
-            # Sync enabled checkbox (aligned at top with clear spacing)
-            sync_enabled_row = BoxLayout(size_hint_y=None, height=50, spacing=10)
-            sync_enabled_row.add_widget(
-                Label(
-                    text=S.get("MESSAGES", {}).get(
-                        "SYNC_AUTO_ENABLED_LABEL", "Αυτόματος συγχρονισμός:"
-                    ),
-                    size_hint_x=0.7,
-                    valign="top",
-                )
-            )
-            from kivy.uix.checkbox import CheckBox
-
-            sync_chk = CheckBox(
-                active=bool(get_app_setting("sync_auto_cycle_enabled", True)),
-                size_hint_x=0.3,
-                size_hint_y=None,
-                height=50,
-            )
-            sync_enabled_row.add_widget(sync_chk)
-            layout.add_widget(sync_enabled_row)
-
-            # Sync root path display (aligned at top)
-            sync_root_path = get_app_setting("sync_root_path", "")
-            path_row = BoxLayout(
-                orientation="vertical", size_hint_y=None, height=110, spacing=8
-            )
-            path_row.add_widget(
-                Label(
-                    text=S.get("MESSAGES", {}).get(
-                        "SYNC_ROOT_PATH_LABEL", "Φάκελος Συγχρονισμού:"
-                    ),
-                    size_hint_y=None,
-                    height=30,
-                    valign="top",
-                )
-            )
-
-            from kivy.uix.textinput import TextInput
-
-            path_input = TextInput(
-                text=sync_root_path,
-                multiline=False,
-                size_hint_y=None,
-                height=50,
-                padding=[10, 10, 10, 10],
-            )
-            path_row.add_widget(path_input)
-
-            path_row.add_widget(
-                Label(
-                    text=S.get("MESSAGES", {}).get(
-                        "SYNC_ROOT_PATH_HINT",
-                        "Ή αφήστε κενό για προεπιλογή (δίπλα στη ΒΔ)",
-                    ),
-                    size_hint_y=None,
-                    height=25,
-                    color=(0.5, 0.5, 0.5, 1),
-                    valign="top",
-                )
-            )
-            # Warning/info label about Android sync limitations (content URIs / SAF)
-            warning_label = Label(
-                text=(
-                    "Σημείωση: Η εφαρμογή Android δεν περιλαμβάνει άμεση ενσωμάτωση OneDrive/SAF. "
-                    "Ο φάκελος πρέπει να είναι προσβάσιμος ως συνηθισμένο σύστημα αρχείων. "
-                    "Content URIs (content://...) δεν υποστηρίζονται — το Αυτόματο συγχρονισμό θα απενεργοποιηθεί αν ορίσετε τέτοιο URI."
-                ),
-                size_hint_y=None,
-                height=48,
-                color=(0.6, 0.2, 0.2, 1),
-                valign="top",
-            )
-            path_row.add_widget(warning_label)
-            layout.add_widget(path_row)
-
-            # Buttons (aligned at top of popup)
-            btn_layout = BoxLayout(size_hint_y=None, height=60, spacing=10)
-
-            save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
-
-            def _save(*_):
-                # If user set a content URI, disable auto-sync and inform the user.
-                try:
-                    from android_sync_utils import is_content_uri
-                except Exception:
-
-                    def is_content_uri(x):
-                        return str(x or "").startswith("content://")
-
-                path_text = (path_input.text or "").strip()
-                if path_text and is_content_uri(path_text):
-                    set_app_setting("sync_auto_cycle_enabled", False)
-                    set_app_setting("sync_root_path", path_text)
-                    p.dismiss()
-                    show_message_popup(
-                        S.get("TITLES", {}).get("INFO", "Πληροφορία"),
-                        "Ορίσατε URI περιεχομένου (content://...). Το Αυτόματο συγχρονισμό απενεργοποιήθηκε επειδή το app δεν υποστηρίζει αυτόνομο cloud-API/SAF.",
-                    )
-                    return
-
-                set_app_setting("sync_auto_cycle_enabled", bool(sync_chk.active))
-                if path_text:
-                    set_app_setting("sync_root_path", path_text)
-                else:
-                    set_app_setting("sync_root_path", None)
-                p.dismiss()
-                self.show_error(
-                    S.get("MESSAGES", {}).get(
-                        "SETTINGS_SAVED", "Ρυθμίσεις αποθηκεύτηκαν"
-                    ),
-                    is_info=True,
-                )
-
-            save_btn.bind(on_press=_save)
-            btn_layout.add_widget(save_btn)
-
-            close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
-            close_btn.bind(on_press=p.dismiss)
-            btn_layout.add_widget(close_btn)
-
-            layout.add_widget(btn_layout)
-            p.content = layout
-            p.open()
-
-        except Exception as e:
-            Logger.error(f"SYNC: Error showing sync settings: {e}")
-            self.show_error(f"Σφάλμα: {str(e)}")
+        """Show Android-app settings popup for choosing the local database only."""
+        self._show_android_app_menu()
 
     def _copy_content_uri_to_file(self, uri, on_progress=None):
 
