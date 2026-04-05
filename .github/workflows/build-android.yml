@@ -127,6 +127,16 @@ jobs:
           echo "WARNING: p4a SDL2 manifest template not found at $TMPL"
         fi
 
+    - name: Clear stale Android build state
+      run: |
+        # Force regeneration of the p4a dist and manifests so the patched
+        # hardware acceleration setting is not bypassed by cached output.
+        rm -rf .buildozer
+        rm -rf bin
+        rm -rf "$HOME/.buildozer/android/platform/build-arm64-v8a"*
+        rm -rf "$HOME/.buildozer/android/platform/python-for-android/dist"/*
+        mkdir -p bin
+
     - name: Build APK with Buildozer
       shell: bash
       run: |
@@ -171,7 +181,7 @@ jobs:
       if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: db-substations-apk-debug
+        name: db-substations-apk-debug-${{ github.sha }}
         path: bin/*.apk
         retention-days: 90
 
@@ -197,6 +207,7 @@ jobs:
       run: |
         ls -lh bin/
         echo "Production APK built successfully"
+        echo "Commit: $GITHUB_SHA"
         echo "Download from Actions artifacts"
 
     - name: Print diagnostic locations
