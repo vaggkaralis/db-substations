@@ -2,6 +2,8 @@ import sys
 import types
 
 import android_app
+import ui.shared as shared_ui
+from ui.shared import IconOnlyButton
 
 
 def _collect_widget_texts(widget):
@@ -89,6 +91,24 @@ def test_build_hides_sync_button_on_android(monkeypatch):
 
     assert root is not None
     assert app.sync_btn is None
+
+
+def test_build_uses_icon_only_settings_button_on_android(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(shared_ui.Window, "bind", lambda **_kwargs: None, raising=False)
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    app.build()
+
+    assert isinstance(app.settings_btn, IconOnlyButton)
 
 
 def test_open_android_document_picker_runs_on_ui_thread(monkeypatch):

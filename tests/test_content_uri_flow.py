@@ -56,6 +56,49 @@ def test_copy_failure():
     )
 
 
+def test_maybe_copy_android_sqlite_sidecars_from_content_uri(monkeypatch, tmp_path):
+    app = SubstationAndroidApp()
+
+    source_db = tmp_path / "substations.db"
+    source_wal = tmp_path / "substations.db-wal"
+    target_db = tmp_path / "copied.db"
+    source_db.write_bytes(b"db")
+    source_wal.write_bytes(b"wal")
+    target_db.write_bytes(b"copy")
+
+    monkeypatch.setattr("android_app.platform", "android")
+    monkeypatch.setattr(
+        app,
+        "_resolve_android_content_uri_to_raw_path",
+        lambda _uri: str(source_db),
+    )
+
+    copied = app._maybe_copy_android_sqlite_sidecars(
+        "content://picked/substations.db", str(target_db)
+    )
+
+    assert copied == ["-wal"]
+    assert (tmp_path / "copied.db-wal").read_bytes() == b"wal"
+
+
+def test_inspect_local_db_reports_substation_count(monkeypatch, tmp_path):
+    import sqlite3
+
+    app = SubstationAndroidApp()
+    db_path = tmp_path / "substations.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT)")
+    conn.execute("INSERT INTO substations (name) VALUES ('Test')")
+    conn.commit()
+    conn.close()
+
+    info = app._inspect_local_db(str(db_path))
+
+    assert info["exists"] is True
+    assert info["has_substations_table"] is True
+    assert info["substations_count"] == 1
+
+
 def test_auto_load_saved_content_uri_uses_local_mode():
     app = SubstationAndroidApp()
     loaded_paths = []

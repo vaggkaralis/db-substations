@@ -1023,7 +1023,14 @@ class SubstationAndroidApp(App):
                                 + f" {val}"
                             )
                             return
-                        _continue_with_path(val)
+                        copied_sidecars = self._maybe_copy_android_sqlite_sidecars(
+                            selected_db_path, val
+                        )
+                        _continue_with_path(
+                            val,
+                            source_reference=selected_db_path,
+                            copied_sidecars=copied_sidecars,
+                        )
 
                     self._copy_content_uri_to_file_async(
                         selected_db_path, _on_copy_done
@@ -1038,9 +1045,11 @@ class SubstationAndroidApp(App):
                 self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
                 return
 
-            _continue_with_path(resolved)
+            _continue_with_path(resolved, source_reference=selected_db_path)
 
-        def _continue_with_path(resolved_path):
+        def _continue_with_path(
+            resolved_path, source_reference=None, copied_sidecars=None
+        ):
             self.local_db_path = resolved_path
             self._set_saved_db_path(resolved_path)
             self.data_mode = "local"
@@ -1050,8 +1059,29 @@ class SubstationAndroidApp(App):
                 self.mode_label.text = S["MESSAGES"].get(
                     "MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"
                 )
+            try:
+                db_info = self._inspect_local_db(resolved_path)
+                Logger.info(
+                    "APP: Local DB ready: "
+                    f"path={resolved_path}, substations={db_info.get('substations_count')}, "
+                    f"journal_mode={db_info.get('journal_mode')}, "
+                    f"sidecars={copied_sidecars or []}"
+                )
+            except Exception as inspect_err:
+                Logger.info(f"APP: Local DB inspection failed: {inspect_err}")
             # Only load substations if DB is valid and loaded
             self.load_substations(None)
+
+            if (
+                isinstance(source_reference, str)
+                and source_reference.startswith("content://")
+                and not getattr(self, "substations", [])
+                and not (copied_sidecars or [])
+            ):
+                self._show_android_loader_info(
+                    "Η βάση αντιγράφηκε αλλά δεν εμφανίστηκαν υποσταθμοί. "
+                    "Αν η βάση είναι ανοιχτή σε άλλη εφαρμογή, κλείστε την και δοκιμάστε ξανά."
+                )
 
         if (
             platform == "android"
@@ -1129,6 +1159,126 @@ class SubstationAndroidApp(App):
                     f"Unable to open database file: {normalized}"
                 ) from copy_err
 
+    def _resolve_android_content_uri_to_raw_path(self, uri_value):
+        if (
+            platform != "android"
+            or not uri_value
+            or not str(uri_value).startswith("content://")
+        ):
+            return None
+
+        try:
+            from jnius import autoclass
+
+            DocumentsContract = autoclass("android.provider.DocumentsContract")
+            Uri = autoclass("android.net.Uri")
+
+            uri_obj = Uri.parse(str(uri_value))
+            document_id = DocumentsContract.getDocumentId(uri_obj)
+            if not document_id:
+                return None
+
+            document_id = str(document_id)
+            if document_id.startswith("raw:"):
+                return self._normalize_android_storage_path(document_id[4:])
+
+            if ":" not in document_id:
+                return None
+
+            volume_name, relative_path = document_id.split(":", 1)
+            if not relative_path:
+                return None
+
+            if volume_name.lower() == "primary":
+                raw_path = os.path.join("/storage/emulated/0", relative_path)
+            else:
+                raw_path = os.path.join("/storage", volume_name, relative_path)
+
+            resolved = self._normalize_android_storage_path(raw_path)
+            Logger.info(
+                f"APP: Resolved SAF content URI to raw candidate path: {resolved}"
+            )
+            return resolved
+        except Exception as resolve_err:
+            Logger.info(
+                f"APP: Could not resolve SAF URI to raw storage path: {resolve_err}"
+            )
+            return None
+
+    def _maybe_copy_android_sqlite_sidecars(self, source_reference, target_path):
+        if not source_reference or not target_path:
+            return []
+
+        source_path = str(source_reference)
+        if source_path.startswith("content://"):
+            source_path = self._resolve_android_content_uri_to_raw_path(source_path)
+
+        if not source_path:
+            return []
+
+        source_path = self._normalize_android_storage_path(source_path)
+        if not os.path.exists(source_path):
+            return []
+
+        copied_suffixes = []
+        for suffix in ("-wal", "-shm"):
+            sidecar_source = f"{source_path}{suffix}"
+            sidecar_target = f"{target_path}{suffix}"
+            if not os.path.exists(sidecar_source):
+                continue
+            try:
+                shutil.copy2(sidecar_source, sidecar_target)
+                copied_suffixes.append(suffix)
+            except Exception as copy_err:
+                Logger.info(
+                    "APP: Failed to copy SQLite sidecar "
+                    f"{sidecar_source} -> {sidecar_target}: {copy_err}"
+                )
+
+        if copied_suffixes:
+            Logger.info(
+                "APP: Copied SQLite sidecars for local DB load: "
+                + ", ".join(copied_suffixes)
+            )
+        return copied_suffixes
+
+    def _inspect_local_db(self, db_path):
+        info = {
+            "exists": False,
+            "substations_count": None,
+            "journal_mode": None,
+            "has_substations_table": False,
+        }
+        if not db_path or not os.path.exists(db_path):
+            return info
+
+        info["exists"] = True
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            cursor = conn.cursor()
+            try:
+                journal_row = cursor.execute("PRAGMA journal_mode").fetchone()
+                if journal_row:
+                    info["journal_mode"] = str(journal_row[0])
+            except Exception:
+                pass
+
+            table_names = {
+                row[0]
+                for row in cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+                if row and row[0]
+            }
+            info["has_substations_table"] = "substations" in table_names
+            if info["has_substations_table"]:
+                row = cursor.execute("SELECT COUNT(*) FROM substations").fetchone()
+                info["substations_count"] = int(row[0] or 0) if row else 0
+        finally:
+            conn.close()
+
+        return info
+
     def __init__(self, **kwargs):
         Logger.info("APP: Initializing SubstationAndroidApp")
         try:
@@ -1143,6 +1293,8 @@ class SubstationAndroidApp(App):
             self._android_picker_callback = None
             self._pending_android_permission_action = None
             self._android_permission_request_in_flight = False
+            self.sync_btn = None
+            self.settings_btn = None
             Logger.info("APP: SubstationAndroidApp initialized successfully")
         except Exception as e:
             Logger.critical(f"APP: Error in __init__: {str(e)}")
@@ -1375,6 +1527,7 @@ class SubstationAndroidApp(App):
         Logger.info("APP: Creating Android header")
 
         image_cls = None
+        icon_only_button_cls = None
         resource_find = None
         try:
             from kivy.resources import resource_find as kivy_resource_find
@@ -1385,18 +1538,36 @@ class SubstationAndroidApp(App):
         except Exception as e:
             Logger.warning(f"APP: Header image imports unavailable: {e}")
 
-        logo_candidates = [
-            resource_find("logo_deddie.png") if resource_find else None,
-            resource_find("deddie_logo.png") if resource_find else None,
-            os.path.join(os.path.dirname(__file__), "logo_deddie.png"),
-            os.path.join(os.path.dirname(__file__), "deddie_logo.png"),
-        ]
-        logo_path = next(
-            (path for path in logo_candidates if path and os.path.exists(path)),
+        try:
+            from ui.shared import IconOnlyButton
+
+            icon_only_button_cls = IconOnlyButton
+        except Exception as icon_err:
+            Logger.warning(f"APP: Header icon button unavailable: {icon_err}")
+
+        logo_candidates = []
+        if resource_find:
+            logo_candidates.extend(
+                [resource_find("logo_deddie.png"), resource_find("deddie_logo.png")]
+            )
+        logo_candidates.extend(
+            [
+                os.path.join(os.path.dirname(__file__), "logo_deddie.png"),
+                os.path.join(os.path.dirname(__file__), "deddie_logo.png"),
+            ]
+        )
+        logo_source = next(
+            (
+                path
+                for path in logo_candidates
+                if path and (path.startswith("atlas://") or os.path.exists(path))
+            ),
             None,
         )
+        if logo_source is None and platform == "android":
+            logo_source = "logo_deddie.png"
 
-        if logo_path and image_cls:
+        if logo_source and image_cls:
             try:
                 logo_container = BoxLayout(
                     orientation="horizontal",
@@ -1407,7 +1578,7 @@ class SubstationAndroidApp(App):
                 )
 
                 logo_container.add_widget(Label(size_hint_x=0.18, text=""))
-                logo = image_cls(source=logo_path, size_hint=(0.64, 1))
+                logo = image_cls(source=logo_source, size_hint=(0.64, 1))
                 if hasattr(logo, "fit_mode"):
                     logo.fit_mode = "contain"
                 else:
@@ -1431,12 +1602,37 @@ class SubstationAndroidApp(App):
         )
 
         if platform == "android":
-            settings_btn = Button(
-                text="⚙",
-                size_hint_x=None,
-                width=52,
-                font_size="22sp",
-            )
+            if icon_only_button_cls is not None:
+                try:
+                    settings_btn = icon_only_button_cls(
+                        icon_type="settings",
+                        icon_color=[0.05, 0.18, 0.36, 1],
+                        size=(40, 40),
+                        tooltip=S.get("MESSAGES", {}).get(
+                            "SETTINGS_TOOLTIP", "Ρυθμίσεις"
+                        ),
+                    )
+                except Exception as icon_btn_err:
+                    Logger.warning(
+                        f"APP: Failed to build Android icon settings button: {icon_btn_err}"
+                    )
+                    settings_btn = Button(
+                        text=S.get("MESSAGES", {}).get(
+                            "SETTINGS_LABEL", "Ρυθμίσεις"
+                        ),
+                        size_hint_x=None,
+                        width=120,
+                        font_size="15sp",
+                    )
+            else:
+                settings_btn = Button(
+                    text=S.get("MESSAGES", {}).get(
+                        "SETTINGS_LABEL", "Ρυθμίσεις"
+                    ),
+                    size_hint_x=None,
+                    width=120,
+                    font_size="15sp",
+                )
             settings_btn.bind(on_press=lambda _x: self._show_android_app_menu())
         else:
             settings_btn = Button(
@@ -1446,6 +1642,7 @@ class SubstationAndroidApp(App):
                 font_size="15sp",
             )
             settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
+        self.settings_btn = settings_btn
         top_bar.add_widget(settings_btn)
 
         header_label = Label(
