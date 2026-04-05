@@ -1617,18 +1617,14 @@ class SubstationAndroidApp(App):
                         f"APP: Failed to build Android icon settings button: {icon_btn_err}"
                     )
                     settings_btn = Button(
-                        text=S.get("MESSAGES", {}).get(
-                            "SETTINGS_LABEL", "Ρυθμίσεις"
-                        ),
+                        text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
                         size_hint_x=None,
                         width=120,
                         font_size="15sp",
                     )
             else:
                 settings_btn = Button(
-                    text=S.get("MESSAGES", {}).get(
-                        "SETTINGS_LABEL", "Ρυθμίσεις"
-                    ),
+                    text=S.get("MESSAGES", {}).get("SETTINGS_LABEL", "Ρυθμίσεις"),
                     size_hint_x=None,
                     width=120,
                     font_size="15sp",
