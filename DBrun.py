@@ -8753,13 +8753,37 @@ class SubstationApp(App):
                     self._update_sync_button_status()
                     return
 
-                # Prompt when probe changed OR when shared root is missing.
+                # If the shared root is missing, avoid blocking the startup with a
+                # prompt or heavy sync work. Mark the UI as needing attention so
+                # the user can choose to sync later. Honor explicit `force` runs.
+                if (not force) and shared_root_missing:
+                    logging.info("Startup sync skipped: shared root missing (marking attention needed)")
+                    self._sync_attention_needed = True
+                    self._update_sync_button_status()
+                    # Persist probe baseline so we don't repeatedly probe on every start
+                    try:
+                        self._save_startup_sync_state(
+                            {
+                                "state_version": 1,
+                                "updated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                                "last_probe": current_probe,
+                                "last_run": {
+                                    "sync_processed": 0,
+                                    "sync_accepted": 0,
+                                    "sync_conflicts": 0,
+                                },
+                            }
+                        )
+                    except Exception:
+                        pass
+                    return
+
+                # Prompt when probe changed OR when there is actionable work.
                 if (
                     (not force)
                     and prompt_on_change
                     and (
                         probe_changed
-                        or shared_root_missing
                         or first_probe_detected_work
                     )
                 ):
