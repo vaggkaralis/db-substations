@@ -111,6 +111,29 @@ def test_build_uses_icon_only_settings_button_on_android(monkeypatch):
     assert isinstance(app.settings_btn, IconOnlyButton)
 
 
+def test_build_uses_icon_only_settings_button_when_window_bind_fails(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(
+        shared_ui.Window,
+        "bind",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("no mouse binding")),
+        raising=False,
+    )
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    app.build()
+
+    assert isinstance(app.settings_btn, IconOnlyButton)
+
+
 def test_open_android_document_picker_runs_on_ui_thread(monkeypatch):
     app = android_app.SubstationAndroidApp()
 

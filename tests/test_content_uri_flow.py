@@ -81,6 +81,104 @@ def test_maybe_copy_android_sqlite_sidecars_from_content_uri(monkeypatch, tmp_pa
     assert (tmp_path / "copied.db-wal").read_bytes() == b"wal"
 
 
+def test_maybe_copy_android_sqlite_sidecars_from_document_uri(monkeypatch, tmp_path):
+    app = SubstationAndroidApp()
+    target_db = tmp_path / "copied.db"
+    target_db.write_bytes(b"db")
+
+    monkeypatch.setattr("android_app.platform", "android")
+    monkeypatch.setattr(
+        app, "_resolve_android_content_uri_to_raw_path", lambda _uri: None
+    )
+
+    sidecar_bytes = {
+        "content://docs/document/primary:Download/substations.db-wal": b"wal-data",
+        "content://docs/document/primary:Download/substations.db-shm": b"shm-data",
+    }
+
+    class FakeUri:
+        def __init__(self, value):
+            self._value = value
+
+        def toString(self):
+            return self._value
+
+        def getAuthority(self):
+            return "docs"
+
+    class FakeInputStream:
+        def __init__(self, payload):
+            self._payload = payload
+            self._offset = 0
+
+        def read(self, buffer=None):
+            if buffer is None:
+                if self._offset >= len(self._payload):
+                    return -1
+                value = self._payload[self._offset]
+                self._offset += 1
+                return value
+            if self._offset >= len(self._payload):
+                return -1
+            chunk = self._payload[self._offset : self._offset + len(buffer)]
+            buffer[: len(chunk)] = chunk
+            self._offset += len(chunk)
+            return len(chunk)
+
+        def close(self):
+            return None
+
+    class FakeResolver:
+        def openInputStream(self, uri_obj):
+            uri_string = uri_obj.toString()
+            if uri_string not in sidecar_bytes:
+                raise FileNotFoundError(uri_string)
+            return FakeInputStream(sidecar_bytes[uri_string])
+
+    class FakeActivity:
+        def getContentResolver(self):
+            return FakeResolver()
+
+    class FakePythonActivity:
+        mActivity = FakeActivity()
+
+    class FakeDocumentsContract:
+        @staticmethod
+        def getDocumentId(uri_obj):
+            return uri_obj.toString().split("/document/", 1)[1]
+
+        @staticmethod
+        def buildDocumentUri(authority, document_id):
+            return FakeUri(f"content://{authority}/document/{document_id}")
+
+    class FakeUriClass:
+        @staticmethod
+        def parse(value):
+            return FakeUri(value)
+
+    def fake_autoclass(name):
+        mapping = {
+            "android.provider.DocumentsContract": FakeDocumentsContract,
+            "android.net.Uri": FakeUriClass,
+            "org.kivy.android.PythonActivity": FakePythonActivity,
+        }
+        return mapping[name]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "jnius",
+        type("Jnius", (), {"autoclass": staticmethod(fake_autoclass)}),
+    )
+
+    copied = app._maybe_copy_android_sqlite_sidecars(
+        "content://docs/document/primary:Download/substations.db", str(target_db)
+    )
+
+    assert copied == ["-wal", "-shm"]
+    assert (tmp_path / "copied.db-wal").read_bytes() == b"wal-data"
+    assert (tmp_path / "copied.db-shm").read_bytes() == b"shm-data"
+
+
 def test_inspect_local_db_reports_substation_count(monkeypatch, tmp_path):
     import sqlite3
 

@@ -843,7 +843,12 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             self.tooltip = default_tooltips.get(self.icon_type, "")
 
         self._tooltip_widget = None
-        Window.bind(mouse_pos=self._on_mouse_pos)
+        try:
+            if hasattr(Window, "bind"):
+                Window.bind(mouse_pos=self._on_mouse_pos)
+        except Exception:
+            # Mouse hover tooltips are optional and can be unavailable on Android.
+            pass
 
     def _update_icon_size(self, *_args):
         dim = max(24, int(self.height * 0.85))

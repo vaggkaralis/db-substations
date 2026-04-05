@@ -1205,15 +1205,126 @@ class SubstationAndroidApp(App):
             )
             return None
 
+    def _copy_android_content_uri_to_path(self, uri_value, target_path):
+        if platform != "android" or not uri_value or not target_path:
+            return False
+
+        try:
+            from jnius import autoclass
+
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            Uri = autoclass("android.net.Uri")
+
+            activity = PythonActivity.mActivity
+            content_resolver = activity.getContentResolver()
+            in_stream = content_resolver.openInputStream(Uri.parse(str(uri_value)))
+            if in_stream is None:
+                return False
+
+            with open(target_path, "wb") as out_stream:
+                buffer = bytearray(64 * 1024)
+                while True:
+                    read_count = in_stream.read(buffer)
+                    if read_count == -1:
+                        break
+                    if read_count is None or read_count <= 0:
+                        continue
+                    out_stream.write(buffer[:read_count])
+
+            try:
+                in_stream.close()
+            except Exception:
+                pass
+            return True
+        except Exception as copy_err:
+            Logger.info(
+                "APP: Failed to stream-copy Android content URI "
+                f"{uri_value} -> {target_path}: {copy_err}"
+            )
+            return False
+
+    def _maybe_copy_android_sqlite_sidecars_from_document_uri(
+        self, source_reference, target_path
+    ):
+        if (
+            platform != "android"
+            or not source_reference
+            or not str(source_reference).startswith("content://")
+            or not target_path
+        ):
+            return []
+
+        try:
+            from jnius import autoclass
+
+            DocumentsContract = autoclass("android.provider.DocumentsContract")
+            Uri = autoclass("android.net.Uri")
+
+            uri_obj = Uri.parse(str(source_reference))
+            authority = uri_obj.getAuthority()
+            if not authority:
+                return []
+
+            document_id = DocumentsContract.getDocumentId(uri_obj)
+            if not document_id:
+                return []
+
+            document_id = str(document_id)
+            copied_suffixes = []
+            for suffix in ("-wal", "-shm"):
+                sibling_doc_id = f"{document_id}{suffix}"
+                sibling_uri = None
+                try:
+                    if hasattr(DocumentsContract, "buildDocumentUriUsingTree") and (
+                        hasattr(DocumentsContract, "isTreeUri")
+                        and DocumentsContract.isTreeUri(uri_obj)
+                    ):
+                        sibling_uri = DocumentsContract.buildDocumentUriUsingTree(
+                            uri_obj, sibling_doc_id
+                        )
+                    else:
+                        sibling_uri = DocumentsContract.buildDocumentUri(
+                            authority, sibling_doc_id
+                        )
+                except Exception:
+                    sibling_uri = DocumentsContract.buildDocumentUri(
+                        authority, sibling_doc_id
+                    )
+
+                if sibling_uri is None:
+                    continue
+
+                sidecar_uri = str(sibling_uri.toString())
+                sidecar_target = f"{target_path}{suffix}"
+                if self._copy_android_content_uri_to_path(sidecar_uri, sidecar_target):
+                    copied_suffixes.append(suffix)
+
+            if copied_suffixes:
+                Logger.info(
+                    "APP: Copied SQLite sidecars via document URIs: "
+                    + ", ".join(copied_suffixes)
+                )
+            return copied_suffixes
+        except Exception as resolve_err:
+            Logger.info(
+                f"APP: Could not copy SQLite sidecars from document URIs: {resolve_err}"
+            )
+            return []
+
     def _maybe_copy_android_sqlite_sidecars(self, source_reference, target_path):
         if not source_reference or not target_path:
             return []
 
         source_path = str(source_reference)
-        if source_path.startswith("content://"):
+        is_content_uri = source_path.startswith("content://")
+        if is_content_uri:
             source_path = self._resolve_android_content_uri_to_raw_path(source_path)
 
         if not source_path:
+            if is_content_uri:
+                return self._maybe_copy_android_sqlite_sidecars_from_document_uri(
+                    source_reference, target_path
+                )
             return []
 
         source_path = self._normalize_android_storage_path(source_path)
@@ -1240,7 +1351,13 @@ class SubstationAndroidApp(App):
                 "APP: Copied SQLite sidecars for local DB load: "
                 + ", ".join(copied_suffixes)
             )
-        return copied_suffixes
+
+        if copied_suffixes or not is_content_uri:
+            return copied_suffixes
+
+        return self._maybe_copy_android_sqlite_sidecars_from_document_uri(
+            source_reference, target_path
+        )
 
     def _inspect_local_db(self, db_path):
         info = {
@@ -1546,16 +1663,30 @@ class SubstationAndroidApp(App):
             Logger.warning(f"APP: Header icon button unavailable: {icon_err}")
 
         logo_candidates = []
+        runtime_logo_paths = [
+            os.path.join(os.getcwd(), "logo_deddie.png"),
+            os.path.join(os.getcwd(), "deddie_logo.png"),
+            os.path.join(os.path.dirname(__file__), "logo_deddie.png"),
+            os.path.join(os.path.dirname(__file__), "deddie_logo.png"),
+        ]
         if resource_find:
+            try:
+                from kivy.resources import resource_add_path
+
+                for candidate_dir in {
+                    os.getcwd(),
+                    os.path.dirname(__file__),
+                }:
+                    if candidate_dir and os.path.isdir(candidate_dir):
+                        resource_add_path(candidate_dir)
+            except Exception as resource_err:
+                Logger.info(
+                    f"APP: Could not extend resource path for logo: {resource_err}"
+                )
             logo_candidates.extend(
                 [resource_find("logo_deddie.png"), resource_find("deddie_logo.png")]
             )
-        logo_candidates.extend(
-            [
-                os.path.join(os.path.dirname(__file__), "logo_deddie.png"),
-                os.path.join(os.path.dirname(__file__), "deddie_logo.png"),
-            ]
-        )
+        logo_candidates.extend(runtime_logo_paths)
         logo_source = next(
             (
                 path
@@ -1569,27 +1700,16 @@ class SubstationAndroidApp(App):
 
         if logo_source and image_cls:
             try:
-                logo_container = BoxLayout(
-                    orientation="horizontal",
+                logo = image_cls(
+                    source=logo_source,
                     size_hint_y=None,
-                    height=72,
-                    padding=[6, 4, 6, 0],
-                    spacing=0,
+                    height=68,
+                    allow_stretch=False,
+                    keep_ratio=True,
                 )
-
-                logo_container.add_widget(Label(size_hint_x=0.18, text=""))
-                logo = image_cls(source=logo_source, size_hint=(0.64, 1))
                 if hasattr(logo, "fit_mode"):
                     logo.fit_mode = "contain"
-                else:
-                    try:
-                        logo.allow_stretch = True
-                        logo.keep_ratio = True
-                    except Exception:
-                        pass
-                logo_container.add_widget(logo)
-                logo_container.add_widget(Label(size_hint_x=0.18, text=""))
-                main_layout.add_widget(logo_container)
+                main_layout.add_widget(logo)
             except Exception as e:
                 Logger.warning(f"APP: Could not load logo: {e}")
 
