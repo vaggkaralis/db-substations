@@ -6966,14 +6966,28 @@ class SubstationAndroidApp(App):
             chooser = Intent.createChooser(intent, title_obj)
             current.startActivity(chooser)
         except Exception:
-            # Surface the error to the user (useful on-device) then re-raise
+            # Surface a single friendly error to the user and fallback to
+            # copying the path to the clipboard. Do NOT re-raise here to
+            # avoid duplicate error popups in callers.
             try:
                 import traceback as _tb
 
-                self.show_error(f"Κοινοποίηση απέτυχε: {_tb.format_exc()}")
+                self.show_error(
+                    f"Κοινοποίηση απέτυχε: {_tb.format_exc()}", is_info=False
+                )
             except Exception:
                 pass
-            raise
+            try:
+                import importlib
+
+                clip = importlib.import_module("kivy.core.clipboard")
+                if hasattr(clip, "copy"):
+                    clip.copy(file_path)
+                elif hasattr(clip, "Clipboard") and hasattr(clip.Clipboard, "copy"):
+                    clip.Clipboard.copy(file_path)
+            except Exception:
+                pass
+            return
 
 
 if __name__ == "__main__":
