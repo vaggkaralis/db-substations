@@ -4,7 +4,6 @@ import builtins
 
 import android_app
 import ui.shared as shared_ui
-from ui.shared import IconOnlyButton
 
 
 def _collect_widget_texts(widget):
@@ -14,6 +13,16 @@ def _collect_widget_texts(widget):
     for child in getattr(widget, "children", []):
         texts.extend(_collect_widget_texts(child))
     return texts
+
+
+def _find_widget_by_text(widget, target_text):
+    if getattr(widget, "text", None) == target_text:
+        return widget
+    for child in getattr(widget, "children", []):
+        found = _find_widget_by_text(child, target_text)
+        if found is not None:
+            return found
+    return None
 
 
 def test_open_local_db_picker_uses_android_document_picker(monkeypatch):
@@ -147,7 +156,7 @@ def test_build_hides_sync_button_in_desktop_preview(monkeypatch):
     assert app.sync_btn is None
 
 
-def test_build_uses_icon_only_settings_button_on_android(monkeypatch):
+def test_build_uses_vector_settings_button_on_android(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
@@ -162,10 +171,11 @@ def test_build_uses_icon_only_settings_button_on_android(monkeypatch):
 
     app.build()
 
-    assert isinstance(app.settings_btn, IconOnlyButton)
+    assert getattr(app.settings_btn, "text", None) != "SET"
+    assert len(getattr(app.settings_btn, "children", [])) == 1
 
 
-def test_build_uses_icon_only_settings_button_when_window_bind_fails(monkeypatch):
+def test_build_uses_vector_settings_button_when_window_bind_fails(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
@@ -185,7 +195,8 @@ def test_build_uses_icon_only_settings_button_when_window_bind_fails(monkeypatch
 
     app.build()
 
-    assert isinstance(app.settings_btn, IconOnlyButton)
+    assert getattr(app.settings_btn, "text", None) != "SET"
+    assert len(getattr(app.settings_btn, "children", [])) == 1
 
 
 def test_build_falls_back_to_vector_settings_button_when_icon_widget_fails(monkeypatch):
@@ -215,6 +226,96 @@ def test_build_falls_back_to_vector_settings_button_when_icon_widget_fails(monke
 
     if original_icon_button is not None:
         monkeypatch.setattr(shared_module, "IconOnlyButton", original_icon_button)
+
+
+def test_load_substation_elements_uses_icon_only_android_action_buttons(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    app.data_mode = "local"
+    app._local_fetch_elements = lambda _substation_id: [
+        {
+            "id": 7,
+            "name": "Breaker A",
+            "element_type": "Διακόπτης ΜΤ",
+            "breaker_category": "Vacuum",
+            "serial_number": "SN-1",
+            "model_manufacturer": "ABB",
+            "model_name": "Model X",
+            "voltage_level": "20kV",
+            "manufacture_year": "2020",
+            "operating_status": "Ενεργή",
+            "onedrive_manual_link": "https://example/manual",
+            "manual_pdf": "",
+        }
+    ]
+    app._has_element_maintenance_history = lambda _element_id: True
+
+    grid = android_app.GridLayout(cols=1)
+
+    app._load_substation_elements(1, grid)
+
+    texts = _collect_widget_texts(grid)
+    assert "Manual" not in texts
+    assert "History" not in texts
+
+
+def test_show_substation_details_guards_maintenance_action_errors(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    app.substations = [{"id": 1, "name": "Alpha"}]
+    app.content_layout = android_app.BoxLayout()
+
+    errors = []
+    monkeypatch.setattr(app, "show_error", lambda message: errors.append(message))
+    monkeypatch.setattr(app, "_set_root_buttons_visible", lambda *_args: None)
+    monkeypatch.setattr(app, "_load_substation_elements", lambda *_args: None)
+    monkeypatch.setattr(
+        app,
+        "show_maintenance_menu",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("maintenance boom")),
+    )
+
+    app.show_substation_details(1)
+    maint_btn = _find_widget_by_text(
+        app.content_layout,
+        android_app.S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
+    )
+
+    maint_btn.on_press(None)
+
+    assert errors == [
+        f"{android_app.S.get('BUTTONS', {}).get('MAINTENANCE', 'Συντήρηση')}: maintenance boom"
+    ]
+
+
+def test_show_substation_details_guards_inspection_action_errors(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    app.substations = [{"id": 1, "name": "Alpha"}]
+    app.content_layout = android_app.BoxLayout()
+
+    errors = []
+    monkeypatch.setattr(app, "show_error", lambda message: errors.append(message))
+    monkeypatch.setattr(app, "_set_root_buttons_visible", lambda *_args: None)
+    monkeypatch.setattr(app, "_load_substation_elements", lambda *_args: None)
+    monkeypatch.setattr(
+        app,
+        "show_inspection_entry_popup",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("inspection boom")),
+    )
+
+    app.show_substation_details(1)
+    inspect_btn = _find_widget_by_text(
+        app.content_layout,
+        android_app.S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
+    )
+
+    inspect_btn.on_press(None)
+
+    assert errors == [
+        f"{android_app.S.get('BUTTONS', {}).get('INSPECT', 'Επιθεώρηση')}: inspection boom"
+    ]
 
 
 def test_build_uses_logo_text_fallback_when_asset_unavailable(monkeypatch):

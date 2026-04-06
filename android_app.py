@@ -344,6 +344,42 @@ if "ScrollView" not in globals():
             pass
 
 
+if "TextInput" not in globals():
+    try:
+        from kivy.uix.textinput import TextInput as _TextInput
+
+        TextInput = _TextInput
+    except Exception as textinput_import_err:
+        Logger.warning(f"APP: TextInput fallback import failed: {textinput_import_err}")
+
+if "Spinner" not in globals():
+    try:
+        from kivy.uix.spinner import Spinner as _Spinner
+
+        Spinner = _Spinner
+    except Exception as spinner_import_err:
+        Logger.warning(f"APP: Spinner fallback import failed: {spinner_import_err}")
+
+        class Spinner(Button):
+            def __init__(self, *args, **kwargs):
+                self.values = kwargs.get("values", [])
+                super().__init__(*args, **kwargs)
+
+
+if "CheckBox" not in globals():
+    try:
+        from kivy.uix.checkbox import CheckBox as _CheckBox
+
+        CheckBox = _CheckBox
+    except Exception as checkbox_import_err:
+        Logger.warning(f"APP: CheckBox fallback import failed: {checkbox_import_err}")
+
+        class CheckBox(Button):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.active = kwargs.get("active", False)
+
+
 if "show_message_popup" not in globals():
     show_message_popup = None
 
@@ -2131,33 +2167,11 @@ class SubstationAndroidApp(App):
         self.header_area.size_hint_y = 0.10
 
         if platform == "android":
-            if icon_only_button_cls is not None:
-                try:
-                    Logger.info("APP: Using icon-only Android settings button")
-                    settings_btn = icon_only_button_cls(
-                        icon_type="settings",
-                        icon_color=[0.05, 0.18, 0.36, 1],
-                        size=(34, 34),
-                        tooltip=S.get("MESSAGES", {}).get(
-                            "SETTINGS_TOOLTIP", "Ρυθμίσεις"
-                        ),
-                    )
-                except Exception as icon_btn_err:
-                    Logger.warning(
-                        f"APP: Failed to build Android icon settings button: {icon_btn_err}"
-                    )
-                    settings_btn = self._build_vector_icon_button(
-                        "settings",
-                        lambda _x: self._show_android_app_menu(),
-                    )
-            else:
-                Logger.warning(
-                    "APP: Android icon-only settings button unavailable; falling back to vector icon"
-                )
-                settings_btn = self._build_vector_icon_button(
-                    "settings",
-                    lambda _x: self._show_android_app_menu(),
-                )
+            Logger.info("APP: Using vector Android settings button")
+            settings_btn = self._build_vector_icon_button(
+                "settings",
+                lambda _x: self._show_android_app_menu(),
+            )
         else:
             # Prefer icon-only settings button on desktop as well when available
             if icon_only_button_cls is not None:
@@ -4114,7 +4128,12 @@ class SubstationAndroidApp(App):
             background_color=(0.2, 0.5, 0.7, 1),
         )
         maint_btn.bind(
-            on_press=lambda x: self.show_maintenance_menu(substation_id, substation)
+            on_press=lambda x: self._run_substation_action(
+                S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
+                self.show_maintenance_menu,
+                substation_id,
+                substation,
+            )
         )
         actions_container.add_widget(maint_btn)
 
@@ -4125,8 +4144,11 @@ class SubstationAndroidApp(App):
             background_color=(0.5, 0.5, 0.2, 1),
         )
         inspect_btn.bind(
-            on_press=lambda x: self.show_inspection_entry_popup(
-                substation_id, substation
+            on_press=lambda x: self._run_substation_action(
+                S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
+                self.show_inspection_entry_popup,
+                substation_id,
+                substation,
             )
         )
         actions_container.add_widget(inspect_btn)
@@ -4142,6 +4164,15 @@ class SubstationAndroidApp(App):
         main_layout.add_widget(actions_container)
         self.content_layout.clear_widgets()
         self.content_layout.add_widget(main_layout)
+
+    def _run_substation_action(self, action_label, callback, *args):
+        try:
+            callback(*args)
+        except Exception as action_err:
+            Logger.error(
+                f"APP: Substation action '{action_label}' failed: {action_err}"
+            )
+            self.show_error(f"{action_label}: {action_err}")
 
     def _load_substation_elements(self, substation_id, grid):
         """Load and display elements for a substation"""
@@ -4277,25 +4308,32 @@ class SubstationAndroidApp(App):
                             manual_link = manual_pdf
 
                     if manual_link:
-                        try:
-                            from ui.shared import IconOnlyButton
-
-                            manual_btn = IconOnlyButton(
-                                icon_type="book",
+                        if platform == "android":
+                            manual_btn = self._build_vector_icon_button(
+                                "book",
+                                lambda x, link=manual_link: self._open_url(link),
                                 icon_color=(0.2, 0.7, 0.95, 1),
                                 size=(50, 50),
-                                tooltip=S.get("MESSAGES", {}).get(
-                                    "TOOLTIP_MANUAL", "Manual"
-                                ),
                             )
-                        except Exception:
-                            manual_btn = Button(
-                                text="Manual",
-                                font_size="12sp",
-                                size_hint_x=None,
-                                width=60,
-                                background_color=(0.2, 0.7, 0.95, 1),
-                            )
+                        else:
+                            try:
+                                from ui.shared import IconOnlyButton
+
+                                manual_btn = IconOnlyButton(
+                                    icon_type="book",
+                                    icon_color=(0.2, 0.7, 0.95, 1),
+                                    size=(50, 50),
+                                    tooltip=S.get("MESSAGES", {}).get(
+                                        "TOOLTIP_MANUAL", "Manual"
+                                    ),
+                                )
+                            except Exception:
+                                manual_btn = self._build_vector_icon_button(
+                                    "book",
+                                    lambda x, link=manual_link: self._open_url(link),
+                                    icon_color=(0.2, 0.7, 0.95, 1),
+                                    size=(50, 50),
+                                )
                         manual_btn.bind(
                             on_press=lambda x, link=manual_link: self._open_url(link)
                         )
@@ -4304,23 +4342,35 @@ class SubstationAndroidApp(App):
                     # Add maintenance history button only if element has maintenance records
                     element_id = elem.get("id")
                     if self._has_element_maintenance_history(element_id):
-                        try:
-                            from ui.shared import IconOnlyButton
-
-                            history_btn = IconOnlyButton(
-                                icon_type="maintenance",
+                        if platform == "android":
+                            history_btn = self._build_vector_icon_button(
+                                "maintenance",
+                                lambda x, eid=element_id, ename=elem.get("name"): (
+                                    self.show_element_maintenance_history(eid, ename)
+                                ),
                                 icon_color=(0.4, 0.6, 0.8, 1),
                                 size=(50, 50),
                             )
-                        except Exception:
-                            # Fallback to text button if IconOnlyButton not available
-                            history_btn = Button(
-                                text="History",
-                                font_size="12sp",
-                                size_hint_x=None,
-                                width=60,
-                                background_color=(0.3, 0.6, 0.8, 1),
-                            )
+                        else:
+                            try:
+                                from ui.shared import IconOnlyButton
+
+                                history_btn = IconOnlyButton(
+                                    icon_type="maintenance",
+                                    icon_color=(0.4, 0.6, 0.8, 1),
+                                    size=(50, 50),
+                                )
+                            except Exception:
+                                history_btn = self._build_vector_icon_button(
+                                    "maintenance",
+                                    lambda x, eid=element_id, ename=elem.get("name"): (
+                                        self.show_element_maintenance_history(
+                                            eid, ename
+                                        )
+                                    ),
+                                    icon_color=(0.4, 0.6, 0.8, 1),
+                                    size=(50, 50),
+                                )
                         history_btn.bind(
                             on_press=lambda x, eid=element_id, ename=elem.get("name"): (
                                 self.show_element_maintenance_history(eid, ename)
@@ -4622,9 +4672,6 @@ class SubstationAndroidApp(App):
 
     def show_maintenance_menu(self, substation_id, substation):
         """Show maintenance recording interface"""
-        from kivy.uix.checkbox import CheckBox
-        from kivy.uix.spinner import Spinner
-
         popup = Popup(title=f"Συντήρηση - {substation['name']}", size_hint=(0.95, 0.95))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
