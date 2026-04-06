@@ -1017,6 +1017,20 @@ class SubstationAndroidApp(App):
                 if isinstance(selected_db_path, str) and selected_db_path.startswith(
                     "content://"
                 ):
+                    raw_candidate = self._resolve_android_content_uri_to_raw_path(
+                        selected_db_path
+                    )
+                    if (
+                        raw_candidate
+                        and self._android_storage_permissions_granted()
+                        and os.path.exists(raw_candidate)
+                    ):
+                        resolved = self._prepare_local_db_path(raw_candidate)
+                        _continue_with_path(
+                            resolved,
+                            source_reference=raw_candidate,
+                        )
+                        return
 
                     def _on_copy_done(success, val):
                         if not success:
@@ -1592,7 +1606,7 @@ class SubstationAndroidApp(App):
             perms_granted = all(
                 check_permission(permission) for permission in needed_perms
             )
-            if perms_granted and _has_all_files_access():
+            if perms_granted or _has_all_files_access():
                 self._pending_android_permission_action = None
                 self._android_permission_request_in_flight = False
                 if on_granted is not None:
@@ -1617,8 +1631,8 @@ class SubstationAndroidApp(App):
 
             def _finish(_dt):
                 self._android_permission_request_in_flight = False
-                if granted:
-                    if _has_all_files_access():
+                if granted or self._android_storage_permissions_granted():
+                    if self._android_storage_permissions_granted():
                         pending_action = self._pending_android_permission_action
                         self._pending_android_permission_action = None
                         if pending_action is not None:

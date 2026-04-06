@@ -525,6 +525,43 @@ def test_use_local_mode_allows_android_storage_path_with_permissions(monkeypatch
     assert loaded == [True]
 
 
+def test_use_local_mode_prefers_raw_path_for_content_uri_when_permissions_exist(
+    monkeypatch,
+):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+
+    prepared = []
+    loaded = []
+    copied = []
+
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
+    monkeypatch.setattr(
+        app,
+        "_resolve_android_content_uri_to_raw_path",
+        lambda _uri: "/storage/emulated/0/Download/substations.db",
+    )
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
+    monkeypatch.setattr(
+        app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
+    )
+    monkeypatch.setattr(app, "_set_saved_db_path", lambda path: None)
+    monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
+    monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
+    monkeypatch.setattr(
+        app,
+        "_copy_content_uri_to_file_async",
+        lambda *_args, **_kwargs: copied.append(True),
+    )
+
+    app.use_local_mode("content://picked/substations.db")
+
+    assert prepared == ["/storage/emulated/0/Download/substations.db"]
+    assert copied == []
+    assert loaded == [True]
+
+
 def test_on_resume_continues_pending_android_permission_action(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
@@ -667,6 +704,49 @@ def test_request_android_storage_permissions_resumes_after_settings_return(monke
     assert resumed == [True]
     assert len(infos) == 2
     assert app._pending_android_permission_action is None
+
+
+def test_request_android_storage_permissions_accepts_persisted_all_files_access(
+    monkeypatch,
+):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+
+    permissions_module = types.ModuleType("android.permissions")
+
+    class FakePermission:
+        READ_EXTERNAL_STORAGE = "read"
+        WRITE_EXTERNAL_STORAGE = "write"
+
+    permissions_module.Permission = FakePermission
+    permissions_module.check_permission = lambda _permission: False
+    permissions_module.request_permissions = lambda _permissions, *_args: None
+    monkeypatch.setitem(sys.modules, "android.permissions", permissions_module)
+
+    jnius_module = types.ModuleType("jnius")
+
+    class FakeEnvironment:
+        @staticmethod
+        def isExternalStorageManager():
+            return True
+
+    jnius_module.autoclass = lambda name: {
+        "android.os.Environment": FakeEnvironment,
+    }[name]
+    monkeypatch.setitem(sys.modules, "jnius", jnius_module)
+
+    resumed = []
+
+    assert (
+        app._request_android_storage_permissions(lambda: resumed.append(True)) is True
+    )
+    assert resumed == [True]
 
 
 def test_on_start_shows_queued_uncaught_errors(monkeypatch):
