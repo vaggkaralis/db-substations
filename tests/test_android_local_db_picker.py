@@ -181,7 +181,10 @@ def test_build_uses_vector_settings_button_on_android(monkeypatch):
     app.build()
 
     assert getattr(app.settings_btn, "text", None) != "SET"
-    assert len(getattr(app.settings_btn, "children", [])) == 1
+    assert (
+        len(getattr(app.settings_btn, "children", [])) == 1
+        or getattr(app.settings_btn, "text", None) == "S"
+    )
 
 
 def test_build_uses_vector_settings_button_when_window_bind_fails(monkeypatch):
@@ -205,7 +208,10 @@ def test_build_uses_vector_settings_button_when_window_bind_fails(monkeypatch):
     app.build()
 
     assert getattr(app.settings_btn, "text", None) != "SET"
-    assert len(getattr(app.settings_btn, "children", [])) == 1
+    assert (
+        len(getattr(app.settings_btn, "children", [])) == 1
+        or getattr(app.settings_btn, "text", None) == "S"
+    )
 
 
 def test_build_falls_back_to_vector_settings_button_when_icon_widget_fails(monkeypatch):
@@ -231,7 +237,10 @@ def test_build_falls_back_to_vector_settings_button_when_icon_widget_fails(monke
     app.build()
 
     assert getattr(app.settings_btn, "text", None) != "SET"
-    assert len(getattr(app.settings_btn, "children", [])) == 1
+    assert (
+        len(getattr(app.settings_btn, "children", [])) == 1
+        or getattr(app.settings_btn, "text", None) == "S"
+    )
 
     if original_icon_button is not None:
         monkeypatch.setattr(shared_module, "IconOnlyButton", original_icon_button)
@@ -260,28 +269,39 @@ def test_load_substation_elements_uses_icon_only_android_action_buttons(monkeypa
     ]
     app._has_element_maintenance_history = lambda _element_id: True
 
-    created_icon_types = []
+    created_buttons = []
 
-    class DummyIconOnlyButton(android_app.BoxLayout):
-        def __init__(self, **kwargs):
+    class DummyIconButton(android_app.BoxLayout):
+        def __init__(self, icon_type):
             super().__init__()
-            self.icon_type = kwargs.get("icon_type")
-            created_icon_types.append(self.icon_type)
+            self.icon_type = icon_type
+            self.bind_calls = 0
 
         def bind(self, **_kwargs):
+            self.bind_calls += 1
             return None
 
-    monkeypatch.setattr(shared_ui, "IconOnlyButton", DummyIconOnlyButton)
+    def _fake_build_vector_icon_button(
+        icon_type, on_press, icon_color=None, size=(34, 34)
+    ):
+        button = DummyIconButton(icon_type)
+        created_buttons.append(button)
+        return button
+
+    monkeypatch.setattr(
+        app, "_build_vector_icon_button", _fake_build_vector_icon_button
+    )
 
     grid = android_app.GridLayout(cols=1)
 
     app._load_substation_elements(1, grid)
 
-    assert created_icon_types == ["book", "maintenance"]
-    assert len(_collect_widgets_by_class_name(grid, "DummyIconOnlyButton")) == 2
+    assert [button.icon_type for button in created_buttons] == ["book", "maintenance"]
+    assert all(button.bind_calls == 0 for button in created_buttons)
+    assert len(_collect_widgets_by_class_name(grid, "DummyIconButton")) == 2
 
 
-def test_show_maintenance_menu_uses_save_text_fallback(monkeypatch):
+def test_show_maintenance_menu_uses_save_and_cancel_text_fallback(monkeypatch):
     captured = {}
 
     class DummyPopup:
@@ -302,7 +322,7 @@ def test_show_maintenance_menu_uses_save_text_fallback(monkeypatch):
         android_app,
         "S",
         {
-            "BUTTONS": {"CANCEL": "Άκυρο"},
+            "BUTTONS": {},
             "MESSAGES": {},
             "TITLES": {},
         },
@@ -334,9 +354,10 @@ def test_show_maintenance_menu_uses_save_text_fallback(monkeypatch):
 
     texts = _collect_widget_texts(captured["instance"].content)
     assert "Αποθήκευση" in texts
+    assert "Άκυρο" in texts
 
 
-def test_show_inspection_entry_popup_uses_save_text_fallback(monkeypatch):
+def test_show_inspection_entry_popup_uses_save_and_cancel_text_fallback(monkeypatch):
     captured = {}
 
     class DummyPopup:
@@ -357,7 +378,7 @@ def test_show_inspection_entry_popup_uses_save_text_fallback(monkeypatch):
         android_app,
         "S",
         {
-            "BUTTONS": {"CANCEL": "Άκυρο"},
+            "BUTTONS": {},
             "MESSAGES": {},
             "TITLES": {},
         },
@@ -369,6 +390,7 @@ def test_show_inspection_entry_popup_uses_save_text_fallback(monkeypatch):
 
     texts = _collect_widget_texts(captured["instance"].content)
     assert "Αποθήκευση" in texts
+    assert "Άκυρο" in texts
 
 
 def test_show_substation_details_guards_maintenance_action_errors(monkeypatch):

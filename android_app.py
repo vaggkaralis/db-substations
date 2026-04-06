@@ -744,7 +744,7 @@ class SubstationAndroidApp(App):
             open_btn.bind(on_press=_force_open)
             btn_row.add_widget(open_btn)
 
-            cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+            cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
             cancel_btn.bind(on_press=popup.dismiss)
             btn_row.add_widget(cancel_btn)
 
@@ -819,11 +819,7 @@ class SubstationAndroidApp(App):
                     )
 
             open_btn.bind(on_press=_open_selected_path)
-            cancel_btn = (
-                Button(text=S["BUTTONS"]["CANCEL"])
-                if "CANCEL" in S["BUTTONS"]
-                else Button(text="Άκυρο")
-            )
+            cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
             cancel_btn.bind(on_press=popup.dismiss)
             buttons.add_widget(open_btn)
             buttons.add_widget(cancel_btn)
@@ -911,7 +907,7 @@ class SubstationAndroidApp(App):
                 )
 
         open_btn.bind(on_press=_open_selected_path)
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+        cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
         cancel_btn.bind(on_press=popup.dismiss)
         buttons.add_widget(open_btn)
         buttons.add_widget(cancel_btn)
@@ -1853,7 +1849,116 @@ class SubstationAndroidApp(App):
         icon_color = icon_color or [0.05, 0.18, 0.36, 1]
         try:
             from kivy.uix.behaviors import ButtonBehavior
-            from ui.shared import IconWidget
+            from kivy.graphics import Color, Line
+            from kivy.uix.widget import Widget
+
+            normalized_icon_type = {
+                "history": "maintenance",
+                "manual": "book",
+            }.get(icon_type, icon_type)
+
+            class _LocalIconWidget(Widget):
+                def __init__(self, **kwargs):
+                    self._icon_type = kwargs.pop("icon_type", "settings")
+                    self._icon_color = kwargs.pop("icon_color", [1, 1, 1, 1])
+                    super().__init__(**kwargs)
+                    self.bind(pos=self._redraw, size=self._redraw)
+                    self._redraw()
+
+                def _redraw(self, *_args):
+                    self.canvas.clear()
+                    with self.canvas:
+                        Color(*self._icon_color)
+                        x, y = self.x, self.y
+                        w, h = self.width, self.height
+                        if w <= 0 or h <= 0:
+                            return
+                        line_w = max(1.05, min(w, h) * 0.042)
+
+                        if self._icon_type == "maintenance":
+                            Line(
+                                circle=(x + w * 0.35, y + h * 0.6, w * 0.15),
+                                width=line_w,
+                            )
+                            Line(
+                                points=[
+                                    x + w * 0.5,
+                                    y + h * 0.3,
+                                    x + w * 0.82,
+                                    y + h * 0.62,
+                                ],
+                                width=line_w,
+                            )
+                            Line(
+                                points=[
+                                    x + w * 0.68,
+                                    y + h * 0.5,
+                                    x + w * 0.82,
+                                    y + h * 0.62,
+                                    x + w * 0.66,
+                                    y + h * 0.66,
+                                ],
+                                width=line_w,
+                            )
+                        elif self._icon_type == "book":
+                            book_x = x + w * 0.2
+                            book_y = y + h * 0.15
+                            book_w = w * 0.6
+                            book_h = h * 0.7
+                            Line(
+                                rectangle=(book_x, book_y, book_w, book_h),
+                                width=max(1.2, line_w),
+                            )
+                            Line(
+                                points=[
+                                    book_x + book_w * 0.15,
+                                    book_y,
+                                    book_x + book_w * 0.15,
+                                    book_y + book_h,
+                                ],
+                                width=max(1.2, line_w),
+                            )
+                            for index in range(1, 4):
+                                page_y = book_y + (book_h * index / 4.5)
+                                Line(
+                                    points=[
+                                        book_x + book_w * 0.25,
+                                        page_y,
+                                        book_x + book_w * 0.85,
+                                        page_y,
+                                    ],
+                                    width=max(0.8, line_w * 0.7),
+                                )
+                        elif self._icon_type == "inspection":
+                            Line(
+                                circle=(x + w * 0.4, y + h * 0.55, w * 0.2),
+                                width=line_w,
+                            )
+                            Line(
+                                points=[
+                                    x + w * 0.56,
+                                    y + h * 0.38,
+                                    x + w * 0.82,
+                                    y + h * 0.12,
+                                ],
+                                width=line_w,
+                            )
+                        else:
+                            cx = x + w * 0.5
+                            cy = y + h * 0.5
+                            radius = min(w, h) * 0.28
+                            Line(circle=(cx, cy, radius), width=line_w)
+                            tooth_len = min(w, h) * 0.12
+                            for angle in range(0, 360, 60):
+                                import math
+
+                                rad = math.radians(angle)
+                                x1 = cx + math.cos(rad) * (radius + tooth_len * 0.2)
+                                y1 = cy + math.sin(rad) * (radius + tooth_len * 0.2)
+                                x2 = cx + math.cos(rad) * (radius + tooth_len)
+                                y2 = cy + math.sin(rad) * (radius + tooth_len)
+                                Line(points=[x1, y1, x2, y2], width=line_w)
+                            Line(circle=(cx, cy, radius * 0.4), width=line_w)
 
             class _VectorIconButton(ButtonBehavior, BoxLayout):
                 def __init__(self, **kwargs):
@@ -1863,8 +1968,8 @@ class SubstationAndroidApp(App):
                     self.size = button_size
                     self.padding = (2, 2)
                     self.orientation = "horizontal"
-                    self.icon = IconWidget(
-                        icon_type=icon_type,
+                    self.icon = _LocalIconWidget(
+                        icon_type=normalized_icon_type,
                         icon_color=icon_color,
                         size_hint=(None, None),
                     )
@@ -1879,17 +1984,17 @@ class SubstationAndroidApp(App):
             Logger.warning(
                 f"APP: Vector icon button fallback failed for {icon_type}: {icon_err}"
             )
-            # Provide visible fallback glyphs for common icon types so the
-            # button is not rendered as an empty/black area on platforms
-            # where Icon drawing is unavailable.
+            # Final fallback uses ASCII so unsupported device fonts cannot turn
+            # the button into a corrupted replacement glyph.
             glyph_map = {
-                "settings": "⚙",
-                "book": "📘",
-                "maintenance": "🛠",
-                "history": "🕘",
-                "manual": "📘",
+                "settings": "S",
+                "book": "B",
+                "maintenance": "H",
+                "history": "H",
+                "manual": "B",
+                "inspection": "I",
             }
-            fallback_text = glyph_map.get(icon_type, "?")
+            fallback_text = glyph_map.get(icon_type, "+")
             fallback_btn = Button(
                 text=fallback_text,
                 size_hint_x=None,
@@ -2061,7 +2166,6 @@ class SubstationAndroidApp(App):
     def _build_android_header(self, main_layout):
         Logger.info("APP: Creating Android header")
         image_cls = None
-        icon_only_button_cls = None
         resource_find = None
         try:
             from kivy.resources import resource_find as kivy_resource_find
@@ -2071,13 +2175,6 @@ class SubstationAndroidApp(App):
             resource_find = kivy_resource_find
         except Exception as e:
             Logger.warning(f"APP: Header image imports unavailable: {e}")
-
-        try:
-            from ui.shared import IconOnlyButton
-
-            icon_only_button_cls = IconOnlyButton
-        except Exception as icon_err:
-            Logger.warning(f"APP: Header icon button unavailable: {icon_err}")
 
         logo_candidates = []
         runtime_logo_paths = [
@@ -2178,33 +2275,16 @@ class SubstationAndroidApp(App):
         self.header_area.size_hint_y = 0.10
 
         if platform == "android":
-            Logger.info("APP: Using vector Android settings button")
+            Logger.info("APP: Using local settings icon button")
             settings_btn = self._build_vector_icon_button(
                 "settings",
                 lambda _x: self._show_android_app_menu(),
             )
         else:
-            # Prefer icon-only settings button on desktop as well when available
-            if icon_only_button_cls is not None:
-                try:
-                    settings_btn = icon_only_button_cls(
-                        icon_type="settings",
-                        icon_color=[0.05, 0.18, 0.36, 1],
-                        size=(34, 34),
-                        tooltip=S.get("MESSAGES", {}).get(
-                            "SETTINGS_TOOLTIP", "Ρυθμίσεις"
-                        ),
-                    )
-                except Exception:
-                    settings_btn = self._build_vector_icon_button(
-                        "settings",
-                        lambda _x: self._show_sync_settings(),
-                    )
-            else:
-                settings_btn = self._build_vector_icon_button(
-                    "settings",
-                    lambda _x: self._show_sync_settings(),
-                )
+            settings_btn = self._build_vector_icon_button(
+                "settings",
+                lambda _x: self._show_sync_settings(),
+            )
         self.settings_btn = settings_btn
         self.header_area.add_widget(settings_btn)
 
@@ -4319,58 +4399,24 @@ class SubstationAndroidApp(App):
                             manual_link = manual_pdf
 
                     if manual_link:
-                        # Prefer the desktop-style IconOnlyButton when available
-                        # (works on both platforms). Fall back to vector icon
-                        # button if IconOnlyButton isn't present.
-                        try:
-                            from ui.shared import IconOnlyButton
-
-                            manual_btn = IconOnlyButton(
-                                icon_type="book",
-                                icon_color=(0.2, 0.7, 0.95, 1),
-                                size=(50, 50),
-                                tooltip=S.get("MESSAGES", {}).get(
-                                    "TOOLTIP_MANUAL", "Manual"
-                                ),
-                            )
-                        except Exception:
-                            manual_btn = self._build_vector_icon_button(
-                                "book",
-                                lambda x, link=manual_link: self._open_url(link),
-                                icon_color=(0.2, 0.7, 0.95, 1),
-                                size=(50, 50),
-                            )
-                        manual_btn.bind(
-                            on_press=lambda x, link=manual_link: self._open_url(link)
+                        manual_btn = self._build_vector_icon_button(
+                            "book",
+                            lambda x, link=manual_link: self._open_url(link),
+                            icon_color=(0.2, 0.7, 0.95, 1),
+                            size=(50, 50),
                         )
                         elem_card.add_widget(manual_btn)
 
                     # Add maintenance history button only if element has maintenance records
                     element_id = elem.get("id")
                     if self._has_element_maintenance_history(element_id):
-                        # Prefer IconOnlyButton when available so mobile matches
-                        # the desktop appearance; fall back to vector icon.
-                        try:
-                            from ui.shared import IconOnlyButton
-
-                            history_btn = IconOnlyButton(
-                                icon_type="maintenance",
-                                icon_color=(0.4, 0.6, 0.8, 1),
-                                size=(50, 50),
-                            )
-                        except Exception:
-                            history_btn = self._build_vector_icon_button(
-                                "maintenance",
-                                lambda x, eid=element_id, ename=elem.get("name"): (
-                                    self.show_element_maintenance_history(eid, ename)
-                                ),
-                                icon_color=(0.4, 0.6, 0.8, 1),
-                                size=(50, 50),
-                            )
-                        history_btn.bind(
-                            on_press=lambda x, eid=element_id, ename=elem.get("name"): (
+                        history_btn = self._build_vector_icon_button(
+                            "maintenance",
+                            lambda x, eid=element_id, ename=elem.get("name"): (
                                 self.show_element_maintenance_history(eid, ename)
-                            )
+                            ),
+                            icon_color=(0.4, 0.6, 0.8, 1),
+                            size=(50, 50),
                         )
                         elem_card.add_widget(history_btn)
 
@@ -4486,7 +4532,7 @@ class SubstationAndroidApp(App):
         add_btn.bind(on_press=lambda x: add_substation())
         button_layout.add_widget(add_btn)
 
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+        cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
@@ -4614,7 +4660,7 @@ class SubstationAndroidApp(App):
         add_btn.bind(on_press=lambda x: add_element())
         button_layout.add_widget(add_btn)
 
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+        cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
@@ -6281,7 +6327,7 @@ class SubstationAndroidApp(App):
         save_btn.bind(on_press=lambda x: save_maintenance())
         button_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+        cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
@@ -6424,7 +6470,7 @@ class SubstationAndroidApp(App):
         save_btn.bind(on_press=lambda x: save_inspection())
         button_layout.add_widget(save_btn)
 
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+        cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
         cancel_btn.bind(on_press=popup.dismiss)
         button_layout.add_widget(cancel_btn)
 
