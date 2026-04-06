@@ -187,7 +187,7 @@ def test_build_uses_icon_only_settings_button_when_window_bind_fails(monkeypatch
     assert isinstance(app.settings_btn, IconOnlyButton)
 
 
-def test_build_falls_back_to_text_settings_button_when_icon_widget_fails(monkeypatch):
+def test_build_falls_back_to_vector_settings_button_when_icon_widget_fails(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
@@ -209,7 +209,8 @@ def test_build_falls_back_to_text_settings_button_when_icon_widget_fails(monkeyp
 
     app.build()
 
-    assert app.settings_btn.text == "SET"
+    assert getattr(app.settings_btn, "text", None) != "SET"
+    assert len(getattr(app.settings_btn, "children", [])) == 1
 
     if original_icon_button is not None:
         monkeypatch.setattr(shared_module, "IconOnlyButton", original_icon_button)
@@ -525,14 +526,13 @@ def test_use_local_mode_allows_android_storage_path_with_permissions(monkeypatch
     assert loaded == [True]
 
 
-def test_use_local_mode_prefers_raw_path_for_content_uri_when_permissions_exist(
+def test_use_local_mode_copies_raw_path_for_content_uri_when_permissions_exist(
     monkeypatch,
 ):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
 
-    prepared = []
     loaded = []
     copied = []
 
@@ -542,35 +542,35 @@ def test_use_local_mode_prefers_raw_path_for_content_uri_when_permissions_exist(
         "_resolve_android_content_uri_to_raw_path",
         lambda _uri: "/storage/emulated/0/Download/substations.db",
     )
-    monkeypatch.setattr(app, "_can_open_local_db_in_place", lambda _path: True)
     monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
-    monkeypatch.setattr(
-        app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
-    )
     monkeypatch.setattr(app, "_set_saved_db_path", lambda path: None)
     monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
     monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
     monkeypatch.setattr(
         app,
-        "_copy_content_uri_to_file_async",
-        lambda *_args, **_kwargs: copied.append(True),
+        "_copy_local_db_file_to_private_storage_async",
+        lambda path, callback: (
+            copied.append(path)
+            or callback(True, ("C:/temp/copied_substations.db", ["-wal", "-shm"]))
+        ),
+    )
+    monkeypatch.setattr(
+        app, "_copy_content_uri_to_file_async", lambda *_args, **_kwargs: None
     )
 
     app.use_local_mode("content://picked/substations.db")
 
-    assert prepared == ["/storage/emulated/0/Download/substations.db"]
-    assert copied == []
+    assert copied == ["/storage/emulated/0/Download/substations.db"]
     assert loaded == [True]
 
 
-def test_use_local_mode_falls_back_to_async_copy_when_raw_path_not_openable(
+def test_use_local_mode_copies_resolved_raw_path_when_available(
     monkeypatch,
 ):
     app = android_app.SubstationAndroidApp()
 
     monkeypatch.setattr(android_app, "platform", "android")
 
-    prepared = []
     loaded = []
     copied = []
 
@@ -580,26 +580,25 @@ def test_use_local_mode_falls_back_to_async_copy_when_raw_path_not_openable(
         "_resolve_android_content_uri_to_raw_path",
         lambda _uri: "/storage/emulated/0/Download/substations.db",
     )
-    monkeypatch.setattr(app, "_can_open_local_db_in_place", lambda _path: False)
     monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
-    monkeypatch.setattr(
-        app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
-    )
     monkeypatch.setattr(app, "_set_saved_db_path", lambda path: None)
     monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
     monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
 
-    def _fake_async_copy(uri, on_result):
-        copied.append(uri)
-        on_result(True, "C:/temp/copied_substations.db")
+    def _fake_async_copy(path, on_result):
+        copied.append(path)
+        on_result(True, ("C:/temp/copied_substations.db", ["-wal"]))
 
-    monkeypatch.setattr(app, "_copy_content_uri_to_file_async", _fake_async_copy)
-    monkeypatch.setattr(app, "_maybe_copy_android_sqlite_sidecars", lambda *_args: [])
+    monkeypatch.setattr(
+        app,
+        "_copy_local_db_file_to_private_storage_async",
+        _fake_async_copy,
+    )
+    monkeypatch.setattr(app, "_copy_content_uri_to_file_async", lambda *_args: None)
 
     app.use_local_mode("content://picked/substations.db")
 
-    assert copied == ["content://picked/substations.db"]
-    assert prepared == []
+    assert copied == ["/storage/emulated/0/Download/substations.db"]
     assert loaded == [True]
 
 

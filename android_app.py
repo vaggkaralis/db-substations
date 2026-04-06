@@ -1024,12 +1024,27 @@ class SubstationAndroidApp(App):
                         raw_candidate
                         and self._android_storage_permissions_granted()
                         and os.path.exists(raw_candidate)
-                        and self._can_open_local_db_in_place(raw_candidate)
                     ):
-                        resolved = self._prepare_local_db_path(raw_candidate)
-                        _continue_with_path(
-                            resolved,
-                            source_reference=raw_candidate,
+
+                        def _on_raw_copy_done(success, payload):
+                            if not success:
+                                self.show_error(
+                                    S["MESSAGES"].get(
+                                        "IMPORT_FAILED", "Αποτυχία ανοίγματος βάσης:"
+                                    )
+                                    + f" {payload}"
+                                )
+                                return
+                            copied_path, copied_sidecars = payload
+                            _continue_with_path(
+                                copied_path,
+                                source_reference=raw_candidate,
+                                copied_sidecars=copied_sidecars,
+                            )
+
+                        self._copy_local_db_file_to_private_storage_async(
+                            raw_candidate,
+                            _on_raw_copy_done,
                         )
                         return
 
@@ -1776,6 +1791,206 @@ class SubstationAndroidApp(App):
 
         Clock.schedule_once(_show, 0)
 
+    def _build_vector_icon_button(
+        self, icon_type, on_press, icon_color=None, size=(34, 34)
+    ):
+        icon_color = icon_color or [0.05, 0.18, 0.36, 1]
+        try:
+            from kivy.uix.behaviors import ButtonBehavior
+            from ui.shared import IconWidget
+
+            class _VectorIconButton(ButtonBehavior, BoxLayout):
+                def __init__(self, **kwargs):
+                    button_size = kwargs.pop("size", (34, 34))
+                    super().__init__(**kwargs)
+                    self.size_hint = (None, None)
+                    self.size = button_size
+                    self.padding = (2, 2)
+                    self.orientation = "horizontal"
+                    self.icon = IconWidget(
+                        icon_type=icon_type,
+                        icon_color=icon_color,
+                        size_hint=(None, None),
+                    )
+                    dim = max(24, int(button_size[1] * 0.85))
+                    self.icon.size = (dim, dim)
+                    self.add_widget(self.icon)
+
+            button = _VectorIconButton(size=size)
+            button.bind(on_press=on_press)
+            return button
+        except Exception as icon_err:
+            Logger.warning(
+                f"APP: Vector icon button fallback failed for {icon_type}: {icon_err}"
+            )
+            fallback_btn = Button(
+                text="⚙" if icon_type == "settings" else "",
+                size_hint_x=None,
+                width=size[0] + 12,
+                font_size="20sp",
+                background_normal="",
+                background_color=(0, 0, 0, 0),
+            )
+            fallback_btn.bind(on_press=on_press)
+            return fallback_btn
+
+    def _get_private_db_copy_target(self, source_path):
+        target_dir = getattr(self, "user_data_dir", None)
+        if not target_dir:
+            try:
+                from kivy.utils import platform as kivy_platform
+
+                if kivy_platform == "android":
+                    from android.storage import app_storage_path
+
+                    target_dir = app_storage_path()
+                else:
+                    target_dir = os.path.join(os.getcwd(), "user_data")
+            except Exception:
+                target_dir = os.path.join(os.getcwd(), "user_data")
+            self.user_data_dir = target_dir
+        os.makedirs(target_dir, exist_ok=True)
+        return os.path.join(target_dir, os.path.basename(source_path))
+
+    def _copy_local_db_file_to_private_storage(self, source_path, on_progress=None):
+        normalized = self._normalize_android_storage_path(source_path)
+        if not normalized or not os.path.exists(normalized):
+            raise FileNotFoundError(normalized)
+
+        target_path = self._get_private_db_copy_target(normalized)
+        self._clear_local_db_copy_targets(target_path)
+
+        sidecar_suffixes = [
+            suffix
+            for suffix in ("-wal", "-shm", "-journal")
+            if os.path.exists(f"{normalized}{suffix}")
+        ]
+        total_bytes = 0
+        try:
+            total_bytes += os.path.getsize(normalized)
+        except Exception:
+            total_bytes = 0
+        for suffix in sidecar_suffixes:
+            try:
+                total_bytes += os.path.getsize(f"{normalized}{suffix}")
+            except Exception:
+                pass
+
+        copied_bytes = 0
+
+        def _copy_one_file(src_path, dst_path):
+            nonlocal copied_bytes
+            with open(src_path, "rb") as src_handle, open(dst_path, "wb") as dst_handle:
+                while True:
+                    chunk = src_handle.read(64 * 1024)
+                    if not chunk:
+                        break
+                    dst_handle.write(chunk)
+                    copied_bytes += len(chunk)
+                    if on_progress is not None:
+                        try:
+                            on_progress(copied_bytes, total_bytes)
+                        except Exception:
+                            pass
+
+        _copy_one_file(normalized, target_path)
+
+        copied_sidecars = []
+        for suffix in sidecar_suffixes:
+            sidecar_source = f"{normalized}{suffix}"
+            sidecar_target = f"{target_path}{suffix}"
+            _copy_one_file(sidecar_source, sidecar_target)
+            copied_sidecars.append(suffix)
+
+        return target_path, copied_sidecars
+
+    def _copy_local_db_file_to_private_storage_async(self, source_path, on_result):
+        popup = Popup(title="Αντιγραφή βάσης...", size_hint=(0.9, 0.25))
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        msg = Label(
+            text="Αντιγραφή βάσης δεδομένων. Παρακαλώ περιμένετε...",
+            halign="left",
+            valign="middle",
+        )
+        msg.size_hint_y = None
+
+        def _bind_msg_width(instance, value):
+            instance.text_size = (value, None)
+
+        msg.bind(width=_bind_msg_width)
+        msg.bind(texture_size=lambda inst, val: setattr(inst, "height", val[1]))
+
+        progress = None
+        try:
+            from kivy.uix.progressbar import ProgressBar
+
+            progress = ProgressBar(max=100, value=0)
+            layout.add_widget(msg)
+            layout.add_widget(progress)
+        except Exception:
+            layout.add_widget(msg)
+
+        popup.content = layout
+        popup.open()
+
+        def finish(success, value):
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+            try:
+                on_result(success, value)
+            except Exception as callback_err:
+                Logger.error(f"APP: Error in local DB copy callback: {callback_err}")
+
+        def _update_progress(copied, total):
+            def _ui(_dt):
+                try:
+                    copied_mb = copied / (1024 * 1024)
+                    if total and total > 0:
+                        total_mb = total / (1024 * 1024)
+                        pct = int((copied * 100) / total)
+                        msg.text = f"Αντιγραφή βάσης... {copied_mb:.1f}/{total_mb:.1f} MB ({pct}%)"
+                        if progress is not None:
+                            progress.value = max(0, min(100, pct))
+                    else:
+                        msg.text = f"Αντιγραφή βάσης... {copied_mb:.1f} MB"
+                        if progress is not None:
+                            progress.value = min(100, progress.value + 3)
+                except Exception:
+                    pass
+
+            Clock.schedule_once(_ui, 0)
+
+        def _worker():
+            try:
+                copied_path, copied_sidecars = (
+                    self._copy_local_db_file_to_private_storage(
+                        source_path,
+                        on_progress=_update_progress,
+                    )
+                )
+                try:
+                    if progress is not None:
+                        Clock.schedule_once(
+                            lambda _dt: setattr(
+                                progress, "value", getattr(progress, "max", 100)
+                            ),
+                            0,
+                        )
+                except Exception:
+                    pass
+                Clock.schedule_once(
+                    lambda _dt: finish(True, (copied_path, copied_sidecars)),
+                    0,
+                )
+            except Exception as copy_err:
+                err = str(copy_err)
+                Clock.schedule_once(lambda _dt, _err=err: finish(False, _err), 0)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _build_android_header(self, main_layout):
         Logger.info("APP: Creating Android header")
         image_cls = None
@@ -1911,48 +2126,18 @@ class SubstationAndroidApp(App):
                     Logger.warning(
                         f"APP: Failed to build Android icon settings button: {icon_btn_err}"
                     )
-                    # Preserve legacy behavior: if IconOnlyButton exists but
-                    # construction fails, fall back to plain text button so
-                    # tests and older runtime paths remain predictable.
-                    settings_btn = Button(
-                        text="SET",
-                        size_hint_x=None,
-                        width=52,
-                        font_size="12sp",
+                    settings_btn = self._build_vector_icon_button(
+                        "settings",
+                        lambda _x: self._show_android_app_menu(),
                     )
             else:
                 Logger.warning(
                     "APP: Android icon-only settings button unavailable; falling back to vector icon"
                 )
-                try:
-                    from ui.shared import IconWidget
-                    from kivy.uix.behaviors import ButtonBehavior
-
-                    class _IconFallback2(ButtonBehavior, BoxLayout):
-                        def __init__(self, **kw):
-                            size = kw.pop("size", (34, 34))
-                            super().__init__(**kw)
-                            self.size_hint = (None, None)
-                            self.size = size
-                            self.padding = (2, 2)
-                            self.icon = IconWidget(
-                                icon_type="settings",
-                                icon_color=[0.05, 0.18, 0.36, 1],
-                                size_hint=(None, None),
-                            )
-                            dim = max(24, int(self.height * 0.85))
-                            self.icon.size = (dim, dim)
-                            self.add_widget(self.icon)
-
-                    settings_btn = _IconFallback2(size=(34, 34))
-                except Exception:
-                    settings_btn = Button(
-                        text="SET",
-                        size_hint_x=None,
-                        width=52,
-                        font_size="12sp",
-                    )
-            settings_btn.bind(on_press=lambda _x: self._show_android_app_menu())
+                settings_btn = self._build_vector_icon_button(
+                    "settings",
+                    lambda _x: self._show_android_app_menu(),
+                )
         else:
             # Prefer icon-only settings button on desktop as well when available
             if icon_only_button_cls is not None:
@@ -1966,69 +2151,15 @@ class SubstationAndroidApp(App):
                         ),
                     )
                 except Exception:
-                    try:
-                        from ui.shared import IconWidget
-                        from kivy.uix.behaviors import ButtonBehavior
-
-                        class _IconFallback3(ButtonBehavior, BoxLayout):
-                            def __init__(self, **kw):
-                                size = kw.pop("size", (34, 34))
-                                super().__init__(**kw)
-                                self.size_hint = (None, None)
-                                self.size = size
-                                self.padding = (2, 2)
-                                self.icon = IconWidget(
-                                    icon_type="settings",
-                                    icon_color=[0.05, 0.18, 0.36, 1],
-                                    size_hint=(None, None),
-                                )
-                                dim = max(24, int(self.height * 0.85))
-                                self.icon.size = (dim, dim)
-                                self.add_widget(self.icon)
-
-                        settings_btn = _IconFallback3(size=(34, 34))
-                    except Exception:
-                        settings_btn = Button(
-                            text="⚙",
-                            size_hint_x=None,
-                            width=48,
-                            font_size="20sp",
-                            background_normal="",
-                            background_color=(0, 0, 0, 0),
-                        )
-            else:
-                try:
-                    from ui.shared import IconWidget
-                    from kivy.uix.behaviors import ButtonBehavior
-
-                    class _IconFallback4(ButtonBehavior, BoxLayout):
-                        def __init__(self, **kw):
-                            size = kw.pop("size", (34, 34))
-                            super().__init__(**kw)
-                            self.size_hint = (None, None)
-                            self.size = size
-                            self.padding = (2, 2)
-                            self.icon = IconWidget(
-                                icon_type="settings",
-                                icon_color=[0.05, 0.18, 0.36, 1],
-                                size_hint=(None, None),
-                            )
-                            dim = max(24, int(self.height * 0.85))
-                            self.icon.size = (dim, dim)
-                            self.add_widget(self.icon)
-
-                    settings_btn = _IconFallback4(size=(34, 34))
-                except Exception:
-                    # If building IconOnlyButton fails, keep the legacy glyph
-                    settings_btn = Button(
-                        text="⚙",
-                        size_hint_x=None,
-                        width=48,
-                        font_size="20sp",
-                        background_normal="",
-                        background_color=(0, 0, 0, 0),
+                    settings_btn = self._build_vector_icon_button(
+                        "settings",
+                        lambda _x: self._show_sync_settings(),
                     )
-            settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
+            else:
+                settings_btn = self._build_vector_icon_button(
+                    "settings",
+                    lambda _x: self._show_sync_settings(),
+                )
         self.settings_btn = settings_btn
         self.header_area.add_widget(settings_btn)
 
