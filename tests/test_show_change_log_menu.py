@@ -34,8 +34,9 @@ def test_show_change_log_menu_popup(monkeypatch, tmp_path):
             if hasattr(g, "text"):
                 btns.append(g.text)
     assert any("Κοινοποίηση" in t for t in btns)
-    assert any("Άνοιγμα" in t for t in btns)
+    assert any("Αντιγραφή" in t for t in btns)
     assert any("Καθαρισμός" in t for t in btns)
+    assert not any("Άνοιγμα" in t for t in btns)
 
 
 def test_clear_change_log_empties_file(tmp_path):

@@ -3106,49 +3106,6 @@ class SubstationAndroidApp(App):
                             pass
 
                     copy_btn.bind(on_press=_copy_path)
-                    # Open folder button (Android intent when available)
-                    open_btn = Button(
-                        text=S["MESSAGES"].get("OPEN_FOLDER", "Άνοιγμα φακέλου"),
-                        size_hint_x=None,
-                        width=140,
-                    )
-
-                    def _open_folder(_):
-                        try:
-                            from jnius import autoclass
-
-                            Intent = autoclass("android.content.Intent")
-                            Uri = autoclass("android.net.Uri")
-                            File = autoclass("java.io.File")
-                            PythonActivity = autoclass(
-                                "org.kivy.android.PythonActivity"
-                            )
-                            f = File(change_log_path)
-                            uri = Uri.fromFile(f)
-                            intent = Intent(Intent.ACTION_VIEW)
-                            intent.setDataAndType(uri, "*/*")
-                            current = PythonActivity.mActivity
-                            current.startActivity(intent)
-                        except Exception:
-                            # Surface the error to the user so they know why opening failed
-                            try:
-                                import traceback as _tb
-
-                                self.show_error(
-                                    f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {_tb.format_exc()}"
-                                )
-                            except Exception:
-                                pass
-                            try:
-                                from kivy.core.clipboard import Clipboard
-
-                                Clipboard.copy(change_log_path)
-                            except Exception:
-                                pass
-
-                    open_btn.bind(on_press=_open_folder)
-                    notice.add_widget(open_btn)
-
                     # Share button (attempt Android share intent, fallback to copy path)
                     share_btn = Button(
                         text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση"),
@@ -3525,7 +3482,7 @@ class SubstationAndroidApp(App):
             self.show_error(f"Αποτυχία ανοίγματος επιβεβαίωσης: {e}")
 
     def show_change_log_menu(self):
-        """Show a popup that allows opening or sharing the change-log file."""
+        """Show robust actions for the change-log file on Android."""
         self._ensure_change_log_path()
         change_log_path = getattr(self, "change_log_path", "change_log.txt")
         try:
@@ -3542,33 +3499,9 @@ class SubstationAndroidApp(App):
                 text=f"File: {change_log_path}\nExists: {exists}  Size: {size} bytes",
             )
             btns = BoxLayout(size_hint_y=None, height=48, spacing=8)
-            open_btn = Button(text=S["MESSAGES"].get("OPEN_FOLDER", "Άνοιγμα φακέλου"))
-
-            def _on_open(_):
-                try:
-                    self._open_change_log_folder()
-                except Exception as e:
-                    # Surface error to the user and then fallback to clipboard
-                    try:
-                        self.show_error(
-                            f"{S['MESSAGES'].get('OPEN_FOLDER', 'Άνοιγμα φακέλου')} απέτυχε: {e}"
-                        )
-                    except Exception:
-                        pass
-                    try:
-                        import importlib
-
-                        clip = importlib.import_module("kivy.core.clipboard")
-                        if hasattr(clip, "copy"):
-                            clip.copy(change_log_path)
-                        elif hasattr(clip, "Clipboard") and hasattr(
-                            clip.Clipboard, "copy"
-                        ):
-                            clip.Clipboard.copy(change_log_path)
-                    except Exception:
-                        pass
-
-            open_btn.bind(on_press=_on_open)
+            copy_btn = Button(
+                text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής")
+            )
             share_btn = Button(
                 text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση")
             )
@@ -3600,9 +3533,28 @@ class SubstationAndroidApp(App):
                     except Exception:
                         pass
 
+            def _on_copy(_):
+                try:
+                    import importlib
+
+                    clip = importlib.import_module("kivy.core.clipboard")
+                    if hasattr(clip, "copy"):
+                        clip.copy(change_log_path)
+                    elif hasattr(clip, "Clipboard") and hasattr(clip.Clipboard, "copy"):
+                        clip.Clipboard.copy(change_log_path)
+                    self.show_error(
+                        S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής")
+                        + ": "
+                        + change_log_path,
+                        is_info=True,
+                    )
+                except Exception:
+                    pass
+
+            copy_btn.bind(on_press=_on_copy)
             share_btn.bind(on_press=_on_share)
             clear_btn.bind(on_press=lambda _x: self._confirm_clear_change_log(p))
-            btns.add_widget(open_btn)
+            btns.add_widget(copy_btn)
             btns.add_widget(share_btn)
             btns.add_widget(clear_btn)
             layout.add_widget(label)
