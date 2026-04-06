@@ -1879,8 +1879,19 @@ class SubstationAndroidApp(App):
             Logger.warning(
                 f"APP: Vector icon button fallback failed for {icon_type}: {icon_err}"
             )
+            # Provide visible fallback glyphs for common icon types so the
+            # button is not rendered as an empty/black area on platforms
+            # where Icon drawing is unavailable.
+            glyph_map = {
+                "settings": "⚙",
+                "book": "📘",
+                "maintenance": "🛠",
+                "history": "🕘",
+                "manual": "📘",
+            }
+            fallback_text = glyph_map.get(icon_type, "?")
             fallback_btn = Button(
-                text="⚙" if icon_type == "settings" else "",
+                text=fallback_text,
                 size_hint_x=None,
                 width=size[0] + 12,
                 font_size="20sp",
@@ -4308,32 +4319,27 @@ class SubstationAndroidApp(App):
                             manual_link = manual_pdf
 
                     if manual_link:
-                        if platform == "android":
+                        # Prefer the desktop-style IconOnlyButton when available
+                        # (works on both platforms). Fall back to vector icon
+                        # button if IconOnlyButton isn't present.
+                        try:
+                            from ui.shared import IconOnlyButton
+
+                            manual_btn = IconOnlyButton(
+                                icon_type="book",
+                                icon_color=(0.2, 0.7, 0.95, 1),
+                                size=(50, 50),
+                                tooltip=S.get("MESSAGES", {}).get(
+                                    "TOOLTIP_MANUAL", "Manual"
+                                ),
+                            )
+                        except Exception:
                             manual_btn = self._build_vector_icon_button(
                                 "book",
                                 lambda x, link=manual_link: self._open_url(link),
                                 icon_color=(0.2, 0.7, 0.95, 1),
                                 size=(50, 50),
                             )
-                        else:
-                            try:
-                                from ui.shared import IconOnlyButton
-
-                                manual_btn = IconOnlyButton(
-                                    icon_type="book",
-                                    icon_color=(0.2, 0.7, 0.95, 1),
-                                    size=(50, 50),
-                                    tooltip=S.get("MESSAGES", {}).get(
-                                        "TOOLTIP_MANUAL", "Manual"
-                                    ),
-                                )
-                            except Exception:
-                                manual_btn = self._build_vector_icon_button(
-                                    "book",
-                                    lambda x, link=manual_link: self._open_url(link),
-                                    icon_color=(0.2, 0.7, 0.95, 1),
-                                    size=(50, 50),
-                                )
                         manual_btn.bind(
                             on_press=lambda x, link=manual_link: self._open_url(link)
                         )
@@ -4342,7 +4348,17 @@ class SubstationAndroidApp(App):
                     # Add maintenance history button only if element has maintenance records
                     element_id = elem.get("id")
                     if self._has_element_maintenance_history(element_id):
-                        if platform == "android":
+                        # Prefer IconOnlyButton when available so mobile matches
+                        # the desktop appearance; fall back to vector icon.
+                        try:
+                            from ui.shared import IconOnlyButton
+
+                            history_btn = IconOnlyButton(
+                                icon_type="maintenance",
+                                icon_color=(0.4, 0.6, 0.8, 1),
+                                size=(50, 50),
+                            )
+                        except Exception:
                             history_btn = self._build_vector_icon_button(
                                 "maintenance",
                                 lambda x, eid=element_id, ename=elem.get("name"): (
@@ -4351,26 +4367,6 @@ class SubstationAndroidApp(App):
                                 icon_color=(0.4, 0.6, 0.8, 1),
                                 size=(50, 50),
                             )
-                        else:
-                            try:
-                                from ui.shared import IconOnlyButton
-
-                                history_btn = IconOnlyButton(
-                                    icon_type="maintenance",
-                                    icon_color=(0.4, 0.6, 0.8, 1),
-                                    size=(50, 50),
-                                )
-                            except Exception:
-                                history_btn = self._build_vector_icon_button(
-                                    "maintenance",
-                                    lambda x, eid=element_id, ename=elem.get("name"): (
-                                        self.show_element_maintenance_history(
-                                            eid, ename
-                                        )
-                                    ),
-                                    icon_color=(0.4, 0.6, 0.8, 1),
-                                    size=(50, 50),
-                                )
                         history_btn.bind(
                             on_press=lambda x, eid=element_id, ename=elem.get("name"): (
                                 self.show_element_maintenance_history(eid, ename)
@@ -6281,7 +6277,7 @@ class SubstationAndroidApp(App):
                 Logger.error(f"APP: Failed to append maintenance to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
 
-        save_btn = Button(text=S["BUTTONS"]["SAVE"])
+        save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
         save_btn.bind(on_press=lambda x: save_maintenance())
         button_layout.add_widget(save_btn)
 
@@ -6424,7 +6420,7 @@ class SubstationAndroidApp(App):
                 Logger.error(f"APP: Failed to append inspection to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
 
-        save_btn = Button(text=S["BUTTONS"]["SAVE"])
+        save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
         save_btn.bind(on_press=lambda x: save_inspection())
         button_layout.add_widget(save_btn)
 

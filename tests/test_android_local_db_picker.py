@@ -25,6 +25,15 @@ def _find_widget_by_text(widget, target_text):
     return None
 
 
+def _collect_widgets_by_class_name(widget, class_name):
+    matches = []
+    if widget.__class__.__name__ == class_name:
+        matches.append(widget)
+    for child in getattr(widget, "children", []):
+        matches.extend(_collect_widgets_by_class_name(child, class_name))
+    return matches
+
+
 def test_open_local_db_picker_uses_android_document_picker(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
@@ -251,13 +260,115 @@ def test_load_substation_elements_uses_icon_only_android_action_buttons(monkeypa
     ]
     app._has_element_maintenance_history = lambda _element_id: True
 
+    created_icon_types = []
+
+    class DummyIconOnlyButton(android_app.BoxLayout):
+        def __init__(self, **kwargs):
+            super().__init__()
+            self.icon_type = kwargs.get("icon_type")
+            created_icon_types.append(self.icon_type)
+
+        def bind(self, **_kwargs):
+            return None
+
+    monkeypatch.setattr(shared_ui, "IconOnlyButton", DummyIconOnlyButton)
+
     grid = android_app.GridLayout(cols=1)
 
     app._load_substation_elements(1, grid)
 
-    texts = _collect_widget_texts(grid)
-    assert "Manual" not in texts
-    assert "History" not in texts
+    assert created_icon_types == ["book", "maintenance"]
+    assert len(_collect_widgets_by_class_name(grid, "DummyIconOnlyButton")) == 2
+
+
+def test_show_maintenance_menu_uses_save_text_fallback(monkeypatch):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+    monkeypatch.setattr(
+        android_app,
+        "S",
+        {
+            "BUTTONS": {"CANCEL": "Άκυρο"},
+            "MESSAGES": {},
+            "TITLES": {},
+        },
+    )
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+
+    app = android_app.SubstationAndroidApp()
+    app.data_mode = "local"
+    app._local_fetch_elements = lambda _substation_id: [
+        {
+            "id": 1,
+            "name": "Breaker A",
+            "element_type": "Διακόπτης ΜΤ",
+            "breaker_category": "Vacuum",
+            "serial_number": "SN-1",
+            "model_manufacturer": "ABB",
+            "model_name": "Model X",
+            "voltage_level": "20kV",
+            "manufacture_year": "2020",
+            "operating_status": "Ενεργή",
+        }
+    ]
+
+    app.show_maintenance_menu(1, {"name": "S1"})
+
+    texts = _collect_widget_texts(captured["instance"].content)
+    assert "Αποθήκευση" in texts
+
+
+def test_show_inspection_entry_popup_uses_save_text_fallback(monkeypatch):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+    monkeypatch.setattr(
+        android_app,
+        "S",
+        {
+            "BUTTONS": {"CANCEL": "Άκυρο"},
+            "MESSAGES": {},
+            "TITLES": {},
+        },
+    )
+
+    app = android_app.SubstationAndroidApp()
+
+    app.show_inspection_entry_popup(1, {"name": "S1"})
+
+    texts = _collect_widget_texts(captured["instance"].content)
+    assert "Αποθήκευση" in texts
 
 
 def test_show_substation_details_guards_maintenance_action_errors(monkeypatch):
