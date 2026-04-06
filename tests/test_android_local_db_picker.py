@@ -542,6 +542,7 @@ def test_use_local_mode_prefers_raw_path_for_content_uri_when_permissions_exist(
         "_resolve_android_content_uri_to_raw_path",
         lambda _uri: "/storage/emulated/0/Download/substations.db",
     )
+    monkeypatch.setattr(app, "_can_open_local_db_in_place", lambda _path: True)
     monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
     monkeypatch.setattr(
         app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
@@ -560,6 +561,91 @@ def test_use_local_mode_prefers_raw_path_for_content_uri_when_permissions_exist(
     assert prepared == ["/storage/emulated/0/Download/substations.db"]
     assert copied == []
     assert loaded == [True]
+
+
+def test_use_local_mode_falls_back_to_async_copy_when_raw_path_not_openable(
+    monkeypatch,
+):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+
+    prepared = []
+    loaded = []
+    copied = []
+
+    monkeypatch.setattr(app, "_android_storage_permissions_granted", lambda: True)
+    monkeypatch.setattr(
+        app,
+        "_resolve_android_content_uri_to_raw_path",
+        lambda _uri: "/storage/emulated/0/Download/substations.db",
+    )
+    monkeypatch.setattr(app, "_can_open_local_db_in_place", lambda _path: False)
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
+    monkeypatch.setattr(
+        app, "_prepare_local_db_path", lambda path: prepared.append(path) or path
+    )
+    monkeypatch.setattr(app, "_set_saved_db_path", lambda path: None)
+    monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
+    monkeypatch.setattr(app, "load_substations", lambda *_args: loaded.append(True))
+
+    def _fake_async_copy(uri, on_result):
+        copied.append(uri)
+        on_result(True, "C:/temp/copied_substations.db")
+
+    monkeypatch.setattr(app, "_copy_content_uri_to_file_async", _fake_async_copy)
+    monkeypatch.setattr(app, "_maybe_copy_android_sqlite_sidecars", lambda *_args: [])
+
+    app.use_local_mode("content://picked/substations.db")
+
+    assert copied == ["content://picked/substations.db"]
+    assert prepared == []
+    assert loaded == [True]
+
+
+def test_prepare_local_db_path_copies_sidecars_when_raw_open_falls_back(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    source_path = "/storage/emulated/0/Download/substations.db"
+    copied_sidecars = []
+    copied_main = []
+
+    monkeypatch.setattr(android_app.os.path, "exists", lambda _p: True)
+    monkeypatch.setattr(
+        app, "_clear_local_db_copy_targets", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        android_app.shutil,
+        "copy2",
+        lambda src, dst: copied_main.append((src, dst)),
+    )
+    monkeypatch.setattr(
+        app,
+        "_maybe_copy_android_sqlite_sidecars",
+        lambda src, dst: copied_sidecars.append((src, dst)) or ["-wal", "-shm"],
+    )
+
+    connect_calls = []
+
+    class FakeConn:
+        def close(self):
+            return None
+
+    def fake_connect(path, uri=False):
+        connect_calls.append((path, uri))
+        if len(connect_calls) == 1:
+            raise android_app.sqlite3.OperationalError("unable to open database file")
+        return FakeConn()
+
+    monkeypatch.setattr(android_app.sqlite3, "connect", fake_connect)
+    app.user_data_dir = "C:/temp/user_data"
+    monkeypatch.setattr(android_app.os, "makedirs", lambda *_args, **_kwargs: None)
+
+    result = app._prepare_local_db_path(source_path)
+
+    assert result.endswith("substations.db")
+    assert copied_main == [(source_path, result)]
+    assert copied_sidecars == [(source_path, result)]
 
 
 def test_on_resume_continues_pending_android_permission_action(monkeypatch):

@@ -1024,6 +1024,7 @@ class SubstationAndroidApp(App):
                         raw_candidate
                         and self._android_storage_permissions_granted()
                         and os.path.exists(raw_candidate)
+                        and self._can_open_local_db_in_place(raw_candidate)
                     ):
                         resolved = self._prepare_local_db_path(raw_candidate)
                         _continue_with_path(
@@ -1170,6 +1171,7 @@ class SubstationAndroidApp(App):
                 target_path = os.path.join(target_dir, os.path.basename(normalized))
                 self._clear_local_db_copy_targets(target_path)
                 shutil.copy2(normalized, target_path)
+                self._maybe_copy_android_sqlite_sidecars(normalized, target_path)
                 conn = sqlite3.connect(f"file:{target_path}?mode=ro", uri=True)
                 conn.close()
                 return target_path
@@ -1177,6 +1179,23 @@ class SubstationAndroidApp(App):
                 raise RuntimeError(
                     f"Unable to open database file: {normalized}"
                 ) from copy_err
+
+    def _can_open_local_db_in_place(self, path_value: str) -> bool:
+        normalized = self._normalize_android_storage_path(path_value)
+        if not normalized or normalized.startswith("content://"):
+            return False
+        if not os.path.exists(normalized):
+            return False
+        try:
+            conn = sqlite3.connect(f"file:{normalized}?mode=ro", uri=True)
+            conn.close()
+            return True
+        except Exception as open_err:
+            Logger.info(
+                "APP: Raw-path SQLite open check failed; falling back to SAF copy: "
+                f"{normalized} ({open_err})"
+            )
+            return False
 
     def _resolve_android_content_uri_to_raw_path(self, uri_value):
         if (
@@ -1759,7 +1778,6 @@ class SubstationAndroidApp(App):
 
     def _build_android_header(self, main_layout):
         Logger.info("APP: Creating Android header")
-
         image_cls = None
         icon_only_button_cls = None
         resource_find = None
@@ -1813,18 +1831,35 @@ class SubstationAndroidApp(App):
             None,
         )
 
+        # Use a fixed height for the logo area and ensure the image fits
+        # without being cropped on devices with different DPI or preview modes.
+        try:
+            from kivy.metrics import dp
+
+            logo_height = dp(72)
+        except Exception:
+            logo_height = 72
+
         self.logo_area = BoxLayout(
             orientation="vertical",
             size_hint_y=0.10,
+            height=logo_height,
             padding=[4, 4, 4, 4],
         )
-        self.logo_area.size_hint_y = 0.10
+        # Ensure size_hint_y attribute exists in test shims that may ignore
+        # constructor kwargs.
+        try:
+            self.logo_area.size_hint_y = 0.10
+        except Exception:
+            pass
+
         if logo_source and image_cls:
             try:
                 logo = image_cls(
                     source=logo_source,
-                    size_hint=(1, 1),
-                    allow_stretch=False,
+                    size_hint=(1, None),
+                    height=logo_height,
+                    allow_stretch=True,
                     keep_ratio=True,
                 )
                 if hasattr(logo, "fit_mode"):
@@ -1833,12 +1868,17 @@ class SubstationAndroidApp(App):
             except Exception as e:
                 Logger.warning(f"APP: Could not load logo: {e}")
                 logo_source = None
+
         if not logo_source:
             Logger.warning("APP: Logo asset unavailable; using text fallback")
+            try:
+                fallback_font = "28sp"
+            except Exception:
+                fallback_font = "24sp"
             fallback_logo = Label(
                 text="ΔΕΔΔΗΕ",
                 bold=True,
-                font_size="24sp",
+                font_size=fallback_font,
                 color=(0.05, 0.18, 0.36, 1),
                 halign="center",
                 valign="middle",
@@ -1871,6 +1911,9 @@ class SubstationAndroidApp(App):
                     Logger.warning(
                         f"APP: Failed to build Android icon settings button: {icon_btn_err}"
                     )
+                    # Preserve legacy behavior: if IconOnlyButton exists but
+                    # construction fails, fall back to plain text button so
+                    # tests and older runtime paths remain predictable.
                     settings_btn = Button(
                         text="SET",
                         size_hint_x=None,
@@ -1879,14 +1922,36 @@ class SubstationAndroidApp(App):
                     )
             else:
                 Logger.warning(
-                    "APP: Android icon-only settings button unavailable; falling back to text button"
+                    "APP: Android icon-only settings button unavailable; falling back to vector icon"
                 )
-                settings_btn = Button(
-                    text="SET",
-                    size_hint_x=None,
-                    width=52,
-                    font_size="12sp",
-                )
+                try:
+                    from ui.shared import IconWidget
+                    from kivy.uix.behaviors import ButtonBehavior
+
+                    class _IconFallback2(ButtonBehavior, BoxLayout):
+                        def __init__(self, **kw):
+                            size = kw.pop("size", (34, 34))
+                            super().__init__(**kw)
+                            self.size_hint = (None, None)
+                            self.size = size
+                            self.padding = (2, 2)
+                            self.icon = IconWidget(
+                                icon_type="settings",
+                                icon_color=[0.05, 0.18, 0.36, 1],
+                                size_hint=(None, None),
+                            )
+                            dim = max(24, int(self.height * 0.85))
+                            self.icon.size = (dim, dim)
+                            self.add_widget(self.icon)
+
+                    settings_btn = _IconFallback2(size=(34, 34))
+                except Exception:
+                    settings_btn = Button(
+                        text="SET",
+                        size_hint_x=None,
+                        width=52,
+                        font_size="12sp",
+                    )
             settings_btn.bind(on_press=lambda _x: self._show_android_app_menu())
         else:
             # Prefer icon-only settings button on desktop as well when available
@@ -1901,6 +1966,60 @@ class SubstationAndroidApp(App):
                         ),
                     )
                 except Exception:
+                    try:
+                        from ui.shared import IconWidget
+                        from kivy.uix.behaviors import ButtonBehavior
+
+                        class _IconFallback3(ButtonBehavior, BoxLayout):
+                            def __init__(self, **kw):
+                                size = kw.pop("size", (34, 34))
+                                super().__init__(**kw)
+                                self.size_hint = (None, None)
+                                self.size = size
+                                self.padding = (2, 2)
+                                self.icon = IconWidget(
+                                    icon_type="settings",
+                                    icon_color=[0.05, 0.18, 0.36, 1],
+                                    size_hint=(None, None),
+                                )
+                                dim = max(24, int(self.height * 0.85))
+                                self.icon.size = (dim, dim)
+                                self.add_widget(self.icon)
+
+                        settings_btn = _IconFallback3(size=(34, 34))
+                    except Exception:
+                        settings_btn = Button(
+                            text="⚙",
+                            size_hint_x=None,
+                            width=48,
+                            font_size="20sp",
+                            background_normal="",
+                            background_color=(0, 0, 0, 0),
+                        )
+            else:
+                try:
+                    from ui.shared import IconWidget
+                    from kivy.uix.behaviors import ButtonBehavior
+
+                    class _IconFallback4(ButtonBehavior, BoxLayout):
+                        def __init__(self, **kw):
+                            size = kw.pop("size", (34, 34))
+                            super().__init__(**kw)
+                            self.size_hint = (None, None)
+                            self.size = size
+                            self.padding = (2, 2)
+                            self.icon = IconWidget(
+                                icon_type="settings",
+                                icon_color=[0.05, 0.18, 0.36, 1],
+                                size_hint=(None, None),
+                            )
+                            dim = max(24, int(self.height * 0.85))
+                            self.icon.size = (dim, dim)
+                            self.add_widget(self.icon)
+
+                    settings_btn = _IconFallback4(size=(34, 34))
+                except Exception:
+                    # If building IconOnlyButton fails, keep the legacy glyph
                     settings_btn = Button(
                         text="⚙",
                         size_hint_x=None,
@@ -1909,15 +2028,6 @@ class SubstationAndroidApp(App):
                         background_normal="",
                         background_color=(0, 0, 0, 0),
                     )
-            else:
-                settings_btn = Button(
-                    text="⚙",
-                    size_hint_x=None,
-                    width=48,
-                    font_size="20sp",
-                    background_normal="",
-                    background_color=(0, 0, 0, 0),
-                )
             settings_btn.bind(on_press=lambda _x: self._show_sync_settings())
         self.settings_btn = settings_btn
         self.header_area.add_widget(settings_btn)
