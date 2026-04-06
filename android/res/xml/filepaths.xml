@@ -3,4 +3,8 @@
     <!-- Expose the app internal files directory so FileProvider can share files
          placed in the app's user_data_dir (change_log.txt). Adjust path as needed. -->
     <files-path name="internal_files" path="." />
+    <!-- Also expose cache and external locations as fallbacks for sharing -->
+    <cache-path name="cache" path="." />
+    <external-cache-path name="external_cache" path="." />
+    <external-path name="external_files" path="." />
 </paths>
