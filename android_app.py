@@ -2331,11 +2331,8 @@ class SubstationAndroidApp(App):
             # label will wrap lines automatically.
         )
         header_label.bind(size=header_label.setter("text_size"))
-        # Ensure header area is slightly taller to fit two lines when needed
-        try:
-            self.header_area.size_hint_y = 0.12
-        except Exception:
-            pass
+        # Keep header area height unchanged (tests expect 0.10). Do not
+        # modify `header_area.size_hint_y` to preserve proportional layout.
         self.header_area.add_widget(header_label)
 
         main_layout.add_widget(self.header_area)
