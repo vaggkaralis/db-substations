@@ -2276,14 +2276,17 @@ class SubstationAndroidApp(App):
 
         if platform == "android":
             Logger.info("APP: Using local settings icon button")
+            # Make gear ~50% larger than default for better touchability
             settings_btn = self._build_vector_icon_button(
                 "settings",
                 lambda _x: self._show_android_app_menu(),
+                size=(51, 51),
             )
         else:
             settings_btn = self._build_vector_icon_button(
                 "settings",
                 lambda _x: self._show_sync_settings(),
+                size=(51, 51),
             )
         # Wrap settings button in a fixed-width, center-anchored container so
         # it aligns vertically with the title and doesn't steal horizontal
@@ -2291,11 +2294,13 @@ class SubstationAndroidApp(App):
         try:
             from kivy.uix.anchorlayout import AnchorLayout
 
+            # Slightly wider container to accommodate the larger icon but
+            # keep it constrained so the title gets the remaining width.
             settings_container = AnchorLayout(
                 anchor_x="center",
                 anchor_y="center",
                 size_hint_x=None,
-                width=56,
+                width=72,
             )
             # Ensure the button uses its intrinsic size and is centered
             try:
@@ -2310,17 +2315,27 @@ class SubstationAndroidApp(App):
             self.settings_btn = settings_btn
             self.header_area.add_widget(settings_btn)
 
+        # Allow the title to wrap to multiple lines so long titles are visible
+        # on narrow devices. Keep it left-aligned and vertically centered.
         header_label = Label(
-            text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
+            text=S.get("MESSAGES", {}).get(
+                "APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ"
+            ),
             bold=True,
             size_hint_x=1,
-            font_size="16sp",
+            font_size="15sp",
             halign="left",
             valign="middle",
-            shorten=True,
-            shorten_from="right",
+            shorten=False,
+            # Allow wrapping; `text_size` is set to the widget size so the
+            # label will wrap lines automatically.
         )
         header_label.bind(size=header_label.setter("text_size"))
+        # Ensure header area is slightly taller to fit two lines when needed
+        try:
+            self.header_area.size_hint_y = 0.12
+        except Exception:
+            pass
         self.header_area.add_widget(header_label)
 
         main_layout.add_widget(self.header_area)
