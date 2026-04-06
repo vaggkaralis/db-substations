@@ -1,5 +1,6 @@
 import sys
 import types
+import builtins
 
 import android_app
 import ui.shared as shared_ui
@@ -266,6 +267,58 @@ def test_build_uses_proportional_main_menu_sections(monkeypatch):
     assert app.content_layout.size_hint_y == 0.53
     assert app.refresh_area.size_hint_y == 0.08
     assert app.actions_area.size_hint_y == 0.10
+
+
+def test_display_substations_renders_scrollview(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: None),
+    )
+
+    app.build()
+    app.substations = [{"id": 1, "name": "TEST"}]
+
+    app.display_substations()
+
+    assert len(app.content_layout.children) == 1
+    assert app.content_layout.children[0].__class__.__name__ == "ScrollView"
+
+
+def test_show_error_uses_internal_popup_when_helper_unavailable(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    popup_opened = []
+    monkeypatch.setattr(android_app, "show_message_popup", None)
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "strings_proxy":
+            raise ModuleNotFoundError("strings_proxy")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+    monkeypatch.setattr(
+        android_app.Popup,
+        "open",
+        lambda self: popup_opened.append(getattr(self, "title", None)),
+        raising=False,
+    )
+
+    app.show_error("boom")
+
+    assert popup_opened == [android_app.S["TITLES"].get("ERROR", "Σφάλμα")]
 
 
 def test_open_android_document_picker_runs_on_ui_thread(monkeypatch):

@@ -255,8 +255,6 @@ try:
     GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
     Button = importlib.import_module("kivy.uix.button").Button
     Label = importlib.import_module("kivy.uix.label").Label
-    from popups import show_message_popup
-
     TextInput = importlib.import_module("kivy.uix.textinput").TextInput
     ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
     Spinner = importlib.import_module("kivy.uix.spinner").Spinner
@@ -271,6 +269,13 @@ try:
         autosize_button_text = getattr(shared, "autosize_button_text", None)
     except Exception:
         autosize_button_text = None
+    try:
+        from popups import show_message_popup
+    except Exception as popup_helper_err:
+        Logger.warning(
+            f"APP: Popup helper import failed during bootstrap: {popup_helper_err}"
+        )
+        show_message_popup = None
     _register_kivy_exception_handler()
 except Exception as e:
     Logger.warning(f"APP: Kivy import failed: {str(e)}")
@@ -326,6 +331,21 @@ if "Clock" not in globals():
                 return None
 
         Clock = _DummyClock
+
+if "ScrollView" not in globals():
+    try:
+        from kivy.uix.scrollview import ScrollView as _ScrollView
+
+        ScrollView = _ScrollView
+    except Exception as scroll_import_err:
+        Logger.warning(f"APP: ScrollView fallback import failed: {scroll_import_err}")
+
+        class ScrollView(BoxLayout):
+            pass
+
+
+if "show_message_popup" not in globals():
+    show_message_popup = None
 
 # Android-specific imports
 filechooser = None
@@ -6611,14 +6631,38 @@ class SubstationAndroidApp(App):
         # Ensure popup creation runs on the Kivy main thread (some callers may be on worker threads)
         def _show(dt=None):
             try:
-                from strings_proxy import STRINGS as S
-
                 title = (
                     S["TITLES"].get("INFO", "Πληροφορία")
                     if is_info
-                    else S["TITLES"]["ERROR"]
+                    else S["TITLES"].get("ERROR", "Σφάλμα")
                 )
-                show_message_popup(title, message)
+                if callable(show_message_popup):
+                    show_message_popup(title, message)
+                    return
+
+                fallback_layout = BoxLayout(
+                    orientation="vertical",
+                    padding=10,
+                    spacing=10,
+                )
+                body = Label(
+                    text=str(message),
+                    halign="left",
+                    valign="middle",
+                )
+                body.bind(size=body.setter("text_size"))
+                fallback_layout.add_widget(body)
+                close_btn = Button(
+                    text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"),
+                    size_hint_y=None,
+                    height=48,
+                )
+                popup = Popup(
+                    title=title, content=fallback_layout, size_hint=(0.9, 0.3)
+                )
+                close_btn.bind(on_press=popup.dismiss)
+                fallback_layout.add_widget(close_btn)
+                popup.open()
             except Exception as e:
                 Logger.error(f"APP: show_error failed to open popup: {e}")
 
