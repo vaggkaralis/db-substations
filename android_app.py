@@ -3356,10 +3356,29 @@ class SubstationAndroidApp(App):
 
             # Prefer FileProvider to generate a content:// URI which is
             # safe on modern Android versions.
-            FileProvider = autoclass("androidx.core.content.FileProvider")
+            # Attempt to use AndroidX FileProvider, fall back to support v4
+            FileProvider = None
             authority = current.getPackageName() + ".provider"
             try:
-                uri = FileProvider.getUriForFile(current, authority, f)
+                try:
+                    FileProvider = autoclass("androidx.core.content.FileProvider")
+                except Exception:
+                    # Try the legacy support library package name
+                    try:
+                        FileProvider = autoclass(
+                            "android.support.v4.content.FileProvider"
+                        )
+                    except Exception:
+                        FileProvider = None
+
+            except Exception:
+                FileProvider = None
+
+            try:
+                if FileProvider is not None:
+                    uri = FileProvider.getUriForFile(current, authority, f)
+                else:
+                    uri = None
                 # If FileProvider unexpectedly returns a file:// URI,
                 # copy to external cache and retry to obtain a content:// URI.
                 if uri is not None and str(uri.toString()).startswith("file://"):
@@ -3372,8 +3391,8 @@ class SubstationAndroidApp(App):
                     except Exception:
                         pass
             except Exception:
-                # If provider isn't available, attempt to copy file to
-                # external cache and use that path as a fallback URI.
+                # If provider.getUriForFile failed or provider not available,
+                # attempt to copy file to external cache and use that path as a fallback URI.
                 try:
                     ext_cache = current.getExternalCacheDir()
                     if ext_cache is not None:
@@ -6842,24 +6861,50 @@ class SubstationAndroidApp(App):
             current = PythonActivity.mActivity
             f = File(file_path)
 
-            FileProvider = autoclass("androidx.core.content.FileProvider")
+            # Try AndroidX FileProvider, then legacy support library; if
+            # neither is available, gracefully fall back to file:// URIs.
+            FileProvider = None
             authority = current.getPackageName() + ".provider"
             try:
-                uri = FileProvider.getUriForFile(current, authority, f)
-                # If FileProvider produced a file:// URI for some reason,
-                # fall back to copying to external cache and retry.
-                if uri is not None and str(uri.toString()).startswith("file://"):
+                try:
+                    FileProvider = autoclass("androidx.core.content.FileProvider")
+                except Exception:
                     try:
-                        ext_cache = current.getExternalCacheDir()
-                        if ext_cache is not None:
-                            dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
-                            shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
-                            uri = FileProvider.getUriForFile(current, authority, dest)
+                        FileProvider = autoclass(
+                            "android.support.v4.content.FileProvider"
+                        )
                     except Exception:
-                        pass
+                        FileProvider = None
+
+                uri = None
+                if FileProvider is not None:
+                    uri = FileProvider.getUriForFile(current, authority, f)
+                    # If FileProvider produced a file:// URI for some reason,
+                    # copy to external cache and retry to obtain a content:// URI.
+                    if uri is not None and str(uri.toString()).startswith("file://"):
+                        try:
+                            ext_cache = current.getExternalCacheDir()
+                            if ext_cache is not None:
+                                dest = File(
+                                    ext_cache.getAbsolutePath() + "/" + f.getName()
+                                )
+                                shutil.copyfile(
+                                    f.getAbsolutePath(), dest.getAbsolutePath()
+                                )
+                                uri = FileProvider.getUriForFile(
+                                    current, authority, dest
+                                )
+                        except Exception:
+                            pass
+                else:
+                    uri = None
             except Exception:
-                # If provider isn't available, copy file to external cache
-                # and use a file-based Uri there (some devices may allow it).
+                # If provider lookup or getUriForFile raised, clear provider
+                # reference and fall back to file:// below.
+                FileProvider = None
+                uri = None
+
+            if uri is None:
                 try:
                     ext_cache = current.getExternalCacheDir()
                     if ext_cache is not None:
