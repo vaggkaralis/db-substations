@@ -3353,6 +3353,14 @@ class SubstationAndroidApp(App):
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             current = PythonActivity.mActivity
             f = File(change_log_path)
+            # If possible, open the parent folder so file manager apps show the folder
+            folder = None
+            try:
+                parent = f.getParentFile()
+                if parent is not None and parent.exists():
+                    folder = parent
+            except Exception:
+                folder = None
 
             # Prefer FileProvider to generate a content:// URI which is
             # safe on modern Android versions.
@@ -3376,12 +3384,19 @@ class SubstationAndroidApp(App):
 
             try:
                 if FileProvider is not None:
-                    uri = FileProvider.getUriForFile(current, authority, f)
+                    # Prefer to get a URI for the parent folder when available
+                    target = folder if folder is not None else f
+                    uri = FileProvider.getUriForFile(current, authority, target)
                 else:
                     uri = None
-                # If FileProvider unexpectedly returns a file:// URI,
-                # copy to external cache and retry to obtain a content:// URI.
-                if uri is not None and str(uri.toString()).startswith("file://"):
+
+                # If FileProvider unexpectedly returns a file:// URI for a file,
+                # copy the file to external cache and retry to obtain a content:// URI.
+                if (
+                    folder is None
+                    and uri is not None
+                    and str(uri.toString()).startswith("file://")
+                ):
                     try:
                         ext_cache = current.getExternalCacheDir()
                         if ext_cache is not None:
@@ -3395,14 +3410,22 @@ class SubstationAndroidApp(App):
                 # attempt to copy file to external cache and use that path as a fallback URI.
                 try:
                     ext_cache = current.getExternalCacheDir()
-                    if ext_cache is not None:
-                        dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
-                        shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
-                        uri = Uri.fromFile(dest)
+                    if folder is None:
+                        # fallback for files: copy file to external cache and use that Uri
+                        if ext_cache is not None:
+                            dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
+                            shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
+                            uri = Uri.fromFile(dest)
+                        else:
+                            uri = Uri.fromFile(f)
                     else:
-                        uri = Uri.fromFile(f)
+                        # for folders, just use a file:// Uri to the folder
+                        uri = Uri.fromFile(folder)
                 except Exception:
-                    uri = Uri.fromFile(f)
+                    try:
+                        uri = Uri.fromFile(folder if folder is not None else f)
+                    except Exception:
+                        uri = None
 
             intent = Intent(Intent.ACTION_VIEW)
             intent.setDataAndType(uri, "*/*")
@@ -6920,36 +6943,33 @@ class SubstationAndroidApp(App):
             # Use a binary/* wildcard so the EXTRA_STREAM is treated as a Uri
             intent.setType("*/*")
 
-            # Prefer using ClipData for content:// URIs to avoid Intent.putExtra
-            # overload ambiguity that may treat the Uri as a Java String.
+            # Try the simple, commonly-working approach first: attach EXTRA_STREAM
+            attached = False
             try:
-                # Use explicit Java String and ContentResolver instances to avoid
-                # ambiguous overload selection in jnius.
-                cr = current.getContentResolver()
-                ClipData = autoclass("android.content.ClipData")
-                JavaString = autoclass("java.lang.String")
-                # Create a ClipData holding the Uri and attach it to the intent
-                clip = ClipData.newUri(cr, JavaString("change-log"), uri)
-                intent.setClipData(clip)
-                # Also attempt to include EXTRA_STREAM for receivers that expect it.
-                # Some jnius environments may pick the wrong overload; if that
-                # happens, fall back to sending the string form.
                 try:
                     intent.putExtra(Intent.EXTRA_STREAM, uri)
                 except TypeError:
-                    try:
-                        intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
-                    except Exception:
-                        # Ignore: keep ClipData as primary delivery mechanism
-                        pass
+                    intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                attached = True
             except Exception:
-                # Fallback: still attempt to put EXTRA_STREAM and grant permission
+                attached = False
+
+            # If the simple approach failed, fall back to ClipData method
+            if not attached:
                 try:
+                    cr = current.getContentResolver()
+                    ClipData = autoclass("android.content.ClipData")
+                    JavaString = autoclass("java.lang.String")
+                    clip = ClipData.newUri(cr, JavaString("change-log"), uri)
+                    intent.setClipData(clip)
                     try:
                         intent.putExtra(Intent.EXTRA_STREAM, uri)
-                    except TypeError:
-                        intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
+                    except Exception:
+                        try:
+                            intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
+                        except Exception:
+                            pass
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 except Exception:
                     # Let the outer except handle showing error

@@ -156,7 +156,8 @@ def import_android_changes_from_file(app, file_path):
                 continue
 
         table = obj.get("table")
-        if table not in ("maintenance", "inspection"):
+        # Accept both singular and plural forms produced by different Android versions
+        if table not in ("maintenance", "inspection", "inspections"):
             continue
 
         data = obj.get("data") or {}
