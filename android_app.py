@@ -2285,14 +2285,36 @@ class SubstationAndroidApp(App):
                 "settings",
                 lambda _x: self._show_sync_settings(),
             )
-        self.settings_btn = settings_btn
-        self.header_area.add_widget(settings_btn)
+        # Wrap settings button in a fixed-width, center-anchored container so
+        # it aligns vertically with the title and doesn't steal horizontal
+        # space from the title label.
+        try:
+            from kivy.uix.anchorlayout import AnchorLayout
+
+            settings_container = AnchorLayout(
+                anchor_x="center",
+                anchor_y="center",
+                size_hint_x=None,
+                width=56,
+            )
+            # Ensure the button uses its intrinsic size and is centered
+            try:
+                settings_btn.size_hint = (None, None)
+            except Exception:
+                pass
+            settings_container.add_widget(settings_btn)
+            self.settings_btn = settings_btn
+            self.header_area.add_widget(settings_container)
+        except Exception:
+            # If AnchorLayout unavailable, fall back to adding button directly.
+            self.settings_btn = settings_btn
+            self.header_area.add_widget(settings_btn)
 
         header_label = Label(
             text=S.get("MESSAGES", {}).get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ"),
             bold=True,
             size_hint_x=1,
-            font_size="14sp",
+            font_size="16sp",
             halign="left",
             valign="middle",
             shorten=True,
