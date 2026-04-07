@@ -1,4 +1,5 @@
 import sys
+import types
 
 from android_app import SubstationAndroidApp
 
@@ -161,3 +162,39 @@ def test_launch_share_intent_fallback_to_clipboard(monkeypatch, tmp_path):
         clipboard_copy(path)
 
     assert DummyClipboard.copied == path
+
+
+def test_launch_share_intent_falls_back_from_chooser_to_direct_start(
+    monkeypatch, tmp_path
+):
+    app = SubstationAndroidApp()
+    path = str(tmp_path / "change_log.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("ok")
+
+    start_calls = []
+
+    class FallbackActivity(DummyActivity):
+        def startActivity(self, intent):
+            start_calls.append(intent)
+            if intent == "chooser":
+                raise RuntimeError("chooser failed")
+            self.started = True
+
+    activity = FallbackActivity(str(tmp_path))
+
+    def autoclass(name):
+        return DummyAutoclassModule(activity)(name)
+
+    dummy_jnius = types.SimpleNamespace(autoclass=autoclass)
+    monkeypatch.setitem(sys.modules, "jnius", dummy_jnius)
+    monkeypatch.setitem(
+        sys.modules,
+        "android.runnable",
+        types.SimpleNamespace(run_on_ui_thread=lambda func: func),
+    )
+
+    app._launch_share_intent(path)
+
+    assert start_calls[0] == "chooser"
+    assert activity.started is True

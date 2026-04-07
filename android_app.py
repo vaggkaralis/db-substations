@@ -6880,10 +6880,7 @@ class SubstationAndroidApp(App):
         if not file_path:
             raise RuntimeError("No file path provided")
 
-        # If jnius isn't available (desktop/tests), fallback: copy path to clipboard
-        try:
-            from jnius import autoclass
-        except ModuleNotFoundError:
+        def _copy_path_to_clipboard():
             try:
                 import importlib
 
@@ -6894,6 +6891,29 @@ class SubstationAndroidApp(App):
                     clip.Clipboard.copy(file_path)
             except Exception:
                 pass
+
+        def _report_share_failure(reason=None):
+            try:
+                if reason:
+                    Logger.error(f"Share intent failed: {reason}")
+            except Exception:
+                pass
+            try:
+                message = S.get("MESSAGES", {}).get(
+                    "SHARE_FAILED",
+                    "Κοινοποίηση απέτυχε. Η διαδρομή αντιγράφηκε στο πρόχειρο.",
+                )
+                if reason:
+                    message = f"{message}\n{reason}"
+                self.show_error(message, is_info=True)
+            except Exception:
+                pass
+            _copy_path_to_clipboard()
+
+        # If jnius isn't available (desktop/tests), fallback: copy path to clipboard
+        try:
+            from jnius import autoclass
+        except ModuleNotFoundError:
             try:
                 self.show_error(
                     "Κοινοποίηση μη διαθέσιμη σε αυτήν την πλατφόρμα. Η διαδρομή αντιγράφηκε στο πρόχειρο.",
@@ -6901,6 +6921,7 @@ class SubstationAndroidApp(App):
                 )
             except Exception:
                 pass
+            _copy_path_to_clipboard()
             return
         try:
             Intent = autoclass("android.content.Intent")
@@ -6995,53 +7016,37 @@ class SubstationAndroidApp(App):
             except Exception:
                 pass
 
-            # Use java.lang.String to ensure the chooser title is passed as a
-            # CharSequence (avoid jnius overload confusion). Fall back to a
-            # plain Python string if java.lang.String isn't available (tests/shims).
-            try:
-                JavaString = autoclass("java.lang.String")
-                title_obj = JavaString("Share change-log")
-            except Exception:
-                title_obj = "Share change-log"
-            chooser = Intent.createChooser(intent, title_obj)
-            try:
-                if grant_flags and hasattr(chooser, "addFlags"):
-                    chooser.addFlags(grant_flags)
-            except Exception:
-                pass
-
             @run_on_ui_thread
             def _launch_chooser():
-                current.startActivity(chooser)
+                try:
+                    try:
+                        JavaString = autoclass("java.lang.String")
+                        title_obj = JavaString("Share change-log")
+                    except Exception:
+                        title_obj = "Share change-log"
+
+                    chooser = Intent.createChooser(intent, title_obj)
+                    try:
+                        if grant_flags and hasattr(chooser, "addFlags"):
+                            chooser.addFlags(grant_flags)
+                    except Exception:
+                        pass
+                    current.startActivity(chooser)
+                except Exception as chooser_err:
+                    try:
+                        current.startActivity(intent)
+                    except Exception as raw_err:
+                        failure_reason = f"chooser={chooser_err}; direct={raw_err}"
+                        Clock.schedule_once(
+                            lambda _dt, reason=failure_reason: _report_share_failure(
+                                reason
+                            ),
+                            0,
+                        )
 
             _launch_chooser()
         except Exception as e:
-            # Avoid showing raw Java stack traces to the user. Log and
-            # present a concise, friendly message and fall back to clipboard.
-            try:
-                Logger.error(f"Share intent failed: {e}")
-            except Exception:
-                pass
-            try:
-                self.show_error(
-                    S.get("MESSAGES", {}).get(
-                        "SHARE_FAILED",
-                        "Κοινοποίηση απέτυχε. Η διαδρομή αντιγράφηκε στο πρόχειρο.",
-                    ),
-                    is_info=True,
-                )
-            except Exception:
-                pass
-            try:
-                import importlib
-
-                clip = importlib.import_module("kivy.core.clipboard")
-                if hasattr(clip, "copy"):
-                    clip.copy(file_path)
-                elif hasattr(clip, "Clipboard") and hasattr(clip.Clipboard, "copy"):
-                    clip.Clipboard.copy(file_path)
-            except Exception:
-                pass
+            _report_share_failure(str(e))
             return
 
 
