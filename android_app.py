@@ -6966,7 +6966,9 @@ class SubstationAndroidApp(App):
                     uri = Uri.fromFile(f)
 
             intent = Intent(Intent.ACTION_SEND)
-            intent.setType("text/plain")
+            # Use a generic binary mime type so receivers treat the changelog
+            # as an attached file rather than message body text.
+            intent.setType("*/*")
 
             try:
                 intent.putExtra(Intent.EXTRA_STREAM, uri)
@@ -6995,22 +6997,6 @@ class SubstationAndroidApp(App):
             except Exception:
                 pass
 
-            # Some Android targets ignore chooser-granted permissions unless the
-            # source app explicitly grants the URI to each resolved package.
-            try:
-                package_manager = current.getPackageManager()
-                resolved = package_manager.queryIntentActivities(intent, 0)
-                resolved_count = resolved.size() if hasattr(resolved, "size") else 0
-                for idx in range(resolved_count):
-                    info = resolved.get(idx)
-                    package_name = getattr(
-                        getattr(info, "activityInfo", None), "packageName", None
-                    )
-                    if package_name:
-                        current.grantUriPermission(package_name, uri, grant_flags)
-            except Exception:
-                pass
-
             # Use java.lang.String to ensure the chooser title is passed as a
             # CharSequence (avoid jnius overload confusion). Fall back to a
             # plain Python string if java.lang.String isn't available (tests/shims).
@@ -7020,6 +7006,11 @@ class SubstationAndroidApp(App):
             except Exception:
                 title_obj = "Share change-log"
             chooser = Intent.createChooser(intent, title_obj)
+            try:
+                if grant_flags and hasattr(chooser, "addFlags"):
+                    chooser.addFlags(grant_flags)
+            except Exception:
+                pass
             current.startActivity(chooser)
         except Exception as e:
             # Avoid showing raw Java stack traces to the user. Log and

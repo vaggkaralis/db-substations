@@ -6,7 +6,6 @@ from android_app import SubstationAndroidApp
 class DummyActivity:
     def __init__(self):
         self.started = False
-        self.grants = []
 
     def startActivity(self, intent):
         self.started = True
@@ -16,40 +15,6 @@ class DummyActivity:
 
     def getContentResolver(self):
         return object()
-
-    def getPackageManager(self):
-        class DummyList:
-            def __init__(self, items):
-                self._items = items
-
-            def size(self):
-                return len(self._items)
-
-            def get(self, index):
-                return self._items[index]
-
-        class DummyPackageManager:
-            def queryIntentActivities(self, intent, flags):
-                return DummyList(
-                    [
-                        type(
-                            "ResolveInfo",
-                            (),
-                            {
-                                "activityInfo": type(
-                                    "ActivityInfo",
-                                    (),
-                                    {"packageName": "com.example.receiver"},
-                                )()
-                            },
-                        )()
-                    ]
-                )
-
-        return DummyPackageManager()
-
-    def grantUriPermission(self, package_name, uri, flags):
-        self.grants.append((package_name, uri, flags))
 
 
 class DummyFile:
@@ -149,8 +114,6 @@ def test_launch_share_intent_uses_fileprovider(monkeypatch, tmp_path):
     # call helper - should not raise and should mark activity started
     app._launch_share_intent(path)
     assert activity.started is True
-    assert activity.grants
-    assert activity.grants[0][0] == "com.example.receiver"
 
 
 def test_launch_share_intent_fallback_to_clipboard(monkeypatch, tmp_path):
