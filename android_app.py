@@ -3511,7 +3511,7 @@ class SubstationAndroidApp(App):
                     instance, "height", value[1] + 16
                 ),
             )
-            btns = BoxLayout(size_hint_y=None, height=88, spacing=8)
+            btns = BoxLayout(size_hint_y=None, height=110, spacing=8)
             copy_btn = Button(
                 text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής")
             )
@@ -7021,15 +7021,20 @@ class SubstationAndroidApp(App):
                 title_obj = "Share change-log"
             chooser = Intent.createChooser(intent, title_obj)
             current.startActivity(chooser)
-        except Exception:
-            # Surface a single friendly error to the user and fallback to
-            # copying the path to the clipboard. Do NOT re-raise here to
-            # avoid duplicate error popups in callers.
+        except Exception as e:
+            # Avoid showing raw Java stack traces to the user. Log and
+            # present a concise, friendly message and fall back to clipboard.
             try:
-                import traceback as _tb
-
+                Logger.error(f"Share intent failed: {e}")
+            except Exception:
+                pass
+            try:
                 self.show_error(
-                    f"Κοινοποίηση απέτυχε: {_tb.format_exc()}", is_info=False
+                    S.get("MESSAGES", {}).get(
+                        "SHARE_FAILED",
+                        "Κοινοποίηση απέτυχε. Η διαδρομή αντιγράφηκε στο πρόχειρο.",
+                    ),
+                    is_info=True,
                 )
             except Exception:
                 pass
