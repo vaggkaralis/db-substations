@@ -25,6 +25,7 @@ def test_show_change_log_menu_popup(monkeypatch, tmp_path):
     app.show_change_log_menu()
     popup = captured.get("instance")
     assert popup is not None
+    assert popup.size_hint == (0.95, 0.42)
     # popup.content should be a layout with a child BoxLayout containing two Buttons
     children = getattr(popup.content, "children", [])
     assert len(children) >= 1

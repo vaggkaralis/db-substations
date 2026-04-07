@@ -3486,7 +3486,7 @@ class SubstationAndroidApp(App):
         self._ensure_change_log_path()
         change_log_path = getattr(self, "change_log_path", "change_log.txt")
         try:
-            p = Popup(title="Change log actions", size_hint=(0.95, 0.32))
+            p = Popup(title="Change log actions", size_hint=(0.95, 0.42))
             layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
             # Show file path and basic file info so users can debug missing files
             try:
@@ -3496,9 +3496,22 @@ class SubstationAndroidApp(App):
                 exists = False
                 size = 0
             label = Label(
-                text=f"File: {change_log_path}\nExists: {exists}  Size: {size} bytes",
+                text=(
+                    f"File:\n{change_log_path}\nExists: {exists}  Size: {size} bytes"
+                ),
+                halign="left",
+                valign="top",
+                size_hint_y=None,
             )
-            btns = BoxLayout(size_hint_y=None, height=48, spacing=8)
+            label.bind(
+                width=lambda instance, value: setattr(
+                    instance, "text_size", (max(value - 12, 0), None)
+                ),
+                texture_size=lambda instance, value: setattr(
+                    instance, "height", value[1] + 16
+                ),
+            )
+            btns = BoxLayout(size_hint_y=None, height=88, spacing=8)
             copy_btn = Button(
                 text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής")
             )
@@ -3554,6 +3567,22 @@ class SubstationAndroidApp(App):
             copy_btn.bind(on_press=_on_copy)
             share_btn.bind(on_press=_on_share)
             clear_btn.bind(on_press=lambda _x: self._confirm_clear_change_log(p))
+            for btn in (copy_btn, share_btn, clear_btn):
+                btn.text_size = (0, 0)
+                btn.halign = "center"
+                btn.valign = "middle"
+                btn.bind(
+                    size=lambda instance, _value: setattr(
+                        instance,
+                        "text_size",
+                        (max(instance.width - 12, 0), max(instance.height - 12, 0)),
+                    )
+                )
+                try:
+                    if autosize_button_text:
+                        autosize_button_text(btn, max_sp=16, min_sp=9)
+                except Exception:
+                    pass
             btns.add_widget(copy_btn)
             btns.add_widget(share_btn)
             btns.add_widget(clear_btn)
@@ -6407,6 +6436,28 @@ class SubstationAndroidApp(App):
         )
         layout.add_widget(date_input)
 
+        # Add form number and region inputs to match desktop inspection form
+        form_region_row = BoxLayout(size_hint_y=None, height=68, spacing=8)
+        form_number_input = TextInput(
+            hint_text="Αρ. Δελτίου",
+            size_hint_x=0.5,
+            size_hint_y=None,
+            height=68,
+            multiline=False,
+            padding=[12, 12, 12, 12],
+        )
+        region_input = TextInput(
+            hint_text="Περιοχή",
+            size_hint_x=0.5,
+            size_hint_y=None,
+            height=68,
+            multiline=False,
+            padding=[12, 12, 12, 12],
+        )
+        form_region_row.add_widget(form_number_input)
+        form_region_row.add_widget(region_input)
+        layout.add_widget(form_region_row)
+
         field_inputs = []
         for field in self.INSPECTION_FIELDS:
             if isinstance(field, dict) and field.get("type") == "section":
@@ -6467,14 +6518,37 @@ class SubstationAndroidApp(App):
             fields_payload = [
                 {"label": label, "value": ti.text.strip()} for label, ti in field_inputs
             ]
+            # Produce keys expected by the desktop importer/prefill and the
+            # DB insert path. The desktop importer prefers a `fields` dict for
+            # prefill while the DB stores `data_json` with a `fields` list.
+            fields_dict = {f["label"]: f["value"] for f in fields_payload}
             payload = {
                 "substation_id": substation_id,
+                # Provide both `date_time`/`date` for prefill convenience and
+                # `inspection_date` so the generic importer can map to the
+                # `inspections.inspection_date` column when inserting.
+                "date_time": date_input.text.strip(),
+                "date": date_input.text.strip(),
                 "inspection_date": date_input.text.strip(),
+                # `data_json` is what the desktop DB stores; keep it as a JSON
+                # string with the canonical fields list.
                 "data_json": json.dumps({"fields": fields_payload}, ensure_ascii=False),
+                # Also include a simple mapping for prefill convenience.
+                "fields": fields_dict,
+                "form_number": (
+                    form_number_input.text.strip()
+                    if form_number_input and form_number_input.text is not None
+                    else None
+                ),
+                "region": (
+                    region_input.text.strip()
+                    if region_input and region_input.text is not None
+                    else None
+                ),
                 "substation_name": substation.get("name"),
                 "month_key": date_input.text.strip()[:7],
                 "source_file": "android-local",
-                "created_at": datetime.now().strftime("%Y-%m-%d"),
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
 
             try:
@@ -6892,40 +6966,50 @@ class SubstationAndroidApp(App):
                     uri = Uri.fromFile(f)
 
             intent = Intent(Intent.ACTION_SEND)
-            # Use a binary/* wildcard so the EXTRA_STREAM is treated as a Uri
-            intent.setType("*/*")
+            intent.setType("text/plain")
 
-            # Try the simple, commonly-working approach first: attach EXTRA_STREAM
-            attached = False
             try:
-                try:
-                    intent.putExtra(Intent.EXTRA_STREAM, uri)
-                except TypeError:
-                    intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                attached = True
-            except Exception:
-                attached = False
+                intent.putExtra(Intent.EXTRA_STREAM, uri)
+            except TypeError:
+                intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
 
-            # If the simple approach failed, fall back to ClipData method
-            if not attached:
-                try:
-                    cr = current.getContentResolver()
-                    ClipData = autoclass("android.content.ClipData")
-                    JavaString = autoclass("java.lang.String")
-                    clip = ClipData.newUri(cr, JavaString("change-log"), uri)
-                    intent.setClipData(clip)
-                    try:
-                        intent.putExtra(Intent.EXTRA_STREAM, uri)
-                    except Exception:
-                        try:
-                            intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
-                        except Exception:
-                            pass
-                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                except Exception:
-                    # Let the outer except handle showing error
-                    raise
+            try:
+                intent.putExtra(Intent.EXTRA_TEXT, file_path)
+            except Exception:
+                pass
+
+            grant_flags = getattr(Intent, "FLAG_GRANT_READ_URI_PERMISSION", 0)
+            try:
+                grant_flags |= getattr(Intent, "FLAG_GRANT_WRITE_URI_PERMISSION", 0)
+            except Exception:
+                pass
+            if grant_flags:
+                intent.addFlags(grant_flags)
+
+            try:
+                cr = current.getContentResolver()
+                ClipData = autoclass("android.content.ClipData")
+                JavaString = autoclass("java.lang.String")
+                clip = ClipData.newUri(cr, JavaString("change-log"), uri)
+                intent.setClipData(clip)
+            except Exception:
+                pass
+
+            # Some Android targets ignore chooser-granted permissions unless the
+            # source app explicitly grants the URI to each resolved package.
+            try:
+                package_manager = current.getPackageManager()
+                resolved = package_manager.queryIntentActivities(intent, 0)
+                resolved_count = resolved.size() if hasattr(resolved, "size") else 0
+                for idx in range(resolved_count):
+                    info = resolved.get(idx)
+                    package_name = getattr(
+                        getattr(info, "activityInfo", None), "packageName", None
+                    )
+                    if package_name:
+                        current.grantUriPermission(package_name, uri, grant_flags)
+            except Exception:
+                pass
 
             # Use java.lang.String to ensure the chooser title is passed as a
             # CharSequence (avoid jnius overload confusion). Fall back to a

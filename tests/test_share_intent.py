@@ -6,12 +6,50 @@ from android_app import SubstationAndroidApp
 class DummyActivity:
     def __init__(self):
         self.started = False
+        self.grants = []
 
     def startActivity(self, intent):
         self.started = True
 
     def getPackageName(self):
         return "org.dbsubstations"
+
+    def getContentResolver(self):
+        return object()
+
+    def getPackageManager(self):
+        class DummyList:
+            def __init__(self, items):
+                self._items = items
+
+            def size(self):
+                return len(self._items)
+
+            def get(self, index):
+                return self._items[index]
+
+        class DummyPackageManager:
+            def queryIntentActivities(self, intent, flags):
+                return DummyList(
+                    [
+                        type(
+                            "ResolveInfo",
+                            (),
+                            {
+                                "activityInfo": type(
+                                    "ActivityInfo",
+                                    (),
+                                    {"packageName": "com.example.receiver"},
+                                )()
+                            },
+                        )()
+                    ]
+                )
+
+        return DummyPackageManager()
+
+    def grantUriPermission(self, package_name, uri, flags):
+        self.grants.append((package_name, uri, flags))
 
 
 class DummyFile:
@@ -38,7 +76,9 @@ class DummyAutoclassModule:
             class Intent:
                 ACTION_SEND = "ACTION_SEND"
                 EXTRA_STREAM = "EXTRA_STREAM"
+                EXTRA_TEXT = "EXTRA_TEXT"
                 FLAG_GRANT_READ_URI_PERMISSION = 1
+                FLAG_GRANT_WRITE_URI_PERMISSION = 2
 
                 def __init__(self, *a, **k):
                     pass
@@ -50,6 +90,9 @@ class DummyAutoclassModule:
                     pass
 
                 def addFlags(self, f):
+                    pass
+
+                def setClipData(self, clip):
                     pass
 
                 @staticmethod
@@ -73,6 +116,16 @@ class DummyAutoclassModule:
                     return f
 
             return FP
+        if name == "android.content.ClipData":
+
+            class ClipData:
+                @staticmethod
+                def newUri(cr, title, uri):
+                    return (cr, title, uri)
+
+            return ClipData
+        if name == "java.lang.String":
+            return lambda value: value
         raise ImportError(name)
 
 
@@ -96,6 +149,8 @@ def test_launch_share_intent_uses_fileprovider(monkeypatch, tmp_path):
     # call helper - should not raise and should mark activity started
     app._launch_share_intent(path)
     assert activity.started is True
+    assert activity.grants
+    assert activity.grants[0][0] == "com.example.receiver"
 
 
 def test_launch_share_intent_fallback_to_clipboard(monkeypatch, tmp_path):
