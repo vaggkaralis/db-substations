@@ -4,8 +4,9 @@ from android_app import SubstationAndroidApp
 
 
 class DummyActivity:
-    def __init__(self):
+    def __init__(self, cache_dir):
         self.started = False
+        self.cache_dir = cache_dir
 
     def startActivity(self, intent):
         self.started = True
@@ -13,10 +14,24 @@ class DummyActivity:
     def getPackageName(self):
         return "org.dbsubstations"
 
+    def getExternalCacheDir(self):
+        return type("CacheDir", (), {"getAbsolutePath": lambda _self: self.cache_dir})()
+
+    def getCacheDir(self):
+        return type("CacheDir", (), {"getAbsolutePath": lambda _self: self.cache_dir})()
+
 
 class DummyFile:
     def __init__(self, path):
         self.path = path
+
+    def getName(self):
+        import os
+
+        return os.path.basename(self.path)
+
+    def getAbsolutePath(self):
+        return self.path
 
 
 class CliplessAutoclassModule:
@@ -85,7 +100,7 @@ def test_share_uses_fallback_when_clipdata_missing(monkeypatch, tmp_path):
     with open(path, "w", encoding="utf-8") as f:
         f.write("ok")
 
-    activity = DummyActivity()
+    activity = DummyActivity(str(tmp_path))
     import types
 
     def autoclass(name):

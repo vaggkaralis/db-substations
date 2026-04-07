@@ -6909,11 +6909,18 @@ class SubstationAndroidApp(App):
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             current = PythonActivity.mActivity
             f = File(file_path)
+            try:
+                from android.runnable import run_on_ui_thread
+            except Exception:
 
-            # Try AndroidX FileProvider, then legacy support library; if
-            # neither is available, gracefully fall back to file:// URIs.
+                def run_on_ui_thread(func):
+                    return func
+
+            # Share a cache copy rather than the original app-private file so
+            # receivers always get a stable, shareable attachment path.
             FileProvider = None
             authority = current.getPackageName() + ".provider"
+            share_target = f
             try:
                 try:
                     FileProvider = autoclass("androidx.core.content.FileProvider")
@@ -6925,24 +6932,28 @@ class SubstationAndroidApp(App):
                     except Exception:
                         FileProvider = None
 
+                try:
+                    cache_dir = current.getExternalCacheDir()
+                    if cache_dir is None:
+                        cache_dir = current.getCacheDir()
+                    if cache_dir is not None:
+                        share_target = File(
+                            cache_dir.getAbsolutePath() + "/" + f.getName()
+                        )
+                        shutil.copyfile(
+                            f.getAbsolutePath(), share_target.getAbsolutePath()
+                        )
+                except Exception:
+                    share_target = f
+
                 uri = None
                 if FileProvider is not None:
-                    uri = FileProvider.getUriForFile(current, authority, f)
-                    # If FileProvider produced a file:// URI for some reason,
-                    # copy to external cache and retry to obtain a content:// URI.
+                    uri = FileProvider.getUriForFile(current, authority, share_target)
                     if uri is not None and str(uri.toString()).startswith("file://"):
                         try:
-                            ext_cache = current.getExternalCacheDir()
-                            if ext_cache is not None:
-                                dest = File(
-                                    ext_cache.getAbsolutePath() + "/" + f.getName()
-                                )
-                                shutil.copyfile(
-                                    f.getAbsolutePath(), dest.getAbsolutePath()
-                                )
-                                uri = FileProvider.getUriForFile(
-                                    current, authority, dest
-                                )
+                            uri = FileProvider.getUriForFile(
+                                current, authority, share_target
+                            )
                         except Exception:
                             pass
                 else:
@@ -6955,30 +6966,17 @@ class SubstationAndroidApp(App):
 
             if uri is None:
                 try:
-                    ext_cache = current.getExternalCacheDir()
-                    if ext_cache is not None:
-                        dest = File(ext_cache.getAbsolutePath() + "/" + f.getName())
-                        shutil.copyfile(f.getAbsolutePath(), dest.getAbsolutePath())
-                        uri = Uri.fromFile(dest)
-                    else:
-                        uri = Uri.fromFile(f)
+                    uri = Uri.fromFile(share_target)
                 except Exception:
                     uri = Uri.fromFile(f)
 
             intent = Intent(Intent.ACTION_SEND)
-            # Use a generic binary mime type so receivers treat the changelog
-            # as an attached file rather than message body text.
-            intent.setType("*/*")
+            intent.setType("text/plain")
 
             try:
                 intent.putExtra(Intent.EXTRA_STREAM, uri)
             except TypeError:
                 intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
-
-            try:
-                intent.putExtra(Intent.EXTRA_TEXT, file_path)
-            except Exception:
-                pass
 
             grant_flags = getattr(Intent, "FLAG_GRANT_READ_URI_PERMISSION", 0)
             try:
@@ -7011,7 +7009,12 @@ class SubstationAndroidApp(App):
                     chooser.addFlags(grant_flags)
             except Exception:
                 pass
-            current.startActivity(chooser)
+
+            @run_on_ui_thread
+            def _launch_chooser():
+                current.startActivity(chooser)
+
+            _launch_chooser()
         except Exception as e:
             # Avoid showing raw Java stack traces to the user. Log and
             # present a concise, friendly message and fall back to clipboard.
