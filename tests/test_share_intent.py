@@ -198,3 +198,92 @@ def test_launch_share_intent_falls_back_from_chooser_to_direct_start(
 
     assert start_calls[0] == "chooser"
     assert activity.started is True
+
+
+def test_launch_share_intent_falls_back_to_mediastore_when_fileprovider_missing(
+    monkeypatch, tmp_path
+):
+    app = SubstationAndroidApp()
+    path = str(tmp_path / "change_log.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("ok")
+
+    class DummyOutputStream:
+        def __init__(self):
+            self.data = b""
+
+        def write(self, chunk):
+            self.data += bytes(chunk)
+
+        def flush(self):
+            return None
+
+        def close(self):
+            return None
+
+    class DummyResolver:
+        def __init__(self):
+            self.stream = DummyOutputStream()
+
+        def insert(self, uri, values):
+            return "content://downloads/change_log.txt"
+
+        def openOutputStream(self, uri):
+            return self.stream
+
+    class MediaStoreActivity(DummyActivity):
+        def __init__(self, cache_dir):
+            super().__init__(cache_dir)
+            self.resolver = DummyResolver()
+
+        def getContentResolver(self):
+            return self.resolver
+
+    activity = MediaStoreActivity(str(tmp_path))
+
+    class MediaStoreAutoclassModule(DummyAutoclassModule):
+        def __call__(self, name):
+            if name == "androidx.core.content.FileProvider":
+                raise ImportError(name)
+            if name == "android.content.ContentValues":
+
+                class ContentValues(dict):
+                    def put(self, key, value):
+                        self[key] = value
+
+                return ContentValues
+            if name == "android.provider.MediaStore$Downloads":
+                return type(
+                    "Downloads",
+                    (),
+                    {"EXTERNAL_CONTENT_URI": "content://downloads/external"},
+                )
+            if name == "android.provider.MediaStore$MediaColumns":
+                return type(
+                    "MediaColumns",
+                    (),
+                    {
+                        "DISPLAY_NAME": "display_name",
+                        "MIME_TYPE": "mime_type",
+                        "RELATIVE_PATH": "relative_path",
+                    },
+                )
+            if name == "android.os.Environment":
+                return type("Environment", (), {"DIRECTORY_DOWNLOADS": "Download"})
+            return super().__call__(name)
+
+    def autoclass(name):
+        return MediaStoreAutoclassModule(activity)(name)
+
+    dummy_jnius = types.SimpleNamespace(autoclass=autoclass)
+    monkeypatch.setitem(sys.modules, "jnius", dummy_jnius)
+    monkeypatch.setitem(
+        sys.modules,
+        "android.runnable",
+        types.SimpleNamespace(run_on_ui_thread=lambda func: func),
+    )
+
+    app._launch_share_intent(path)
+
+    assert activity.started is True
+    assert activity.resolver.stream.data == b"ok"

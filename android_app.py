@@ -6910,6 +6910,54 @@ class SubstationAndroidApp(App):
                 pass
             _copy_path_to_clipboard()
 
+        def _build_media_store_share_uri(autoclass, activity, source_path):
+            ContentValues = autoclass("android.content.ContentValues")
+            MediaStoreDownloads = autoclass("android.provider.MediaStore$Downloads")
+            MediaColumns = autoclass("android.provider.MediaStore$MediaColumns")
+            Environment = autoclass("android.os.Environment")
+
+            resolver = activity.getContentResolver()
+            values = ContentValues()
+            file_name = os.path.basename(source_path) or "change_log.txt"
+            values.put(MediaColumns.DISPLAY_NAME, file_name)
+            values.put(MediaColumns.MIME_TYPE, "text/plain")
+            try:
+                values.put(
+                    MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/DB Substations",
+                )
+            except Exception:
+                pass
+
+            target_uri = resolver.insert(
+                MediaStoreDownloads.EXTERNAL_CONTENT_URI, values
+            )
+            if target_uri is None:
+                raise RuntimeError("MediaStore insert returned no URI")
+
+            out_stream = resolver.openOutputStream(target_uri)
+            if out_stream is None:
+                raise RuntimeError("MediaStore output stream unavailable")
+
+            try:
+                with open(source_path, "rb") as src:
+                    while True:
+                        chunk = src.read(65536)
+                        if not chunk:
+                            break
+                        out_stream.write(chunk)
+                try:
+                    out_stream.flush()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    out_stream.close()
+                except Exception:
+                    pass
+
+            return target_uri
+
         # If jnius isn't available (desktop/tests), fallback: copy path to clipboard
         try:
             from jnius import autoclass
@@ -6936,8 +6984,8 @@ class SubstationAndroidApp(App):
                 def run_on_ui_thread(func):
                     return func
 
-            # Share an internal-cache copy rather than the original file so the
-            # attachment always goes through FileProvider as a content:// URI.
+            # Prefer FileProvider when the runtime includes it. If not, fall back
+            # to a MediaStore content URI instead of leaking a file:// URI.
             FileProvider = None
             authority = current.getPackageName() + ".provider"
             share_target = f
@@ -6983,7 +7031,12 @@ class SubstationAndroidApp(App):
                 uri = None
 
             if uri is None:
-                raise RuntimeError(f"share_uri_setup_failed: {provider_error}")
+                try:
+                    uri = _build_media_store_share_uri(autoclass, current, file_path)
+                except Exception as media_store_exc:
+                    raise RuntimeError(
+                        f"share_uri_setup_failed: provider={provider_error}; mediastore={media_store_exc}"
+                    ) from media_store_exc
 
             intent = Intent(Intent.ACTION_SEND)
             intent.setType("text/plain")
