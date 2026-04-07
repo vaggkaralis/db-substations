@@ -6925,7 +6925,6 @@ class SubstationAndroidApp(App):
             return
         try:
             Intent = autoclass("android.content.Intent")
-            Uri = autoclass("android.net.Uri")
             File = autoclass("java.io.File")
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             current = PythonActivity.mActivity
@@ -6937,11 +6936,12 @@ class SubstationAndroidApp(App):
                 def run_on_ui_thread(func):
                     return func
 
-            # Share a cache copy rather than the original app-private file so
-            # receivers always get a stable, shareable attachment path.
+            # Share an internal-cache copy rather than the original file so the
+            # attachment always goes through FileProvider as a content:// URI.
             FileProvider = None
             authority = current.getPackageName() + ".provider"
             share_target = f
+            provider_error = None
             try:
                 try:
                     FileProvider = autoclass("androidx.core.content.FileProvider")
@@ -6953,43 +6953,37 @@ class SubstationAndroidApp(App):
                     except Exception:
                         FileProvider = None
 
-                try:
-                    cache_dir = current.getExternalCacheDir()
-                    if cache_dir is None:
-                        cache_dir = current.getCacheDir()
-                    if cache_dir is not None:
-                        share_target = File(
-                            cache_dir.getAbsolutePath() + "/" + f.getName()
-                        )
-                        shutil.copyfile(
-                            f.getAbsolutePath(), share_target.getAbsolutePath()
-                        )
-                except Exception:
-                    share_target = f
+                cache_dir = current.getCacheDir()
+                if cache_dir is None:
+                    raise RuntimeError("cache dir unavailable")
+
+                share_target = File(cache_dir.getAbsolutePath() + "/" + f.getName())
+                source_path = f.getAbsolutePath()
+                target_path = share_target.getAbsolutePath()
+                if os.path.abspath(source_path) != os.path.abspath(target_path):
+                    shutil.copyfile(source_path, target_path)
 
                 uri = None
                 if FileProvider is not None:
                     uri = FileProvider.getUriForFile(current, authority, share_target)
-                    if uri is not None and str(uri.toString()).startswith("file://"):
-                        try:
-                            uri = FileProvider.getUriForFile(
-                                current, authority, share_target
-                            )
-                        except Exception:
-                            pass
+                    if uri is None:
+                        raise RuntimeError("FileProvider returned no URI")
+                    try:
+                        uri_text = str(uri.toString())
+                    except Exception:
+                        uri_text = str(uri)
+                    if uri_text.startswith("file://"):
+                        raise RuntimeError(
+                            f"FileProvider returned file URI: {uri_text}"
+                        )
                 else:
-                    uri = None
-            except Exception:
-                # If provider lookup or getUriForFile raised, clear provider
-                # reference and fall back to file:// below.
-                FileProvider = None
+                    raise RuntimeError("FileProvider class unavailable")
+            except Exception as provider_exc:
+                provider_error = provider_exc
                 uri = None
 
             if uri is None:
-                try:
-                    uri = Uri.fromFile(share_target)
-                except Exception:
-                    uri = Uri.fromFile(f)
+                raise RuntimeError(f"share_uri_setup_failed: {provider_error}")
 
             intent = Intent(Intent.ACTION_SEND)
             intent.setType("text/plain")
