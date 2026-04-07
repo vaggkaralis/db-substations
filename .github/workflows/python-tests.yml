@@ -1,12 +1,7 @@
 name: CI - Run tests
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  release:
-    types: [created]
+  # Legacy workflow kept for historical runs and manual fallback only.
   workflow_dispatch:
 
 env:
