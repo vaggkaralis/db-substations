@@ -16,6 +16,7 @@ import os
 import shutil
 import sqlite3
 import sys
+import re
 import threading
 import traceback
 from datetime import datetime
@@ -241,6 +242,52 @@ def _build_inspection_fields(strings_map):
         ]
     )
     return fields
+
+
+GATE_COLOR_PALETTE = [
+    (0.2, 0.6, 1, 1),
+    (0.96, 0.76, 0.2, 1),
+    (0.8, 0.2, 0.2, 1),
+    (0.4, 0.8, 0.4, 1),
+    (0.6, 0.3, 0.85, 1),
+    (0.95, 0.4, 0.7, 1),
+    (0.2, 0.8, 0.8, 1),
+]
+_gate_color_map = {}
+_assigned_gate_colors = {}
+
+
+def get_gate_color(label):
+    if not label:
+        return (0.85, 0.85, 0.85, 1)
+    if label in _gate_color_map:
+        return _gate_color_map[label]
+
+    try:
+        import colorsys
+        import hashlib
+
+        hashed = int(hashlib.md5(str(label).encode("utf-8")).hexdigest(), 16)
+        base_idx = hashed % len(GATE_COLOR_PALETTE)
+        for offset in range(len(GATE_COLOR_PALETTE)):
+            idx = (base_idx + offset) % len(GATE_COLOR_PALETTE)
+            candidate = GATE_COLOR_PALETTE[idx]
+            owner = _assigned_gate_colors.get(candidate)
+            if owner is None or owner == label:
+                color = candidate
+                break
+        else:
+            hue = (hashed % 360) / 360.0
+            sat = 0.65 + ((hashed >> 8) % 20) / 100.0
+            val = 0.7 + ((hashed >> 16) % 20) / 100.0
+            r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
+            color = (r, g, b, 1)
+    except Exception:
+        color = GATE_COLOR_PALETTE[0]
+
+    _gate_color_map[label] = color
+    _assigned_gate_colors[color] = label
+    return color
 
 
 try:
@@ -1540,6 +1587,8 @@ class SubstationAndroidApp(App):
             self._android_picker_callback = None
             self._pending_android_permission_action = None
             self._android_permission_request_in_flight = False
+            self._pending_change_log_review_after_share = False
+            self._startup_change_log_review_shown = False
             self.sync_btn = None
             self.settings_btn = None
             Logger.info("APP: SubstationAndroidApp initialized successfully")
@@ -1554,6 +1603,19 @@ class SubstationAndroidApp(App):
         except Exception as start_err:
             Logger.warning(
                 f"APP: Failed to display pending uncaught errors: {start_err}"
+            )
+        try:
+            if not self._startup_change_log_review_shown:
+                self._startup_change_log_review_shown = True
+                Clock.schedule_once(
+                    lambda _dt: self._prompt_change_log_review_if_needed(
+                        trigger="startup"
+                    ),
+                    0,
+                )
+        except Exception as review_err:
+            Logger.warning(
+                f"APP: Failed to schedule startup change-log review: {review_err}"
             )
         return True
 
@@ -1591,8 +1653,447 @@ class SubstationAndroidApp(App):
                     self._request_android_storage_permissions(
                         lambda: self._auto_load_saved_db()
                     )
+            if getattr(self, "_pending_change_log_review_after_share", False):
+                self._pending_change_log_review_after_share = False
+                Clock.schedule_once(
+                    lambda _dt: self._prompt_change_log_review_if_needed(
+                        trigger="after_share"
+                    ),
+                    0,
+                )
         except Exception as resume_err:
             Logger.warning(f"APP: Android on_resume handling failed: {resume_err}")
+        return True
+
+    @staticmethod
+    def gate_display_sort_key(gate_label):
+        gate_prefix = S.get("MESSAGES", {}).get("GATE_PREFIX", "ΠΥΛΗ")
+        gate = str(gate_label or "").strip()
+        priority_order = [
+            f"{gate_prefix} 1-3",
+            f"{gate_prefix} 1",
+            f"{gate_prefix} 1-2",
+            f"{gate_prefix} 2",
+            f"{gate_prefix} 2-3",
+            f"{gate_prefix} 3",
+        ]
+        if gate in priority_order:
+            return (0, priority_order.index(gate))
+
+        inter_match = re.match(rf"{re.escape(gate_prefix)} (\d+)-(\d+)$", gate)
+        if inter_match:
+            return (1, int(inter_match.group(1)), int(inter_match.group(2)))
+
+        regular_match = re.match(rf"{re.escape(gate_prefix)} (\d+)$", gate)
+        if regular_match:
+            return (2, int(regular_match.group(1)))
+
+        return (3, gate)
+
+    @classmethod
+    def sort_gate_labels_for_display(cls, gate_labels):
+        return sorted(gate_labels, key=cls.gate_display_sort_key)
+
+    def _get_unregistered_gate_label(self):
+        return S.get("MESSAGES", {}).get(
+            "UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"
+        )
+
+    def _normalize_gate_label(self, gate_value):
+        gate_text = str(gate_value or "").strip()
+        return gate_text or self._get_unregistered_gate_label()
+
+    def _group_elements_by_gate(self, elements):
+        grouped = {}
+        for elem in elements or []:
+            gate_name = self._normalize_gate_label(elem.get("gate"))
+            grouped.setdefault(gate_name, []).append(elem)
+
+        unregistered = self._get_unregistered_gate_label()
+        gate_prefix = S.get("MESSAGES", {}).get("GATE_PREFIX", "ΠΥΛΗ")
+        prefixed = [name for name in grouped if name.startswith(gate_prefix)]
+        other = sorted(
+            name for name in grouped if name not in prefixed and name != unregistered
+        )
+        ordered = self.sort_gate_labels_for_display(prefixed) + other
+        if unregistered in grouped:
+            ordered.append(unregistered)
+        return [(gate_name, grouped[gate_name]) for gate_name in ordered]
+
+    def _build_gate_tag_widget(self, gate_name, *, height=110):
+        tag = Button(
+            text=str(gate_name),
+            size_hint=(None, None),
+            size=(84, height),
+            disabled=True,
+        )
+        try:
+            tag.background_normal = ""
+            tag.background_down = ""
+            tag.background_color = get_gate_color(gate_name)
+            tag.color = (1, 1, 1, 1)
+            tag.bold = True
+            tag.halign = "center"
+            tag.valign = "middle"
+            tag.bind(
+                size=lambda instance, _value: setattr(
+                    instance,
+                    "text_size",
+                    (max(instance.width - 10, 0), max(instance.height - 10, 0)),
+                )
+            )
+            if autosize_button_text:
+                autosize_button_text(tag, max_sp=16, min_sp=9)
+        except Exception:
+            pass
+        return tag
+
+    def _change_log_has_content(self):
+        self._ensure_change_log_path()
+        change_log_path = getattr(self, "change_log_path", "change_log.txt")
+        try:
+            with open(change_log_path, "r", encoding="utf-8") as handle:
+                return any(line.strip() for line in handle)
+        except Exception:
+            return False
+
+    def _read_change_log_entries(self):
+        self._ensure_change_log_path()
+        change_log_path = getattr(self, "change_log_path", "change_log.txt")
+        entries = []
+        try:
+            with open(change_log_path, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except Exception as parse_err:
+                        Logger.warning(
+                            f"APP: Skipping invalid change-log line: {parse_err}"
+                        )
+        except Exception as read_err:
+            Logger.warning(f"APP: Failed to read change log: {read_err}")
+        return entries
+
+    def _lookup_substation_name(self, substation_id, fallback=None):
+        if fallback:
+            return fallback
+        if (
+            not substation_id
+            or not self.local_db_path
+            or not os.path.exists(self.local_db_path)
+        ):
+            return fallback or "-"
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM substations WHERE id=?", (substation_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0]:
+                return row[0]
+        except Exception as lookup_err:
+            Logger.warning(f"APP: Substation lookup failed: {lookup_err}")
+        return fallback or "-"
+
+    def _lookup_element_names(self, element_ids):
+        ids = [int(eid) for eid in (element_ids or []) if str(eid).strip().isdigit()]
+        if not ids or not self.local_db_path or not os.path.exists(self.local_db_path):
+            return {}
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            placeholders = ",".join("?" for _ in ids)
+            cursor.execute(
+                f"SELECT id, name FROM elements WHERE id IN ({placeholders})",
+                ids,
+            )
+            rows = dict(cursor.fetchall())
+            conn.close()
+            return rows
+        except Exception as lookup_err:
+            Logger.warning(f"APP: Element lookup failed: {lookup_err}")
+            return {}
+
+    def _normalize_summary_text(self, text):
+        return " ".join(str(text or "").replace("\n", " ").split()).strip()
+
+    def _is_meaningful_inspection_note(self, text):
+        normalized = self._normalize_summary_text(text)
+        if not normalized:
+            return False
+        plain = re.sub(r"[^\w\u0370-\u03FF]+", "", normalized.lower())
+        neutral_tokens = {
+            "ok",
+            "okay",
+            "done",
+            "checked",
+            "normal",
+            "good",
+            "clear",
+            "completed",
+            "pass",
+            "yes",
+            "no",
+            "na",
+            "n/a",
+            "οκ",
+            "ενταξει",
+            "εντάξει",
+            "καλα",
+            "καλά",
+            "ναι",
+            "οχι",
+            "όχι",
+            "χωριςπαρατηρησεις",
+            "χωρίςπαρατηρήσεις",
+        }
+        if plain in neutral_tokens:
+            return False
+        if len(normalized) <= 4:
+            return False
+        return True
+
+    def _summarize_inspection_findings(self, data):
+        fields = data.get("fields")
+        if isinstance(fields, dict):
+            items = list(fields.items())
+        elif isinstance(fields, list):
+            items = []
+            for item in fields:
+                if isinstance(item, dict):
+                    items.append((item.get("label"), item.get("value")))
+        else:
+            items = []
+            data_json = data.get("data_json")
+            if data_json:
+                try:
+                    decoded = json.loads(data_json)
+                    nested_fields = (
+                        decoded.get("fields") if isinstance(decoded, dict) else []
+                    )
+                    for item in nested_fields or []:
+                        if isinstance(item, dict):
+                            items.append((item.get("label"), item.get("value")))
+                except Exception:
+                    items = []
+
+        findings = []
+        for label, value in items:
+            normalized_value = self._normalize_summary_text(value)
+            if not self._is_meaningful_inspection_note(normalized_value):
+                continue
+            normalized_label = self._normalize_summary_text(label)
+            if normalized_label:
+                findings.append(f"{normalized_label}: {normalized_value}")
+            else:
+                findings.append(normalized_value)
+            if len(findings) >= 3:
+                break
+        return findings
+
+    def _summarize_change_log_entry(self, entry, index):
+        operation = str((entry or {}).get("operation") or "").strip().lower()
+        table = str((entry or {}).get("table") or "").strip().lower()
+        data = (entry or {}).get("data") or {}
+
+        if operation == "insert" and table == "maintenance":
+            substation_name = self._lookup_substation_name(
+                data.get("substation_id"),
+                fallback=data.get("substation_name"),
+            )
+            date_text = data.get("date_time") or "-"
+            element_ids = [
+                item.get("element_id") or item.get("id")
+                for item in (data.get("elements") or [])
+                if isinstance(item, dict)
+            ]
+            element_name_map = self._lookup_element_names(element_ids)
+            element_names = []
+            for item in data.get("elements") or []:
+                if not isinstance(item, dict):
+                    continue
+                elem_id = item.get("element_id") or item.get("id")
+                elem_name = (
+                    element_name_map.get(int(elem_id))
+                    if str(elem_id).isdigit()
+                    else None
+                )
+                element_names.append(elem_name or f"id:{elem_id}")
+            if not element_names:
+                element_text = S.get("MESSAGES", {}).get(
+                    "NO_ELEMENTS", "Χωρίς στοιχεία"
+                )
+            elif len(element_names) > 4:
+                element_text = (
+                    ", ".join(element_names[:4]) + f" +{len(element_names) - 4}"
+                )
+            else:
+                element_text = ", ".join(element_names)
+            return f"{index}. Συντήρηση {substation_name} {date_text} -> {element_text}"
+
+        if operation == "insert" and table in ("inspection", "inspections"):
+            substation_name = self._lookup_substation_name(
+                data.get("substation_id"),
+                fallback=data.get("substation_name"),
+            )
+            date_text = (
+                data.get("inspection_date")
+                or data.get("date")
+                or data.get("date_time")
+                or "-"
+            )
+            findings = self._summarize_inspection_findings(data)
+            findings_text = (
+                " | ".join(findings)
+                if findings
+                else S.get("MESSAGES", {}).get(
+                    "CHANGE_LOG_NO_MAJOR_ISSUES",
+                    "χωρίς σημαντικές παρατηρήσεις",
+                )
+            )
+            return (
+                f"{index}. Επιθεώρηση {substation_name} {date_text} -> {findings_text}"
+            )
+
+        if operation == "insert" and table == "elements":
+            substation_name = self._lookup_substation_name(data.get("substation_id"))
+            return f"{index}. Στοιχείο {substation_name} -> {data.get('name') or '-'}"
+
+        if operation == "insert" and table == "substations":
+            return f"{index}. Υποσταθμός -> {data.get('name') or '-'}"
+
+        return f"{index}. {operation or 'change'} {table or 'entry'}"
+
+    def _build_change_log_summary_text(self, max_entries=None):
+        entries = self._read_change_log_entries()
+        if not entries:
+            return S.get("MESSAGES", {}).get(
+                "CHANGE_LOG_EMPTY", "Το change log είναι κενό."
+            )
+
+        lines = []
+        visible_entries = entries[: max_entries or len(entries)]
+        for index, entry in enumerate(visible_entries, start=1):
+            lines.append(self._summarize_change_log_entry(entry, index))
+
+        if max_entries and len(entries) > max_entries:
+            lines.append(f"+{len(entries) - max_entries} ακόμη αλλαγές")
+        return "\n".join(lines)
+
+    def _show_change_log_summary_popup(self):
+        popup = Popup(
+            title=S.get("MESSAGES", {}).get(
+                "CHANGE_LOG_SUMMARY_TITLE", "Σύνοψη αλλαγών"
+            ),
+            size_hint=(0.95, 0.7),
+        )
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        summary_input = TextInput(
+            text=self._build_change_log_summary_text(),
+            readonly=True,
+            multiline=True,
+        )
+        close_btn = Button(
+            text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"),
+            size_hint_y=None,
+            height=48,
+        )
+        close_btn.bind(on_press=popup.dismiss)
+        layout.add_widget(summary_input)
+        layout.add_widget(close_btn)
+        popup.content = layout
+        popup.open()
+
+    def _prompt_change_log_review_if_needed(self, trigger="startup"):
+        if not self._change_log_has_content():
+            return False
+
+        trigger_message = {
+            "startup": S.get("MESSAGES", {}).get(
+                "CHANGE_LOG_PENDING_REVIEW_STARTUP",
+                "Το change log περιέχει εκκρεμείς αλλαγές από προηγούμενη χρήση.",
+            ),
+            "after_share": S.get("MESSAGES", {}).get(
+                "CHANGE_LOG_PENDING_REVIEW_AFTER_SHARE",
+                "Η κοινοποίηση ξεκίνησε. Θέλετε να καθαρίσετε τώρα το change log;",
+            ),
+        }.get(
+            trigger,
+            S.get("MESSAGES", {}).get(
+                "CHANGE_LOG_PENDING_REVIEW",
+                "Το change log περιέχει εκκρεμείς αλλαγές.",
+            ),
+        )
+
+        popup = Popup(
+            title=S.get("MESSAGES", {}).get(
+                "CHANGE_LOG_PENDING_REVIEW_TITLE", "Εκκρεμείς αλλαγές"
+            ),
+            size_hint=(0.95, 0.6),
+            auto_dismiss=False,
+        )
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        message = Label(
+            text=trigger_message
+            + "\n\n"
+            + self._build_change_log_summary_text(max_entries=3),
+            halign="left",
+            valign="top",
+            size_hint_y=None,
+        )
+        message.bind(
+            width=lambda instance, value: setattr(
+                instance, "text_size", (max(value - 12, 0), None)
+            ),
+            texture_size=lambda instance, value: setattr(
+                instance, "height", value[1] + 16
+            ),
+        )
+
+        btns = BoxLayout(size_hint_y=None, height=72, spacing=8)
+        summary_btn = Button(text=S.get("MESSAGES", {}).get("SUMMARY_BUTTON", "Σύνοψη"))
+        clear_btn = Button(
+            text=S.get("MESSAGES", {}).get("CLEAR_CHANGE_LOG", "Καθαρισμός change log")
+        )
+        later_btn = Button(text=S.get("MESSAGES", {}).get("LATER_BUTTON", "Αργότερα"))
+
+        for btn in (summary_btn, clear_btn, later_btn):
+            btn.halign = "center"
+            btn.valign = "middle"
+            btn.bind(
+                size=lambda instance, _value: setattr(
+                    instance,
+                    "text_size",
+                    (max(instance.width - 10, 0), max(instance.height - 10, 0)),
+                )
+            )
+
+        try:
+            if autosize_button_text:
+                autosize_button_text(summary_btn, max_sp=16, min_sp=9)
+                autosize_button_text(
+                    clear_btn, max_sp=15, min_sp=8, break_on_space=True
+                )
+                autosize_button_text(later_btn, max_sp=16, min_sp=9)
+        except Exception:
+            pass
+
+        summary_btn.bind(on_press=lambda _x: self._show_change_log_summary_popup())
+        clear_btn.bind(
+            on_press=lambda _x: (popup.dismiss(), self._confirm_clear_change_log())
+        )
+        later_btn.bind(on_press=popup.dismiss)
+
+        btns.add_widget(summary_btn)
+        btns.add_widget(clear_btn)
+        btns.add_widget(later_btn)
+        layout.add_widget(message)
+        layout.add_widget(btns)
+        popup.content = layout
+        popup.open()
         return True
 
     def _request_android_permissions(self):
@@ -3091,9 +3592,15 @@ class SubstationAndroidApp(App):
                         size_hint_x=None,
                         width=180,
                     )
+                    summary_btn = Button(
+                        text=S.get("MESSAGES", {}).get("SUMMARY_BUTTON", "Σύνοψη"),
+                        size_hint_x=None,
+                        width=120,
+                    )
                     try:
                         if autosize_button_text:
                             autosize_button_text(copy_btn, max_sp=20, min_sp=10)
+                            autosize_button_text(summary_btn, max_sp=20, min_sp=10)
                     except Exception:
                         pass
 
@@ -3106,6 +3613,9 @@ class SubstationAndroidApp(App):
                             pass
 
                     copy_btn.bind(on_press=_copy_path)
+                    summary_btn.bind(
+                        on_press=lambda _x: self._show_change_log_summary_popup()
+                    )
                     # Share button (attempt Android share intent, fallback to copy path)
                     share_btn = Button(
                         text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση"),
@@ -3127,6 +3637,7 @@ class SubstationAndroidApp(App):
 
                     share_btn.bind(on_press=_share_file)
                     notice.add_widget(share_btn)
+                    notice.add_widget(summary_btn)
                     notice.add_widget(label)
                     notice.add_widget(copy_btn)
 
@@ -3273,6 +3784,18 @@ class SubstationAndroidApp(App):
                 self.actions_area.height = (
                     0 if not visible else self.actions_area.height
                 )
+            if hasattr(self, "header_area") and self.header_area is not None:
+                if not hasattr(self, "_header_area_default_size_hint_y"):
+                    self._header_area_default_size_hint_y = (
+                        self.header_area.size_hint_y
+                        if self.header_area.size_hint_y is not None
+                        else 0.10
+                    )
+                self.header_area.opacity = 1 if visible else 0
+                self.header_area.size_hint_y = (
+                    self._header_area_default_size_hint_y if visible else 0
+                )
+                self.header_area.height = 0 if not visible else self.header_area.height
         except Exception:
             pass
 
@@ -3486,7 +4009,7 @@ class SubstationAndroidApp(App):
         self._ensure_change_log_path()
         change_log_path = getattr(self, "change_log_path", "change_log.txt")
         try:
-            p = Popup(title="Change log actions", size_hint=(0.95, 0.42))
+            p = Popup(title="Change log actions", size_hint=(0.95, 0.52))
             layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
             # Show file path and basic file info so users can debug missing files
             try:
@@ -3511,9 +4034,12 @@ class SubstationAndroidApp(App):
                     instance, "height", value[1] + 16
                 ),
             )
-            btns = BoxLayout(size_hint_y=None, height=110, spacing=8)
+            btns = BoxLayout(size_hint_y=None, height=160, spacing=8)
             copy_btn = Button(
                 text=S.get("MESSAGES", {}).get("COPY_PATH", "Αντιγραφή διαδρομής")
+            )
+            summary_btn = Button(
+                text=S.get("MESSAGES", {}).get("SUMMARY_BUTTON", "Σύνοψη")
             )
             share_btn = Button(
                 text=S.get("MESSAGES", {}).get("SHARE_BUTTON", "Κοινοποίηση")
@@ -3526,6 +4052,7 @@ class SubstationAndroidApp(App):
 
             def _on_share(_):
                 try:
+                    p.dismiss()
                     self._launch_share_intent(change_log_path)
                 except Exception as e:
                     # Surface error to the user and then fallback to clipboard
@@ -3546,6 +4073,9 @@ class SubstationAndroidApp(App):
                     except Exception:
                         pass
 
+            def _on_summary(_):
+                self._show_change_log_summary_popup()
+
             def _on_copy(_):
                 try:
                     import importlib
@@ -3565,9 +4095,10 @@ class SubstationAndroidApp(App):
                     pass
 
             copy_btn.bind(on_press=_on_copy)
+            summary_btn.bind(on_press=_on_summary)
             share_btn.bind(on_press=_on_share)
             clear_btn.bind(on_press=lambda _x: self._confirm_clear_change_log(p))
-            for btn in (copy_btn, share_btn, clear_btn):
+            for btn in (copy_btn, summary_btn, share_btn, clear_btn):
                 btn.text_size = (0, 0)
                 btn.halign = "center"
                 btn.valign = "middle"
@@ -3584,6 +4115,7 @@ class SubstationAndroidApp(App):
                 except Exception:
                     pass
             btns.add_widget(copy_btn)
+            btns.add_widget(summary_btn)
             btns.add_widget(share_btn)
             btns.add_widget(clear_btn)
             layout.add_widget(label)
@@ -4346,151 +4878,169 @@ class SubstationAndroidApp(App):
                         )
                     )
                     return
-                for elem in elements:
-                    # Compact card-style element display
-                    elem_card = BoxLayout(
-                        size_hint_y=None,
-                        height=160,
-                        spacing=8,
-                        padding=[10, 10],
-                        orientation="horizontal",
-                    )
-
-                    # Element info (main area)
-                    info_layout = BoxLayout(
-                        orientation="vertical", size_hint_x=1, spacing=8
-                    )
-
-                    # Line 1: Type and name
-                    elem_type_display = elem["element_type"]
-                    if elem.get("breaker_category"):
-                        elem_type_display += f" ({elem['breaker_category']})"
-
-                    line1 = Label(
-                        text=f"[b]{elem['name']}[/b] - {elem_type_display}",
+                grouped_elements = self._group_elements_by_gate(elements)
+                for gate_name, gate_elements in grouped_elements:
+                    gate_header = Label(
+                        text=f"[b]{gate_name} ({len(gate_elements)} στοιχεία)[/b]",
                         markup=True,
-                        font_size="15sp",
-                        halign="left",
-                        valign="middle",
-                        size_hint_y=None,
-                        height=42,
-                        shorten=True,
-                        shorten_from="right",
-                        max_lines=1,
-                    )
-                    line1.bind(
-                        size=lambda inst, _size: setattr(
-                            inst, "text_size", (inst.width, None)
-                        )
-                    )
-                    info_layout.add_widget(line1)
-
-                    # Line 2: S/N, manufacturer, model, ID (matching desktop format)
-                    sn = elem.get("serial_number") or "-"
-                    mfr = (
-                        elem.get("model_manufacturer")
-                        or elem.get("manufacturer")
-                        or "-"
-                    )
-                    mdl = elem.get("model_name") or elem.get("model") or "-"
-                    elem_id = elem.get("id", "N/A")
-                    line2 = Label(
-                        text=f"S/N: {sn} | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id})",
-                        font_size="11sp",
-                        halign="left",
-                        valign="middle",
-                        color=(0.7, 0.7, 0.7, 1),
                         size_hint_y=None,
                         height=36,
-                        shorten=True,
-                        shorten_from="right",
-                        max_lines=1,
-                    )
-                    line2.bind(
-                        size=lambda inst, _size: setattr(
-                            inst, "text_size", (inst.width, None)
-                        )
-                    )
-                    info_layout.add_widget(line2)
-
-                    # Line 3: Voltage, year, status
-                    voltage = elem.get("voltage_level", "-")
-                    year = elem.get("manufacture_year", "")
-                    status = elem.get("operating_status", "-")
-
-                    status_prefix = "[OK]" if status == "Ενεργή" else "[!]"
-                    line3_text = f"{voltage}"
-                    if year:
-                        line3_text += f" | Έτος: {year}"
-                    line3_text += f" | {status_prefix} {status}"
-
-                    line3 = Label(
-                        text=line3_text,
-                        font_size="12sp",
                         halign="left",
-                        valign="top",
-                        color=(0.6, 0.6, 0.6, 1),
-                        size_hint_y=None,
-                        height=34,
-                        shorten=True,
-                        shorten_from="right",
-                        max_lines=1,
-                    )
-                    line3.bind(
-                        size=lambda inst, _size: setattr(
-                            inst, "text_size", (inst.width, None)
-                        )
-                    )
-                    info_layout.add_widget(line3)
-
-                    elem_card.add_widget(info_layout)
-
-                    # Check for manual - prefer onedrive_manual_link, fallback to manual_pdf if it's a URL
-                    manual_link = (elem.get("onedrive_manual_link") or "").strip()
-                    if not manual_link:
-                        manual_pdf = (elem.get("manual_pdf") or "").strip()
-                        if manual_pdf and (
-                            manual_pdf.startswith("http://")
-                            or manual_pdf.startswith("https://")
-                        ):
-                            manual_link = manual_pdf
-
-                    if manual_link:
-                        manual_btn = self._build_vector_icon_button(
-                            "book",
-                            lambda x, link=manual_link: self._open_url(link),
-                            icon_color=(0.2, 0.7, 0.95, 1),
-                            size=(50, 50),
-                        )
-                        elem_card.add_widget(manual_btn)
-
-                    # Add maintenance history button only if element has maintenance records
-                    element_id = elem.get("id")
-                    if self._has_element_maintenance_history(element_id):
-                        history_btn = self._build_vector_icon_button(
-                            "maintenance",
-                            lambda x, eid=element_id, ename=elem.get("name"): (
-                                self.show_element_maintenance_history(eid, ename)
-                            ),
-                            icon_color=(0.4, 0.6, 0.8, 1),
-                            size=(50, 50),
-                        )
-                        elem_card.add_widget(history_btn)
-
-                    grid.add_widget(elem_card)
-
-                    # Clear visual divider between entries for readability.
-                    separator = Label(
-                        text="-" * 110,
-                        size_hint_y=None,
-                        height=12,
-                        color=(0.4, 0.4, 0.4, 1),
-                        font_size="11sp",
-                        halign="center",
                         valign="middle",
+                        color=get_gate_color(gate_name),
                     )
-                    separator.bind(size=separator.setter("text_size"))
-                    grid.add_widget(separator)
+                    gate_header.bind(
+                        size=lambda inst, _size: setattr(
+                            inst, "text_size", (inst.width, inst.height)
+                        )
+                    )
+                    grid.add_widget(gate_header)
+
+                    for elem in gate_elements:
+                        elem_row = BoxLayout(
+                            size_hint_y=None,
+                            height=160,
+                            spacing=8,
+                            orientation="horizontal",
+                        )
+                        elem_card = BoxLayout(
+                            size_hint=(1, None),
+                            height=160,
+                            spacing=8,
+                            padding=[10, 10],
+                            orientation="horizontal",
+                        )
+
+                        info_layout = BoxLayout(
+                            orientation="vertical", size_hint_x=1, spacing=8
+                        )
+
+                        elem_type_display = elem["element_type"]
+                        if elem.get("breaker_category"):
+                            elem_type_display += f" ({elem['breaker_category']})"
+
+                        line1 = Label(
+                            text=f"[b]{elem['name']}[/b] - {elem_type_display}",
+                            markup=True,
+                            font_size="15sp",
+                            halign="left",
+                            valign="middle",
+                            size_hint_y=None,
+                            height=42,
+                            shorten=True,
+                            shorten_from="right",
+                            max_lines=1,
+                        )
+                        line1.bind(
+                            size=lambda inst, _size: setattr(
+                                inst, "text_size", (inst.width, None)
+                            )
+                        )
+                        info_layout.add_widget(line1)
+
+                        sn = elem.get("serial_number") or "-"
+                        mfr = (
+                            elem.get("model_manufacturer")
+                            or elem.get("manufacturer")
+                            or "-"
+                        )
+                        mdl = elem.get("model_name") or elem.get("model") or "-"
+                        elem_id = elem.get("id", "N/A")
+                        line2 = Label(
+                            text=f"S/N: {sn} | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id})",
+                            font_size="11sp",
+                            halign="left",
+                            valign="middle",
+                            color=(0.7, 0.7, 0.7, 1),
+                            size_hint_y=None,
+                            height=36,
+                            shorten=True,
+                            shorten_from="right",
+                            max_lines=1,
+                        )
+                        line2.bind(
+                            size=lambda inst, _size: setattr(
+                                inst, "text_size", (inst.width, None)
+                            )
+                        )
+                        info_layout.add_widget(line2)
+
+                        voltage = elem.get("voltage_level", "-")
+                        year = elem.get("manufacture_year", "")
+                        status = elem.get("operating_status", "-")
+                        status_prefix = "[OK]" if status == "Ενεργή" else "[!]"
+                        line3_text = f"{voltage}"
+                        if year:
+                            line3_text += f" | Έτος: {year}"
+                        line3_text += f" | {status_prefix} {status}"
+
+                        line3 = Label(
+                            text=line3_text,
+                            font_size="12sp",
+                            halign="left",
+                            valign="top",
+                            color=(0.6, 0.6, 0.6, 1),
+                            size_hint_y=None,
+                            height=34,
+                            shorten=True,
+                            shorten_from="right",
+                            max_lines=1,
+                        )
+                        line3.bind(
+                            size=lambda inst, _size: setattr(
+                                inst, "text_size", (inst.width, None)
+                            )
+                        )
+                        info_layout.add_widget(line3)
+                        elem_card.add_widget(info_layout)
+
+                        manual_link = (elem.get("onedrive_manual_link") or "").strip()
+                        if not manual_link:
+                            manual_pdf = (elem.get("manual_pdf") or "").strip()
+                            if manual_pdf and (
+                                manual_pdf.startswith("http://")
+                                or manual_pdf.startswith("https://")
+                            ):
+                                manual_link = manual_pdf
+
+                        if manual_link:
+                            manual_btn = self._build_vector_icon_button(
+                                "book",
+                                lambda x, link=manual_link: self._open_url(link),
+                                icon_color=(0.2, 0.7, 0.95, 1),
+                                size=(50, 50),
+                            )
+                            elem_card.add_widget(manual_btn)
+
+                        element_id = elem.get("id")
+                        if self._has_element_maintenance_history(element_id):
+                            history_btn = self._build_vector_icon_button(
+                                "maintenance",
+                                lambda x, eid=element_id, ename=elem.get("name"): (
+                                    self.show_element_maintenance_history(eid, ename)
+                                ),
+                                icon_color=(0.4, 0.6, 0.8, 1),
+                                size=(50, 50),
+                            )
+                            elem_card.add_widget(history_btn)
+
+                        elem_row.add_widget(
+                            self._build_gate_tag_widget(gate_name, height=160)
+                        )
+                        elem_row.add_widget(elem_card)
+                        grid.add_widget(elem_row)
+
+                        separator = Label(
+                            text="-" * 110,
+                            size_hint_y=None,
+                            height=12,
+                            color=(0.4, 0.4, 0.4, 1),
+                            font_size="11sp",
+                            halign="center",
+                            valign="middle",
+                        )
+                        separator.bind(size=separator.setter("text_size"))
+                        grid.add_widget(separator)
             except Exception as e:
                 if loading_label.parent:
                     grid.remove_widget(loading_label)
@@ -4889,7 +5439,37 @@ class SubstationAndroidApp(App):
                             )
                         )
                         return
-                    for elem in elements:
+                    grouped_elements = self._group_elements_by_gate(elements)
+                    ordered_entries = []
+                    for gate_name, gate_elements in grouped_elements:
+                        ordered_entries.append(
+                            ("header", gate_name, len(gate_elements))
+                        )
+                        for gate_elem in gate_elements:
+                            ordered_entries.append(("element", gate_name, gate_elem))
+
+                    for entry in ordered_entries:
+                        if entry[0] == "header":
+                            gate_name = entry[1]
+                            gate_count = entry[2]
+                            gate_header = Label(
+                                text=f"[b]{gate_name} ({gate_count} στοιχεία)[/b]",
+                                markup=True,
+                                size_hint_y=None,
+                                height=36,
+                                halign="left",
+                                valign="middle",
+                                color=get_gate_color(gate_name),
+                            )
+                            gate_header.bind(
+                                size=lambda inst, _size: setattr(
+                                    inst, "text_size", (inst.width, inst.height)
+                                )
+                            )
+                            content_layout.add_widget(gate_header)
+                            continue
+
+                        _kind, gate_name, elem = entry
                         # Element container
                         elem_box = BoxLayout(
                             orientation="vertical",
@@ -6278,7 +6858,19 @@ class SubstationAndroidApp(App):
                                     eb.remove_widget(dc)
 
                         checkbox.bind(active=toggle_details)
-                        content_layout.add_widget(elem_box)
+                        elem_row = BoxLayout(
+                            orientation="horizontal",
+                            size_hint_y=None,
+                            spacing=8,
+                        )
+                        elem_row.bind(minimum_height=elem_row.setter("height"))
+                        elem_row.add_widget(
+                            self._build_gate_tag_widget(
+                                gate_name, height=max(140, int(elem_box.height or 140))
+                            )
+                        )
+                        elem_row.add_widget(elem_box)
+                        content_layout.add_widget(elem_row)
 
                         element_widgets[elem["id"]] = {
                             "checkbox": checkbox,
@@ -6300,7 +6892,11 @@ class SubstationAndroidApp(App):
 
         # Place the overall comments in a fixed container above the elements scroll
         comments_container = BoxLayout(
-            orientation="vertical", size_hint_y=None, height=160
+            orientation="vertical",
+            size_hint_y=None,
+            height=168,
+            spacing=6,
+            padding=[0, 6, 0, 0],
         )
         comments_container.add_widget(
             wrapped_label(
@@ -6392,167 +6988,493 @@ class SubstationAndroidApp(App):
         popup.content = main_layout
         popup.open()
 
+    def _get_android_inspection_substations(self, current_substation=None):
+        substations = []
+        seen = set()
+
+        for item in getattr(self, "substations", []) or []:
+            if not isinstance(item, dict):
+                continue
+            sid = item.get("id")
+            name = str(item.get("name") or "").strip()
+            if not sid or not name or sid in seen:
+                continue
+            substations.append((sid, name))
+            seen.add(sid)
+
+        if not substations and current_substation:
+            sid = current_substation.get("id")
+            name = str(current_substation.get("name") or "").strip()
+            if sid and name:
+                substations.append((sid, name))
+                seen.add(sid)
+
+        if (
+            not substations
+            and self.local_db_path
+            and os.path.exists(self.local_db_path)
+        ):
+            try:
+                conn = sqlite3.connect(self.local_db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, name FROM substations ORDER BY name")
+                for sid, name in cursor.fetchall():
+                    if sid in seen or not name:
+                        continue
+                    substations.append((sid, name))
+                    seen.add(sid)
+                conn.close()
+            except Exception as lookup_err:
+                Logger.warning(
+                    f"APP: Failed to load inspection substations: {lookup_err}"
+                )
+
+        return substations
+
+    def _get_android_inspection_people(self):
+        if not self.local_db_path or not os.path.exists(self.local_db_path):
+            return []
+
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT name FROM people WHERE active=1 ORDER BY COALESCE(surname, name) COLLATE NOCASE"
+                )
+            except Exception:
+                cursor.execute(
+                    "SELECT name FROM people ORDER BY COALESCE(surname, name) COLLATE NOCASE"
+                )
+            names = [str(row[0]).strip() for row in cursor.fetchall() if row and row[0]]
+            conn.close()
+            return names
+        except Exception as people_err:
+            Logger.warning(f"APP: Failed to load inspection people: {people_err}")
+            return []
+
+    def _show_android_substation_selection_window_with_callback(
+        self, parent_popup, substations, callback
+    ):
+        picker_popup = Popup(
+            title=S.get("MESSAGES", {}).get(
+                "SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"
+            ),
+            size_hint=(0.9, 0.8),
+        )
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        scroll = ScrollView(bar_width=10)
+        grid = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=4)
+        grid.bind(minimum_height=grid.setter("height"))
+
+        for _sid, name in substations:
+            btn = Button(text=name, size_hint_y=None, height=52)
+            btn.bind(
+                on_press=lambda _x, selected=name: (
+                    picker_popup.dismiss(),
+                    callback(selected),
+                )
+            )
+            grid.add_widget(btn)
+
+        scroll.add_widget(grid)
+        main_layout.add_widget(scroll)
+        close_btn = Button(
+            text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"),
+            size_hint_y=None,
+            height=48,
+        )
+        close_btn.bind(on_press=picker_popup.dismiss)
+        main_layout.add_widget(close_btn)
+        picker_popup.content = main_layout
+        picker_popup.open()
+
     def show_inspection_entry_popup(self, substation_id, substation):
-        """Add a new inspection entry"""
+        """Add a new inspection entry using the desktop inspection form layout."""
+
+        from inspections import (
+            _derive_month_key,
+            _format_inspection_value,
+            _parse_inspection_date,
+        )
+
+        substations = self._get_android_inspection_substations(substation)
+        if not substations:
+            substations = [(substation_id, substation.get("name") or "-")]
 
         popup = Popup(
-            title=f"Νέα Επιθεώρηση - {substation['name']}", size_hint=(0.95, 0.85)
+            title=S.get("TITLES", {}).get("INSPECTION_ENTRY", "Νέα Επιθεώρηση"),
+            size_hint=(0.9, 0.95),
         )
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-        scroll = ScrollView(bar_width=10, size_hint=(1, 0.8))
-        layout = BoxLayout(
-            orientation="vertical", size_hint_y=None, padding=5, spacing=10
-        )
-        layout.bind(minimum_height=layout.setter("height"))
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        content_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        content_layout.bind(minimum_height=content_layout.setter("height"))
 
-        def wrapped_label(text_value, bold=False):
-            label = Label(
-                text=text_value,
+        content_layout.add_widget(
+            Label(
+                text=S.get("MESSAGES", {}).get(
+                    "SELECT_SUBSTATION", "Επιλογή Υποσταθμού:"
+                ),
                 size_hint_y=None,
-                halign="left",
-                valign="middle",
-                bold=bold,
-                markup=bold,
+                height=35,
             )
-            label.bind(
-                width=lambda instance, value: setattr(
-                    instance, "text_size", (value, None)
-                ),
-                texture_size=lambda instance, value: setattr(
-                    instance, "height", value[1] + 10
-                ),
-            )
-            return label
+        )
 
-        layout.add_widget(wrapped_label("Ημερομηνία Επιθεώρησης:"))
+        substation_map = {name: sid for sid, name in substations}
+        initial_substation = (
+            substation.get("name")
+            if substation.get("name") in substation_map
+            else substations[0][1]
+        )
+        substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        substation_label = Label(
+            text=S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:"),
+            size_hint_x=0.18,
+        )
+        substation_picker = BoxLayout(size_hint_x=0.42, spacing=5)
+        substation_input = TextInput(
+            text=initial_substation,
+            readonly=True,
+            size_hint_x=0.7,
+            multiline=False,
+        )
+        select_sub_btn = Button(
+            text=S.get("MESSAGES", {}).get("SELECT_PROMPT", "Επιλογή"),
+            size_hint_x=0.3,
+        )
+        substation_picker.add_widget(substation_input)
+        substation_picker.add_widget(select_sub_btn)
+        form_number_label = Label(
+            text=S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
+            size_hint_x=0.18,
+        )
+        form_number_input = TextInput(
+            hint_text=S.get("MESSAGES", {}).get("FORM_NUMBER_HINT", "Αρ. Δελτίου"),
+            size_hint_x=0.22,
+            multiline=False,
+        )
+        substation_row.add_widget(substation_label)
+        substation_row.add_widget(substation_picker)
+        substation_row.add_widget(form_number_label)
+        substation_row.add_widget(form_number_input)
+        content_layout.add_widget(substation_row)
+
+        people = self._get_android_inspection_people()
+        inspector_default = people[0] if people else ""
+
+        row_two = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        date_label = Label(
+            text=S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
+            size_hint_x=0.18,
+        )
         date_input = TextInput(
             text=datetime.now().strftime("%Y-%m-%d"),
-            hint_text="YYYY-MM-DD",
-            size_hint_y=None,
-            height=68,
+            hint_text=S.get("MESSAGES", {}).get("DATE_HINT", "YYYY-MM-DD"),
+            size_hint_x=0.32,
+            height=40,
             multiline=False,
-            padding=[14, 14, 14, 14],
         )
-        layout.add_widget(date_input)
-
-        # Add form number and region inputs to match desktop inspection form
-        form_region_row = BoxLayout(size_hint_y=None, height=68, spacing=8)
-        form_number_input = TextInput(
-            hint_text="Αρ. Δελτίου",
-            size_hint_x=0.5,
-            size_hint_y=None,
-            height=68,
-            multiline=False,
-            padding=[12, 12, 12, 12],
+        region_label = Label(
+            text=S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
+            size_hint_x=0.14,
         )
         region_input = TextInput(
-            hint_text="Περιοχή",
-            size_hint_x=0.5,
-            size_hint_y=None,
-            height=68,
+            hint_text=S.get("MESSAGES", {}).get("REGION_HINT", "Περιοχή"),
+            size_hint_x=0.16,
             multiline=False,
-            padding=[12, 12, 12, 12],
         )
-        form_region_row.add_widget(form_number_input)
-        form_region_row.add_widget(region_input)
-        layout.add_widget(form_region_row)
+        inspector_label = Label(
+            text=S.get("MESSAGES", {}).get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
+            size_hint_x=0.12,
+        )
+        inspector_spinner = Spinner(
+            text=inspector_default,
+            values=people or [""],
+            size_hint_x=0.18,
+            height=40,
+        )
+        row_two.add_widget(date_label)
+        row_two.add_widget(date_input)
+        row_two.add_widget(region_label)
+        row_two.add_widget(region_input)
+        row_two.add_widget(inspector_label)
+        row_two.add_widget(inspector_spinner)
+        content_layout.add_widget(row_two)
 
-        field_inputs = []
-        for field in self.INSPECTION_FIELDS:
-            if isinstance(field, dict) and field.get("type") == "section":
-                layout.add_widget(
-                    wrapped_label(f"[b]{field.get('title')}[/b]", bold=True)
+        row_three = BoxLayout(size_hint_y=None, height=40, spacing=5)
+        month_label = Label(
+            text=S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
+            size_hint_x=0.18,
+        )
+        month_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
+        day_label = Label(
+            text=S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
+            size_hint_x=0.18,
+        )
+        day_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
+        year_label = Label(
+            text=S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
+            size_hint_x=0.18,
+        )
+        year_input = TextInput(readonly=True, size_hint_x=0.18, multiline=False)
+        row_three.add_widget(month_label)
+        row_three.add_widget(month_input)
+        row_three.add_widget(day_label)
+        row_three.add_widget(day_input)
+        row_three.add_widget(year_label)
+        row_three.add_widget(year_input)
+        content_layout.add_widget(row_three)
+
+        fields_inputs = []
+        greek_months = S.get("MESSAGES", {}).get(
+            "MONTHS",
+            [
+                "Ιανουάριος",
+                "Φεβρουάριος",
+                "Μάρτιος",
+                "Απρίλιος",
+                "Μάιος",
+                "Ιούνιος",
+                "Ιούλιος",
+                "Αύγουστος",
+                "Σεπτέμβριος",
+                "Οκτώβριος",
+                "Νοέμβριος",
+                "Δεκέμβριος",
+            ],
+        )
+        greek_days = S.get("MESSAGES", {}).get(
+            "DAYS",
+            [
+                "Δευτέρα",
+                "Τρίτη",
+                "Τετάρτη",
+                "Πέμπτη",
+                "Παρασκευή",
+                "Σάββατο",
+                "Κυριακή",
+            ],
+        )
+
+        def update_date_meta(_instance=None, _text=None):
+            parsed = _parse_inspection_date(date_input.text.strip())
+            try:
+                dt = datetime.strptime(parsed, "%Y-%m-%d")
+                month_input.text = greek_months[dt.month - 1]
+                day_input.text = greek_days[dt.weekday()]
+                year_input.text = f"{dt.year}"
+            except Exception:
+                month_input.text = ""
+                day_input.text = ""
+                year_input.text = ""
+
+        def open_substation_selection(_instance=None):
+            self._show_android_substation_selection_window_with_callback(
+                popup,
+                substations,
+                lambda selected_name: setattr(substation_input, "text", selected_name),
+            )
+
+        select_sub_btn.bind(on_press=open_substation_selection)
+        date_input.bind(text=update_date_meta)
+        update_date_meta()
+
+        rows = list(S.get("MESSAGES", {}).get("INSPECTION_ROWS", []) or [])
+
+        def add_section(title_text):
+            content_layout.add_widget(
+                Label(
+                    text=title_text,
+                    markup=True,
+                    size_hint_y=None,
+                    height=35,
                 )
-                continue
-
-            row = BoxLayout(size_hint_y=None, spacing=8)
-            row.bind(minimum_height=row.setter("height"))
-
-            label = Label(
-                text=str(field),
-                size_hint_x=0.62,
-                size_hint_y=None,
-                halign="left",
-                valign="top",
-            )
-            label.bind(
-                width=lambda instance, value: setattr(
-                    instance, "text_size", (value, None)
-                ),
-                texture_size=lambda instance, value: (
-                    setattr(instance, "height", value[1] + 10),
-                    setattr(row, "height", max(value[1] + 10, 100)),
-                ),
             )
 
-            ti = TextInput(
-                hint_text="Παρατηρήσεις",
-                size_hint_x=0.38,
+        def add_inspection_row(label_text):
+            row = BoxLayout(size_hint_y=None, height=60, spacing=5)
+            label = Label(text=label_text, size_hint_x=0.7, size_hint_y=None)
+            label.bind(width=lambda inst, val: setattr(inst, "text_size", (val, None)))
+
+            input_widget = TextInput(
+                hint_text=S.get("MESSAGES", {}).get(
+                    "OBSERVATIONS_HINT", "Παρατηρήσεις"
+                ),
+                size_hint_x=0.3,
                 size_hint_y=None,
-                height=90,
+                height=60,
                 multiline=True,
-                padding=[12, 12, 12, 12],
             )
-            ti.bind(
-                height=lambda _instance, _value: setattr(
-                    row, "height", max(row.height, ti.height)
+
+            def sync_row_height(_instance=None, _value=None):
+                texture_size = getattr(label, "texture_size", None)
+                label_height = 0
+                if texture_size:
+                    try:
+                        label_height = texture_size[1]
+                    except Exception:
+                        label_height = 0
+                row.height = max(
+                    label_height,
+                    input_widget.height,
+                    60,
                 )
-            )
+                label.height = row.height
+
+            label.bind(texture_size=sync_row_height)
+            input_widget.bind(height=sync_row_height)
+            sync_row_height()
 
             row.add_widget(label)
-            row.add_widget(ti)
-            layout.add_widget(row)
-            field_inputs.append((str(field), ti))
+            row.add_widget(input_widget)
+            content_layout.add_widget(row)
+            fields_inputs.append((label_text, input_widget))
 
-        scroll.add_widget(layout)
+        add_section(
+            S.get("MESSAGES", {}).get("INSPECTION_SECTION_2", "[b]Έλεγχος Χώρων ΥΣ[/b]")
+        )
+        for row_label in rows[0:4]:
+            add_inspection_row(row_label)
+
+        add_section(
+            S.get("MESSAGES", {}).get(
+                "INSPECTION_SECTION_3",
+                "[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]",
+            )
+        )
+        for row_label in rows[4:12]:
+            add_inspection_row(row_label)
+
+        add_section(
+            S.get("MESSAGES", {}).get(
+                "INSPECTION_SECTION_3A", "[b]Υπαίθριες πύλες 20 kV[/b]"
+            )
+        )
+        if len(rows) > 12:
+            add_inspection_row(rows[12])
+
+        add_section(
+            S.get("MESSAGES", {}).get("INSPECTION_SECTION_3B", "[b]Πίνακες 20 kV[/b]")
+        )
+        for row_label in rows[13:15] if len(rows) > 13 else []:
+            add_inspection_row(row_label)
+
+        add_section(
+            S.get("MESSAGES", {}).get(
+                "INSPECTION_SECTION_4", "[b]Κτίριο χειρισμών & Τ.Α.Σ.[/b]"
+            )
+        )
+        for row_label in rows[15:18] if len(rows) > 15 else []:
+            add_inspection_row(row_label)
+
+        add_section(
+            S.get("MESSAGES", {}).get(
+                "INSPECTION_SECTION_5", "[b]Αποζευκτες Γραμμών[/b]"
+            )
+        )
+        if len(rows) > 18:
+            add_inspection_row(rows[18])
+
+        add_section(
+            S.get("MESSAGES", {}).get("INSPECTION_SECTION_6", "[b]PC ΧΕΙΡΙΣΜΩΝ[/b]")
+        )
+        for row_label in rows[19:21] if len(rows) > 19 else []:
+            add_inspection_row(row_label)
+
+        add_section(S.get("MESSAGES", {}).get("INSPECTION_SECTION_7", "[b]Απόψεις[/b]"))
+        add_inspection_row(
+            S.get("MESSAGES", {}).get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")
+        )
+
+        scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
 
-        button_layout = BoxLayout(size_hint_y=None, height=60, spacing=10)
+        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
 
         def save_inspection():
-            if not date_input.text.strip():
-                self.show_error("Η ημερομηνία είναι υποχρεωτική!")
+            substation_name = substation_input.text.strip()
+            resolved_substation_id = substation_map.get(substation_name, substation_id)
+            inspection_date = _parse_inspection_date(date_input.text.strip())
+            if not inspection_date:
+                self.show_error(
+                    S.get("MESSAGES", {}).get(
+                        "DATE_REQUIRED", "Η ημερομηνία είναι υποχρεωτική!"
+                    )
+                )
                 return
+            month_key = _derive_month_key(inspection_date)
 
-            fields_payload = [
-                {"label": label, "value": ti.text.strip()} for label, ti in field_inputs
+            fields_list = [
+                {
+                    "label": S.get("MESSAGES", {}).get(
+                        "SUBSTATION_LABEL", "Υποσταθμός:"
+                    ),
+                    "value": substation_name,
+                },
+                {
+                    "label": S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
+                    "value": _format_inspection_value(form_number_input.text),
+                },
+                {
+                    "label": S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
+                    "value": _format_inspection_value(region_input.text),
+                },
+                {
+                    "label": S.get("MESSAGES", {}).get(
+                        "INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"
+                    ),
+                    "value": _format_inspection_value(inspector_spinner.text),
+                },
+                {
+                    "label": S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
+                    "value": _format_inspection_value(month_input.text),
+                },
+                {
+                    "label": S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
+                    "value": _format_inspection_value(day_input.text),
+                },
+                {
+                    "label": S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
+                    "value": _format_inspection_value(year_input.text),
+                },
+                {
+                    "label": S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
+                    "value": _format_inspection_value(inspection_date),
+                },
             ]
-            # Produce keys expected by the desktop importer/prefill and the
-            # DB insert path. The desktop importer prefers a `fields` dict for
-            # prefill while the DB stores `data_json` with a `fields` list.
-            fields_dict = {f["label"]: f["value"] for f in fields_payload}
+            for label_text, input_widget in fields_inputs:
+                fields_list.append(
+                    {
+                        "label": label_text,
+                        "value": _format_inspection_value(input_widget.text),
+                    }
+                )
+
+            fields_dict = {
+                entry["label"]: entry["value"]
+                for entry in fields_list
+                if entry.get("label")
+            }
+            created_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             payload = {
-                "substation_id": substation_id,
-                # Provide both `date_time`/`date` for prefill convenience and
-                # `inspection_date` so the generic importer can map to the
-                # `inspections.inspection_date` column when inserting.
-                "date_time": date_input.text.strip(),
-                "date": date_input.text.strip(),
-                "inspection_date": date_input.text.strip(),
-                # `data_json` is what the desktop DB stores; keep it as a JSON
-                # string with the canonical fields list.
-                "data_json": json.dumps({"fields": fields_payload}, ensure_ascii=False),
-                # Also include a simple mapping for prefill convenience.
+                "substation_id": resolved_substation_id,
+                "substation_name": substation_name,
+                "date_time": inspection_date,
+                "date": inspection_date,
+                "inspection_date": inspection_date,
+                "data_json": json.dumps({"fields": fields_list}, ensure_ascii=False),
                 "fields": fields_dict,
-                "form_number": (
-                    form_number_input.text.strip()
-                    if form_number_input and form_number_input.text is not None
-                    else None
-                ),
-                "region": (
-                    region_input.text.strip()
-                    if region_input and region_input.text is not None
-                    else None
-                ),
-                "substation_name": substation.get("name"),
-                "month_key": date_input.text.strip()[:7],
+                "form_number": _format_inspection_value(form_number_input.text),
+                "region": _format_inspection_value(region_input.text),
+                "inspector": _format_inspection_value(inspector_spinner.text),
+                "month_key": month_key,
                 "source_file": "android-local",
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "created_at": created_at,
             }
 
             try:
-                # Do not write to the main DB from Android; append to change log
                 temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
                 self._append_change_log(
                     "insert", "inspections", {**payload, "id": temp_id}
@@ -6564,19 +7486,21 @@ class SubstationAndroidApp(App):
                         "CHANGELOG_RECORDED", "Η αλλαγή καταγράφηκε στο change log."
                     ),
                 )
-            except Exception as e:
-                Logger.error(f"APP: Failed to append inspection to change log: {e}")
-                self.show_error(f"Local change log error: {str(e)}")
+            except Exception as inspection_err:
+                Logger.error(
+                    f"APP: Failed to append inspection to change log: {inspection_err}"
+                )
+                self.show_error(f"Local change log error: {inspection_err}")
 
         save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
-        save_btn.bind(on_press=lambda x: save_inspection())
-        button_layout.add_widget(save_btn)
+        save_btn.bind(on_press=lambda _x: save_inspection())
+        buttons_layout.add_widget(save_btn)
 
         cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
         cancel_btn.bind(on_press=popup.dismiss)
-        button_layout.add_widget(cancel_btn)
+        buttons_layout.add_widget(cancel_btn)
 
-        main_layout.add_widget(button_layout)
+        main_layout.add_widget(buttons_layout)
         popup.content = main_layout
         popup.open()
 
@@ -7097,9 +8021,11 @@ class SubstationAndroidApp(App):
                     except Exception:
                         pass
                     current.startActivity(chooser)
+                    self._pending_change_log_review_after_share = True
                 except Exception as chooser_err:
                     try:
                         current.startActivity(intent)
+                        self._pending_change_log_review_after_share = True
                     except Exception as raw_err:
                         failure_reason = f"chooser={chooser_err}; direct={raw_err}"
                         Clock.schedule_once(

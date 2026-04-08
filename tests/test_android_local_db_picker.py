@@ -393,6 +393,56 @@ def test_show_inspection_entry_popup_uses_save_and_cancel_text_fallback(monkeypa
     assert "Άκυρο" in texts
 
 
+def test_show_inspection_entry_popup_matches_desktop_form_structure(monkeypatch):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+
+    app = android_app.SubstationAndroidApp()
+    app.substations = [{"id": 1, "name": "S1"}, {"id": 2, "name": "S2"}]
+
+    app.show_inspection_entry_popup(1, {"id": 1, "name": "S1"})
+
+    texts = _collect_widget_texts(captured["instance"].content)
+    assert (
+        android_app.S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:")
+        in texts
+    )
+    assert android_app.S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:") in texts
+    assert android_app.S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:") in texts
+    assert (
+        android_app.S.get("MESSAGES", {}).get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:")
+        in texts
+    )
+    assert android_app.S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:") in texts
+    assert android_app.S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:") in texts
+    assert android_app.S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:") in texts
+    assert (
+        android_app.S.get("MESSAGES", {}).get(
+            "INSPECTION_SECTION_2", "[b]Έλεγχος Χώρων ΥΣ[/b]"
+        )
+        in texts
+    )
+    assert (
+        android_app.S.get("MESSAGES", {}).get("INSPECTION_SECTION_7", "[b]Απόψεις[/b]")
+        in texts
+    )
+    assert "Ημερομηνία Επιθεώρησης:" not in texts
+
+
 def test_show_substation_details_guards_maintenance_action_errors(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
