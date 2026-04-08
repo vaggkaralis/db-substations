@@ -313,9 +313,15 @@ def show_import_android_changes_dialog(app, instance_or_parent_popup=None):
         import_callback,
         title=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"),
         filetypes=(
-            (S["MESSAGES"].get("FILE_DIALOG_JSON_FILES", "Αρχεία JSON"), "*.json"),
+            (
+                S["MESSAGES"].get(
+                    "FILE_DIALOG_ANDROID_CHANGELOG_FILES",
+                    "Αρχεία change log Android",
+                ),
+                "*.json *.jsonl *.txt",
+            ),
         ),
-        chooser_filters=["*.json"],
+        chooser_filters=["*.json", "*.jsonl", "*.txt"],
     )
 
 

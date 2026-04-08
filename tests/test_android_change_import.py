@@ -5,6 +5,7 @@ import tempfile
 
 from database import init_db
 from DBrun import apply_change_log_to_db
+import imports
 
 
 def test_android_change_import():
@@ -89,3 +90,36 @@ def test_android_change_import():
     finally:
         conn.close()
         os.remove(db_path)
+
+
+def test_android_change_import_dialog_accepts_txt(monkeypatch):
+    captured = {}
+
+    class _App:
+        def import_android_changes_from_file(self, file_path):
+            captured["import_path"] = file_path
+
+    def _fake_open_file_chooser_and_import(
+        app,
+        parent_popup,
+        import_callback,
+        title=None,
+        filetypes=None,
+        chooser_filters=None,
+    ):
+        captured["title"] = title
+        captured["filetypes"] = filetypes
+        captured["chooser_filters"] = chooser_filters
+
+    monkeypatch.setattr(
+        imports,
+        "_open_file_chooser_and_import",
+        _fake_open_file_chooser_and_import,
+    )
+
+    imports.show_import_android_changes_dialog(_App(), None)
+
+    assert captured["filetypes"] == (
+        ("Αρχεία change log Android", "*.json *.jsonl *.txt"),
+    )
+    assert captured["chooser_filters"] == ["*.json", "*.jsonl", "*.txt"]

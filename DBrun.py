@@ -21,10 +21,29 @@ import subprocess
 import faulthandler
 import traceback
 import threading
+import time
 
 import webbrowser
 from datetime import datetime, timedelta
 from database import init_db
+
+
+_BOOTSTRAP_START = time.perf_counter()
+
+
+def _bootstrap_console_write(message):
+    stream = getattr(sys, "__stdout__", None) or getattr(sys, "stdout", None)
+    if stream is None:
+        return
+    try:
+        elapsed = time.perf_counter() - _BOOTSTRAP_START
+        stream.write(f"[BOOT {elapsed:6.2f}s] {message}\n")
+        stream.flush()
+    except Exception:
+        pass
+
+
+_bootstrap_console_write("Python process started")
 
 # Make stdout line-buffered in environments like VS Code so startup
 # prints/logging appear immediately instead of after process end.
@@ -38,6 +57,7 @@ except Exception:
         print = functools.partial(print, flush=True)
     except Exception:
         pass
+_bootstrap_console_write("Loading application modules")
 from email_text_utils import (
     normalize_text,
     tokenize_text,
@@ -118,6 +138,8 @@ from ui.shared import (
     StatusButton,
     autosize_button_text,
 )
+
+_bootstrap_console_write("Application modules loaded; loading Kivy")
 
 
 def _safe_console_stream(preferred_stream):
@@ -201,6 +223,8 @@ try:
     Clock = importlib.import_module("kivy.clock").Clock
     from kivy.core.text import Label as CoreLabel
     from kivy.graphics import PushMatrix, PopMatrix, Rotate, Translate
+
+    _bootstrap_console_write("Kivy imported successfully")
 except Exception:
     # Running in test environment without Kivy available — provide lightweight stubs
     class _StubWidget:
@@ -298,17 +322,8 @@ except Exception:
         logging.getLogger("kivy_deps").setLevel(logging.INFO)
     except Exception:
         pass
+    _bootstrap_console_write("Kivy unavailable; using test stubs")
 # (validation imports moved to top to satisfy lint rules)
-
-# Prevent Kivy from emitting console INFO logs during import/startup by
-# setting environment variables before Kivy is imported below.
-try:
-    import os as _os_for_kivy_env
-
-    _os_for_kivy_env.environ.setdefault("KIVY_NO_CONSOLELOG", "0")
-    _os_for_kivy_env.environ.setdefault("KIVY_LOG_LEVEL", "info")
-except Exception:
-    pass
 
 try:
     _log_dir = os.path.abspath(os.path.dirname(__file__))
@@ -415,6 +430,10 @@ try:
         threading.excepthook = _threading_excepthook
 
     APP_LOGGER.info("========== Starting DB Substations Desktop App ==========")
+    APP_LOGGER.info(
+        "Bootstrap imports completed in %.2fs",
+        time.perf_counter() - _BOOTSTRAP_START,
+    )
     APP_LOGGER.info("Python version: %s", sys.version)
     APP_LOGGER.info("Python interpreter: %s", sys.executable)
     APP_LOGGER.info("Working directory: %s", os.getcwd())
@@ -7853,106 +7872,6 @@ class SubstationApp(App):
         from imports import show_import_android_changes_dialog as _f
 
         return _f(self, instance_or_parent_popup)
-
-    def _create_android_changes_import_dialog(
-        self, title, import_callback, parent_popup=None
-    ):
-        # Prefer native dialog when available (desktop). If selected, import immediately.
-        allow_fallback = False
-        try:
-            fp = ask_open_file(
-                title=title, filetypes=(("JSONL/JSON", "*.jsonl;*.json"),)
-            )
-        except ImportError:
-            allow_fallback = True
-            fp = None
-        except Exception:
-            fp = None
-
-        if fp:
-            # Dismiss parent menu only on success
-            if parent_popup:
-                try:
-                    parent_popup.dismiss()
-                except Exception:
-                    pass
-            import_callback(fp)
-            return
-        if not allow_fallback:
-            # user cancelled native dialog -> do not open in-app selector
-            return
-
-        popup = Popup(title=title, size_hint=(0.9, 0.9))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        path_label = Label(text=S["MESSAGES"]["CHANGELOG_FILE_LABEL"], size_hint_y=0.1)
-        layout.add_widget(path_label)
-
-        path_input = TextInput(
-            hint_text=S["MESSAGES"]["FILE_PATH_LABEL"],
-            size_hint_y=0.15,
-            multiline=False,
-        )
-        layout.add_widget(path_input)
-
-        layout.add_widget(
-            Label(text=S["MESSAGES"]["SELECT_FROM_LIST"], size_hint_y=0.1)
-        )
-        chooser = FileChooserListView(
-            filters=["*.jsonl", "*.json", "*.txt"],
-            path=os.path.dirname(__file__),
-        )
-        layout.add_widget(chooser)
-
-        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
-
-        def import_file():
-            file_path = (
-                path_input.text.strip()
-                if path_input.text.strip()
-                else (chooser.selection[0] if chooser.selection else None)
-            )
-
-            if not file_path:
-                show_message_popup(
-                    S["TITLES"]["ERROR"],
-                    S["MESSAGES"].get(
-                        "ENTER_PATH", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
-                    ),
-                )
-                return
-
-            if not os.path.exists(file_path):
-                show_message_popup(
-                    S["TITLES"]["ERROR"], S["MESSAGES"]["FILE_NOT_FOUND"]
-                )
-                return
-
-            try:
-                import_callback(file_path)
-            except Exception as e:
-                show_message_popup(
-                    S["TITLES"]["ERROR"], f"{S['MESSAGES']['IMPORT_FAILED']}\n{str(e)}"
-                )
-                return
-            popup.dismiss()
-            if parent_popup:
-                try:
-                    parent_popup.dismiss()
-                except Exception:
-                    pass
-
-        import_btn = Button(text=S["BUTTONS"]["IMPORT"])
-        import_btn.bind(on_press=lambda x: import_file())
-        buttons_layout.add_widget(import_btn)
-
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
-        cancel_btn.bind(on_press=popup.dismiss)
-        buttons_layout.add_widget(cancel_btn)
-
-        layout.add_widget(buttons_layout)
-        popup.content = layout
-        popup.open()
 
     def import_android_changes_from_file(self, file_path):
         from changelog import import_android_changes_from_file as _f
