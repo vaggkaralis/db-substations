@@ -85,3 +85,13 @@ def test_load_substation_elements_renders_gate_headers(monkeypatch):
     texts = _collect_texts(grid)
     assert any("ΠΥΛΗ 1 (1 στοιχεία)" in text for text in texts)
     assert any("ΠΥΛΗ 2 (1 στοιχεία)" in text for text in texts)
+
+
+def test_build_gate_tag_widget_uses_compact_gate_text():
+    app = android_app.SubstationAndroidApp()
+
+    widget = app._build_gate_tag_widget("ΠΥΛΗ 1-3", height=160)
+
+    texts = _collect_texts(widget)
+    assert "Π1-3" in texts
+    assert "ΠΥΛΗ 1-3" not in texts

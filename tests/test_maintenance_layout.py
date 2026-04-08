@@ -120,3 +120,33 @@ def test_maintenance_menu_renders_gate_headers(monkeypatch):
     grouped = app._group_elements_by_gate(elements)
     assert [name for name, _ in grouped] == ["ΠΥΛΗ 1", "ΠΥΛΗ 2"]
     assert any("ΠΥΛΗ 1" in text for text in texts)
+
+
+def test_maintenance_menu_uses_shared_comments_label(monkeypatch):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+
+    app = android_app.SubstationAndroidApp()
+    app.show_maintenance_menu(1, {"name": "S1"})
+
+    texts = _collect_texts(captured["instance"].content)
+    assert (
+        android_app.S.get("MESSAGES", {}).get(
+            "OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια Συντήρησης:"
+        )
+        in texts
+    )

@@ -443,6 +443,37 @@ def test_show_inspection_entry_popup_matches_desktop_form_structure(monkeypatch)
     assert "Ημερομηνία Επιθεώρησης:" not in texts
 
 
+def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+    monkeypatch.setitem(sys.modules, "inspections", None)
+
+    app = android_app.SubstationAndroidApp()
+    app.substations = [{"id": 1, "name": "S1"}]
+
+    app.show_inspection_entry_popup(1, {"id": 1, "name": "S1"})
+
+    texts = _collect_widget_texts(captured["instance"].content)
+    assert (
+        android_app.S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:")
+        in texts
+    )
+
+
 def test_show_substation_details_guards_maintenance_action_errors(monkeypatch):
     app = android_app.SubstationAndroidApp()
 

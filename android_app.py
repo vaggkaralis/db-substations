@@ -244,6 +244,86 @@ def _build_inspection_fields(strings_map):
     return fields
 
 
+def _format_android_inspection_value(value):
+    if value is None:
+        return ""
+    try:
+        import math
+
+        if isinstance(value, float) and math.isnan(value):
+            return ""
+    except Exception:
+        pass
+
+    if hasattr(value, "to_pydatetime"):
+        try:
+            value = value.to_pydatetime()
+        except Exception:
+            pass
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+
+    return str(value).strip()
+
+
+def _parse_android_inspection_date(value):
+    if value is None:
+        return ""
+    if hasattr(value, "to_pydatetime"):
+        try:
+            value = value.to_pydatetime()
+        except Exception:
+            pass
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M",
+        "%d/%m/%Y",
+        "%d/%m/%Y %H:%M",
+        "%d-%m-%Y",
+        "%Y/%m/%d",
+    ):
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    return text
+
+
+def _derive_android_inspection_month_key(date_str):
+    if not date_str:
+        return datetime.now().strftime("%Y-%m")
+
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M",
+        "%d/%m/%Y",
+        "%d/%m/%Y %H:%M",
+        "%d-%m-%Y",
+        "%Y/%m/%d",
+    ):
+        try:
+            return datetime.strptime(date_str, fmt).strftime("%Y-%m")
+        except Exception:
+            pass
+
+    if len(date_str) >= 7 and date_str[4] == "-":
+        return date_str[:7]
+
+    return datetime.now().strftime("%Y-%m")
+
+
 GATE_COLOR_PALETTE = [
     (0.2, 0.6, 1, 1),
     (0.96, 0.76, 0.2, 1),
@@ -1703,6 +1783,18 @@ class SubstationAndroidApp(App):
         gate_text = str(gate_value or "").strip()
         return gate_text or self._get_unregistered_gate_label()
 
+    def _format_gate_tag_text(self, gate_name):
+        gate_text = str(gate_name or "").strip()
+        if not gate_text:
+            return gate_text
+
+        gate_prefix = S.get("MESSAGES", {}).get("GATE_PREFIX", "ΠΥΛΗ")
+        compact_prefix = "Π" if gate_prefix == "ΠΥΛΗ" else gate_prefix[:1]
+        normalized_prefix = f"{gate_prefix} "
+        if gate_text.startswith(normalized_prefix):
+            return f"{compact_prefix}{gate_text[len(normalized_prefix) :].strip()}"
+        return gate_text
+
     def _group_elements_by_gate(self, elements):
         grouped = {}
         for elem in elements or []:
@@ -1721,10 +1813,11 @@ class SubstationAndroidApp(App):
         return [(gate_name, grouped[gate_name]) for gate_name in ordered]
 
     def _build_gate_tag_widget(self, gate_name, *, height=110):
+        tag_height = max(72, min(int(height or 72), 92))
         tag = Button(
-            text=str(gate_name),
+            text=self._format_gate_tag_text(gate_name),
             size_hint=(None, None),
-            size=(84, height),
+            size=(58, tag_height),
             disabled=True,
         )
         try:
@@ -1746,7 +1839,15 @@ class SubstationAndroidApp(App):
                 autosize_button_text(tag, max_sp=16, min_sp=9)
         except Exception:
             pass
-        return tag
+        container = BoxLayout(
+            orientation="vertical",
+            size_hint=(None, 1),
+            width=58,
+            padding=[0, 8, 0, 0],
+        )
+        container.add_widget(tag)
+        container.add_widget(Label(text="", size_hint_y=1))
+        return container
 
     def _change_log_has_content(self):
         self._ensure_change_log_path()
@@ -6894,13 +6995,15 @@ class SubstationAndroidApp(App):
         comments_container = BoxLayout(
             orientation="vertical",
             size_hint_y=None,
-            height=168,
-            spacing=6,
-            padding=[0, 6, 0, 0],
+            height=184,
+            spacing=10,
+            padding=[0, 16, 0, 0],
         )
         comments_container.add_widget(
             wrapped_label(
-                S.get("MESSAGES", {}).get("OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια:")
+                S.get("MESSAGES", {}).get(
+                    "OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια Συντήρησης:"
+                )
             )
         )
         comments_container.add_widget(overall_comments)
@@ -7092,12 +7195,6 @@ class SubstationAndroidApp(App):
     def show_inspection_entry_popup(self, substation_id, substation):
         """Add a new inspection entry using the desktop inspection form layout."""
 
-        from inspections import (
-            _derive_month_key,
-            _format_inspection_value,
-            _parse_inspection_date,
-        )
-
         substations = self._get_android_inspection_substations(substation)
         if not substations:
             substations = [(substation_id, substation.get("name") or "-")]
@@ -7259,7 +7356,7 @@ class SubstationAndroidApp(App):
         )
 
         def update_date_meta(_instance=None, _text=None):
-            parsed = _parse_inspection_date(date_input.text.strip())
+            parsed = _parse_android_inspection_date(date_input.text.strip())
             try:
                 dt = datetime.strptime(parsed, "%Y-%m-%d")
                 month_input.text = greek_months[dt.month - 1]
@@ -7396,7 +7493,7 @@ class SubstationAndroidApp(App):
         def save_inspection():
             substation_name = substation_input.text.strip()
             resolved_substation_id = substation_map.get(substation_name, substation_id)
-            inspection_date = _parse_inspection_date(date_input.text.strip())
+            inspection_date = _parse_android_inspection_date(date_input.text.strip())
             if not inspection_date:
                 self.show_error(
                     S.get("MESSAGES", {}).get(
@@ -7404,7 +7501,7 @@ class SubstationAndroidApp(App):
                     )
                 )
                 return
-            month_key = _derive_month_key(inspection_date)
+            month_key = _derive_android_inspection_month_key(inspection_date)
 
             fields_list = [
                 {
@@ -7415,40 +7512,40 @@ class SubstationAndroidApp(App):
                 },
                 {
                     "label": S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
-                    "value": _format_inspection_value(form_number_input.text),
+                    "value": _format_android_inspection_value(form_number_input.text),
                 },
                 {
                     "label": S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
-                    "value": _format_inspection_value(region_input.text),
+                    "value": _format_android_inspection_value(region_input.text),
                 },
                 {
                     "label": S.get("MESSAGES", {}).get(
                         "INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"
                     ),
-                    "value": _format_inspection_value(inspector_spinner.text),
+                    "value": _format_android_inspection_value(inspector_spinner.text),
                 },
                 {
                     "label": S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
-                    "value": _format_inspection_value(month_input.text),
+                    "value": _format_android_inspection_value(month_input.text),
                 },
                 {
                     "label": S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
-                    "value": _format_inspection_value(day_input.text),
+                    "value": _format_android_inspection_value(day_input.text),
                 },
                 {
                     "label": S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
-                    "value": _format_inspection_value(year_input.text),
+                    "value": _format_android_inspection_value(year_input.text),
                 },
                 {
                     "label": S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
-                    "value": _format_inspection_value(inspection_date),
+                    "value": _format_android_inspection_value(inspection_date),
                 },
             ]
             for label_text, input_widget in fields_inputs:
                 fields_list.append(
                     {
                         "label": label_text,
-                        "value": _format_inspection_value(input_widget.text),
+                        "value": _format_android_inspection_value(input_widget.text),
                     }
                 )
 
@@ -7466,9 +7563,9 @@ class SubstationAndroidApp(App):
                 "inspection_date": inspection_date,
                 "data_json": json.dumps({"fields": fields_list}, ensure_ascii=False),
                 "fields": fields_dict,
-                "form_number": _format_inspection_value(form_number_input.text),
-                "region": _format_inspection_value(region_input.text),
-                "inspector": _format_inspection_value(inspector_spinner.text),
+                "form_number": _format_android_inspection_value(form_number_input.text),
+                "region": _format_android_inspection_value(region_input.text),
+                "inspector": _format_android_inspection_value(inspector_spinner.text),
                 "month_key": month_key,
                 "source_file": "android-local",
                 "created_at": created_at,
