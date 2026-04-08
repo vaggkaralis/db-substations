@@ -50,6 +50,21 @@ def _dismiss_popup_safely(popup):
         pass
 
 
+def _element_has_valid_maintenance_history(conn, element_id):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT 1
+        FROM maintenance_elements me
+        JOIN maintenance m ON m.id = me.maintenance_id
+        WHERE me.element_id = ?
+        LIMIT 1
+        """,
+        (element_id,),
+    )
+    return cursor.fetchone() is not None
+
+
 def show_add_element_popup_delegate(app, instance=None):
     return app.show_add_element_popup(instance)
 
@@ -866,11 +881,15 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
                 icon_type="maintenance", icon_color=(0.4, 0.6, 0.8, 1), size=(30, 30)
             )
             history_btn.size_hint_x = 0.2
-            history_btn.bind(
-                on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (
-                    app.show_element_maintenance_history(eid, ename, p)
+            if _element_has_valid_maintenance_history(app.conn, elem_id):
+                history_btn.bind(
+                    on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (
+                        app.show_element_maintenance_history(eid, ename, p)
+                    )
                 )
-            )
+            else:
+                history_btn.disabled = True
+                history_btn.icon_color = (0.5, 0.5, 0.5, 0.5)
             btn_layout.add_widget(history_btn)
 
             edit_btn = IconOnlyButton(
@@ -902,6 +921,16 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
 
 def show_element_maintenance_history(app, element_id, element_name, parent_popup):
     from popups import show_message_popup
+
+    if not _element_has_valid_maintenance_history(app.conn, element_id):
+        show_message_popup(
+            S["TITLES"].get("INFO", S["TITLES"].get("ERROR", "Σφάλμα")),
+            S["MESSAGES"].get(
+                "NO_MAINTENANCE_HISTORY",
+                "Δεν υπάρχει ιστορικό συντηρήσεων για αυτό το στοιχείο",
+            ),
+        )
+        return
 
     c = app.conn.cursor()
     c.execute(

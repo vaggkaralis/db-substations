@@ -1,6 +1,7 @@
 import sys
 import types
 import builtins
+import sqlite3
 
 import android_app
 import ui.shared as shared_ui
@@ -472,6 +473,33 @@ def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeyp
         android_app.S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:")
         in texts
     )
+
+
+def test_has_element_maintenance_history_ignores_orphan_links(tmp_path):
+    db_path = tmp_path / "android_history.db"
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE maintenance (id INTEGER PRIMARY KEY, substation_id INTEGER, date_time TEXT);
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER
+        );
+        INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (58, 707);
+        INSERT INTO maintenance (id, substation_id, date_time) VALUES (1, 56, '2024-01-01');
+        INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (1, 708);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    app = android_app.SubstationAndroidApp()
+    app.local_db_path = str(db_path)
+
+    assert app._has_element_maintenance_history(707) is False
+    assert app._has_element_maintenance_history(708) is True
 
 
 def test_show_substation_details_guards_maintenance_action_errors(monkeypatch):

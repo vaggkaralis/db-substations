@@ -7191,6 +7191,7 @@ class SubstationApp(App):
                     """
                     SELECT me.element_id, COUNT(*) 
                     FROM maintenance_elements me
+                    JOIN maintenance m ON m.id = me.maintenance_id
                     JOIN elements e ON me.element_id = e.id
                     WHERE e.substation_id = ?
                     GROUP BY me.element_id

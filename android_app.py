@@ -7612,8 +7612,10 @@ class SubstationAndroidApp(App):
 
             c.execute(
                 """
-                SELECT COUNT(*) FROM maintenance_elements
-                WHERE element_id = ?
+                SELECT COUNT(*)
+                FROM maintenance_elements me
+                JOIN maintenance m ON m.id = me.maintenance_id
+                WHERE me.element_id = ?
                 """,
                 (element_id,),
             )
