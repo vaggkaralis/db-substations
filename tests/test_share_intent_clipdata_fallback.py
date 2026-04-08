@@ -61,7 +61,13 @@ class CliplessAutoclassModule:
                 def setType(self, t):
                     pass
 
+                def setDataAndType(self, uri, mime_type):
+                    pass
+
                 def putExtra(self, k, v):
+                    pass
+
+                def putExtras(self, extras):
                     pass
 
                 def addFlags(self, f):
@@ -83,6 +89,13 @@ class CliplessAutoclassModule:
         # Simulate ClipData not available by raising
         if name == "android.content.ClipData":
             raise ImportError(name)
+        if name == "android.os.Bundle":
+
+            class Bundle(dict):
+                def putParcelable(self, key, value):
+                    self[key] = value
+
+            return Bundle
         if name == "androidx.core.content.FileProvider":
 
             class FP:

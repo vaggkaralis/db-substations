@@ -67,7 +67,13 @@ class DummyAutoclassModule:
                 def setType(self, t):
                     pass
 
+                def setDataAndType(self, uri, mime_type):
+                    pass
+
                 def putExtra(self, k, v):
+                    pass
+
+                def putExtras(self, extras):
                     pass
 
                 def addFlags(self, f):
@@ -105,6 +111,13 @@ class DummyAutoclassModule:
                     return (cr, title, uri)
 
             return ClipData
+        if name == "android.os.Bundle":
+
+            class Bundle(dict):
+                def putParcelable(self, key, value):
+                    self[key] = value
+
+            return Bundle
         if name == "java.lang.String":
             return lambda value: value
         raise ImportError(name)

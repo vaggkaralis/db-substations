@@ -7040,11 +7040,29 @@ class SubstationAndroidApp(App):
 
             intent = Intent(Intent.ACTION_SEND)
             intent.setType("text/plain")
-
             try:
-                intent.putExtra(Intent.EXTRA_STREAM, uri)
-            except TypeError:
-                intent.putExtra(Intent.EXTRA_STREAM, uri.toString())
+                intent.setDataAndType(uri, "text/plain")
+            except Exception:
+                pass
+
+            extra_attached = False
+            extra_attach_error = None
+            try:
+                Bundle = autoclass("android.os.Bundle")
+                extras = Bundle()
+                extras.putParcelable(Intent.EXTRA_STREAM, uri)
+                intent.putExtras(extras)
+                extra_attached = True
+            except Exception as bundle_err:
+                extra_attach_error = bundle_err
+                try:
+                    intent.putExtra(Intent.EXTRA_STREAM, uri)
+                    extra_attached = True
+                except Exception as extra_err:
+                    extra_attach_error = f"bundle={bundle_err}; extra={extra_err}"
+
+            if not extra_attached:
+                raise RuntimeError(f"share_attachment_failed: {extra_attach_error}")
 
             grant_flags = getattr(Intent, "FLAG_GRANT_READ_URI_PERMISSION", 0)
             try:
