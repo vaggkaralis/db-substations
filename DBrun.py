@@ -7899,7 +7899,8 @@ class SubstationApp(App):
             Label(text=S["MESSAGES"]["SELECT_FROM_LIST"], size_hint_y=0.1)
         )
         chooser = FileChooserListView(
-            filters=["*.jsonl", "*.json"], path=os.path.dirname(__file__)
+            filters=["*.jsonl", "*.json", "*.txt"],
+            path=os.path.dirname(__file__),
         )
         layout.add_widget(chooser)
 
