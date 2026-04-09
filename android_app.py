@@ -6995,9 +6995,9 @@ class SubstationAndroidApp(App):
         comments_container = BoxLayout(
             orientation="vertical",
             size_hint_y=None,
-            height=184,
+            height=196,
             spacing=10,
-            padding=[0, 16, 0, 0],
+            padding=[0, 28, 0, 0],
         )
         comments_container.add_widget(
             wrapped_label(
@@ -7209,13 +7209,44 @@ class SubstationAndroidApp(App):
         content_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
         content_layout.bind(minimum_height=content_layout.setter("height"))
 
-        content_layout.add_widget(
-            Label(
-                text=S.get("MESSAGES", {}).get(
-                    "SELECT_SUBSTATION", "Επιλογή Υποσταθμού:"
-                ),
+        def wrapped_form_label(text_value, min_height=34, markup=False):
+            label = Label(
+                text=text_value,
                 size_hint_y=None,
-                height=35,
+                halign="left",
+                valign="middle",
+                markup=markup,
+            )
+            label.bind(
+                width=lambda instance, value: setattr(
+                    instance, "text_size", (max(value - 8, 0), None)
+                ),
+                texture_size=lambda instance, value: setattr(
+                    instance, "height", max(min_height, value[1] + 10)
+                ),
+            )
+            return label
+
+        def bind_autogrow_textinput(input_widget, min_height=72, max_height=240):
+            def _adjust_height(instance, *_args):
+                try:
+                    line_count = len(getattr(instance, "_lines", []) or [instance.text])
+                    line_height = max(getattr(instance, "line_height", 0), 22)
+                    instance.height = max(
+                        min_height,
+                        min(max_height, int(line_count * line_height + 24)),
+                    )
+                except Exception:
+                    instance.height = min_height
+
+            input_widget.bind(text=_adjust_height, width=_adjust_height)
+            Clock.schedule_once(lambda *_args: _adjust_height(input_widget), 0)
+            return input_widget
+
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("SELECT_SUBSTATION", "Επιλογή Υποσταθμού:"),
+                min_height=38,
             )
         )
 
@@ -7225,104 +7256,118 @@ class SubstationAndroidApp(App):
             if substation.get("name") in substation_map
             else substations[0][1]
         )
-        substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
-        substation_label = Label(
-            text=S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:"),
-            size_hint_x=0.18,
-        )
-        substation_picker = BoxLayout(size_hint_x=0.42, spacing=5)
+        substation_picker = BoxLayout(size_hint_y=None, height=48, spacing=8)
         substation_input = TextInput(
             text=initial_substation,
             readonly=True,
-            size_hint_x=0.7,
+            size_hint_x=1,
+            size_hint_y=None,
+            height=48,
             multiline=False,
         )
         select_sub_btn = Button(
             text=S.get("MESSAGES", {}).get("SELECT_PROMPT", "Επιλογή"),
-            size_hint_x=0.3,
+            size_hint_x=None,
+            width=120,
         )
         substation_picker.add_widget(substation_input)
         substation_picker.add_widget(select_sub_btn)
-        form_number_label = Label(
-            text=S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
-            size_hint_x=0.18,
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:"),
+            )
+        )
+        content_layout.add_widget(substation_picker)
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
+            )
         )
         form_number_input = TextInput(
             hint_text=S.get("MESSAGES", {}).get("FORM_NUMBER_HINT", "Αρ. Δελτίου"),
-            size_hint_x=0.22,
+            size_hint_y=None,
+            height=48,
             multiline=False,
         )
-        substation_row.add_widget(substation_label)
-        substation_row.add_widget(substation_picker)
-        substation_row.add_widget(form_number_label)
-        substation_row.add_widget(form_number_input)
-        content_layout.add_widget(substation_row)
+        content_layout.add_widget(form_number_input)
 
         people = self._get_android_inspection_people()
         inspector_default = people[0] if people else ""
 
-        row_two = BoxLayout(size_hint_y=None, height=40, spacing=5)
-        date_label = Label(
-            text=S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
-            size_hint_x=0.18,
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
+            )
         )
         date_input = TextInput(
             text=datetime.now().strftime("%Y-%m-%d"),
             hint_text=S.get("MESSAGES", {}).get("DATE_HINT", "YYYY-MM-DD"),
-            size_hint_x=0.32,
-            height=40,
+            size_hint_y=None,
+            height=48,
             multiline=False,
         )
-        region_label = Label(
-            text=S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
-            size_hint_x=0.14,
+        content_layout.add_widget(date_input)
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
+            )
         )
         region_input = TextInput(
             hint_text=S.get("MESSAGES", {}).get("REGION_HINT", "Περιοχή"),
-            size_hint_x=0.16,
+            size_hint_y=None,
+            height=48,
             multiline=False,
         )
-        inspector_label = Label(
-            text=S.get("MESSAGES", {}).get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
-            size_hint_x=0.12,
+        content_layout.add_widget(region_input)
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
+            )
         )
         inspector_spinner = Spinner(
             text=inspector_default,
             values=people or [""],
-            size_hint_x=0.18,
-            height=40,
+            size_hint_y=None,
+            height=48,
         )
-        row_two.add_widget(date_label)
-        row_two.add_widget(date_input)
-        row_two.add_widget(region_label)
-        row_two.add_widget(region_input)
-        row_two.add_widget(inspector_label)
-        row_two.add_widget(inspector_spinner)
-        content_layout.add_widget(row_two)
+        content_layout.add_widget(inspector_spinner)
 
-        row_three = BoxLayout(size_hint_y=None, height=40, spacing=5)
-        month_label = Label(
-            text=S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
-            size_hint_x=0.18,
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
+            )
         )
-        month_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
-        day_label = Label(
-            text=S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
-            size_hint_x=0.18,
+        month_input = TextInput(
+            readonly=True,
+            size_hint_y=None,
+            height=48,
+            multiline=False,
         )
-        day_input = TextInput(readonly=True, size_hint_x=0.32, multiline=False)
-        year_label = Label(
-            text=S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
-            size_hint_x=0.18,
+        content_layout.add_widget(month_input)
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
+            )
         )
-        year_input = TextInput(readonly=True, size_hint_x=0.18, multiline=False)
-        row_three.add_widget(month_label)
-        row_three.add_widget(month_input)
-        row_three.add_widget(day_label)
-        row_three.add_widget(day_input)
-        row_three.add_widget(year_label)
-        row_three.add_widget(year_input)
-        content_layout.add_widget(row_three)
+        day_input = TextInput(
+            readonly=True,
+            size_hint_y=None,
+            height=48,
+            multiline=False,
+        )
+        content_layout.add_widget(day_input)
+        content_layout.add_widget(
+            wrapped_form_label(
+                S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
+            )
+        )
+        year_input = TextInput(
+            readonly=True,
+            size_hint_y=None,
+            height=48,
+            multiline=False,
+        )
+        content_layout.add_widget(year_input)
 
         fields_inputs = []
         greek_months = S.get("MESSAGES", {}).get(
@@ -7382,47 +7427,29 @@ class SubstationAndroidApp(App):
 
         def add_section(title_text):
             content_layout.add_widget(
-                Label(
-                    text=title_text,
-                    markup=True,
-                    size_hint_y=None,
-                    height=35,
-                )
+                wrapped_form_label(title_text, min_height=38, markup=True)
             )
 
         def add_inspection_row(label_text):
-            row = BoxLayout(size_hint_y=None, height=60, spacing=5)
-            label = Label(text=label_text, size_hint_x=0.7, size_hint_y=None)
-            label.bind(width=lambda inst, val: setattr(inst, "text_size", (val, None)))
+            row = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                spacing=6,
+                padding=[0, 2, 0, 4],
+            )
+            row.bind(minimum_height=row.setter("height"))
+            label = wrapped_form_label(label_text, min_height=44)
 
             input_widget = TextInput(
                 hint_text=S.get("MESSAGES", {}).get(
                     "OBSERVATIONS_HINT", "Παρατηρήσεις"
                 ),
-                size_hint_x=0.3,
                 size_hint_y=None,
-                height=60,
+                height=92,
                 multiline=True,
+                padding=[10, 10, 10, 10],
             )
-
-            def sync_row_height(_instance=None, _value=None):
-                texture_size = getattr(label, "texture_size", None)
-                label_height = 0
-                if texture_size:
-                    try:
-                        label_height = texture_size[1]
-                    except Exception:
-                        label_height = 0
-                row.height = max(
-                    label_height,
-                    input_widget.height,
-                    60,
-                )
-                label.height = row.height
-
-            label.bind(texture_size=sync_row_height)
-            input_widget.bind(height=sync_row_height)
-            sync_row_height()
+            bind_autogrow_textinput(input_widget, min_height=92, max_height=260)
 
             row.add_widget(label)
             row.add_widget(input_widget)
