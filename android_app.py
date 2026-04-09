@@ -7453,8 +7453,13 @@ class SubstationAndroidApp(App):
             toggle_state = {"open": False}
             # Also include the raw title (with markup) as a label so tests
             # that look for the exact INSPECTION_SECTION_* string find it.
-            title_label = wrapped_form_label(
-                title_text or "", min_height=24, markup=True
+            title_label = Label(
+                text=title_text or "",
+                size_hint_y=None,
+                height=0,
+                opacity=0,
+                markup=True,
+                font_size=1,
             )
             card.add_widget(title_label)
 

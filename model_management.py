@@ -13,6 +13,250 @@ from ui.shared import IconOnlyButton
 ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
 ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
+TRANSFORMER_CATEGORY_TOKEN = "150/20"
+
+TRANSFORMER_MODEL_FIELD_DEFS = [
+    {
+        "key": "connection_group",
+        "label_key": "MODEL_CONNECTION_GROUP_LABEL",
+        "hint_key": "MODEL_CONNECTION_GROUP_HINT",
+        "default_label": "Ομάδα Συνδεσμολογίας:",
+        "default_hint": "π.χ. Dyn1",
+        "numeric": False,
+    },
+    {
+        "key": "rated_voltage_hv_lv",
+        "label_key": "MODEL_RATED_VOLTAGE_HV_LV_LABEL",
+        "hint_key": "MODEL_RATED_VOLTAGE_HV_LV_HINT",
+        "default_label": "Ονομ. Τάση ΥΤ/ΜΤ:",
+        "default_hint": "π.χ. 150/20 kV",
+        "numeric": False,
+    },
+    {
+        "key": "mounting",
+        "label_key": "MODEL_MOUNTING_LABEL",
+        "hint_key": "MODEL_MOUNTING_HINT",
+        "default_label": "Τρόπος Εγκατάστασης:",
+        "default_hint": "π.χ. Outdoor",
+        "numeric": False,
+    },
+    {
+        "key": "specification",
+        "label_key": "MODEL_SPECIFICATION_LABEL",
+        "hint_key": "MODEL_SPECIFICATION_HINT",
+        "default_label": "Προδιαγραφή:",
+        "default_hint": "π.χ. IEC 60076",
+        "numeric": False,
+    },
+    {
+        "key": "bil_hv_lv_kv",
+        "label_key": "MODEL_BIL_HV_LV_KV_LABEL",
+        "hint_key": "MODEL_BIL_HV_LV_KV_HINT",
+        "default_label": "BIL ΥΤ/ΜΤ (kV):",
+        "default_hint": "π.χ. 750/150",
+        "numeric": False,
+    },
+    {
+        "key": "total_weight_kg",
+        "label_key": "MODEL_TOTAL_WEIGHT_KG_LABEL",
+        "hint_key": "MODEL_TOTAL_WEIGHT_KG_HINT",
+        "default_label": "Συνολικό Βάρος (kg):",
+        "default_hint": "π.χ. 69800",
+        "numeric": True,
+    },
+    {
+        "key": "oil_weight_kg",
+        "label_key": "MODEL_OIL_WEIGHT_KG_LABEL",
+        "hint_key": "MODEL_OIL_WEIGHT_KG_HINT",
+        "default_label": "Βάρος Ελαίου (kg):",
+        "default_hint": "π.χ. 25990",
+        "numeric": True,
+    },
+]
+
+HV_BREAKER_MODEL_FIELD_DEFS = [
+    {
+        "key": "rated_normal_current_a",
+        "label_key": "MODEL_RATED_NORMAL_CURRENT_A_LABEL",
+        "hint_key": "MODEL_RATED_NORMAL_CURRENT_A_HINT",
+        "default_label": "Ονομ. Ρεύμα (A):",
+        "default_hint": "π.χ. 1250",
+        "numeric": True,
+    },
+    {
+        "key": "rated_short_circuit_breaking_current_ka",
+        "label_key": "MODEL_RATED_SHORT_CIRCUIT_BREAKING_CURRENT_KA_LABEL",
+        "hint_key": "MODEL_RATED_SHORT_CIRCUIT_BREAKING_CURRENT_KA_HINT",
+        "default_label": "Ρεύμα Διακοπής Βραχ. Κυκλ. (kA):",
+        "default_hint": "π.χ. 40",
+        "numeric": True,
+    },
+    {
+        "key": "short_circuit_duration_s",
+        "label_key": "MODEL_SHORT_CIRCUIT_DURATION_S_LABEL",
+        "hint_key": "MODEL_SHORT_CIRCUIT_DURATION_S_HINT",
+        "default_label": "Διάρκεια Βραχ. Κυκλ. (s):",
+        "default_hint": "π.χ. 3",
+        "numeric": True,
+    },
+    {
+        "key": "making_capacity_ka",
+        "label_key": "MODEL_MAKING_CAPACITY_KA_LABEL",
+        "hint_key": "MODEL_MAKING_CAPACITY_KA_HINT",
+        "default_label": "Ικανότητα Ζεύξης (kA):",
+        "default_hint": "π.χ. 100",
+        "numeric": True,
+    },
+    {
+        "key": "sf6_pressure_rated_bar",
+        "label_key": "MODEL_SF6_PRESSURE_RATED_BAR_LABEL",
+        "hint_key": "MODEL_SF6_PRESSURE_RATED_BAR_HINT",
+        "default_label": "Ονομ. Πίεση SF6 (bar):",
+        "default_hint": "π.χ. 6.0",
+        "numeric": True,
+    },
+    {
+        "key": "total_weight_kg",
+        "label_key": "MODEL_TOTAL_WEIGHT_KG_LABEL",
+        "hint_key": "MODEL_TOTAL_WEIGHT_KG_HINT",
+        "default_label": "Συνολικό Βάρος (kg):",
+        "default_hint": "π.χ. 1320",
+        "numeric": True,
+    },
+    {
+        "key": "drive_mechanism",
+        "label_key": "MODEL_DRIVE_MECHANISM_LABEL",
+        "hint_key": "MODEL_DRIVE_MECHANISM_HINT",
+        "default_label": "Μηχανισμός Κίνησης:",
+        "default_hint": "π.χ. FK 3-1",
+        "numeric": False,
+    },
+]
+
+MV_BREAKER_MODEL_FIELD_DEFS = [
+    {
+        "key": "rated_normal_current_a",
+        "label_key": "MODEL_RATED_NORMAL_CURRENT_A_LABEL",
+        "hint_key": "MODEL_RATED_NORMAL_CURRENT_A_HINT",
+        "default_label": "Ονομ. Ρεύμα (A):",
+        "default_hint": "π.χ. 1250",
+        "numeric": True,
+    },
+    {
+        "key": "rated_short_circuit_breaking_current_ka",
+        "label_key": "MODEL_RATED_SHORT_CIRCUIT_BREAKING_CURRENT_KA_LABEL",
+        "hint_key": "MODEL_RATED_SHORT_CIRCUIT_BREAKING_CURRENT_KA_HINT",
+        "default_label": "Ρεύμα Διακοπής Βραχ. Κυκλ. (kA):",
+        "default_hint": "π.χ. 25",
+        "numeric": True,
+    },
+    {
+        "key": "short_circuit_duration_s",
+        "label_key": "MODEL_SHORT_CIRCUIT_DURATION_S_LABEL",
+        "hint_key": "MODEL_SHORT_CIRCUIT_DURATION_S_HINT",
+        "default_label": "Διάρκεια Βραχ. Κυκλ. (s):",
+        "default_hint": "π.χ. 3",
+        "numeric": True,
+    },
+    {
+        "key": "rated_short_circuit_making_current_ka",
+        "label_key": "MODEL_RATED_SHORT_CIRCUIT_MAKING_CURRENT_KA_LABEL",
+        "hint_key": "MODEL_RATED_SHORT_CIRCUIT_MAKING_CURRENT_KA_HINT",
+        "default_label": "Ρεύμα Ζεύξης Βραχ. Κυκλ. (kA):",
+        "default_hint": "π.χ. 40",
+        "numeric": True,
+    },
+    {
+        "key": "cubicle",
+        "label_key": "MODEL_CUBICLE_LABEL",
+        "hint_key": "MODEL_CUBICLE_HINT",
+        "default_label": "Κυψέλη:",
+        "default_hint": "π.χ. 23",
+        "numeric": False,
+    },
+    {
+        "key": "total_weight_kg",
+        "label_key": "MODEL_TOTAL_WEIGHT_KG_LABEL",
+        "hint_key": "MODEL_TOTAL_WEIGHT_KG_HINT",
+        "default_label": "Συνολικό Βάρος (kg):",
+        "default_hint": "π.χ. 55",
+        "numeric": True,
+    },
+]
+
+
+def _is_transformer_model_category(category):
+    return TRANSFORMER_CATEGORY_TOKEN in str(category or "")
+
+
+def _get_model_extra_field_defs(category):
+    if category == ELEM_BREAKER_YT:
+        return HV_BREAKER_MODEL_FIELD_DEFS
+    if category == ELEM_BREAKER_MT:
+        return MV_BREAKER_MODEL_FIELD_DEFS
+    if _is_transformer_model_category(category):
+        return TRANSFORMER_MODEL_FIELD_DEFS
+    return []
+
+
+def _label_for_field(field_def):
+    return S.get("MESSAGES", {}).get(field_def["label_key"], field_def["default_label"])
+
+
+def _hint_for_field(field_def):
+    return S.get("MESSAGES", {}).get(field_def["hint_key"], field_def["default_hint"])
+
+
+def _numeric_error_for_field(field_def):
+    field_name = _label_for_field(field_def).rstrip(":")
+    return (
+        S.get("MESSAGES", {})
+        .get("MODEL_FIELD_NUM_FMT", "Field {field} must be a number!")
+        .format(field=field_name)
+    )
+
+
+def _build_model_extra_inputs(container, category, input_map, initial_values=None):
+    from kivy.uix.label import Label
+    from kivy.uix.textinput import TextInput
+
+    initial_values = initial_values or {}
+    container.clear_widgets()
+    input_map.clear()
+
+    for field_def in _get_model_extra_field_defs(category):
+        container.add_widget(
+            Label(text=_label_for_field(field_def), size_hint_y=None, height=30)
+        )
+        raw_value = initial_values.get(field_def["key"])
+        container_input = TextInput(
+            text="" if raw_value is None else str(raw_value),
+            hint_text=_hint_for_field(field_def),
+            size_hint_y=None,
+            height=40,
+            multiline=False,
+        )
+        input_map[field_def["key"]] = container_input
+        container.add_widget(container_input)
+
+
+def _collect_model_extra_values(category, input_map):
+    values = {}
+    for field_def in _get_model_extra_field_defs(category):
+        widget = input_map.get(field_def["key"])
+        raw_text = (widget.text if widget else "").strip()
+        if not raw_text:
+            values[field_def["key"]] = None
+            continue
+        if field_def["numeric"]:
+            try:
+                values[field_def["key"]] = float(raw_text.replace(",", "."))
+            except ValueError as exc:
+                raise ValueError(_numeric_error_for_field(field_def)) from exc
+        else:
+            values[field_def["key"]] = raw_text
+    return values
+
 
 def show_models_management(app_instance):
     """Show model management interface"""
@@ -626,6 +870,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     )
     layout.add_widget(space_spinner)
 
+    extra_fields_box = BoxLayout(
+        orientation="vertical", size_hint_y=None, padding=0, spacing=8
+    )
+    extra_fields_box.bind(minimum_height=extra_fields_box.setter("height"))
+    layout.add_widget(extra_fields_box)
+    extra_field_inputs = {}
+
     def on_category_change(spinner, text):
         # Remove breaker fields if they exist
         if breaker_label in layout.children:
@@ -652,6 +903,8 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             if breaker_spinner.text == "SF6":
                 layout.add_widget(sf6_capacity_input, index=idx)
                 layout.add_widget(sf6_capacity_label, index=idx + 1)
+
+        _build_model_extra_inputs(extra_fields_box, text, extra_field_inputs)
 
     def on_breaker_category_change(_spinner, _text):
         if sf6_capacity_label in layout.children:
@@ -707,6 +960,14 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             else ""
         )
 
+        try:
+            extra_values = _collect_model_extra_values(
+                category_spinner.text, extra_field_inputs
+            )
+        except ValueError as exc:
+            show_message_popup(S["TITLES"]["ERROR"], str(exc))
+            return
+
         sf6_capacity_val = None
         if breaker_cat == "SF6":
             if not sf6_capacity_input.text.strip():
@@ -726,7 +987,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         c = app_instance.conn.cursor()
         try:
             c.execute(
-                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle, onedrive_manual_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     category_spinner.text,
                     model_name_input.text.strip(),
@@ -736,6 +997,21 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     breaker_cat,
                     sf6_capacity_val,
                     power_val,
+                    extra_values.get("connection_group"),
+                    extra_values.get("rated_voltage_hv_lv"),
+                    extra_values.get("mounting"),
+                    extra_values.get("specification"),
+                    extra_values.get("bil_hv_lv_kv"),
+                    extra_values.get("total_weight_kg"),
+                    extra_values.get("oil_weight_kg"),
+                    extra_values.get("rated_normal_current_a"),
+                    extra_values.get("rated_short_circuit_breaking_current_ka"),
+                    extra_values.get("short_circuit_duration_s"),
+                    extra_values.get("making_capacity_ka"),
+                    extra_values.get("sf6_pressure_rated_bar"),
+                    extra_values.get("drive_mechanism"),
+                    extra_values.get("rated_short_circuit_making_current_ka"),
+                    extra_values.get("cubicle"),
                     None,
                 ),
             )
@@ -754,6 +1030,31 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     "breaker_category": breaker_cat,
                     "sf6_capacity_kg": sf6_capacity_val,
                     "power_mva": power_val,
+                    "connection_group": extra_values.get("connection_group"),
+                    "rated_voltage_hv_lv": extra_values.get("rated_voltage_hv_lv"),
+                    "mounting": extra_values.get("mounting"),
+                    "specification": extra_values.get("specification"),
+                    "bil_hv_lv_kv": extra_values.get("bil_hv_lv_kv"),
+                    "total_weight_kg": extra_values.get("total_weight_kg"),
+                    "oil_weight_kg": extra_values.get("oil_weight_kg"),
+                    "rated_normal_current_a": extra_values.get(
+                        "rated_normal_current_a"
+                    ),
+                    "rated_short_circuit_breaking_current_ka": extra_values.get(
+                        "rated_short_circuit_breaking_current_ka"
+                    ),
+                    "short_circuit_duration_s": extra_values.get(
+                        "short_circuit_duration_s"
+                    ),
+                    "making_capacity_ka": extra_values.get("making_capacity_ka"),
+                    "sf6_pressure_rated_bar": extra_values.get(
+                        "sf6_pressure_rated_bar"
+                    ),
+                    "drive_mechanism": extra_values.get("drive_mechanism"),
+                    "rated_short_circuit_making_current_ka": extra_values.get(
+                        "rated_short_circuit_making_current_ka"
+                    ),
+                    "cubicle": extra_values.get("cubicle"),
                     "onedrive_manual_link": None,
                 },
             )
@@ -803,7 +1104,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     c = app_instance.conn.cursor()
     c.execute(
-        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link FROM element_models WHERE id=?",
+        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle FROM element_models WHERE id=?",
         (model_id,),
     )
     model = c.fetchone()
@@ -822,6 +1123,21 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         sf6_capacity,
         power_mva,
         onedrive_manual_link,
+        connection_group,
+        rated_voltage_hv_lv,
+        mounting,
+        specification,
+        bil_hv_lv_kv,
+        total_weight_kg,
+        oil_weight_kg,
+        rated_normal_current_a,
+        rated_short_circuit_breaking_current_ka,
+        short_circuit_duration_s,
+        making_capacity_ka,
+        sf6_pressure_rated_bar,
+        drive_mechanism,
+        rated_short_circuit_making_current_ka,
+        cubicle,
     ) = model
 
     popup = Popup(title=f"Επεξεργασία: {model_name}", size_hint=(0.8, 0.8))
@@ -880,6 +1196,35 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         height=40,
     )
     layout.add_widget(space_spinner)
+
+    extra_fields_box = BoxLayout(
+        orientation="vertical", size_hint_y=None, padding=0, spacing=8
+    )
+    extra_fields_box.bind(minimum_height=extra_fields_box.setter("height"))
+    layout.add_widget(extra_fields_box)
+    extra_field_inputs = {}
+    _build_model_extra_inputs(
+        extra_fields_box,
+        category,
+        extra_field_inputs,
+        {
+            "connection_group": connection_group,
+            "rated_voltage_hv_lv": rated_voltage_hv_lv,
+            "mounting": mounting,
+            "specification": specification,
+            "bil_hv_lv_kv": bil_hv_lv_kv,
+            "total_weight_kg": total_weight_kg,
+            "oil_weight_kg": oil_weight_kg,
+            "rated_normal_current_a": rated_normal_current_a,
+            "rated_short_circuit_breaking_current_ka": rated_short_circuit_breaking_current_ka,
+            "short_circuit_duration_s": short_circuit_duration_s,
+            "making_capacity_ka": making_capacity_ka,
+            "sf6_pressure_rated_bar": sf6_pressure_rated_bar,
+            "drive_mechanism": drive_mechanism,
+            "rated_short_circuit_making_current_ka": rated_short_circuit_making_current_ka,
+            "cubicle": cubicle,
+        },
+    )
 
     # Breaker category (if applicable)
     if category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]:
@@ -951,6 +1296,12 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
         breaker_cat_val = breaker_spinner.text if breaker_spinner else ""
 
+        try:
+            extra_values = _collect_model_extra_values(category, extra_field_inputs)
+        except ValueError as exc:
+            show_message_popup(S["TITLES"]["ERROR"], str(exc))
+            return
+
         sf6_capacity_val = None
         if breaker_cat_val == "SF6":
             if not sf6_capacity_input or not sf6_capacity_input.text.strip():
@@ -971,7 +1322,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
         # Update the model
         c.execute(
-            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=?, onedrive_manual_link=? WHERE id=?",
+            "UPDATE element_models SET model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=?, onedrive_manual_link=?, connection_group=?, rated_voltage_hv_lv=?, mounting=?, specification=?, bil_hv_lv_kv=?, total_weight_kg=?, oil_weight_kg=?, rated_normal_current_a=?, rated_short_circuit_breaking_current_ka=?, short_circuit_duration_s=?, making_capacity_ka=?, sf6_pressure_rated_bar=?, drive_mechanism=?, rated_short_circuit_making_current_ka=?, cubicle=? WHERE id=?",
             (
                 model_name_input.text.strip(),
                 manufacturer_input.text.strip(),
@@ -981,6 +1332,21 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 sf6_capacity_val,
                 power_val,
                 onedrive_manual_link,
+                extra_values.get("connection_group"),
+                extra_values.get("rated_voltage_hv_lv"),
+                extra_values.get("mounting"),
+                extra_values.get("specification"),
+                extra_values.get("bil_hv_lv_kv"),
+                extra_values.get("total_weight_kg"),
+                extra_values.get("oil_weight_kg"),
+                extra_values.get("rated_normal_current_a"),
+                extra_values.get("rated_short_circuit_breaking_current_ka"),
+                extra_values.get("short_circuit_duration_s"),
+                extra_values.get("making_capacity_ka"),
+                extra_values.get("sf6_pressure_rated_bar"),
+                extra_values.get("drive_mechanism"),
+                extra_values.get("rated_short_circuit_making_current_ka"),
+                extra_values.get("cubicle"),
                 model_id,
             ),
         )
@@ -1013,6 +1379,27 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 "breaker_category": breaker_cat_val,
                 "sf6_capacity_kg": sf6_capacity_val,
                 "power_mva": power_val,
+                "connection_group": extra_values.get("connection_group"),
+                "rated_voltage_hv_lv": extra_values.get("rated_voltage_hv_lv"),
+                "mounting": extra_values.get("mounting"),
+                "specification": extra_values.get("specification"),
+                "bil_hv_lv_kv": extra_values.get("bil_hv_lv_kv"),
+                "total_weight_kg": extra_values.get("total_weight_kg"),
+                "oil_weight_kg": extra_values.get("oil_weight_kg"),
+                "rated_normal_current_a": extra_values.get("rated_normal_current_a"),
+                "rated_short_circuit_breaking_current_ka": extra_values.get(
+                    "rated_short_circuit_breaking_current_ka"
+                ),
+                "short_circuit_duration_s": extra_values.get(
+                    "short_circuit_duration_s"
+                ),
+                "making_capacity_ka": extra_values.get("making_capacity_ka"),
+                "sf6_pressure_rated_bar": extra_values.get("sf6_pressure_rated_bar"),
+                "drive_mechanism": extra_values.get("drive_mechanism"),
+                "rated_short_circuit_making_current_ka": extra_values.get(
+                    "rated_short_circuit_making_current_ka"
+                ),
+                "cubicle": extra_values.get("cubicle"),
                 "onedrive_manual_link": onedrive_manual_link,
             },
         )

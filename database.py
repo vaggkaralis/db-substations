@@ -42,6 +42,21 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             installation_space TEXT,
             breaker_category TEXT,
             sf6_capacity_kg REAL,
+            connection_group TEXT,
+            rated_voltage_hv_lv TEXT,
+            mounting TEXT,
+            specification TEXT,
+            bil_hv_lv_kv TEXT,
+            total_weight_kg REAL,
+            oil_weight_kg REAL,
+            rated_normal_current_a REAL,
+            rated_short_circuit_breaking_current_ka REAL,
+            short_circuit_duration_s REAL,
+            making_capacity_ka REAL,
+            sf6_pressure_rated_bar REAL,
+            drive_mechanism TEXT,
+            rated_short_circuit_making_current_ka REAL,
+            cubicle TEXT,
             manual_pdf TEXT,
             UNIQUE(element_category, model_name, manufacturer)
         )
@@ -973,6 +988,97 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if "power_mva" not in model_columns:
         try:
             cursor.execute("ALTER TABLE element_models ADD COLUMN power_mva REAL")
+        except Exception:
+            pass
+    if "connection_group" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN connection_group TEXT"
+            )
+        except Exception:
+            pass
+    if "rated_voltage_hv_lv" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN rated_voltage_hv_lv TEXT"
+            )
+        except Exception:
+            pass
+    if "mounting" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN mounting TEXT")
+        except Exception:
+            pass
+    if "specification" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN specification TEXT")
+        except Exception:
+            pass
+    if "bil_hv_lv_kv" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN bil_hv_lv_kv TEXT")
+        except Exception:
+            pass
+    if "total_weight_kg" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN total_weight_kg REAL")
+        except Exception:
+            pass
+    if "oil_weight_kg" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN oil_weight_kg REAL")
+        except Exception:
+            pass
+    if "rated_normal_current_a" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN rated_normal_current_a REAL"
+            )
+        except Exception:
+            pass
+    if "rated_short_circuit_breaking_current_ka" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN rated_short_circuit_breaking_current_ka REAL"
+            )
+        except Exception:
+            pass
+    if "short_circuit_duration_s" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN short_circuit_duration_s REAL"
+            )
+        except Exception:
+            pass
+    if "making_capacity_ka" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN making_capacity_ka REAL"
+            )
+        except Exception:
+            pass
+    if "sf6_pressure_rated_bar" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN sf6_pressure_rated_bar REAL"
+            )
+        except Exception:
+            pass
+    if "drive_mechanism" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN drive_mechanism TEXT")
+        except Exception:
+            pass
+    if "rated_short_circuit_making_current_ka" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN rated_short_circuit_making_current_ka REAL"
+            )
+        except Exception:
+            pass
+    if "cubicle" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN cubicle TEXT")
         except Exception:
             pass
     if "model_version" not in model_columns:
