@@ -7194,19 +7194,17 @@ class SubstationAndroidApp(App):
 
     def show_inspection_entry_popup(self, substation_id, substation):
         """Add a new inspection entry using the desktop inspection form layout."""
-
-        substations = self._get_android_inspection_substations(substation)
-        if not substations:
-            substations = [(substation_id, substation.get("name") or "-")]
+        selected_substation_id = substation_id or (substation or {}).get("id")
+        selected_substation_name = (substation or {}).get("name") or "-"
 
         popup = Popup(
             title=S.get("TITLES", {}).get("INSPECTION_ENTRY", "Νέα Επιθεώρηση"),
-            size_hint=(0.9, 0.95),
+            size_hint=(0.94, 0.97),
         )
-        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        main_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        content_layout = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
+        content_layout = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=8)
         content_layout.bind(minimum_height=content_layout.setter("height"))
 
         def wrapped_form_label(text_value, min_height=34, markup=False):
@@ -7243,62 +7241,51 @@ class SubstationAndroidApp(App):
             Clock.schedule_once(lambda *_args: _adjust_height(input_widget), 0)
             return input_widget
 
+        def add_meta_row(*columns):
+            row = BoxLayout(
+                orientation="horizontal",
+                size_hint_y=None,
+                spacing=10,
+            )
+            row.bind(minimum_height=row.setter("height"))
+            for label_text, widget, size_hint_x in columns:
+                column = BoxLayout(
+                    orientation="vertical",
+                    size_hint_x=size_hint_x,
+                    size_hint_y=None,
+                    spacing=4,
+                )
+                column.bind(minimum_height=column.setter("height"))
+                column.add_widget(wrapped_form_label(label_text, min_height=30))
+                column.add_widget(widget)
+                row.add_widget(column)
+            content_layout.add_widget(row)
+
         content_layout.add_widget(
             wrapped_form_label(
-                S.get("MESSAGES", {}).get("SELECT_SUBSTATION", "Επιλογή Υποσταθμού:"),
-                min_height=38,
+                S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:"),
+                min_height=30,
             )
         )
 
-        substation_map = {name: sid for sid, name in substations}
-        initial_substation = (
-            substation.get("name")
-            if substation.get("name") in substation_map
-            else substations[0][1]
-        )
-        substation_picker = BoxLayout(size_hint_y=None, height=48, spacing=8)
         substation_input = TextInput(
-            text=initial_substation,
+            text=selected_substation_name,
             readonly=True,
-            size_hint_x=1,
             size_hint_y=None,
             height=48,
             multiline=False,
         )
-        select_sub_btn = Button(
-            text=S.get("MESSAGES", {}).get("SELECT_PROMPT", "Επιλογή"),
-            size_hint_x=None,
-            width=120,
-        )
-        substation_picker.add_widget(substation_input)
-        substation_picker.add_widget(select_sub_btn)
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:"),
-            )
-        )
-        content_layout.add_widget(substation_picker)
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
-            )
-        )
+        content_layout.add_widget(substation_input)
+
         form_number_input = TextInput(
             hint_text=S.get("MESSAGES", {}).get("FORM_NUMBER_HINT", "Αρ. Δελτίου"),
             size_hint_y=None,
             height=48,
             multiline=False,
         )
-        content_layout.add_widget(form_number_input)
 
         people = self._get_android_inspection_people()
         inspector_default = people[0] if people else ""
-
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
-            )
-        )
         date_input = TextInput(
             text=datetime.now().strftime("%Y-%m-%d"),
             hint_text=S.get("MESSAGES", {}).get("DATE_HINT", "YYYY-MM-DD"),
@@ -7306,23 +7293,11 @@ class SubstationAndroidApp(App):
             height=48,
             multiline=False,
         )
-        content_layout.add_widget(date_input)
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
-            )
-        )
         region_input = TextInput(
             hint_text=S.get("MESSAGES", {}).get("REGION_HINT", "Περιοχή"),
             size_hint_y=None,
             height=48,
             multiline=False,
-        )
-        content_layout.add_widget(region_input)
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
-            )
         )
         inspector_spinner = Spinner(
             text=inspector_default,
@@ -7330,24 +7305,11 @@ class SubstationAndroidApp(App):
             size_hint_y=None,
             height=48,
         )
-        content_layout.add_widget(inspector_spinner)
-
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
-            )
-        )
         month_input = TextInput(
             readonly=True,
             size_hint_y=None,
             height=48,
             multiline=False,
-        )
-        content_layout.add_widget(month_input)
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
-            )
         )
         day_input = TextInput(
             readonly=True,
@@ -7355,19 +7317,56 @@ class SubstationAndroidApp(App):
             height=48,
             multiline=False,
         )
-        content_layout.add_widget(day_input)
-        content_layout.add_widget(
-            wrapped_form_label(
-                S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
-            )
-        )
         year_input = TextInput(
             readonly=True,
             size_hint_y=None,
             height=48,
             multiline=False,
         )
-        content_layout.add_widget(year_input)
+
+        add_meta_row(
+            (
+                S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
+                form_number_input,
+                0.42,
+            ),
+            (
+                S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
+                date_input,
+                0.58,
+            ),
+        )
+        add_meta_row(
+            (
+                S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
+                region_input,
+                1,
+            ),
+        )
+        add_meta_row(
+            (
+                S.get("MESSAGES", {}).get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
+                inspector_spinner,
+                1,
+            ),
+        )
+        add_meta_row(
+            (
+                S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
+                month_input,
+                0.42,
+            ),
+            (
+                S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
+                day_input,
+                0.33,
+            ),
+            (
+                S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
+                year_input,
+                0.25,
+            ),
+        )
 
         fields_inputs = []
         greek_months = S.get("MESSAGES", {}).get(
@@ -7412,14 +7411,6 @@ class SubstationAndroidApp(App):
                 day_input.text = ""
                 year_input.text = ""
 
-        def open_substation_selection(_instance=None):
-            self._show_android_substation_selection_window_with_callback(
-                popup,
-                substations,
-                lambda selected_name: setattr(substation_input, "text", selected_name),
-            )
-
-        select_sub_btn.bind(on_press=open_substation_selection)
         date_input.bind(text=update_date_meta)
         update_date_meta()
 
@@ -7435,21 +7426,21 @@ class SubstationAndroidApp(App):
                 orientation="vertical",
                 size_hint_y=None,
                 spacing=6,
-                padding=[0, 2, 0, 4],
+                padding=[0, 1, 0, 3],
             )
             row.bind(minimum_height=row.setter("height"))
-            label = wrapped_form_label(label_text, min_height=44)
+            label = wrapped_form_label(label_text, min_height=38)
 
             input_widget = TextInput(
                 hint_text=S.get("MESSAGES", {}).get(
                     "OBSERVATIONS_HINT", "Παρατηρήσεις"
                 ),
                 size_hint_y=None,
-                height=92,
+                height=72,
                 multiline=True,
                 padding=[10, 10, 10, 10],
             )
-            bind_autogrow_textinput(input_widget, min_height=92, max_height=260)
+            bind_autogrow_textinput(input_widget, min_height=72, max_height=220)
 
             row.add_widget(label)
             row.add_widget(input_widget)
@@ -7515,11 +7506,18 @@ class SubstationAndroidApp(App):
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
 
-        buttons_layout = BoxLayout(size_hint_y=0.1, spacing=10)
+        buttons_layout = BoxLayout(size_hint_y=None, height=56, spacing=10)
 
         def save_inspection():
             substation_name = substation_input.text.strip()
-            resolved_substation_id = substation_map.get(substation_name, substation_id)
+            resolved_substation_id = selected_substation_id
+            if not resolved_substation_id:
+                self.show_error(
+                    S.get("MESSAGES", {}).get(
+                        "SUBSTATION_REQUIRED", "Ο υποσταθμός είναι υποχρεωτικός!"
+                    )
+                )
+                return
             inspection_date = _parse_android_inspection_date(date_input.text.strip())
             if not inspection_date:
                 self.show_error(
