@@ -7295,6 +7295,38 @@ class SubstationAndroidApp(App):
                 + total_children_height,
             )
 
+        def resolved_layout_height(layout_widget):
+            return max(
+                layout_content_height(layout_widget),
+                max(int(getattr(layout_widget, "minimum_height", 0) or 0), 0),
+            )
+
+        def refresh_widget_layout(widget):
+            try:
+                widget.do_layout()
+            except Exception:
+                pass
+
+        section_refreshers = []
+
+        def refresh_popup_layout(*_args):
+            for refresh_section in list(section_refreshers):
+                try:
+                    refresh_section()
+                except Exception:
+                    continue
+            try:
+                content_layout.height = resolved_layout_height(content_layout)
+            except Exception:
+                pass
+            refresh_widget_layout(content_layout)
+            refresh_widget_layout(scroll)
+            refresh_widget_layout(main_layout)
+
+        def schedule_popup_layout_refresh(*_args):
+            Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0)
+            Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0)
+
         def add_meta_row(*columns):
             row = BoxLayout(
                 orientation="horizontal",
@@ -7463,7 +7495,7 @@ class SubstationAndroidApp(App):
             input_widget = TextInput(
                 hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
                 size_hint_y=None,
-                height=132,
+                height=172,
                 multiline=True,
                 font_size="15sp",
                 padding=[10, 10, 10, 10],
@@ -7471,8 +7503,9 @@ class SubstationAndroidApp(App):
 
             def refresh_row_height(*_args):
                 row.height = label.height + input_widget.height + row.spacing + 6
+                schedule_popup_layout_refresh()
 
-            bind_autogrow_textinput(input_widget, min_height=132, max_height=320)
+            bind_autogrow_textinput(input_widget, min_height=172, max_height=420)
             label.bind(height=refresh_row_height)
             input_widget.bind(height=refresh_row_height)
             Clock.schedule_once(lambda *_args: refresh_row_height(), 0)
@@ -7508,7 +7541,7 @@ class SubstationAndroidApp(App):
             header_button = Button(
                 text="",
                 size_hint_y=None,
-                height=52,
+                height=56,
                 halign="left",
                 valign="middle",
                 font_size="15sp",
@@ -7545,7 +7578,7 @@ class SubstationAndroidApp(App):
                 if is_open:
                     if body.parent is not body_wrapper:
                         body_wrapper.add_widget(body)
-                    body.height = layout_content_height(body)
+                    body.height = resolved_layout_height(body)
                     body_wrapper.height = body.height
                     body_wrapper.opacity = 1
                 else:
@@ -7554,19 +7587,25 @@ class SubstationAndroidApp(App):
                     body.height = 0
                     body_wrapper.height = 0
                     body_wrapper.opacity = 0
+                card.height = resolved_layout_height(card)
+                refresh_widget_layout(body_wrapper)
+                refresh_widget_layout(card)
 
             def toggle_section(_instance=None):
                 toggle_state["open"] = not toggle_state["open"]
                 refresh_section()
+                schedule_popup_layout_refresh()
 
             body.bind(height=refresh_section)
             header_button.bind(on_press=toggle_section)
             toggle_state["open"] = expanded
             refresh_section()
+            section_refreshers.append(refresh_section)
 
             card.add_widget(header_button)
             card.add_widget(body_wrapper)
             content_layout.add_widget(card)
+            schedule_popup_layout_refresh()
 
         section_definitions = [
             (
@@ -7604,6 +7643,7 @@ class SubstationAndroidApp(App):
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
+        schedule_popup_layout_refresh()
 
         buttons_layout = BoxLayout(size_hint_y=None, height=56, spacing=10)
 

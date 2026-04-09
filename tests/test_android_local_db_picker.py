@@ -477,7 +477,7 @@ def test_show_inspection_entry_popup_expands_sections_and_uses_tall_mobile_input
         if getattr(widget, "multiline", False)
     ]
     assert multiline_inputs
-    assert all(widget.height >= 132 for widget in multiline_inputs)
+    assert all(widget.height >= 172 for widget in multiline_inputs)
 
     messages = android_app.S.get("MESSAGES", {})
     first_title = re.sub(
@@ -505,6 +505,9 @@ def test_show_inspection_entry_popup_expands_sections_and_uses_tall_mobile_input
 
     assert second_header.text == f"[-] {second_title}"
     assert second_section_first_row in _collect_widget_texts(popup_content)
+    assert getattr(second_header.parent, "height", 0) > getattr(
+        second_header, "height", 0
+    )
 
 
 def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):
