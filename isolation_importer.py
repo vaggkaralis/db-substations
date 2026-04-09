@@ -14,11 +14,19 @@ _DATE_TIME_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _DATE_RANGE_PATTERN = re.compile(
-    r"(?P<date>\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?).{0,40}?ώρα\s*(?P<start_time>\d{1,2}[:.]\d{2})\s*(?:έως|εως|ως|to|-|–)\s*(?P<end_time>\d{1,2}[:.]\d{2})",
+    r"(?P<date>\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?).{0,40}?ώρα\s*(?P<start_time>\d{1,2}[:.]\d{2})\s*(?:έως|εως|μέχρι|μεχρι|ως|to|-|–)\s*(?P<end_time>\d{1,2}[:.]\d{2})",
+    re.IGNORECASE | re.DOTALL,
+)
+_RELATIVE_DATE_RANGE_PATTERN = re.compile(
+    r"(?P<date_word>σήμερα|σημερα|αύριο|αυριο|μεθαύριο|μεθαυριο).{0,20}?ώρα\s*(?P<start_time>\d{1,2}[:.]\d{2})\s*(?:έως|εως|μέχρι|μεχρι|ως|to|-|–)\s*(?P<end_time>\d{1,2}[:.]\d{2})",
+    re.IGNORECASE | re.DOTALL,
+)
+_RELATIVE_DATE_TIME_PATTERN = re.compile(
+    r"(?P<date_word>σήμερα|σημερα|αύριο|αυριο|μεθαύριο|μεθαυριο).{0,20}?ώρα\s*(?P<time>\d{1,2}[:.]\d{2})",
     re.IGNORECASE | re.DOTALL,
 )
 _SUBSTATION_PATTERN = re.compile(
-    r"Υ/Σ\s+([A-ΩA-Za-zΆΈΉΊΌΎΏΪΫάέήίόύώϊϋΐΰ0-9()./\-\s]+?)(?=(?:,|\.|\n|\s+την\s+|\s+προκειμένου|\s+για\s+χειρισμ))",
+    r"Υ/Σ\s+([A-ΩA-Za-zΆΈΉΊΌΎΏΪΫάέήίόύώϊϋΐΰ0-9()./\-\s]+?)(?=(?:,|\.|\n|\s+την\s+|\s+για\s+σήμερα|\s+για\s+σημερα|\s+για\s+αύριο|\s+για\s+αυριο|\s+σήμερα\s+|\s+σημερα\s+|\s+αύριο\s+|\s+αυριο\s+|\s+μεθαύριο\s+|\s+μεθαυριο\s+|\s+προκειμένου|\s+σκοπός|\s+σκοποσ|\s+και\s+ώρα|\s+ωρα\s))",
     re.IGNORECASE,
 )
 _ELEMENT_PHRASE_PATTERNS = [
@@ -40,6 +48,22 @@ def _clean_whitespace(value: str) -> str:
 
 def _normalize_time_value(value: str) -> str:
     return re.sub(r"\s+", "", value or "").replace(".", ":")
+
+
+def _resolve_relative_date(
+    date_word: str, reference_dt: datetime | None = None
+) -> datetime:
+    base = reference_dt or datetime.now()
+    normalized = normalize_text(date_word or "")
+    if normalized == "αυριο":
+        return base.replace(hour=0, minute=0, second=0, microsecond=0).fromordinal(
+            base.toordinal() + 1
+        )
+    if normalized == "μεθαυριο":
+        return base.replace(hour=0, minute=0, second=0, microsecond=0).fromordinal(
+            base.toordinal() + 2
+        )
+    return base
 
 
 def _parse_datetime(
@@ -67,6 +91,25 @@ def _parse_datetime(
         return None
 
 
+def _parse_relative_datetime(
+    date_word: str, time_value: str, reference_dt: datetime | None = None
+) -> str | None:
+    try:
+        base = _resolve_relative_date(date_word, reference_dt)
+        parsed = datetime.strptime(
+            f"{base.strftime('%d/%m/%Y')} {_normalize_time_value(time_value)}",
+            "%d/%m/%Y %H:%M",
+        )
+        return parsed.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return None
+
+
+def _append_match(matches: list[str], value: str | None):
+    if value and value not in matches:
+        matches.append(value)
+
+
 def extract_date_times(text: str) -> list[str]:
     matches = []
     occupied_spans = []
@@ -74,10 +117,25 @@ def extract_date_times(text: str) -> list[str]:
     for match in _DATE_RANGE_PATTERN.finditer(text or ""):
         start_value = _parse_datetime(match.group("date"), match.group("start_time"))
         end_value = _parse_datetime(match.group("date"), match.group("end_time"))
-        if start_value and start_value not in matches:
-            matches.append(start_value)
-        if end_value and end_value not in matches:
-            matches.append(end_value)
+        _append_match(matches, start_value)
+        _append_match(matches, end_value)
+        occupied_spans.append(match.span())
+
+    for match in _RELATIVE_DATE_RANGE_PATTERN.finditer(text or ""):
+        span = match.span()
+        if any(
+            not (span[1] <= used_start or span[0] >= used_end)
+            for used_start, used_end in occupied_spans
+        ):
+            continue
+        start_value = _parse_relative_datetime(
+            match.group("date_word"), match.group("start_time")
+        )
+        end_value = _parse_relative_datetime(
+            match.group("date_word"), match.group("end_time")
+        )
+        _append_match(matches, start_value)
+        _append_match(matches, end_value)
         occupied_spans.append(match.span())
 
     for match in _DATE_TIME_PATTERN.finditer(text or ""):
@@ -88,8 +146,17 @@ def extract_date_times(text: str) -> list[str]:
         ):
             continue
         parsed = _parse_datetime(match.group("date"), match.group("time"))
-        if parsed and parsed not in matches:
-            matches.append(parsed)
+        _append_match(matches, parsed)
+
+    for match in _RELATIVE_DATE_TIME_PATTERN.finditer(text or ""):
+        span = match.span()
+        if any(
+            not (span[1] <= used_start or span[0] >= used_end)
+            for used_start, used_end in occupied_spans
+        ):
+            continue
+        parsed = _parse_relative_datetime(match.group("date_word"), match.group("time"))
+        _append_match(matches, parsed)
     return matches
 
 
@@ -97,6 +164,12 @@ def extract_substation_candidates(text: str) -> list[str]:
     candidates = []
     for match in _SUBSTATION_PATTERN.finditer(text or ""):
         candidate = re.sub(r"\s+", " ", match.group(1) or "").strip(" .,")
+        candidate = re.sub(
+            r"\s+(?:για|την|σήμερα|σημερα|αύριο|αυριο|μεθαύριο|μεθαυριο|σκοπός|σκοποσ|και|ώρα|ωρα)\b.*$",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        ).strip(" .,")
         if candidate and candidate not in candidates:
             candidates.append(candidate)
     return candidates
@@ -137,7 +210,18 @@ def _tokens_contained(container_tokens, candidate_tokens) -> bool:
 
 def match_substation(app, text: str, substations) -> tuple[int, str] | None:
     parsed = parse_isolation_request_text(text)
+
+    try:
+        from maintenance_email_importer import _match_substation_in_text
+    except Exception:
+        _match_substation_in_text = None
+
     for candidate in parsed.get("substation_candidates", []):
+        if _match_substation_in_text and getattr(app, "conn", None):
+            shared_match = _match_substation_in_text(app.conn, candidate)
+            if shared_match:
+                return (shared_match["id"], shared_match["name"])
+
         if getattr(app, "_find_substation_in_text", None):
             match = app._find_substation_in_text(candidate, substations)
             if match:
@@ -167,6 +251,12 @@ def match_substation(app, text: str, substations) -> tuple[int, str] | None:
         match = app._find_substation_in_text(text, substations)
         if match:
             return match
+
+    if _match_substation_in_text and getattr(app, "conn", None):
+        shared_match = _match_substation_in_text(app.conn, text)
+        if shared_match:
+            return (shared_match["id"], shared_match["name"])
+
     return None
 
 

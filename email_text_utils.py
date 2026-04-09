@@ -7,6 +7,22 @@ import re
 import unicodedata
 
 
+_GREEK_STEM_ENDINGS = (
+    "ων",
+    "ους",
+    "ου",
+    "ος",
+    "ας",
+    "ης",
+    "ες",
+    "ων",
+    "α",
+    "η",
+    "ο",
+    "ς",
+)
+
+
 def normalize_text(value: str) -> str:
     """Normalize text by removing accents and converting to lowercase."""
     if not value:
@@ -44,6 +60,14 @@ def tokenize_substation_text(value: str):
     return normalize_substation_tokens(tokenize_text(value))
 
 
+def _substation_token_stem(token: str) -> str:
+    token = token or ""
+    for ending in _GREEK_STEM_ENDINGS:
+        if token.endswith(ending) and len(token) - len(ending) >= 5:
+            return token[: -len(ending)]
+    return token
+
+
 def tokens_match(left_tokens, right_tokens):
     """
     Check if two token sequences match.
@@ -71,6 +95,8 @@ def tokens_match(left_tokens, right_tokens):
         if common_len >= 8:
             if left[:8] == right[:8]:
                 continue
+        if _substation_token_stem(left) == _substation_token_stem(right):
+            continue
         return False
     return True
 

@@ -11,6 +11,7 @@ from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
 
 _STATUS_VALUES = ["Requested", "Accepted", "Cancelled"]
+_DEFAULT_IMPORTED_STATUS = "Accepted"
 
 
 def _get_substations(app):
@@ -76,7 +77,7 @@ def _prefill_imported_isolation(
 
 
 def import_isolation_request_from_payload(
-    app, payload, parent_popup=None, status="Requested"
+    app, payload, parent_popup=None, status=_DEFAULT_IMPORTED_STATUS
 ):
     raw_text = payload.get("body") or ""
     attachment_paths = payload.get("attachment_paths") or []
@@ -86,7 +87,7 @@ def import_isolation_request_from_payload(
 
 
 def import_isolation_request_from_eml(
-    app, file_path, parent_popup=None, status="Requested"
+    app, file_path, parent_popup=None, status=_DEFAULT_IMPORTED_STATUS
 ):
     try:
         payload = parse_eml_file(file_path)
@@ -171,7 +172,10 @@ def show_import_isolation_request(app, parent_popup=None):
         )
     )
     status_spinner = Spinner(
-        text="Requested", values=_STATUS_VALUES, size_hint_y=None, height=40
+        text=_DEFAULT_IMPORTED_STATUS,
+        values=_STATUS_VALUES,
+        size_hint_y=None,
+        height=40,
     )
     layout.add_widget(status_spinner)
 
@@ -692,7 +696,7 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     status_default = (
         request_record[5]
         if request_record
-        else prefill_data.get("status") or "Requested"
+        else prefill_data.get("status") or _DEFAULT_IMPORTED_STATUS
     )
     status_spinner = Spinner(
         text=status_default, values=_STATUS_VALUES, size_hint_y=None, height=40

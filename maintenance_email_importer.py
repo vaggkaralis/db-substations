@@ -178,7 +178,14 @@ def _lookup_substation_by_name(conn, substation_name: str):
     c.execute("SELECT id, name FROM substations WHERE name = ?", (substation_name,))
     row = c.fetchone()
     if row:
-        return dict(row)
+        try:
+            return dict(row)
+        except Exception:
+            # Row may be a plain tuple; map using cursor description
+            if c.description:
+                cols = [d[0] for d in c.description]
+                return dict(zip(cols, row))
+            return None
 
     # Fallback: normalized lookup (handles punctuation/spacing variations)
     wanted = _normalize_for_alias_lookup(substation_name)
