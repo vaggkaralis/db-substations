@@ -7260,6 +7260,41 @@ class SubstationAndroidApp(App):
             Clock.schedule_once(lambda *_args: _adjust_height(input_widget), 0)
             return input_widget
 
+        def vertical_spacing(value):
+            if isinstance(value, (list, tuple)):
+                if len(value) >= 2:
+                    return value[1]
+                if value:
+                    return value[0]
+                return 0
+            return value or 0
+
+        def vertical_padding(value):
+            if isinstance(value, (list, tuple)):
+                if len(value) >= 4:
+                    return value[1] + value[3]
+                if len(value) == 2:
+                    return value[1] * 2
+                if value:
+                    return value[0] * 2
+                return 0
+            return (value or 0) * 2
+
+        def layout_content_height(layout_widget):
+            children = list(getattr(layout_widget, "children", []) or [])
+            total_children_height = sum(
+                max(int(getattr(child, "height", 0) or 0), 0) for child in children
+            )
+            gaps = max(len(children) - 1, 0) * int(
+                vertical_spacing(getattr(layout_widget, "spacing", 0))
+            )
+            return max(
+                0,
+                int(vertical_padding(getattr(layout_widget, "padding", 0)))
+                + gaps
+                + total_children_height,
+            )
+
         def add_meta_row(*columns):
             row = BoxLayout(
                 orientation="horizontal",
@@ -7428,12 +7463,19 @@ class SubstationAndroidApp(App):
             input_widget = TextInput(
                 hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
                 size_hint_y=None,
-                height=88,
+                height=132,
                 multiline=True,
                 font_size="15sp",
                 padding=[10, 10, 10, 10],
             )
-            bind_autogrow_textinput(input_widget, min_height=88, max_height=260)
+
+            def refresh_row_height(*_args):
+                row.height = label.height + input_widget.height + row.spacing + 6
+
+            bind_autogrow_textinput(input_widget, min_height=132, max_height=320)
+            label.bind(height=refresh_row_height)
+            input_widget.bind(height=refresh_row_height)
+            Clock.schedule_once(lambda *_args: refresh_row_height(), 0)
 
             row.add_widget(label)
             row.add_widget(input_widget)
@@ -7466,7 +7508,7 @@ class SubstationAndroidApp(App):
             header_button = Button(
                 text="",
                 size_hint_y=None,
-                height=48,
+                height=52,
                 halign="left",
                 valign="middle",
                 font_size="15sp",
@@ -7500,8 +7542,18 @@ class SubstationAndroidApp(App):
             def refresh_section(*_args):
                 is_open = toggle_state["open"]
                 header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
-                body_wrapper.height = body.height if is_open else 0
-                body_wrapper.opacity = 1 if is_open else 0
+                if is_open:
+                    if body.parent is not body_wrapper:
+                        body_wrapper.add_widget(body)
+                    body.height = layout_content_height(body)
+                    body_wrapper.height = body.height
+                    body_wrapper.opacity = 1
+                else:
+                    if body.parent is body_wrapper:
+                        body_wrapper.remove_widget(body)
+                    body.height = 0
+                    body_wrapper.height = 0
+                    body_wrapper.opacity = 0
 
             def toggle_section(_instance=None):
                 toggle_state["open"] = not toggle_state["open"]

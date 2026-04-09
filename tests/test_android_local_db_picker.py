@@ -2,6 +2,7 @@ import sys
 import types
 import builtins
 import sqlite3
+import re
 
 import android_app
 import ui.shared as shared_ui
@@ -442,6 +443,68 @@ def test_show_inspection_entry_popup_matches_desktop_form_structure(monkeypatch)
         in texts
     )
     assert "Ημερομηνία Επιθεώρησης:" not in texts
+
+
+def test_show_inspection_entry_popup_expands_sections_and_uses_tall_mobile_inputs(
+    monkeypatch,
+):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+
+    app = android_app.SubstationAndroidApp()
+    app.substations = [{"id": 1, "name": "S1"}]
+
+    app.show_inspection_entry_popup(1, {"id": 1, "name": "S1"})
+
+    popup_content = captured["instance"].content
+    multiline_inputs = [
+        widget
+        for widget in _collect_widgets_by_class_name(popup_content, "TextInput")
+        if getattr(widget, "multiline", False)
+    ]
+    assert multiline_inputs
+    assert all(widget.height >= 132 for widget in multiline_inputs)
+
+    messages = android_app.S.get("MESSAGES", {})
+    first_title = re.sub(
+        r"\[/?b\]",
+        "",
+        messages.get("INSPECTION_SECTION_2", "[b]Έλεγχος Περιοχών Υποσταθμού[/b]"),
+    ).strip()
+    second_title = re.sub(
+        r"\[/?b\]",
+        "",
+        messages.get(
+            "INSPECTION_SECTION_3",
+            "[b]Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV[/b]",
+        ),
+    ).strip()
+
+    assert _find_widget_by_text(popup_content, f"[-] {first_title}") is not None
+    second_header = _find_widget_by_text(popup_content, f"[+] {second_title}")
+    assert second_header is not None
+
+    second_section_first_row = messages.get("INSPECTION_ROWS", [])[4]
+    assert second_section_first_row not in _collect_widget_texts(popup_content)
+
+    second_header.on_press(second_header)
+
+    assert second_header.text == f"[-] {second_title}"
+    assert second_section_first_row in _collect_widget_texts(popup_content)
 
 
 def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):
