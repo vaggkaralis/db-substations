@@ -7301,7 +7301,14 @@ class SubstationAndroidApp(App):
             except Exception:
                 pass
 
+        section_refreshers = []
+
         def refresh_popup_layout(*_args):
+            for refresh_section in list(section_refreshers):
+                try:
+                    refresh_section()
+                except Exception:
+                    continue
             try:
                 content_layout.height = layout_content_height(content_layout)
             except Exception:
@@ -7313,6 +7320,7 @@ class SubstationAndroidApp(App):
         def schedule_popup_layout_refresh(*_args):
             Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0)
             Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.05)
+            Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.2)
 
         def add_meta_row(*columns):
             row = BoxLayout(
@@ -7469,7 +7477,7 @@ class SubstationAndroidApp(App):
 
         rows = list(messages.get("INSPECTION_ROWS", []) or [])
 
-        def build_inspection_row(label_text):
+        def add_inspection_row(parent_layout, label_text):
             row = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
@@ -7482,23 +7490,27 @@ class SubstationAndroidApp(App):
             input_widget = TextInput(
                 hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
                 size_hint_y=None,
-                height=186,
+                height=88,
                 multiline=True,
                 font_size="15sp",
                 padding=[10, 10, 10, 10],
             )
 
             def refresh_row_height(*_args):
-                row.height = label.height + input_widget.height + row.spacing + 6
+                row.height = max(
+                    layout_content_height(row),
+                    int(getattr(row, "minimum_height", 0) or 0),
+                )
                 schedule_popup_layout_refresh()
 
-            bind_autogrow_textinput(input_widget, min_height=186, max_height=460)
+            bind_autogrow_textinput(input_widget, min_height=88, max_height=260)
             label.bind(height=refresh_row_height)
             input_widget.bind(height=refresh_row_height)
             Clock.schedule_once(lambda *_args: refresh_row_height(), 0)
 
             row.add_widget(label)
             row.add_widget(input_widget)
+            parent_layout.add_widget(row)
             fields_inputs.append((label_text, input_widget))
             return row
 
@@ -7539,54 +7551,66 @@ class SubstationAndroidApp(App):
                 )
             )
 
-            body = BoxLayout(
-                orientation="vertical",
+            body = GridLayout(
+                cols=1,
                 spacing=8,
                 size_hint_y=None,
                 padding=[6, 4, 6, 8],
             )
-            section_rows = [
-                build_inspection_row(row_label) for row_label in row_labels if row_label
-            ]
+            body.bind(minimum_height=body.setter("height"))
 
-            def mount_section_rows():
-                if len(getattr(body, "children", []) or []) == len(section_rows):
-                    return
-                for row_widget in reversed(section_rows):
-                    if row_widget.parent is not body:
-                        body.add_widget(row_widget)
+            body_wrapper = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                height=0,
+                opacity=0,
+            )
+            body_wrapper.add_widget(body)
 
-            def unmount_section_rows():
-                for row_widget in list(section_rows):
-                    if row_widget.parent is body:
-                        body.remove_widget(row_widget)
+            section_rows = []
+            for row_label in row_labels:
+                if row_label:
+                    section_rows.append(add_inspection_row(body, row_label))
 
             def refresh_section(*_args):
                 is_open = toggle_state["open"]
                 header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
-                if is_open:
-                    mount_section_rows()
-                    body.height = layout_content_height(body)
-                    body.opacity = 1
-                else:
-                    unmount_section_rows()
-                    body.height = 0
-                    body.opacity = 0
+                for row_widget in section_rows:
+                    try:
+                        row_widget.height = max(
+                            layout_content_height(row_widget),
+                            int(getattr(row_widget, "minimum_height", 0) or 0),
+                        )
+                    except Exception:
+                        continue
+                body.height = max(
+                    layout_content_height(body),
+                    int(getattr(body, "minimum_height", 0) or 0),
+                )
+                if is_open and body.parent is not body_wrapper:
+                    body_wrapper.add_widget(body)
+                if not is_open and body.parent is body_wrapper:
+                    body_wrapper.remove_widget(body)
+                body_wrapper.height = body.height if is_open else 0
+                body_wrapper.opacity = 1 if is_open else 0
                 card.height = layout_content_height(card)
                 refresh_widget_layout(body)
+                refresh_widget_layout(body_wrapper)
                 refresh_widget_layout(card)
-                schedule_popup_layout_refresh()
 
             def toggle_section(_instance=None):
                 toggle_state["open"] = not toggle_state["open"]
                 refresh_section()
+                schedule_popup_layout_refresh()
 
+            body.bind(height=refresh_section)
             header_button.bind(on_press=toggle_section)
             toggle_state["open"] = expanded
             refresh_section()
+            section_refreshers.append(refresh_section)
 
             card.add_widget(header_button)
-            card.add_widget(body)
+            card.add_widget(body_wrapper)
             content_layout.add_widget(card)
             schedule_popup_layout_refresh()
 
