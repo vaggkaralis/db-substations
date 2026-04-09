@@ -139,3 +139,27 @@ def test_match_substation_handles_declension_difference_with_db_name():
     )
 
     assert matched == (15, "ΣΤΑΓΕΙΡΑ")
+
+
+def test_match_substation_handles_tuple_rows_from_shared_matcher():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT)")
+    conn.execute(
+        "INSERT INTO substations (id, name) VALUES (?, ?)",
+        (21, "ΣΤΑΓΕΙΡΑ"),
+    )
+
+    class AppStub:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def _find_substation_in_text(self, _text, _substations):
+            return None
+
+    matched = match_substation(
+        AppStub(conn),
+        "του Υ/Σ ΣΤΑΓΕΙΡΩΝ την ΠΑΡΑΣΚΕΥΗ 17/4 και ώρα 09.00 μέχρι 14.00",
+        [(21, "ΣΤΑΓΕΙΡΑ")],
+    )
+
+    assert matched == (21, "ΣΤΑΓΕΙΡΑ")

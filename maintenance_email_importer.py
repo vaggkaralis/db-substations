@@ -172,20 +172,30 @@ def _normalize_for_alias_lookup(value: str) -> str:
     return normalized
 
 
+def _row_to_dict(row, description=None):
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return dict(row)
+    try:
+        return dict(row)
+    except Exception:
+        pass
+    if hasattr(row, "keys"):
+        return {key: row[key] for key in row.keys()}
+    if description:
+        columns = [column[0] for column in description]
+        return dict(zip(columns, row))
+    return None
+
+
 def _lookup_substation_by_name(conn, substation_name: str):
     """Helper to query database for a substation by exact name."""
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations WHERE name = ?", (substation_name,))
     row = c.fetchone()
     if row:
-        try:
-            return dict(row)
-        except Exception:
-            # Row may be a plain tuple; map using cursor description
-            if c.description:
-                cols = [d[0] for d in c.description]
-                return dict(zip(cols, row))
-            return None
+        return _row_to_dict(row, c.description)
 
     # Fallback: normalized lookup (handles punctuation/spacing variations)
     wanted = _normalize_for_alias_lookup(substation_name)
@@ -193,10 +203,14 @@ def _lookup_substation_by_name(conn, substation_name: str):
         return None
 
     c.execute("SELECT id, name FROM substations")
+    description = c.description
     for db_row in c.fetchall():
-        db_name_norm = _normalize_for_alias_lookup(db_row["name"])
+        db_row_dict = _row_to_dict(db_row, description)
+        if not db_row_dict:
+            continue
+        db_name_norm = _normalize_for_alias_lookup(db_row_dict.get("name"))
         if db_name_norm == wanted:
-            return dict(db_row)
+            return db_row_dict
 
     return None
 
@@ -304,15 +318,19 @@ def _match_substation_by_name(conn, subject_substation: str):
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations")
     rows = c.fetchall()
+    description = c.description
 
     best_match = None
     best_score = 0
 
     for row in rows:
-        name = row["name"]
+        row_dict = _row_to_dict(row, description)
+        if not row_dict:
+            continue
+        name = row_dict.get("name")
         normalized_name = _normalize_text(name)
         if normalized_name == normalized_subject:
-            return dict(row)
+            return row_dict
         if (
             normalized_subject in normalized_name
             or normalized_name in normalized_subject
@@ -320,7 +338,7 @@ def _match_substation_by_name(conn, subject_substation: str):
             score = min(len(normalized_name), len(normalized_subject))
             if score > best_score:
                 best_score = score
-                best_match = dict(row)
+                best_match = row_dict
 
     return best_match
 
@@ -348,11 +366,15 @@ def _match_substation_in_text(conn, text: str):
     c = conn.cursor()
     c.execute("SELECT id, name FROM substations")
     rows = c.fetchall()
+    description = c.description
 
     # Collect all matching substations with their match quality (token count)
     matches = []
     for row in rows:
-        for candidate_name in _iter_substation_name_candidates(row["name"]):
+        row_dict = _row_to_dict(row, description)
+        if not row_dict:
+            continue
+        for candidate_name in _iter_substation_name_candidates(row_dict.get("name")):
             name_tokens = _tokenize_substation_text(candidate_name)
             if not name_tokens:
                 continue
@@ -360,7 +382,7 @@ def _match_substation_in_text(conn, text: str):
                 candidate = tokens[i : i + len(name_tokens)]
                 if _tokens_match(candidate, name_tokens):
                     # Score based on number of tokens matched (more is better)
-                    matches.append((len(name_tokens), dict(row)))
+                    matches.append((len(name_tokens), row_dict))
                     break  # Found a match for this row, no need to check other positions
 
     # Return the match with the most tokens (most specific/longer match)
@@ -374,7 +396,12 @@ def _match_substation_in_text(conn, text: str):
 def _match_person_by_sender(conn, sender_email: str, sender_name: str):
     c = conn.cursor()
     c.execute("SELECT id, name, email FROM people WHERE active=1")
-    people = [dict(row) for row in c.fetchall()]
+    description = c.description
+    people = [
+        row_dict
+        for row_dict in (_row_to_dict(row, description) for row in c.fetchall())
+        if row_dict
+    ]
 
     if sender_email:
         email_lower = sender_email.strip().lower()

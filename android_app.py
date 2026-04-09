@@ -7196,6 +7196,7 @@ class SubstationAndroidApp(App):
         """Add a new inspection entry using the desktop inspection form layout."""
         selected_substation_id = substation_id or (substation or {}).get("id")
         selected_substation_name = (substation or {}).get("name") or "-"
+        messages = S.get("MESSAGES", {})
 
         popup = Popup(
             title=S.get("TITLES", {}).get("INSPECTION_ENTRY", "Νέα Επιθεώρηση"),
@@ -7224,6 +7225,24 @@ class SubstationAndroidApp(App):
                 ),
             )
             return label
+
+        def build_single_line_input(
+            *,
+            text="",
+            hint_text="",
+            readonly=False,
+            height=56,
+        ):
+            return TextInput(
+                text=text,
+                hint_text=hint_text,
+                readonly=readonly,
+                size_hint_y=None,
+                height=height,
+                multiline=False,
+                font_size="16sp",
+                padding=[12, 16, 12, 12],
+            )
 
         def bind_autogrow_textinput(input_widget, min_height=72, max_height=240):
             def _adjust_height(instance, *_args):
@@ -7263,113 +7282,93 @@ class SubstationAndroidApp(App):
 
         content_layout.add_widget(
             wrapped_form_label(
-                S.get("MESSAGES", {}).get("SUBSTATION_LABEL", "Υποσταθμός:"),
+                messages.get("SUBSTATION_LABEL", "Υποσταθμός:"),
                 min_height=30,
             )
         )
 
-        substation_input = TextInput(
+        substation_input = build_single_line_input(
             text=selected_substation_name,
             readonly=True,
-            size_hint_y=None,
-            height=48,
-            multiline=False,
         )
         content_layout.add_widget(substation_input)
 
-        form_number_input = TextInput(
-            hint_text=S.get("MESSAGES", {}).get("FORM_NUMBER_HINT", "Αρ. Δελτίου"),
-            size_hint_y=None,
-            height=48,
-            multiline=False,
+        form_number_input = build_single_line_input(
+            hint_text=messages.get("FORM_NUMBER_HINT", "Αρ. Δελτίου"),
         )
 
         people = self._get_android_inspection_people()
         inspector_default = people[0] if people else ""
-        date_input = TextInput(
+        date_input = build_single_line_input(
             text=datetime.now().strftime("%Y-%m-%d"),
-            hint_text=S.get("MESSAGES", {}).get("DATE_HINT", "YYYY-MM-DD"),
-            size_hint_y=None,
-            height=48,
-            multiline=False,
+            hint_text=messages.get("DATE_HINT", "YYYY-MM-DD"),
         )
-        region_input = TextInput(
-            hint_text=S.get("MESSAGES", {}).get("REGION_HINT", "Περιοχή"),
-            size_hint_y=None,
-            height=48,
-            multiline=False,
+        region_input = build_single_line_input(
+            hint_text=messages.get("REGION_HINT", "Περιοχή"),
         )
         inspector_spinner = Spinner(
             text=inspector_default,
             values=people or [""],
             size_hint_y=None,
-            height=48,
+            height=56,
+            font_size="16sp",
         )
-        month_input = TextInput(
+        month_input = build_single_line_input(
             readonly=True,
-            size_hint_y=None,
-            height=48,
-            multiline=False,
         )
-        day_input = TextInput(
+        day_input = build_single_line_input(
             readonly=True,
-            size_hint_y=None,
-            height=48,
-            multiline=False,
         )
-        year_input = TextInput(
+        year_input = build_single_line_input(
             readonly=True,
-            size_hint_y=None,
-            height=48,
-            multiline=False,
         )
 
         add_meta_row(
             (
-                S.get("MESSAGES", {}).get("FORM_NUMBER", "Αρ. Δελτίου:"),
+                messages.get("FORM_NUMBER", "Αρ. Δελτίου:"),
                 form_number_input,
                 0.42,
             ),
             (
-                S.get("MESSAGES", {}).get("DATE_LABEL", "Ημερομηνία:"),
+                messages.get("DATE_LABEL", "Ημερομηνία:"),
                 date_input,
                 0.58,
             ),
         )
         add_meta_row(
             (
-                S.get("MESSAGES", {}).get("REGION_LABEL", "Περιοχή:"),
+                messages.get("REGION_LABEL", "Περιοχή:"),
                 region_input,
                 1,
             ),
         )
         add_meta_row(
             (
-                S.get("MESSAGES", {}).get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
+                messages.get("INSPECTOR_LABEL", "Ονομ. Επιθεωρητή:"),
                 inspector_spinner,
                 1,
             ),
         )
         add_meta_row(
             (
-                S.get("MESSAGES", {}).get("MONTH_LABEL", "Μήνας:"),
+                messages.get("MONTH_LABEL", "Μήνας:"),
                 month_input,
                 0.42,
             ),
             (
-                S.get("MESSAGES", {}).get("DAY_LABEL", "Ημέρα:"),
+                messages.get("DAY_LABEL", "Ημέρα:"),
                 day_input,
                 0.33,
             ),
             (
-                S.get("MESSAGES", {}).get("YEAR_LABEL", "Έτος:"),
+                messages.get("YEAR_LABEL", "Έτος:"),
                 year_input,
                 0.25,
             ),
         )
 
         fields_inputs = []
-        greek_months = S.get("MESSAGES", {}).get(
+        greek_months = messages.get(
             "MONTHS",
             [
                 "Ιανουάριος",
@@ -7386,7 +7385,7 @@ class SubstationAndroidApp(App):
                 "Δεκέμβριος",
             ],
         )
-        greek_days = S.get("MESSAGES", {}).get(
+        greek_days = messages.get(
             "DAYS",
             [
                 "Δευτέρα",
@@ -7414,94 +7413,130 @@ class SubstationAndroidApp(App):
         date_input.bind(text=update_date_meta)
         update_date_meta()
 
-        rows = list(S.get("MESSAGES", {}).get("INSPECTION_ROWS", []) or [])
+        rows = list(messages.get("INSPECTION_ROWS", []) or [])
 
-        def add_section(title_text):
-            content_layout.add_widget(
-                wrapped_form_label(title_text, min_height=38, markup=True)
-            )
-
-        def add_inspection_row(label_text):
+        def add_inspection_row(parent_layout, label_text):
             row = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
                 spacing=6,
-                padding=[0, 1, 0, 3],
+                padding=[0, 2, 0, 4],
             )
             row.bind(minimum_height=row.setter("height"))
             label = wrapped_form_label(label_text, min_height=38)
 
             input_widget = TextInput(
-                hint_text=S.get("MESSAGES", {}).get(
-                    "OBSERVATIONS_HINT", "Παρατηρήσεις"
-                ),
+                hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
                 size_hint_y=None,
-                height=72,
+                height=88,
                 multiline=True,
+                font_size="15sp",
                 padding=[10, 10, 10, 10],
             )
-            bind_autogrow_textinput(input_widget, min_height=72, max_height=220)
+            bind_autogrow_textinput(input_widget, min_height=88, max_height=260)
 
             row.add_widget(label)
             row.add_widget(input_widget)
-            content_layout.add_widget(row)
+            parent_layout.add_widget(row)
             fields_inputs.append((label_text, input_widget))
 
-        add_section(
-            S.get("MESSAGES", {}).get("INSPECTION_SECTION_2", "[b]Έλεγχος Χώρων ΥΣ[/b]")
-        )
-        for row_label in rows[0:4]:
-            add_inspection_row(row_label)
-
-        add_section(
-            S.get("MESSAGES", {}).get(
-                "INSPECTION_SECTION_3",
-                "[b]Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV[/b]",
+        def add_mobile_section(title_text, row_labels, expanded=False):
+            clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
+            card = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                spacing=4,
+                padding=[0, 2, 0, 2],
             )
-        )
-        for row_label in rows[4:12]:
-            add_inspection_row(row_label)
+            card.bind(minimum_height=card.setter("height"))
 
-        add_section(
-            S.get("MESSAGES", {}).get(
-                "INSPECTION_SECTION_3A", "[b]Υπαίθριες πύλες 20 kV[/b]"
+            toggle_state = {"open": False}
+            header_button = Button(
+                text="",
+                size_hint_y=None,
+                height=48,
+                halign="left",
+                valign="middle",
+                font_size="15sp",
             )
-        )
-        if len(rows) > 12:
-            add_inspection_row(rows[12])
-
-        add_section(
-            S.get("MESSAGES", {}).get("INSPECTION_SECTION_3B", "[b]Πίνακες 20 kV[/b]")
-        )
-        for row_label in rows[13:15] if len(rows) > 13 else []:
-            add_inspection_row(row_label)
-
-        add_section(
-            S.get("MESSAGES", {}).get(
-                "INSPECTION_SECTION_4", "[b]Κτίριο χειρισμών & Τ.Α.Σ.[/b]"
+            header_button.bind(
+                width=lambda instance, value: setattr(
+                    instance, "text_size", (max(value - 20, 0), None)
+                )
             )
-        )
-        for row_label in rows[15:18] if len(rows) > 15 else []:
-            add_inspection_row(row_label)
 
-        add_section(
-            S.get("MESSAGES", {}).get(
-                "INSPECTION_SECTION_5", "[b]Αποζευκτες Γραμμών[/b]"
+            body = GridLayout(
+                cols=1,
+                spacing=8,
+                size_hint_y=None,
+                padding=[6, 4, 6, 8],
             )
-        )
-        if len(rows) > 18:
-            add_inspection_row(rows[18])
+            body.bind(minimum_height=body.setter("height"))
 
-        add_section(
-            S.get("MESSAGES", {}).get("INSPECTION_SECTION_6", "[b]PC ΧΕΙΡΙΣΜΩΝ[/b]")
-        )
-        for row_label in rows[19:21] if len(rows) > 19 else []:
-            add_inspection_row(row_label)
+            body_wrapper = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                height=0,
+                opacity=0,
+            )
+            body_wrapper.add_widget(body)
 
-        add_section(S.get("MESSAGES", {}).get("INSPECTION_SECTION_7", "[b]Απόψεις[/b]"))
-        add_inspection_row(
-            S.get("MESSAGES", {}).get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")
-        )
+            for row_label in row_labels:
+                if row_label:
+                    add_inspection_row(body, row_label)
+
+            def refresh_section(*_args):
+                is_open = toggle_state["open"]
+                header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
+                body_wrapper.height = body.height if is_open else 0
+                body_wrapper.opacity = 1 if is_open else 0
+
+            def toggle_section(_instance=None):
+                toggle_state["open"] = not toggle_state["open"]
+                refresh_section()
+
+            body.bind(height=refresh_section)
+            header_button.bind(on_press=toggle_section)
+            toggle_state["open"] = expanded
+            refresh_section()
+
+            card.add_widget(header_button)
+            card.add_widget(body_wrapper)
+            content_layout.add_widget(card)
+
+        section_definitions = [
+            (
+                messages.get("INSPECTION_SECTION_2", "Έλεγχος Περιοχών Υποσταθμού"),
+                rows[0:4],
+            ),
+            (
+                messages.get(
+                    "INSPECTION_SECTION_3",
+                    "Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV",
+                ),
+                rows[4:12],
+            ),
+            (
+                messages.get("INSPECTION_SECTION_3A", "Εξωτερικές Πύλες 20 kV"),
+                rows[12:13],
+            ),
+            (messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV"), rows[13:15]),
+            (
+                messages.get(
+                    "INSPECTION_SECTION_4", "Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες"
+                ),
+                rows[15:18],
+            ),
+            (messages.get("INSPECTION_SECTION_5", "Διακόπτες Γραμμής"), rows[18:19]),
+            (messages.get("INSPECTION_SECTION_6", "PC Ελέγχου"), rows[19:21]),
+            (
+                messages.get("INSPECTION_SECTION_7", "Απόψεις"),
+                [messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")],
+            ),
+        ]
+
+        for index, (section_title, section_rows) in enumerate(section_definitions):
+            add_mobile_section(section_title, section_rows, expanded=index == 0)
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
