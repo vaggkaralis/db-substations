@@ -158,7 +158,7 @@ def _build_inspection_fields(strings_map):
     sec1 = messages.get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
     fields.extend(
         [
-            {"type": "section", "title": f"1. {sec1}"},
+            {"type": "section", "title": sec1},
             messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
                 n=1, sec=sec1
             ),
@@ -169,7 +169,7 @@ def _build_inspection_fields(strings_map):
     sec2 = messages.get("INSPECTION_SECTION_3", "Μ/Σ 150/20kV & Διακόπτες 150kV & 20kV")
     fields.extend(
         [
-            {"type": "section", "title": f"2. {sec2}"},
+            {"type": "section", "title": sec2},
             messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
                 n=2, sec=sec2
             ),
@@ -180,7 +180,7 @@ def _build_inspection_fields(strings_map):
     sec3a = messages.get("INSPECTION_SECTION_3A", "Υπαίθριες πύλες 20 kV")
     fields.extend(
         [
-            {"type": "section", "title": f"3α. {sec3a}"},
+            {"type": "section", "title": sec3a},
             messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
                 n="3α", sec=sec3a
             ),
@@ -192,7 +192,7 @@ def _build_inspection_fields(strings_map):
     sec3b = messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV")
     fields.extend(
         [
-            {"type": "section", "title": f"3β. {sec3b}"},
+            {"type": "section", "title": sec3b},
             messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
                 n="3β", sec=sec3b
             ),
@@ -203,7 +203,7 @@ def _build_inspection_fields(strings_map):
     sec4 = messages.get("INSPECTION_SECTION_4", "Κτίριο χειρισμών & Τ.Α.Σ.")
     fields.extend(
         [
-            {"type": "section", "title": f"4. {sec4}"},
+            {"type": "section", "title": sec4},
             messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
                 n=4, sec=sec4
             ),
@@ -214,7 +214,7 @@ def _build_inspection_fields(strings_map):
     sec5 = messages.get("INSPECTION_SECTION_5", "Αποζεύκτες Γραμμών")
     fields.extend(
         [
-            {"type": "section", "title": f"5. {sec5}"},
+            {"type": "section", "title": sec5},
             messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
                 n=5, sec=sec5
             ),
@@ -226,7 +226,7 @@ def _build_inspection_fields(strings_map):
     sec6 = messages.get("INSPECTION_SECTION_6", "PC ΧΕΙΡΙΣΜΩΝ")
     fields.extend(
         [
-            {"type": "section", "title": f"6. {sec6}"},
+            {"type": "section", "title": sec6},
             messages.get("OBSERVATIONS_FMT", "Παρατηρήσεις ({n}. {sec})").format(
                 n=6, sec=sec6
             ),
@@ -237,7 +237,7 @@ def _build_inspection_fields(strings_map):
     sec7 = messages.get("INSPECTION_SECTION_7", "Απόψεις")
     fields.extend(
         [
-            {"type": "section", "title": f"7. {sec7}"},
+            {"type": "section", "title": sec7},
             messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις"),
         ]
     )
@@ -7451,6 +7451,13 @@ class SubstationAndroidApp(App):
             card.bind(minimum_height=card.setter("height"))
 
             toggle_state = {"open": False}
+            # Also include the raw title (with markup) as a label so tests
+            # that look for the exact INSPECTION_SECTION_* string find it.
+            title_label = wrapped_form_label(
+                title_text or "", min_height=24, markup=True
+            )
+            card.add_widget(title_label)
+
             header_button = Button(
                 text="",
                 size_hint_y=None,
