@@ -9544,6 +9544,17 @@ class SubstationApp(App):
 
             rejected_files = []
             conflicts_files = []
+            tracker = {}
+            tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
+
+            try:
+                if os.path.isfile(tracker_path):
+                    with open(tracker_path, "r", encoding="utf-8") as fh:
+                        loaded = json.load(fh)
+                        if isinstance(loaded, dict):
+                            tracker = loaded
+            except Exception:
+                tracker = {}
 
             if os.path.exists(rejected_dir):
                 pattern = os.path.join(rejected_dir, f"*{username_clean}*.jsonl")
@@ -9551,7 +9562,15 @@ class SubstationApp(App):
 
             if os.path.exists(conflicts_dir):
                 pattern = os.path.join(conflicts_dir, f"*{username_clean}*.jsonl")
-                conflicts_files = glob.glob(pattern)
+                all_conflict_files = glob.glob(pattern)
+                for conflict_file in all_conflict_files:
+                    filename = os.path.basename(conflict_file)
+                    info = tracker.get(filename) if isinstance(tracker, dict) else None
+                    status = str((info or {}).get("status") or "").strip().lower()
+                    resolution = str((info or {}).get("resolution") or "").strip()
+                    if status == "resolved" or resolution:
+                        continue
+                    conflicts_files.append(conflict_file)
 
             if rejected_files or conflicts_files:
                 msg = S["MESSAGES"].get(
@@ -9570,6 +9589,141 @@ class SubstationApp(App):
                 show_message_popup(S["TITLES"].get("WARNING", "Προειδοποίηση"), msg)
         except Exception:
             logging.exception("Failed to check previous sync issues")
+
+    def _load_sync_tracker(self, sync_root):
+        tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
+        tracker = {}
+        try:
+            if os.path.isfile(tracker_path):
+                with open(tracker_path, "r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                    if isinstance(loaded, dict):
+                        tracker = loaded
+        except Exception:
+            tracker = {}
+        return tracker_path, tracker
+
+    def _get_unresolved_sync_conflicts(self):
+        from sync_service import resolve_sync_root
+
+        sync_root = resolve_sync_root(self.db_path)
+        _tracker_path, tracker = self._load_sync_tracker(sync_root)
+        conflicts = {}
+        if isinstance(tracker, dict):
+            for filename, status_info in tracker.items():
+                status = str((status_info or {}).get("status") or "").strip().lower()
+                resolution = str((status_info or {}).get("resolution") or "").strip()
+                if status == "conflict" and not resolution:
+                    conflicts[filename] = status_info or {}
+        return sync_root, conflicts
+
+    def _load_conflict_context(self, filename):
+        from sync_service import resolve_sync_root
+
+        sync_root = resolve_sync_root(self.db_path)
+        candidate_paths = [
+            os.path.join(sync_root, "inbox", "pending", filename),
+            os.path.join(sync_root, "inbox", "processed", "accepted", filename),
+            os.path.join(sync_root, "inbox", "processed", "conflicts", filename),
+        ]
+
+        change_path = next(
+            (path for path in candidate_paths if os.path.exists(path)), None
+        )
+        if not change_path:
+            raise FileNotFoundError(filename)
+
+        changes = []
+        with open(change_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    changes.append(json.loads(line))
+
+        if not changes:
+            raise RuntimeError(f"Empty change payload: {filename}")
+
+        change = changes[0]
+        table = change.get("table", "")
+        record_id = change.get("data", {}).get("id", "")
+        cur = self.conn.cursor()
+        cur.execute(f"SELECT * FROM {table} WHERE id=?", (record_id,))
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError(f"Local record not found for {table}#{record_id}")
+
+        cols = [col[0] for col in cur.description]
+        my_data = dict(zip(cols, row))
+        their_data = change.get("data", {})
+        return {
+            "filename": filename,
+            "sync_root": sync_root,
+            "change_path": change_path,
+            "change": change,
+            "table": table,
+            "record_id": record_id,
+            "cols": cols,
+            "my_data": my_data,
+            "their_data": their_data,
+        }
+
+    def _apply_conflict_resolution(self, filename, resolution):
+        context = self._load_conflict_context(filename)
+        if resolution == "use_theirs":
+            update_fields = {
+                key: value
+                for key, value in (context.get("their_data") or {}).items()
+                if key != "id" and key in context.get("cols", [])
+            }
+            if update_fields:
+                set_clause = ", ".join([f"{key}=?" for key in update_fields.keys()])
+                sql = f"UPDATE {context['table']} SET {set_clause} WHERE id=?"
+                self.conn.execute(
+                    sql,
+                    list(update_fields.values()) + [context["record_id"]],
+                )
+                self.conn.commit()
+
+        self._mark_conflict_resolved(filename, resolution)
+        return context
+
+    def _finalize_conflict_resolution(self, resolved_count=0, failed=None):
+        failed = failed or []
+        sync_root, remaining_conflicts = self._get_unresolved_sync_conflicts()
+        current_probe = self._compute_startup_sync_probe(sync_root)
+        self._acknowledge_startup_probe(current_probe)
+        self._sync_attention_needed = bool(remaining_conflicts)
+        self._update_sync_button_status()
+
+        if remaining_conflicts:
+            message = (
+                f"Επιλύθηκαν {resolved_count} συγκρούσεις, αλλά απομένουν "
+                f"{len(remaining_conflicts)} για έλεγχο."
+            )
+        else:
+            message = (
+                f"Επιλύθηκαν {resolved_count} συγκρούσεις.\n\n"
+                "Οι επιλυμένες συγκρούσεις θα αγνοηθούν στην τρέχουσα συσκευή."
+            )
+
+        if failed:
+            message += "\n\nΑποτυχίες:\n" + "\n".join(
+                f"- {item}" for item in failed[:8]
+            )
+
+        show_message_popup("Επίλυση Συγκρούσεων", message)
+
+    def _resolve_conflicts_batch(self, conflicts, resolution):
+        failed = []
+        resolved_count = 0
+        for filename in list(conflicts.keys()):
+            try:
+                self._apply_conflict_resolution(filename, resolution)
+                resolved_count += 1
+            except Exception as exc:
+                logging.exception("Failed to resolve conflict batch item")
+                failed.append(f"{filename}: {exc}")
+
+        self._finalize_conflict_resolution(resolved_count=resolved_count, failed=failed)
 
     def _show_sync_notification(self, sync_result):
         """Show notification popup after automatic sync imports changes."""
@@ -9750,31 +9904,17 @@ class SubstationApp(App):
     def _show_conflict_resolution(self, sync_result):
         """Show conflict resolution UI after sync detects conflicts."""
         try:
-            from sync_service import resolve_sync_root
             from kivy.uix.boxlayout import BoxLayout
             from kivy.uix.gridlayout import GridLayout
             from kivy.uix.label import Label
             from kivy.uix.button import Button
             from kivy.uix.scrollview import ScrollView
             from kivy.uix.popup import Popup
-            import json
 
-            sync_root = resolve_sync_root(self.db_path)
-            tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
-
-            if not os.path.exists(tracker_path):
-                return
-
-            with open(tracker_path, "r", encoding="utf-8") as f:
-                tracker = json.load(f)
-
-            # Find unresolved conflicts
-            conflicts = {}
-            for filename, status_info in tracker.items():
-                if status_info.get("status") == "conflict":
-                    conflicts[filename] = status_info
+            _sync_root, conflicts = self._get_unresolved_sync_conflicts()
 
             if not conflicts:
+                self._finalize_conflict_resolution(resolved_count=0, failed=[])
                 return
 
             # Create popup UI
@@ -9803,19 +9943,33 @@ class SubstationApp(App):
             # Buttons
             buttons = BoxLayout(size_hint_y=0.2, spacing=10, padding=5)
 
-            resolve_btn = Button(text="Επίλυση")
+            resolve_btn = Button(text="Επίλυση μία-μία")
+            keep_all_btn = Button(text="Δικά μου για όλα")
+            use_all_btn = Button(text="Δικά τους για όλα")
             close_btn = Button(text="Κλείσιμο")
 
             def on_resolve(_):
                 popup.dismiss()
                 self._show_conflict_resolver(conflicts)
 
+            def on_keep_all(_):
+                popup.dismiss()
+                self._resolve_conflicts_batch(conflicts, "keep_mine")
+
+            def on_use_all(_):
+                popup.dismiss()
+                self._resolve_conflicts_batch(conflicts, "use_theirs")
+
             def on_close(_):
                 popup.dismiss()
 
             resolve_btn.bind(on_press=on_resolve)
+            keep_all_btn.bind(on_press=on_keep_all)
+            use_all_btn.bind(on_press=on_use_all)
             close_btn.bind(on_press=on_close)
             buttons.add_widget(resolve_btn)
+            buttons.add_widget(keep_all_btn)
+            buttons.add_widget(use_all_btn)
             buttons.add_widget(close_btn)
             content.add_widget(buttons)
 
@@ -9827,59 +9981,39 @@ class SubstationApp(App):
         except Exception as e:
             logging.exception(f"Failed to show conflict resolution: {e}")
 
-    def _show_conflict_resolver(self, conflicts):
-        """Show resolver for first conflict."""
+    def _show_conflict_resolver(self, conflicts, resolved_so_far=0, total_count=None):
+        """Show resolver for unresolved conflicts sequentially."""
         try:
-            from sync_service import resolve_sync_root
             from kivy.uix.boxlayout import BoxLayout
             from kivy.uix.label import Label
             from kivy.uix.button import Button
             from kivy.uix.popup import Popup
-            import json
 
-            # Get first conflict
-            filename = list(conflicts.keys())[0]
-            sync_root = resolve_sync_root(self.db_path)
-
-            # Read the change file
-            for folder in ["pending", os.path.join("processed", "accepted")]:
-                change_path = os.path.join(sync_root, "inbox", folder, filename)
-                if os.path.exists(change_path):
-                    break
-
-            if not os.path.exists(change_path):
+            filenames = list(conflicts.keys())
+            if not filenames:
+                self._finalize_conflict_resolution(
+                    resolved_count=resolved_so_far,
+                    failed=[],
+                )
                 return
 
-            # Parse the change
-            changes = []
-            with open(change_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        changes.append(json.loads(line))
+            if total_count is None:
+                total_count = resolved_so_far + len(filenames)
 
-            if not changes:
-                return
-
-            # Get conflicting record
-            change = changes[0]
-            table = change.get("table", "")
-            record_id = change.get("data", {}).get("id", "")
-
-            cur = self.conn.cursor()
-            cur.execute(f"SELECT * FROM {table} WHERE id=?", (record_id,))
-            row = cur.fetchone()
-
-            if not row:
-                return
-
-            cols = [col[0] for col in cur.description]
-            my_data = dict(zip(cols, row))
-            their_data = change.get("data", {})
+            filename = filenames[0]
+            context = self._load_conflict_context(filename)
+            table = context.get("table", "")
+            record_id = context.get("record_id", "")
+            my_data = context.get("my_data") or {}
+            their_data = context.get("their_data") or {}
 
             # Show comparison
             content = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-            msg = f"Σύγκρουση in {table} (ID: {record_id})\n\n"
+            msg = (
+                f"Σύγκρουση {resolved_so_far + 1}/{total_count} "
+                f"στο {table} (ID: {record_id})\n\n"
+            )
             msg += "Δικά μου δεδομένα:\n"
             for k, v in my_data.items():
                 if k != "id":
@@ -9895,24 +10029,36 @@ class SubstationApp(App):
             buttons = BoxLayout(size_hint_y=0.3, spacing=10)
 
             def keep_mine():
-                # Just dismiss, don't apply their change
-                self._mark_conflict_resolved(filename, "keep_mine")
+                self._apply_conflict_resolution(filename, "keep_mine")
                 popup.dismiss()
-                show_message_popup("Επίλυση", "Κρατήθηκαν τα δικά σας δεδομένα")
+                remaining = filenames[1:]
+                if remaining:
+                    self._show_conflict_resolver(
+                        {name: conflicts[name] for name in remaining},
+                        resolved_so_far=resolved_so_far + 1,
+                        total_count=total_count,
+                    )
+                else:
+                    self._finalize_conflict_resolution(
+                        resolved_count=total_count,
+                        failed=[],
+                    )
 
             def use_theirs():
-                # Update with their data
-                update_fields = {
-                    k: v for k, v in their_data.items() if k != "id" and k in cols
-                }
-                if update_fields:
-                    set_clause = ", ".join([f"{k}=?" for k in update_fields.keys()])
-                    sql = f"UPDATE {table} SET {set_clause} WHERE id=?"
-                    self.conn.execute(sql, list(update_fields.values()) + [record_id])
-                    self.conn.commit()
-                self._mark_conflict_resolved(filename, "use_theirs")
+                self._apply_conflict_resolution(filename, "use_theirs")
                 popup.dismiss()
-                show_message_popup("Επίλυση", "Εφαρμόστηκαν τα δεδομένα τους")
+                remaining = filenames[1:]
+                if remaining:
+                    self._show_conflict_resolver(
+                        {name: conflicts[name] for name in remaining},
+                        resolved_so_far=resolved_so_far + 1,
+                        total_count=total_count,
+                    )
+                else:
+                    self._finalize_conflict_resolution(
+                        resolved_count=total_count,
+                        failed=[],
+                    )
 
             buttons.add_widget(Button(text="Δικά μου", on_press=lambda x: keep_mine()))
             buttons.add_widget(
@@ -9938,20 +10084,17 @@ class SubstationApp(App):
         """
         try:
             from sync_service import resolve_sync_root
-            import json
             import shutil
 
             sync_root = resolve_sync_root(self.db_path)
-            tracker_path = os.path.join(sync_root, "logs", ".processed_files.json")
-
-            with open(tracker_path, "r", encoding="utf-8") as f:
-                tracker = json.load(f)
+            tracker_path, tracker = self._load_sync_tracker(sync_root)
 
             # Update tracker: mark as resolved
             if filename in tracker:
                 tracker[filename]["resolution"] = resolution
                 tracker[filename]["resolved_at"] = datetime.now().isoformat()
                 tracker[filename]["status"] = "resolved"
+                tracker[filename]["ignored_on_current_device"] = True
 
             with open(tracker_path, "w", encoding="utf-8") as f:
                 json.dump(tracker, f, ensure_ascii=False, indent=2)
