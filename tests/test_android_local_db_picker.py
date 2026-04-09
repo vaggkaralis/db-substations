@@ -514,6 +514,40 @@ def test_show_inspection_entry_popup_expands_sections_and_uses_tall_mobile_input
     assert any(widget.height >= 88 for widget in multiline_inputs)
 
 
+def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypatch):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+    monkeypatch.setattr(android_app, "platform", "android")
+
+    app = android_app.SubstationAndroidApp()
+    app.substations = [{"id": 1, "name": "S1"}]
+
+    app.show_inspection_entry_popup(1, {"id": 1, "name": "S1"})
+
+    popup_content = captured["instance"].content
+    multiline_inputs = [
+        widget
+        for widget in _collect_widgets_by_class_name(popup_content, "TextInput")
+        if getattr(widget, "multiline", False)
+    ]
+    assert multiline_inputs
+    assert all(widget.height >= 156 for widget in multiline_inputs)
+
+
 def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):
     captured = {}
 

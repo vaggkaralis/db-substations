@@ -7203,6 +7203,10 @@ class SubstationAndroidApp(App):
             size_hint=(0.94, 0.97),
         )
         main_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+        is_android_runtime = platform == "android"
+        mobile_multiline_min_height = 156 if is_android_runtime else 88
+        mobile_multiline_max_height = 360 if is_android_runtime else 260
+        mobile_row_min_height = 214 if is_android_runtime else 0
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         content_layout = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=8)
@@ -7321,6 +7325,8 @@ class SubstationAndroidApp(App):
             Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0)
             Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.05)
             Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.2)
+            if is_android_runtime:
+                Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.5)
 
         def add_meta_row(*columns):
             row = BoxLayout(
@@ -7490,7 +7496,7 @@ class SubstationAndroidApp(App):
             input_widget = TextInput(
                 hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
                 size_hint_y=None,
-                height=88,
+                height=mobile_multiline_min_height,
                 multiline=True,
                 font_size="15sp",
                 padding=[10, 10, 10, 10],
@@ -7499,14 +7505,22 @@ class SubstationAndroidApp(App):
             def refresh_row_height(*_args):
                 row.height = max(
                     layout_content_height(row),
+                    mobile_row_min_height,
                     int(getattr(row, "minimum_height", 0) or 0),
                 )
+                row._expanded_height = row.height
                 schedule_popup_layout_refresh()
 
-            bind_autogrow_textinput(input_widget, min_height=88, max_height=260)
+            bind_autogrow_textinput(
+                input_widget,
+                min_height=mobile_multiline_min_height,
+                max_height=mobile_multiline_max_height,
+            )
             label.bind(height=refresh_row_height)
             input_widget.bind(height=refresh_row_height)
             Clock.schedule_once(lambda *_args: refresh_row_height(), 0)
+            if is_android_runtime:
+                Clock.schedule_once(lambda *_args: refresh_row_height(), 0.2)
 
             row.add_widget(label)
             row.add_widget(input_widget)
@@ -7572,6 +7586,27 @@ class SubstationAndroidApp(App):
                 if row_label:
                     section_rows.append(add_inspection_row(body, row_label))
 
+            def section_body_height():
+                if not section_rows:
+                    return 0
+                if not is_android_runtime:
+                    return max(
+                        layout_content_height(body),
+                        int(getattr(body, "minimum_height", 0) or 0),
+                    )
+                spacing = int(vertical_spacing(getattr(body, "spacing", 0)))
+                padding = int(vertical_padding(getattr(body, "padding", 0)))
+                rows_height = sum(
+                    max(
+                        int(getattr(row_widget, "_expanded_height", 0) or 0),
+                        int(getattr(row_widget, "height", 0) or 0),
+                        mobile_row_min_height,
+                    )
+                    for row_widget in section_rows
+                )
+                gaps = max(len(section_rows) - 1, 0) * spacing
+                return max(padding + gaps + rows_height, 0)
+
             def refresh_section(*_args):
                 is_open = toggle_state["open"]
                 header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
@@ -7581,12 +7616,14 @@ class SubstationAndroidApp(App):
                             layout_content_height(row_widget),
                             int(getattr(row_widget, "minimum_height", 0) or 0),
                         )
+                        row_widget._expanded_height = max(
+                            int(getattr(row_widget, "_expanded_height", 0) or 0),
+                            int(getattr(row_widget, "height", 0) or 0),
+                            mobile_row_min_height,
+                        )
                     except Exception:
                         continue
-                body.height = max(
-                    layout_content_height(body),
-                    int(getattr(body, "minimum_height", 0) or 0),
-                )
+                body.height = section_body_height()
                 if is_open and body.parent is not body_wrapper:
                     body_wrapper.add_widget(body)
                 if not is_open and body.parent is body_wrapper:
