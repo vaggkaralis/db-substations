@@ -152,7 +152,7 @@ jobs:
           build_succeeded=0
           for attempt in 1 2 3; do
             echo "Buildozer attempt $attempt" | tee -a "$build_log"
-            if buildozer -v android debug 2>&1 | tee -a "$build_log"; then
+            if buildozer -v android release 2>&1 | tee -a "$build_log"; then
               build_succeeded=1
               break
             fi
@@ -174,12 +174,37 @@ jobs:
           if [ "$build_succeeded" -eq 1 ]; then
             cp "$build_log" buildozer-android.log
           fi
+      - name: Prepare APK artifact name
+        id: apk_meta
+        if: success()
+        shell: bash
+        run: |
+          PKG=$(grep '^package.name' buildozer.spec | cut -d'=' -f2 | tr -d ' ')
+          VERSION_FILE=VERSION
+          if [ -f "$VERSION_FILE" ]; then
+            VERSION=$(cat "$VERSION_FILE" | tr -d '\n' | tr -d '\r')
+          else
+            VERSION=$(grep '^version' buildozer.spec | cut -d'=' -f2 | tr -d ' ')
+          fi
+          BUILD_TYPE=release
+          SHORT_SHA=${GITHUB_SHA::7}
+          DATE=$(date -u +%Y%m%d)
+          APK_SRC=$(ls bin/*.apk | head -n1)
+          if [ -z "$APK_SRC" ]; then
+            echo "No APK found in bin/ to rename" >&2
+            exit 1
+          fi
+          APK_FILENAME="${PKG}-v${VERSION}-${DATE}-${SHORT_SHA}-${BUILD_TYPE}.apk"
+          cp "$APK_SRC" "bin/${APK_FILENAME}"
+          echo "apk_filename=${APK_FILENAME}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=db-substations-${APK_FILENAME}" >> "$GITHUB_OUTPUT"
+
       - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: db-substations-apk-debug
-          path: bin/*.apk
+          name: ${{ steps.apk_meta.outputs.artifact_name }}
+          path: bin/${{ steps.apk_meta.outputs.apk_filename }}
           retention-days: 90
       - name: Upload Android build diagnostics
         if: failure()

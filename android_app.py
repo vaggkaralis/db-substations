@@ -7221,7 +7221,7 @@ class SubstationAndroidApp(App):
         mobile_row_min_height = 214 if is_android_runtime else 0
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        content_layout = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=8)
+        content_layout = GridLayout(cols=1, spacing=12, size_hint_y=None, padding=8)
         content_layout.bind(minimum_height=content_layout.setter("height"))
 
         def wrapped_form_label(text_value, min_height=34, markup=False):
@@ -7513,6 +7513,9 @@ class SubstationAndroidApp(App):
                 multiline=True,
                 font_size="15sp",
                 padding=[10, 10, 10, 10],
+                background_normal="",
+                background_color=(1, 1, 1, 1),
+                foreground_color=(0, 0, 0, 1),
             )
 
             def refresh_row_height(*_args):
@@ -7583,6 +7586,10 @@ class SubstationAndroidApp(App):
                 halign="left",
                 valign="middle",
                 font_size="15sp",
+                background_normal="",
+                background_color=(0.92, 0.92, 0.92, 1),
+                color=(0, 0, 0, 1),
+                bold=True,
             )
             header.bind(
                 width=lambda instance, value: setattr(
@@ -7602,6 +7609,9 @@ class SubstationAndroidApp(App):
                 font_size="15sp",
                 padding=[10, 10, 10, 10],
             )
+            input_widget.background_normal = ""
+            input_widget.background_color = (1, 1, 1, 1)
+            input_widget.foreground_color = (0, 0, 0, 1)
             bind_autogrow_textinput(
                 input_widget,
                 min_height=mobile_multiline_min_height,
@@ -7640,6 +7650,10 @@ class SubstationAndroidApp(App):
                     halign="left",
                     valign="middle",
                     font_size="15sp",
+                    background_normal="",
+                    background_color=(0.92, 0.92, 0.92, 1),
+                    color=(0, 0, 0, 1),
+                    bold=True,
                 )
                 header_button.bind(
                     width=lambda instance, value: setattr(
