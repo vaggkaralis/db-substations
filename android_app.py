@@ -7204,6 +7204,10 @@ class SubstationAndroidApp(App):
         )
         main_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
         is_android_runtime = platform == "android"
+        if is_android_runtime:
+            Logger.info(
+                "APP: Inspection popup using always-expanded Android section layout"
+            )
         mobile_multiline_min_height = 156 if is_android_runtime else 88
         mobile_multiline_max_height = 360 if is_android_runtime else 260
         mobile_row_min_height = 214 if is_android_runtime else 0
@@ -7586,6 +7590,8 @@ class SubstationAndroidApp(App):
                 if row_label:
                     section_rows.append(add_inspection_row(body, row_label))
 
+            android_keep_expanded = is_android_runtime
+
             def section_body_height():
                 if not section_rows:
                     return 0
@@ -7608,8 +7614,13 @@ class SubstationAndroidApp(App):
                 return max(padding + gaps + rows_height, 0)
 
             def refresh_section(*_args):
-                is_open = toggle_state["open"]
-                header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
+                is_open = android_keep_expanded or toggle_state["open"]
+                toggle_state["open"] = is_open
+                header_button.text = (
+                    clean_title
+                    if android_keep_expanded
+                    else f"{'[-]' if is_open else '[+]'} {clean_title}"
+                )
                 for row_widget in section_rows:
                     try:
                         row_widget.height = max(
@@ -7624,9 +7635,13 @@ class SubstationAndroidApp(App):
                     except Exception:
                         continue
                 body.height = section_body_height()
-                if is_open and body.parent is not body_wrapper:
+                if body.parent is not body_wrapper:
                     body_wrapper.add_widget(body)
-                if not is_open and body.parent is body_wrapper:
+                if (
+                    not is_open
+                    and not android_keep_expanded
+                    and body.parent is body_wrapper
+                ):
                     body_wrapper.remove_widget(body)
                 body_wrapper.height = body.height if is_open else 0
                 body_wrapper.opacity = 1 if is_open else 0
@@ -7636,13 +7651,16 @@ class SubstationAndroidApp(App):
                 refresh_widget_layout(card)
 
             def toggle_section(_instance=None):
+                if android_keep_expanded:
+                    return
                 toggle_state["open"] = not toggle_state["open"]
                 refresh_section()
                 schedule_popup_layout_refresh()
 
-            body.bind(height=refresh_section)
-            header_button.bind(on_press=toggle_section)
-            toggle_state["open"] = expanded
+            if not android_keep_expanded:
+                body.bind(height=refresh_section)
+                header_button.bind(on_press=toggle_section)
+            toggle_state["open"] = expanded or android_keep_expanded
             refresh_section()
             section_refreshers.append(refresh_section)
 

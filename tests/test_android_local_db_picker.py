@@ -547,6 +547,23 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
     assert multiline_inputs
     assert all(widget.height >= 156 for widget in multiline_inputs)
 
+    messages = android_app.S.get("MESSAGES", {})
+    first_section_first_row = messages.get("INSPECTION_ROWS", [])[0]
+    second_section_first_row = messages.get("INSPECTION_ROWS", [])[4]
+    texts = _collect_widget_texts(popup_content)
+    assert first_section_first_row in texts
+    assert second_section_first_row in texts
+
+    second_title = re.sub(
+        r"\[/?b\]",
+        "",
+        messages.get(
+            "INSPECTION_SECTION_3",
+            "[b]Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV[/b]",
+        ),
+    ).strip()
+    assert _find_widget_by_text(popup_content, second_title) is not None
+
 
 def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):
     captured = {}
