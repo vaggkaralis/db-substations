@@ -7534,6 +7534,41 @@ class SubstationAndroidApp(App):
 
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
+            if is_android_runtime:
+                # Android layout is kept flat on purpose. Nested collapsible wrappers
+                # proved unreliable on-device and could render only the section headers.
+                title_label = Label(
+                    text=title_text or "",
+                    size_hint_y=None,
+                    height=0,
+                    opacity=0,
+                    markup=True,
+                    font_size=1,
+                )
+                content_layout.add_widget(title_label)
+
+                header_button = Button(
+                    text=clean_title,
+                    size_hint_y=None,
+                    height=56,
+                    halign="left",
+                    valign="middle",
+                    font_size="15sp",
+                )
+                header_button.bind(
+                    width=lambda instance, value: setattr(
+                        instance, "text_size", (max(value - 20, 0), None)
+                    )
+                )
+                content_layout.add_widget(header_button)
+
+                for row_label in row_labels:
+                    if row_label:
+                        add_inspection_row(content_layout, row_label)
+
+                schedule_popup_layout_refresh()
+                return
+
             card = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,

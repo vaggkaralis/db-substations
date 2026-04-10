@@ -563,6 +563,8 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
         ),
     ).strip()
     assert _find_widget_by_text(popup_content, second_title) is not None
+    assert _find_widget_by_text(popup_content, f"[+] {second_title}") is None
+    assert _find_widget_by_text(popup_content, f"[-] {second_title}") is None
 
 
 def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):
