@@ -189,9 +189,11 @@ jobs:
           BUILD_TYPE=release
           SHORT_SHA=${GITHUB_SHA::7}
           DATE=$(date -u +%Y%m%d)
-          APK_SRC=$(ls bin/*.apk | head -n1)
+          APK_SRC=$(find bin -maxdepth 1 -type f -name '*.apk' | head -n1)
           if [ -z "$APK_SRC" ]; then
             echo "No APK found in bin/ to rename" >&2
+            echo "bin/ contents:" >&2
+            ls -la bin >&2 || true
             exit 1
           fi
           APK_FILENAME="${PKG}-v${VERSION}-${DATE}-${SHORT_SHA}-${BUILD_TYPE}.apk"

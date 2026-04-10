@@ -33,6 +33,7 @@ android.minapi = 21
 android.ndk = 25b
 android.archs = arm64-v8a
 android.accept_sdk_license = True
+android.release_artifact = apk
 
 # Enable logcat output
 android.logcat_filters = *:S python:D
