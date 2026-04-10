@@ -80,3 +80,7 @@ tests/results.xml
 *.pyo
 *.orig
 .vagrant/
+
+# Workspace copies of OneDrive PDFs
+# Added by automation: exclude copied Μονογραμμικά ΥΣ folder
+Μονογραμμικά ΥΣ/
