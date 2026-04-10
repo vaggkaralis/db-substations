@@ -10,6 +10,7 @@ from android_app import (  # noqa: E402
     _build_inspection_fields,
     _configure_kivy_environment,
 )
+from strings_proxy import STRINGS as S  # noqa: E402
 
 
 def test_copy_success():
@@ -304,6 +305,15 @@ def test_build_inspection_fields_tolerates_missing_rows():
         "6. PC ΧΕΙΡΙΣΜΩΝ",
         "7. Απόψεις",
     ]
+
+
+def test_build_inspection_fields_reads_rows_from_strings_proxy():
+    fields = _build_inspection_fields(S)
+
+    plain_fields = [field for field in fields if not isinstance(field, dict)]
+    assert plain_fields
+    assert len(plain_fields) > 20
+    assert any("υποσταθμού" in str(field).lower() for field in plain_fields)
 
 
 if __name__ == "__main__":

@@ -569,7 +569,7 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
             "[b]Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV[/b]",
         ),
     ).strip()
-    assert _find_widget_by_text(popup_content, second_title) is not None
+    assert any(second_title in str(text) for text in texts)
     assert _find_widget_by_text(popup_content, f"[+] {second_title}") is None
     assert _find_widget_by_text(popup_content, f"[-] {second_title}") is None
 

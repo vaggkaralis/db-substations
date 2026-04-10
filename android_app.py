@@ -151,7 +151,15 @@ def _register_kivy_exception_handler():
 
 
 def _build_inspection_fields(strings_map):
-    messages = strings_map.get("MESSAGES", {}) if isinstance(strings_map, dict) else {}
+    if isinstance(strings_map, dict):
+        messages = strings_map.get("MESSAGES", {})
+    elif hasattr(strings_map, "get"):
+        try:
+            messages = strings_map.get("MESSAGES", {})
+        except Exception:
+            messages = {}
+    else:
+        messages = {}
     rows = list(messages.get("INSPECTION_ROWS", []) or [])
     fields = []
 
@@ -7551,6 +7559,65 @@ class SubstationAndroidApp(App):
             fields_inputs.append((label_text, input_widget))
             return row
 
+        def add_android_flat_section_header(title_text):
+            raw_title = title_text or ""
+            clean_title = re.sub(r"\[/?b\]", "", raw_title).strip()
+            clean_title = re.sub(
+                r"^\s*[0-9]+(?:[.]?[0-9α-ωΑ-Ω]+)?\.??\s*",
+                "",
+                clean_title,
+            )
+
+            title_label = Label(
+                text=raw_title,
+                size_hint_y=None,
+                height=0,
+                opacity=0,
+                markup=True,
+                font_size=1,
+            )
+            header = Button(
+                text=clean_title,
+                size_hint_y=None,
+                height=56,
+                halign="left",
+                valign="middle",
+                font_size="15sp",
+            )
+            header.bind(
+                width=lambda instance, value: setattr(
+                    instance, "text_size", (max(value - 20, 0), None)
+                )
+            )
+            content_layout.add_widget(title_label)
+            content_layout.add_widget(header)
+
+        def add_android_flat_inspection_field(label_text):
+            label = wrapped_form_label(label_text, min_height=38)
+            input_widget = TextInput(
+                hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
+                size_hint_y=None,
+                height=mobile_multiline_min_height,
+                multiline=True,
+                font_size="15sp",
+                padding=[10, 10, 10, 10],
+            )
+            bind_autogrow_textinput(
+                input_widget,
+                min_height=mobile_multiline_min_height,
+                max_height=mobile_multiline_max_height,
+            )
+            input_widget.height = mobile_multiline_min_height
+            content_layout.add_widget(label)
+            content_layout.add_widget(input_widget)
+            fields_inputs.append((label_text, input_widget))
+
+            for delay in (0, 0.05, 0.2, 0.5, 0.8):
+                Clock.schedule_once(
+                    lambda *_args: schedule_popup_layout_refresh(), delay
+                )
+            return input_widget
+
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
             if is_android_runtime:
@@ -7723,39 +7790,49 @@ class SubstationAndroidApp(App):
             content_layout.add_widget(card)
             schedule_popup_layout_refresh()
 
-        section_definitions = [
-            (
-                messages.get("INSPECTION_SECTION_2", "Έλεγχος Περιοχών Υποσταθμού"),
-                rows[0:4],
-            ),
-            (
-                messages.get(
-                    "INSPECTION_SECTION_3",
-                    "Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV",
+        if is_android_runtime:
+            for field in _build_inspection_fields(S):
+                if isinstance(field, dict) and field.get("type") == "section":
+                    add_android_flat_section_header(field.get("title", ""))
+                elif field:
+                    add_android_flat_inspection_field(str(field))
+        else:
+            section_definitions = [
+                (
+                    messages.get("INSPECTION_SECTION_2", "Έλεγχος Περιοχών Υποσταθμού"),
+                    rows[0:4],
                 ),
-                rows[4:12],
-            ),
-            (
-                messages.get("INSPECTION_SECTION_3A", "Εξωτερικές Πύλες 20 kV"),
-                rows[12:13],
-            ),
-            (messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV"), rows[13:15]),
-            (
-                messages.get(
-                    "INSPECTION_SECTION_4", "Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες"
+                (
+                    messages.get(
+                        "INSPECTION_SECTION_3",
+                        "Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV",
+                    ),
+                    rows[4:12],
                 ),
-                rows[15:18],
-            ),
-            (messages.get("INSPECTION_SECTION_5", "Διακόπτες Γραμμής"), rows[18:19]),
-            (messages.get("INSPECTION_SECTION_6", "PC Ελέγχου"), rows[19:21]),
-            (
-                messages.get("INSPECTION_SECTION_7", "Απόψεις"),
-                [messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")],
-            ),
-        ]
+                (
+                    messages.get("INSPECTION_SECTION_3A", "Εξωτερικές Πύλες 20 kV"),
+                    rows[12:13],
+                ),
+                (messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV"), rows[13:15]),
+                (
+                    messages.get(
+                        "INSPECTION_SECTION_4", "Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες"
+                    ),
+                    rows[15:18],
+                ),
+                (
+                    messages.get("INSPECTION_SECTION_5", "Διακόπτες Γραμμής"),
+                    rows[18:19],
+                ),
+                (messages.get("INSPECTION_SECTION_6", "PC Ελέγχου"), rows[19:21]),
+                (
+                    messages.get("INSPECTION_SECTION_7", "Απόψεις"),
+                    [messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")],
+                ),
+            ]
 
-        for index, (section_title, section_rows) in enumerate(section_definitions):
-            add_mobile_section(section_title, section_rows, expanded=index == 0)
+            for index, (section_title, section_rows) in enumerate(section_definitions):
+                add_mobile_section(section_title, section_rows, expanded=index == 0)
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
