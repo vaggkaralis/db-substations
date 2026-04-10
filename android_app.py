@@ -7494,7 +7494,8 @@ class SubstationAndroidApp(App):
                 spacing=6,
                 padding=[0, 2, 0, 4],
             )
-            row.bind(minimum_height=row.setter("height"))
+            if not is_android_runtime:
+                row.bind(minimum_height=row.setter("height"))
             label = wrapped_form_label(label_text, min_height=38)
 
             input_widget = TextInput(
@@ -7507,7 +7508,19 @@ class SubstationAndroidApp(App):
             )
 
             def refresh_row_height(*_args):
+                label_height = max(int(getattr(label, "height", 0) or 0), 38)
+                input_height = max(
+                    int(getattr(input_widget, "height", 0) or 0),
+                    mobile_multiline_min_height,
+                )
+                explicit_height = (
+                    label_height
+                    + input_height
+                    + int(vertical_spacing(getattr(row, "spacing", 0)))
+                    + int(vertical_padding(getattr(row, "padding", 0)))
+                )
                 row.height = max(
+                    explicit_height,
                     layout_content_height(row),
                     mobile_row_min_height,
                     int(getattr(row, "minimum_height", 0) or 0),
@@ -7522,9 +7535,15 @@ class SubstationAndroidApp(App):
             )
             label.bind(height=refresh_row_height)
             input_widget.bind(height=refresh_row_height)
-            Clock.schedule_once(lambda *_args: refresh_row_height(), 0)
             if is_android_runtime:
-                Clock.schedule_once(lambda *_args: refresh_row_height(), 0.2)
+                input_widget.height = mobile_multiline_min_height
+                row.height = max(
+                    mobile_row_min_height, label.height + input_widget.height + 16
+                )
+                for delay in (0, 0.05, 0.2, 0.5, 0.8):
+                    Clock.schedule_once(lambda *_args: refresh_row_height(), delay)
+            else:
+                Clock.schedule_once(lambda *_args: refresh_row_height(), 0)
 
             row.add_widget(label)
             row.add_widget(input_widget)

@@ -554,6 +554,13 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
     assert first_section_first_row in texts
     assert second_section_first_row in texts
 
+    first_row_label = _find_widget_by_text(popup_content, first_section_first_row)
+    second_row_label = _find_widget_by_text(popup_content, second_section_first_row)
+    assert first_row_label is not None
+    assert second_row_label is not None
+    assert getattr(first_row_label.parent, "height", 0) >= 214
+    assert getattr(second_row_label.parent, "height", 0) >= 214
+
     second_title = re.sub(
         r"\[/?b\]",
         "",
