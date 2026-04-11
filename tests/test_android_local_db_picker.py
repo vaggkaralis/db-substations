@@ -569,26 +569,23 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
     second_section_first_row = messages.get("INSPECTION_ROWS", [])[4]
     texts = _collect_widget_texts(popup_content)
     assert first_section_first_row in texts
-    assert second_section_first_row not in texts
+    assert second_section_first_row in texts
 
-    first_header = _find_widget_by_text(popup_content, f"[-] {first_title}")
+    first_header = _find_widget_by_text(popup_content, first_title)
     assert first_header is not None
 
-    second_header = _find_widget_by_text(popup_content, f"[+] {second_title}")
+    second_header = _find_widget_by_text(popup_content, second_title)
     assert second_header is not None
 
     first_row_label = _find_widget_by_text(popup_content, first_section_first_row)
-    assert first_row_label is not None
-    assert getattr(first_row_label.parent, "height", 0) >= 160
-    assert any(second_title in str(text) for text in texts)
-
-    second_header.on_press(second_header)
-
-    assert second_header.text == f"[-] {second_title}"
-    assert second_section_first_row in _collect_widget_texts(popup_content)
     second_row_label = _find_widget_by_text(popup_content, second_section_first_row)
+    assert first_row_label is not None
     assert second_row_label is not None
+    assert getattr(first_row_label.parent, "height", 0) >= 160
     assert getattr(second_row_label.parent, "height", 0) >= 160
+    assert any(second_title in str(text) for text in texts)
+    assert _find_widget_by_text(popup_content, f"[+] {second_title}") is None
+    assert _find_widget_by_text(popup_content, f"[-] {second_title}") is None
 
 
 def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):

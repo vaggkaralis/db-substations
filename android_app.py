@@ -7583,6 +7583,44 @@ class SubstationAndroidApp(App):
             fields_inputs.append((label_text, input_widget))
             return row
 
+        def add_android_expanded_section(title_text, row_labels):
+            raw_title = title_text or ""
+            clean_title = re.sub(r"\[/?b\]", "", raw_title).strip()
+
+            title_label = Label(
+                text=raw_title,
+                size_hint_y=None,
+                height=0,
+                opacity=0,
+                markup=True,
+                font_size=1,
+            )
+            content_layout.add_widget(title_label)
+
+            header = Button(
+                text=clean_title,
+                size_hint_y=None,
+                height=56,
+                halign="left",
+                valign="middle",
+                font_size="15sp",
+                background_normal="",
+                background_color=(0.92, 0.92, 0.92, 1),
+                color=(0, 0, 0, 1),
+                bold=True,
+                disabled=True,
+            )
+            header.bind(
+                width=lambda instance, value: setattr(
+                    instance, "text_size", (max(value - 20, 0), None)
+                )
+            )
+            content_layout.add_widget(header)
+
+            for row_label in row_labels:
+                if row_label:
+                    add_inspection_row(content_layout, row_label)
+
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
             card = BoxLayout(
@@ -7754,8 +7792,15 @@ class SubstationAndroidApp(App):
             ),
         ]
 
-        for index, (section_title, section_rows) in enumerate(section_definitions):
-            add_mobile_section(section_title, section_rows, expanded=index == 0)
+        if is_android_runtime:
+            Logger.info(
+                "APP: Inspection popup using Android always-expanded section layout"
+            )
+            for section_title, section_rows in section_definitions:
+                add_android_expanded_section(section_title, section_rows)
+        else:
+            for index, (section_title, section_rows) in enumerate(section_definitions):
+                add_mobile_section(section_title, section_rows, expanded=index == 0)
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
