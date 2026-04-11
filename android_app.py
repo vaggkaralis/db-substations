@@ -66,10 +66,27 @@ try:
 except Exception:
     ANDROID_DEFAULT_DB_PATH = "/storage/emulated/0/Download/substations.db"
 
-try:
-    from strings_proxy import STRINGS as S
-except Exception:
-    S = {"BUTTONS": {}, "TITLES": {}, "MESSAGES": {}}
+
+def _load_strings():
+    try:
+        from strings_proxy import STRINGS as proxied_strings
+
+        return proxied_strings
+    except Exception as proxy_err:
+        try:
+            from strings import STRINGS_EL
+
+            Logger.warning(
+                "APP: strings_proxy import failed; falling back to static Greek strings: "
+                f"{proxy_err}"
+            )
+            return STRINGS_EL
+        except Exception as fallback_err:
+            Logger.warning(f"APP: Static strings fallback also failed: {fallback_err}")
+            return {"BUTTONS": {}, "TITLES": {}, "MESSAGES": {}}
+
+
+S = _load_strings()
 
 
 _PENDING_UNCAUGHT_ERROR_MESSAGES = []
@@ -7566,113 +7583,8 @@ class SubstationAndroidApp(App):
             fields_inputs.append((label_text, input_widget))
             return row
 
-        def add_android_flat_section_header(title_text):
-            raw_title = title_text or ""
-            clean_title = re.sub(r"\[/?b\]", "", raw_title).strip()
-            clean_title = re.sub(
-                r"^\s*[0-9]+(?:[.]?[0-9α-ωΑ-Ω]+)?\.??\s*",
-                "",
-                clean_title,
-            )
-
-            title_label = Label(
-                text=raw_title,
-                size_hint_y=None,
-                height=0,
-                opacity=0,
-                markup=True,
-                font_size=1,
-            )
-            header = Button(
-                text=clean_title,
-                size_hint_y=None,
-                height=56,
-                halign="left",
-                valign="middle",
-                font_size="15sp",
-                background_normal="",
-                background_color=(0.92, 0.92, 0.92, 1),
-                color=(0, 0, 0, 1),
-                bold=True,
-            )
-            header.bind(
-                width=lambda instance, value: setattr(
-                    instance, "text_size", (max(value - 20, 0), None)
-                )
-            )
-            content_layout.add_widget(title_label)
-            content_layout.add_widget(header)
-
-        def add_android_flat_inspection_field(label_text):
-            label = wrapped_form_label(label_text, min_height=38)
-            input_widget = TextInput(
-                hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
-                size_hint_y=None,
-                height=mobile_multiline_min_height,
-                multiline=True,
-                font_size="15sp",
-                padding=[10, 10, 10, 10],
-            )
-            input_widget.background_normal = ""
-            input_widget.background_color = (1, 1, 1, 1)
-            input_widget.foreground_color = (0, 0, 0, 1)
-            bind_autogrow_textinput(
-                input_widget,
-                min_height=mobile_multiline_min_height,
-                max_height=mobile_multiline_max_height,
-            )
-            input_widget.height = mobile_multiline_min_height
-            content_layout.add_widget(label)
-            content_layout.add_widget(input_widget)
-            fields_inputs.append((label_text, input_widget))
-
-            for delay in (0, 0.05, 0.2, 0.5, 0.8):
-                Clock.schedule_once(
-                    lambda *_args: schedule_popup_layout_refresh(), delay
-                )
-            return input_widget
-
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
-            if is_android_runtime:
-                # Android layout is kept flat on purpose. Nested collapsible wrappers
-                # proved unreliable on-device and could render only the section headers.
-                title_label = Label(
-                    text=title_text or "",
-                    size_hint_y=None,
-                    height=0,
-                    opacity=0,
-                    markup=True,
-                    font_size=1,
-                )
-                content_layout.add_widget(title_label)
-
-                header_button = Button(
-                    text=clean_title,
-                    size_hint_y=None,
-                    height=56,
-                    halign="left",
-                    valign="middle",
-                    font_size="15sp",
-                    background_normal="",
-                    background_color=(0.92, 0.92, 0.92, 1),
-                    color=(0, 0, 0, 1),
-                    bold=True,
-                )
-                header_button.bind(
-                    width=lambda instance, value: setattr(
-                        instance, "text_size", (max(value - 20, 0), None)
-                    )
-                )
-                content_layout.add_widget(header_button)
-
-                for row_label in row_labels:
-                    if row_label:
-                        add_inspection_row(content_layout, row_label)
-
-                schedule_popup_layout_refresh()
-                return
-
             card = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
@@ -7729,7 +7641,7 @@ class SubstationAndroidApp(App):
                 if row_label:
                     section_rows.append(add_inspection_row(body, row_label))
 
-            android_keep_expanded = is_android_runtime
+            android_keep_expanded = False
 
             def section_body_height():
                 if not section_rows:
@@ -7808,49 +7720,42 @@ class SubstationAndroidApp(App):
             content_layout.add_widget(card)
             schedule_popup_layout_refresh()
 
-        if is_android_runtime:
-            for field in _build_inspection_fields(S):
-                if isinstance(field, dict) and field.get("type") == "section":
-                    add_android_flat_section_header(field.get("title", ""))
-                elif field:
-                    add_android_flat_inspection_field(str(field))
-        else:
-            section_definitions = [
-                (
-                    messages.get("INSPECTION_SECTION_2", "Έλεγχος Περιοχών Υποσταθμού"),
-                    rows[0:4],
+        section_definitions = [
+            (
+                messages.get("INSPECTION_SECTION_2", "Έλεγχος Περιοχών Υποσταθμού"),
+                rows[0:4],
+            ),
+            (
+                messages.get(
+                    "INSPECTION_SECTION_3",
+                    "Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV",
                 ),
-                (
-                    messages.get(
-                        "INSPECTION_SECTION_3",
-                        "Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV",
-                    ),
-                    rows[4:12],
+                rows[4:12],
+            ),
+            (
+                messages.get("INSPECTION_SECTION_3A", "Εξωτερικές Πύλες 20 kV"),
+                rows[12:13],
+            ),
+            (messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV"), rows[13:15]),
+            (
+                messages.get(
+                    "INSPECTION_SECTION_4", "Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες"
                 ),
-                (
-                    messages.get("INSPECTION_SECTION_3A", "Εξωτερικές Πύλες 20 kV"),
-                    rows[12:13],
-                ),
-                (messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV"), rows[13:15]),
-                (
-                    messages.get(
-                        "INSPECTION_SECTION_4", "Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες"
-                    ),
-                    rows[15:18],
-                ),
-                (
-                    messages.get("INSPECTION_SECTION_5", "Διακόπτες Γραμμής"),
-                    rows[18:19],
-                ),
-                (messages.get("INSPECTION_SECTION_6", "PC Ελέγχου"), rows[19:21]),
-                (
-                    messages.get("INSPECTION_SECTION_7", "Απόψεις"),
-                    [messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")],
-                ),
-            ]
+                rows[15:18],
+            ),
+            (
+                messages.get("INSPECTION_SECTION_5", "Διακόπτες Γραμμής"),
+                rows[18:19],
+            ),
+            (messages.get("INSPECTION_SECTION_6", "PC Ελέγχου"), rows[19:21]),
+            (
+                messages.get("INSPECTION_SECTION_7", "Απόψεις"),
+                [messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")],
+            ),
+        ]
 
-            for index, (section_title, section_rows) in enumerate(section_definitions):
-                add_mobile_section(section_title, section_rows, expanded=index == 0)
+        for index, (section_title, section_rows) in enumerate(section_definitions):
+            add_mobile_section(section_title, section_rows, expanded=index == 0)
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
