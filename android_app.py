@@ -2476,8 +2476,11 @@ class SubstationAndroidApp(App):
                     self._redraw()
 
                 def _redraw(self, *_args):
-                    self.canvas.clear()
-                    with self.canvas:
+                    canvas = self.canvas
+                    if canvas is None:
+                        return
+                    canvas.clear()
+                    with canvas:
                         Color(*self._icon_color)
                         x, y = self.x, self.y
                         w, h = self.width, self.height
@@ -3663,7 +3666,8 @@ class SubstationAndroidApp(App):
     def _append_change_log(self, operation, table, data):
         if not self.change_log_path:
             self._ensure_change_log_path()
-        with open(self.change_log_path, "a") as f:
+        change_log_path = self.change_log_path or "change_log.txt"
+        with open(change_log_path, "a") as f:
             import json
 
             f.write(

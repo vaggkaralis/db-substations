@@ -1,0 +1,3 @@
+from typing import Any, Callable
+
+def run_on_ui_thread(fn: Callable[..., Any]) -> Callable[..., Any]: ...
