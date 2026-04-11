@@ -114,7 +114,7 @@ jobs:
         run: |
           mv android_app.py main.py || true
           ls -la main.py || true
-          echo "Building production version"
+          echo "Building installable internal APK"
       - name: Setup Android SDK
         run: |
           mkdir -p ~/.buildozer/android/platform
@@ -152,7 +152,7 @@ jobs:
           build_succeeded=0
           for attempt in 1 2 3; do
             echo "Buildozer attempt $attempt" | tee -a "$build_log"
-            if buildozer -v android release 2>&1 | tee -a "$build_log"; then
+            if buildozer -v android debug 2>&1 | tee -a "$build_log"; then
               build_succeeded=1
               break
             fi
@@ -186,7 +186,7 @@ jobs:
           else
             VERSION=$(grep '^version' buildozer.spec | cut -d'=' -f2 | tr -d ' ')
           fi
-          BUILD_TYPE=release
+          BUILD_TYPE=ci
           SHORT_SHA=${GITHUB_SHA::7}
           DATE=$(date -u +%Y%m%d)
           APK_SRC=$(find bin -maxdepth 1 -type f -name '*.apk' | head -n1)
