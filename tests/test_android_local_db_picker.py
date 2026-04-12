@@ -510,10 +510,12 @@ def test_show_inspection_entry_popup_expands_sections_and_uses_tall_mobile_input
 
     second_header.on_press(second_header)
 
-    assert second_header.text == f"[-] {second_title}"
+    assert _find_widget_by_text(popup_content, f"[-] {second_title}") is not None
     assert second_section_first_row in _collect_widget_texts(popup_content)
-    assert getattr(second_header.parent, "height", 0) > getattr(
-        second_header, "height", 0
+    expanded_second_header = _find_widget_by_text(popup_content, f"[-] {second_title}")
+    assert expanded_second_header is not None
+    assert getattr(expanded_second_header.parent, "height", 0) > getattr(
+        expanded_second_header, "height", 0
     )
     assert any(widget.height >= 88 for widget in multiline_inputs)
 
@@ -569,23 +571,74 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
     second_section_first_row = messages.get("INSPECTION_ROWS", [])[4]
     texts = _collect_widget_texts(popup_content)
     assert first_section_first_row in texts
-    assert second_section_first_row in texts
+    assert second_section_first_row not in texts
 
-    first_header = _find_widget_by_text(popup_content, first_title)
+    first_header = _find_widget_by_text(popup_content, f"[-] {first_title}")
     assert first_header is not None
 
-    second_header = _find_widget_by_text(popup_content, second_title)
+    second_header = _find_widget_by_text(popup_content, f"[+] {second_title}")
     assert second_header is not None
 
     first_row_label = _find_widget_by_text(popup_content, first_section_first_row)
-    second_row_label = _find_widget_by_text(popup_content, second_section_first_row)
     assert first_row_label is not None
-    assert second_row_label is not None
     assert getattr(first_row_label.parent, "height", 0) >= 160
+
+    second_header.on_press(second_header)
+
+    assert _find_widget_by_text(popup_content, f"[-] {second_title}") is not None
+    second_row_label = _find_widget_by_text(popup_content, second_section_first_row)
+    assert second_row_label is not None
     assert getattr(second_row_label.parent, "height", 0) >= 160
-    assert any(second_title in str(text) for text in texts)
-    assert _find_widget_by_text(popup_content, f"[+] {second_title}") is None
-    assert _find_widget_by_text(popup_content, f"[-] {second_title}") is None
+
+
+def test_show_inspection_entry_popup_does_not_double_attach_section_widgets(
+    monkeypatch,
+):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+
+    original_box_add_widget = android_app.BoxLayout.add_widget
+    original_grid_add_widget = android_app.GridLayout.add_widget
+
+    def guarded_add_widget(self, widget, index=None):
+        parent = getattr(widget, "parent", None)
+        if parent is not None and parent is not self:
+            raise RuntimeError(
+                f"Cannot add {widget!r}, it already has a parent {parent!r}"
+            )
+        return original_box_add_widget(self, widget, index=index)
+
+    def guarded_grid_add_widget(self, widget, index=None):
+        parent = getattr(widget, "parent", None)
+        if parent is not None and parent is not self:
+            raise RuntimeError(
+                f"Cannot add {widget!r}, it already has a parent {parent!r}"
+            )
+        return original_grid_add_widget(self, widget, index=index)
+
+    monkeypatch.setattr(android_app.BoxLayout, "add_widget", guarded_add_widget)
+    monkeypatch.setattr(android_app.GridLayout, "add_widget", guarded_grid_add_widget)
+
+    app = android_app.SubstationAndroidApp()
+    app.substations = [{"id": 1, "name": "S1"}]
+
+    app.show_inspection_entry_popup(1, {"id": 1, "name": "S1"})
+
+    assert captured["instance"].content is not None
 
 
 def test_show_inspection_entry_popup_does_not_require_inspections_module(monkeypatch):

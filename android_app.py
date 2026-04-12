@@ -7235,7 +7235,7 @@ class SubstationAndroidApp(App):
         is_android_runtime = platform == "android"
         if is_android_runtime:
             Logger.info(
-                "APP: Inspection popup using always-expanded Android section layout"
+                "APP: Inspection popup using Android rebuild-on-toggle section layout"
             )
         mobile_multiline_min_height = 156 if is_android_runtime else 88
         mobile_multiline_max_height = 360 if is_android_runtime else 260
@@ -7516,7 +7516,14 @@ class SubstationAndroidApp(App):
 
         rows = list(messages.get("INSPECTION_ROWS", []) or [])
 
-        def add_inspection_row(parent_layout, label_text):
+        def add_inspection_row(
+            parent_layout,
+            label_text,
+            *,
+            initial_text="",
+            on_text_change=None,
+            track_input=True,
+        ):
             row = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
@@ -7528,6 +7535,7 @@ class SubstationAndroidApp(App):
             label = wrapped_form_label(label_text, min_height=38)
 
             input_widget = TextInput(
+                text=initial_text,
                 hint_text=messages.get("OBSERVATIONS_HINT", "Παρατηρήσεις"),
                 size_hint_y=None,
                 height=mobile_multiline_min_height,
@@ -7565,6 +7573,8 @@ class SubstationAndroidApp(App):
                 min_height=mobile_multiline_min_height,
                 max_height=mobile_multiline_max_height,
             )
+            if on_text_change is not None:
+                input_widget.bind(text=lambda _instance, value: on_text_change(value))
             label.bind(height=refresh_row_height)
             input_widget.bind(height=refresh_row_height)
             if is_android_runtime:
@@ -7580,46 +7590,65 @@ class SubstationAndroidApp(App):
             row.add_widget(label)
             row.add_widget(input_widget)
             parent_layout.add_widget(row)
-            fields_inputs.append((label_text, input_widget))
+            if track_input:
+                fields_inputs.append((label_text, input_widget))
             return row
 
-        def add_android_expanded_section(title_text, row_labels):
-            raw_title = title_text or ""
-            clean_title = re.sub(r"\[/?b\]", "", raw_title).strip()
-
-            title_label = Label(
-                text=raw_title,
-                size_hint_y=None,
-                height=0,
-                opacity=0,
-                markup=True,
-                font_size=1,
+        android_section_states = [
+            {
+                "title": section_title,
+                "rows": list(section_rows),
+                "open": index == 0,
+            }
+            for index, (section_title, section_rows) in enumerate(
+                [
+                    (
+                        messages.get(
+                            "INSPECTION_SECTION_2",
+                            "Έλεγχος Περιοχών Υποσταθμού",
+                        ),
+                        rows[0:4],
+                    ),
+                    (
+                        messages.get(
+                            "INSPECTION_SECTION_3",
+                            "Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV",
+                        ),
+                        rows[4:12],
+                    ),
+                    (
+                        messages.get("INSPECTION_SECTION_3A", "Εξωτερικές Πύλες 20 kV"),
+                        rows[12:13],
+                    ),
+                    (
+                        messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV"),
+                        rows[13:15],
+                    ),
+                    (
+                        messages.get(
+                            "INSPECTION_SECTION_4",
+                            "Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες",
+                        ),
+                        rows[15:18],
+                    ),
+                    (
+                        messages.get("INSPECTION_SECTION_5", "Διακόπτες Γραμμής"),
+                        rows[18:19],
+                    ),
+                    (messages.get("INSPECTION_SECTION_6", "PC Ελέγχου"), rows[19:21]),
+                    (
+                        messages.get("INSPECTION_SECTION_7", "Απόψεις"),
+                        [messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")],
+                    ),
+                ]
             )
-            content_layout.add_widget(title_label)
-
-            header = Button(
-                text=clean_title,
-                size_hint_y=None,
-                height=56,
-                halign="left",
-                valign="middle",
-                font_size="15sp",
-                background_normal="",
-                background_color=(0.92, 0.92, 0.92, 1),
-                color=(0, 0, 0, 1),
-                bold=True,
-                disabled=True,
-            )
-            header.bind(
-                width=lambda instance, value: setattr(
-                    instance, "text_size", (max(value - 20, 0), None)
-                )
-            )
-            content_layout.add_widget(header)
-
-            for row_label in row_labels:
-                if row_label:
-                    add_inspection_row(content_layout, row_label)
+        ]
+        android_field_values = {
+            row_label: ""
+            for section_state in android_section_states
+            for row_label in section_state["rows"]
+            if row_label
+        }
 
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
@@ -7679,8 +7708,6 @@ class SubstationAndroidApp(App):
                 if row_label:
                     section_rows.append(add_inspection_row(body, row_label))
 
-            android_keep_expanded = False
-
             def section_body_height():
                 if not section_rows:
                     return 0
@@ -7703,13 +7730,8 @@ class SubstationAndroidApp(App):
                 return max(padding + gaps + rows_height, 0)
 
             def refresh_section(*_args):
-                is_open = android_keep_expanded or toggle_state["open"]
-                toggle_state["open"] = is_open
-                header_button.text = (
-                    clean_title
-                    if android_keep_expanded
-                    else f"{'[-]' if is_open else '[+]'} {clean_title}"
-                )
+                is_open = toggle_state["open"]
+                header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
                 for row_widget in section_rows:
                     try:
                         row_widget.height = max(
@@ -7726,35 +7748,29 @@ class SubstationAndroidApp(App):
                 body.height = section_body_height()
                 if body.parent is not body_wrapper:
                     body_wrapper.add_widget(body)
-                if (
-                    not is_open
-                    and not android_keep_expanded
-                    and body.parent is body_wrapper
-                ):
-                    body_wrapper.remove_widget(body)
                 body_wrapper.height = body.height if is_open else 0
                 body_wrapper.opacity = 1 if is_open else 0
+                if is_open and body_wrapper.parent is not card:
+                    card.add_widget(body_wrapper)
+                elif not is_open and body_wrapper.parent is card:
+                    card.remove_widget(body_wrapper)
                 card.height = layout_content_height(card)
                 refresh_widget_layout(body)
                 refresh_widget_layout(body_wrapper)
                 refresh_widget_layout(card)
 
             def toggle_section(_instance=None):
-                if android_keep_expanded:
-                    return
                 toggle_state["open"] = not toggle_state["open"]
                 refresh_section()
                 schedule_popup_layout_refresh()
 
-            if not android_keep_expanded:
-                body.bind(height=refresh_section)
-                header_button.bind(on_press=toggle_section)
-            toggle_state["open"] = expanded or android_keep_expanded
+            body.bind(height=refresh_section)
+            header_button.bind(on_press=toggle_section)
+            card.add_widget(header_button)
+            toggle_state["open"] = expanded
             refresh_section()
             section_refreshers.append(refresh_section)
 
-            card.add_widget(header_button)
-            card.add_widget(body_wrapper)
             content_layout.add_widget(card)
             schedule_popup_layout_refresh()
 
@@ -7793,11 +7809,81 @@ class SubstationAndroidApp(App):
         ]
 
         if is_android_runtime:
-            Logger.info(
-                "APP: Inspection popup using Android always-expanded section layout"
+            android_sections_host = GridLayout(
+                cols=1,
+                spacing=12,
+                size_hint_y=None,
             )
-            for section_title, section_rows in section_definitions:
-                add_android_expanded_section(section_title, section_rows)
+            android_sections_host.bind(
+                minimum_height=android_sections_host.setter("height")
+            )
+
+            def render_android_sections():
+                fields_inputs[:] = []
+                android_sections_host.clear_widgets()
+                for index, section_state in enumerate(android_section_states):
+                    clean_title = re.sub(
+                        r"\[/?b\]", "", section_state["title"] or ""
+                    ).strip()
+                    card = BoxLayout(
+                        orientation="vertical",
+                        size_hint_y=None,
+                        spacing=4,
+                        padding=[0, 2, 0, 2],
+                    )
+                    card.bind(minimum_height=card.setter("height"))
+                    title_label = Label(
+                        text=section_state["title"] or "",
+                        size_hint_y=None,
+                        height=0,
+                        opacity=0,
+                        markup=True,
+                        font_size=1,
+                    )
+                    card.add_widget(title_label)
+                    header_button = Button(
+                        text=f"{'[-]' if section_state['open'] else '[+]'} {clean_title}",
+                        size_hint_y=None,
+                        height=56,
+                        halign="left",
+                        valign="middle",
+                        font_size="15sp",
+                    )
+                    header_button.bind(
+                        width=lambda instance, value: setattr(
+                            instance, "text_size", (max(value - 20, 0), None)
+                        )
+                    )
+
+                    def _toggle_android_section(_instance=None, section_index=index):
+                        android_section_states[section_index][
+                            "open"
+                        ] = not android_section_states[section_index]["open"]
+                        render_android_sections()
+                        schedule_popup_layout_refresh()
+
+                    header_button.bind(on_press=_toggle_android_section)
+                    card.add_widget(header_button)
+
+                    if section_state["open"]:
+                        for row_label in section_state["rows"]:
+                            if not row_label:
+                                continue
+                            add_inspection_row(
+                                card,
+                                row_label,
+                                initial_text=android_field_values.get(row_label, ""),
+                                on_text_change=lambda value, current_label=row_label: (
+                                    android_field_values.__setitem__(
+                                        current_label, value
+                                    )
+                                ),
+                            )
+
+                    android_sections_host.add_widget(card)
+
+            render_android_sections()
+            content_layout.add_widget(android_sections_host)
         else:
             for index, (section_title, section_rows) in enumerate(section_definitions):
                 add_mobile_section(section_title, section_rows, expanded=index == 0)
