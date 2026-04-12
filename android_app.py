@@ -7808,6 +7808,22 @@ class SubstationAndroidApp(App):
             ),
         ]
 
+        def android_section_card_height(card_widget, header_widget, section_rows):
+            spacing = int(vertical_spacing(getattr(card_widget, "spacing", 0)))
+            padding = int(vertical_padding(getattr(card_widget, "padding", 0)))
+            header_height = int(getattr(header_widget, "height", 0) or 56)
+            visible_rows = [row for row in section_rows if row is not None]
+            rows_height = sum(
+                max(
+                    int(getattr(row_widget, "_expanded_height", 0) or 0),
+                    int(getattr(row_widget, "height", 0) or 0),
+                    mobile_row_min_height,
+                )
+                for row_widget in visible_rows
+            )
+            gaps = len(visible_rows) * spacing if visible_rows else 0
+            return max(header_height + rows_height + gaps + padding, header_height)
+
         if is_android_runtime:
             android_sections_host = GridLayout(
                 cols=1,
@@ -7864,23 +7880,38 @@ class SubstationAndroidApp(App):
 
                     header_button.bind(on_press=_toggle_android_section)
                     card.add_widget(header_button)
+                    section_row_widgets = []
 
                     if section_state["open"]:
                         for row_label in section_state["rows"]:
                             if not row_label:
                                 continue
-                            add_inspection_row(
-                                card,
-                                row_label,
-                                initial_text=android_field_values.get(row_label, ""),
-                                on_text_change=lambda value, current_label=row_label: (
-                                    android_field_values.__setitem__(
-                                        current_label, value
-                                    )
-                                ),
+                            section_row_widgets.append(
+                                add_inspection_row(
+                                    card,
+                                    row_label,
+                                    initial_text=android_field_values.get(
+                                        row_label, ""
+                                    ),
+                                    on_text_change=lambda value, current_label=row_label: (
+                                        android_field_values.__setitem__(
+                                            current_label, value
+                                        )
+                                    ),
+                                )
                             )
 
+                    card.height = android_section_card_height(
+                        card, header_button, section_row_widgets
+                    )
                     android_sections_host.add_widget(card)
+
+                android_sections_host.height = max(
+                    layout_content_height(android_sections_host),
+                    int(getattr(android_sections_host, "minimum_height", 0) or 0),
+                )
+                refresh_widget_layout(android_sections_host)
+                refresh_widget_layout(content_layout)
 
             render_android_sections()
             content_layout.add_widget(android_sections_host)
