@@ -7570,6 +7570,12 @@ class SubstationAndroidApp(App):
         update_date_meta()
 
         rows = list(messages.get("INSPECTION_ROWS", []) or [])
+        try:
+            # Short single-line on-device diagnostic (easy to remove later): show count and up to 3 previews
+            preview = "|".join(str(x)[:24] for x in (rows or [])[:3])
+            debug_log_append(f"INIT_ROWS {len(rows)} pv={preview}")
+        except Exception:
+            pass
 
         def add_inspection_row(
             parent_layout,
