@@ -7643,6 +7643,9 @@ class SubstationAndroidApp(App):
 
             row.add_widget(label)
             row.add_widget(input_widget)
+            row._debug_label = label
+            row._debug_input = input_widget
+            row._debug_name = str(label_text or "")[:18]
             parent_layout.add_widget(row)
             if track_input:
                 fields_inputs.append((label_text, input_widget))
@@ -7650,6 +7653,7 @@ class SubstationAndroidApp(App):
 
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
+            section_tag = clean_title[:14] or "section"
             card = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
@@ -7727,16 +7731,43 @@ class SubstationAndroidApp(App):
                     resolve_row_height(row_widget) for row_widget in section_rows
                 )
                 gaps = max(len(section_rows) - 1, 0) * spacing
-                return max(
+                body_layout_height = layout_content_height(body)
+                body_min_height = int(getattr(body, "minimum_height", 0) or 0)
+                computed = max(
                     padding + gaps + rows_height,
-                    layout_content_height(body),
-                    int(getattr(body, "minimum_height", 0) or 0),
+                    body_layout_height,
+                    body_min_height,
                     0,
                 )
+                if toggle_state["open"]:
+                    min_rows = 0
+                    min_inputs = 0
+                    flat_labels = 0
+                    for row_widget in section_rows:
+                        label_widget = getattr(row_widget, "_debug_label", None)
+                        input_widget = getattr(row_widget, "_debug_input", None)
+                        resolved_height = resolve_row_height(row_widget)
+                        if resolved_height <= mobile_row_min_height:
+                            min_rows += 1
+                        if (
+                            int(getattr(input_widget, "height", 0) or 0)
+                            <= mobile_multiline_min_height
+                        ):
+                            min_inputs += 1
+                        if int(getattr(label_widget, "height", 0) or 0) <= 38:
+                            flat_labels += 1
+                    debug_log_append(
+                        f"bh {section_tag}={computed} r={rows_height} lc={body_layout_height} "
+                        f"mh={body_min_height} mr={min_rows}/{len(section_rows)} "
+                        f"mi={min_inputs} fl={flat_labels}"
+                    )
+                return computed
 
             def refresh_section(*_args):
                 if refresh_state["running"]:
                     refresh_state["pending"] = True
+                    if toggle_state["open"]:
+                        debug_log_append(f"rf {section_tag} busy->pend")
                     return
                 refresh_state["running"] = True
                 is_open = toggle_state["open"]
@@ -7760,6 +7791,12 @@ class SubstationAndroidApp(App):
                         layout_content_height(card),
                         int(getattr(card, "minimum_height", 0) or 0),
                     )
+                    if is_open:
+                        debug_log_append(
+                            f"rf {section_tag} bh={int(body.height)} wh={int(body_wrapper.height)} "
+                            f"par={1 if body_wrapper.parent is card else 0} ch={int(card.height)} "
+                            f"cc={len(card.children)}"
+                        )
                     refresh_widget_layout(body)
                     refresh_widget_layout(body_wrapper)
                     refresh_widget_layout(card)
@@ -7955,6 +7992,11 @@ class SubstationAndroidApp(App):
         main_layout.add_widget(buttons_layout)
         popup.content = main_layout
         popup.open()
+        try:
+            debug_log_append("Inspection popup opened")
+            show_debug_popup()
+        except Exception:
+            pass
 
     def _has_element_maintenance_history(self, element_id):
         """Check if an element has any maintenance records"""
