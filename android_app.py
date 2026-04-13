@@ -8059,17 +8059,29 @@ class SubstationAndroidApp(App):
                     # Add measurements if present
                     measurements = []
                     if insul_fa_gnd:
-                        measurements.append(f"Μόν. FA-GND: {insul_fa_gnd}")
+                        measurements.append(
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FA_GND', 'FA-GND')}: {insul_fa_gnd}"
+                        )
                     if insul_fb_gnd:
-                        measurements.append(f"FB-GND: {insul_fb_gnd}")
+                        measurements.append(
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB_GND', 'FB-GND')}: {insul_fb_gnd}"
+                        )
                     if insul_fc_gnd:
-                        measurements.append(f"FC-GND: {insul_fc_gnd}")
+                        measurements.append(
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC_GND', 'FC-GND')}: {insul_fc_gnd}"
+                        )
                     if contact_res_fa:
-                        measurements.append(f"Αντ. Επαφ. FA: {contact_res_fa}")
+                        measurements.append(
+                            f"{S['MESSAGES'].get('PHASE_TO_PHASE_LABEL', 'FA-FA')}: {contact_res_fa}"
+                        )
                     if contact_res_fb:
-                        measurements.append(f"FB: {contact_res_fb}")
+                        measurements.append(
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB', 'FB-FB')}: {contact_res_fb}"
+                        )
                     if contact_res_fc:
-                        measurements.append(f"FC: {contact_res_fc}")
+                        measurements.append(
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC', 'FC-FC')}: {contact_res_fc}"
+                        )
                     if operations_count:
                         measurements.append(f"Λειτουργίες: {operations_count}")
 
