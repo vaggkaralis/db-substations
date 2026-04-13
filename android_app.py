@@ -170,6 +170,7 @@ def _register_kivy_exception_handler():
 def _build_inspection_fields(strings_map):
     messages = _get_inspection_messages(strings_map)
     rows = list(messages.get("INSPECTION_ROWS", []) or [])
+    _maybe_show_inspection_debug(rows, messages)
     fields = []
 
     sec1 = messages.get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
@@ -296,6 +297,86 @@ def _get_inspection_messages(strings_map):
         return messages
     except Exception:
         return messages
+
+
+def _maybe_show_inspection_debug(rows, messages):
+    """Show a tiny popup with a compact inspection rows summary when enabled.
+
+    Controlled via env var `INSPECTION_DEBUG_POPUP=1` or by setting
+    `MESSAGES['INSPECTION_DEBUG_POPUP']=True` in the strings bundle. This is
+    intentionally minimal and safe-fails on any import/runtime error.
+    """
+    try:
+        enabled = os.environ.get("INSPECTION_DEBUG_POPUP") == "1"
+    except Exception:
+        enabled = False
+
+    try:
+        if not enabled and isinstance(messages, dict):
+            enabled = bool(messages.get("INSPECTION_DEBUG_POPUP"))
+    except Exception:
+        pass
+
+    if not enabled:
+        return
+
+    try:
+        app_class = globals().get("App")
+        running_app = app_class.get_running_app() if app_class else None
+    except Exception:
+        running_app = None
+
+    if not running_app:
+        return
+
+    try:
+        from kivy.clock import Clock
+        from kivy.uix.popup import Popup
+        from kivy.uix.label import Label
+        from kivy.uix.button import Button
+        from kivy.uix.boxlayout import BoxLayout
+    except Exception:
+        return
+
+    def _show(_dt):
+        try:
+            total = len(rows)
+            parts = [f"INIT_ROWS: {total}"]
+            parts.append(f"S1:{min(4, total)}")
+            parts.append(f"S2:{max(0, min(12, total) - 4)}")
+            parts.append(f"S3a:{1 if total > 12 else 0}")
+            parts.append(f"S3b:{max(0, min(15, total) - 13)}")
+            parts.append(f"S4:{max(0, min(18, total) - 15)}")
+            parts.append(f"S5:{1 if total > 18 else 0}")
+            parts.append(f"S6:{max(0, min(21, total) - 19)}")
+            parts.append("S7:1")
+            text = "  ·  ".join(parts)
+            box = BoxLayout(orientation="vertical", spacing=6, padding=6)
+            box.add_widget(Label(text=text))
+            btn = Button(text="OK", size_hint=(1, None), height=40)
+            popup = Popup(
+                title="InspectDBG",
+                content=box,
+                size_hint=(0.95, None),
+                height=140,
+                auto_dismiss=False,
+            )
+            btn.bind(on_release=lambda *_: popup.dismiss())
+            box.add_widget(btn)
+            popup.open()
+        except Exception as e:
+            try:
+                Logger.warning(f"APP: Failed to open inspection debug popup: {e}")
+            except Exception:
+                pass
+
+    try:
+        Clock.schedule_once(_show, 0.05)
+    except Exception:
+        try:
+            _show(0)
+        except Exception:
+            pass
 
 
 def _format_android_inspection_value(value):
