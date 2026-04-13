@@ -7654,6 +7654,13 @@ class SubstationAndroidApp(App):
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
             section_tag = clean_title[:14] or "section"
+            try:
+                preview = ",".join((str(x)[:18] for x in (row_labels or [])))
+                debug_log_append(
+                    f"init {section_tag} rows={len(row_labels or [])} pv={preview[:80]}"
+                )
+            except Exception:
+                pass
             card = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
