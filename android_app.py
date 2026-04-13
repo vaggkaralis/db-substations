@@ -7364,6 +7364,58 @@ class SubstationAndroidApp(App):
             if is_android_runtime:
                 Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.5)
 
+        # In-memory debug buffer and helpers for on-screen debugging (safe/fault-tolerant)
+        debug_log = []
+
+        def debug_log_append(msg: str):
+            try:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                entry = f"{ts} {msg}"
+                debug_log.append(entry)
+                # Keep buffer bounded
+                if len(debug_log) > 300:
+                    del debug_log[0 : len(debug_log) - 300]
+                try:
+                    Logger.info(f"APP-DBG: {entry}")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        def show_debug_popup():
+            try:
+                dlg_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+                sv = ScrollView(size_hint=(1, 0.85))
+                grid = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=4)
+                grid.bind(minimum_height=grid.setter("height"))
+                for line in list(debug_log):
+                    lbl = Label(
+                        text=line, size_hint_y=None, halign="left", valign="middle"
+                    )
+                    lbl.bind(
+                        texture_size=lambda inst, val: setattr(
+                            inst, "height", max(24, val[1])
+                        )
+                    )
+                    lbl.bind(
+                        width=lambda inst, val: setattr(inst, "text_size", (val, None))
+                    )
+                    grid.add_widget(lbl)
+                sv.add_widget(grid)
+                dlg_layout.add_widget(sv)
+                ok_btn = Button(text="OK", size_hint_y=None, height=48)
+                popup_dbg = Popup(
+                    title="Debug Logs", content=dlg_layout, size_hint=(0.9, 0.8)
+                )
+                ok_btn.bind(on_press=popup_dbg.dismiss)
+                dlg_layout.add_widget(ok_btn)
+                popup_dbg.open()
+            except Exception as e:
+                try:
+                    Logger.info(f"APP-DBG: show_debug_popup failed: {e}")
+                except Exception:
+                    pass
+
         def add_meta_row(*columns):
             row = BoxLayout(
                 orientation="horizontal",
@@ -7722,8 +7774,18 @@ class SubstationAndroidApp(App):
 
             def toggle_section(_instance=None):
                 toggle_state["open"] = not toggle_state["open"]
+                try:
+                    debug_log_append(
+                        f"toggle_section: {clean_title} -> {('open' if toggle_state['open'] else 'closed')}"
+                    )
+                except Exception:
+                    pass
                 refresh_section()
                 schedule_popup_layout_refresh()
+                try:
+                    show_debug_popup()
+                except Exception:
+                    pass
 
             header_button.bind(on_press=toggle_section)
             toggle_state["open"] = expanded
