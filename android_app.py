@@ -7347,7 +7347,10 @@ class SubstationAndroidApp(App):
                 except Exception:
                     continue
             try:
-                content_layout.height = layout_content_height(content_layout)
+                content_layout.height = max(
+                    layout_content_height(content_layout),
+                    int(getattr(content_layout, "minimum_height", 0) or 0),
+                )
             except Exception:
                 pass
             refresh_widget_layout(content_layout)
@@ -7530,8 +7533,7 @@ class SubstationAndroidApp(App):
                 spacing=6,
                 padding=[0, 2, 0, 4],
             )
-            if not is_android_runtime:
-                row.bind(minimum_height=row.setter("height"))
+            row.bind(minimum_height=row.setter("height"))
             label = wrapped_form_label(label_text, min_height=38)
 
             input_widget = TextInput(
@@ -7654,64 +7656,74 @@ class SubstationAndroidApp(App):
                 if row_label:
                     section_rows.append(add_inspection_row(body, row_label))
 
+            refresh_state = {"running": False, "pending": False}
+
+            def resolve_row_height(row_widget):
+                return max(
+                    layout_content_height(row_widget),
+                    int(getattr(row_widget, "minimum_height", 0) or 0),
+                    int(getattr(row_widget, "_expanded_height", 0) or 0),
+                    int(getattr(row_widget, "height", 0) or 0),
+                    mobile_row_min_height,
+                )
+
             def section_body_height():
                 if not section_rows:
                     return 0
-                if not is_android_runtime:
-                    return max(
-                        layout_content_height(body),
-                        int(getattr(body, "minimum_height", 0) or 0),
-                    )
                 spacing = int(vertical_spacing(getattr(body, "spacing", 0)))
                 padding = int(vertical_padding(getattr(body, "padding", 0)))
                 rows_height = sum(
-                    max(
-                        int(getattr(row_widget, "_expanded_height", 0) or 0),
-                        int(getattr(row_widget, "height", 0) or 0),
-                        mobile_row_min_height,
-                    )
-                    for row_widget in section_rows
+                    resolve_row_height(row_widget) for row_widget in section_rows
                 )
                 gaps = max(len(section_rows) - 1, 0) * spacing
-                return max(padding + gaps + rows_height, 0)
+                return max(
+                    padding + gaps + rows_height,
+                    layout_content_height(body),
+                    int(getattr(body, "minimum_height", 0) or 0),
+                    0,
+                )
 
             def refresh_section(*_args):
+                if refresh_state["running"]:
+                    refresh_state["pending"] = True
+                    return
+                refresh_state["running"] = True
                 is_open = toggle_state["open"]
-                header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
-                for row_widget in section_rows:
-                    try:
-                        row_widget.height = max(
-                            layout_content_height(row_widget),
-                            int(getattr(row_widget, "minimum_height", 0) or 0),
-                            mobile_row_min_height,
+                try:
+                    header_button.text = f"{'[-]' if is_open else '[+]'} {clean_title}"
+                    for row_widget in section_rows:
+                        try:
+                            resolved_height = resolve_row_height(row_widget)
+                            row_widget.height = resolved_height
+                            row_widget._expanded_height = resolved_height
+                        except Exception:
+                            continue
+                    body.height = section_body_height()
+                    body_wrapper.height = body.height if is_open else 0
+                    body_wrapper.opacity = 1 if is_open else 0
+                    if hasattr(body_wrapper, "disabled"):
+                        body_wrapper.disabled = not is_open
+                    card.height = max(
+                        layout_content_height(card),
+                        int(getattr(card, "minimum_height", 0) or 0),
+                    )
+                    refresh_widget_layout(body)
+                    refresh_widget_layout(body_wrapper)
+                    refresh_widget_layout(card)
+                finally:
+                    refresh_state["running"] = False
+                    if refresh_state["pending"]:
+                        refresh_state["pending"] = False
+                        Clock.schedule_once(
+                            lambda *_inner_args: refresh_section(),
+                            0,
                         )
-                        row_widget._expanded_height = max(
-                            int(getattr(row_widget, "_expanded_height", 0) or 0),
-                            int(getattr(row_widget, "height", 0) or 0),
-                            mobile_row_min_height,
-                        )
-                    except Exception:
-                        continue
-                body.height = section_body_height()
-                if body.parent is not body_wrapper:
-                    body_wrapper.add_widget(body)
-                body_wrapper.height = body.height if is_open else 0
-                body_wrapper.opacity = 1 if is_open else 0
-                if is_open and body_wrapper.parent is not card:
-                    card.add_widget(body_wrapper)
-                elif not is_open and body_wrapper.parent is card:
-                    card.remove_widget(body_wrapper)
-                card.height = layout_content_height(card)
-                refresh_widget_layout(body)
-                refresh_widget_layout(body_wrapper)
-                refresh_widget_layout(card)
 
             def toggle_section(_instance=None):
                 toggle_state["open"] = not toggle_state["open"]
                 refresh_section()
                 schedule_popup_layout_refresh()
 
-            body.bind(height=refresh_section)
             header_button.bind(on_press=toggle_section)
             toggle_state["open"] = expanded
             refresh_section()

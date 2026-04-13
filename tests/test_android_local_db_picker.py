@@ -9,6 +9,8 @@ import ui.shared as shared_ui
 
 
 def _collect_widget_texts(widget):
+    if getattr(widget, "opacity", 1) == 0:
+        return []
     texts = []
     if hasattr(widget, "text"):
         texts.append(widget.text)
@@ -18,6 +20,8 @@ def _collect_widget_texts(widget):
 
 
 def _find_widget_by_text(widget, target_text):
+    if getattr(widget, "opacity", 1) == 0:
+        return None
     if getattr(widget, "text", None) == target_text:
         return widget
     for child in getattr(widget, "children", []):
