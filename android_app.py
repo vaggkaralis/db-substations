@@ -287,6 +287,12 @@ def _get_inspection_messages(strings_map):
             messages["INSPECTION_ROWS"] = list(
                 static_messages.get("INSPECTION_ROWS", []) or []
             )
+            try:
+                Logger.info(
+                    f"APP: Inspection rows missing at runtime; restored {len(messages['INSPECTION_ROWS'])} rows from static bundle (lang={language})"
+                )
+            except Exception:
+                pass
         return messages
     except Exception:
         return messages
