@@ -7649,7 +7649,6 @@ class SubstationAndroidApp(App):
             )
             body_wrapper.add_widget(body)
             card.add_widget(header_button)
-            card.add_widget(body_wrapper)
 
             section_rows = []
             for row_label in row_labels:
@@ -7701,8 +7700,10 @@ class SubstationAndroidApp(App):
                     body.height = section_body_height()
                     body_wrapper.height = body.height if is_open else 0
                     body_wrapper.opacity = 1 if is_open else 0
-                    if hasattr(body_wrapper, "disabled"):
-                        body_wrapper.disabled = not is_open
+                    if is_open and body_wrapper.parent is not card:
+                        card.add_widget(body_wrapper)
+                    elif not is_open and body_wrapper.parent is card:
+                        card.remove_widget(body_wrapper)
                     card.height = max(
                         layout_content_height(card),
                         int(getattr(card, "minimum_height", 0) or 0),
