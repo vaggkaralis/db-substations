@@ -7646,6 +7646,7 @@ class SubstationAndroidApp(App):
                 opacity=0,
             )
             body_wrapper.add_widget(body)
+            card.add_widget(header_button)
             card.add_widget(body_wrapper)
 
             section_rows = []
@@ -7682,6 +7683,7 @@ class SubstationAndroidApp(App):
                         row_widget.height = max(
                             layout_content_height(row_widget),
                             int(getattr(row_widget, "minimum_height", 0) or 0),
+                            mobile_row_min_height,
                         )
                         row_widget._expanded_height = max(
                             int(getattr(row_widget, "_expanded_height", 0) or 0),
@@ -7711,7 +7713,6 @@ class SubstationAndroidApp(App):
 
             body.bind(height=refresh_section)
             header_button.bind(on_press=toggle_section)
-            card.add_widget(header_button)
             toggle_state["open"] = expanded
             refresh_section()
             section_refreshers.append(refresh_section)
@@ -8421,6 +8422,14 @@ class SubstationAndroidApp(App):
 
 if __name__ == "__main__":
     Logger.info("APP: ========== Running main ==========")
+    if platform != "android":
+        try:
+            from kivy.config import Config
+
+            Config.set("graphics", "position", "custom")
+            Config.set("graphics", "top", "50")
+        except Exception:
+            pass
     try:
         app = SubstationAndroidApp()
         Logger.info("APP: App instance created")
