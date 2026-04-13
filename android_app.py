@@ -7594,62 +7594,6 @@ class SubstationAndroidApp(App):
                 fields_inputs.append((label_text, input_widget))
             return row
 
-        android_section_states = [
-            {
-                "title": section_title,
-                "rows": list(section_rows),
-                "open": index == 0,
-            }
-            for index, (section_title, section_rows) in enumerate(
-                [
-                    (
-                        messages.get(
-                            "INSPECTION_SECTION_2",
-                            "Έλεγχος Περιοχών Υποσταθμού",
-                        ),
-                        rows[0:4],
-                    ),
-                    (
-                        messages.get(
-                            "INSPECTION_SECTION_3",
-                            "Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV",
-                        ),
-                        rows[4:12],
-                    ),
-                    (
-                        messages.get("INSPECTION_SECTION_3A", "Εξωτερικές Πύλες 20 kV"),
-                        rows[12:13],
-                    ),
-                    (
-                        messages.get("INSPECTION_SECTION_3B", "Πίνακες 20 kV"),
-                        rows[13:15],
-                    ),
-                    (
-                        messages.get(
-                            "INSPECTION_SECTION_4",
-                            "Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες",
-                        ),
-                        rows[15:18],
-                    ),
-                    (
-                        messages.get("INSPECTION_SECTION_5", "Διακόπτες Γραμμής"),
-                        rows[18:19],
-                    ),
-                    (messages.get("INSPECTION_SECTION_6", "PC Ελέγχου"), rows[19:21]),
-                    (
-                        messages.get("INSPECTION_SECTION_7", "Απόψεις"),
-                        [messages.get("INSPECTION_OPINIONS", "Απόψεις - Προτάσεις")],
-                    ),
-                ]
-            )
-        ]
-        android_field_values = {
-            row_label: ""
-            for section_state in android_section_states
-            for row_label in section_state["rows"]
-            if row_label
-        }
-
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
             card = BoxLayout(
@@ -7702,6 +7646,7 @@ class SubstationAndroidApp(App):
                 opacity=0,
             )
             body_wrapper.add_widget(body)
+            card.add_widget(body_wrapper)
 
             section_rows = []
             for row_label in row_labels:
@@ -7808,116 +7753,8 @@ class SubstationAndroidApp(App):
             ),
         ]
 
-        def android_section_card_height(card_widget, header_widget, section_rows):
-            spacing = int(vertical_spacing(getattr(card_widget, "spacing", 0)))
-            padding = int(vertical_padding(getattr(card_widget, "padding", 0)))
-            header_height = int(getattr(header_widget, "height", 0) or 56)
-            visible_rows = [row for row in section_rows if row is not None]
-            rows_height = sum(
-                max(
-                    int(getattr(row_widget, "_expanded_height", 0) or 0),
-                    int(getattr(row_widget, "height", 0) or 0),
-                    mobile_row_min_height,
-                )
-                for row_widget in visible_rows
-            )
-            gaps = len(visible_rows) * spacing if visible_rows else 0
-            return max(header_height + rows_height + gaps + padding, header_height)
-
-        if is_android_runtime:
-            android_sections_host = GridLayout(
-                cols=1,
-                spacing=12,
-                size_hint_y=None,
-            )
-            android_sections_host.bind(
-                minimum_height=android_sections_host.setter("height")
-            )
-
-            def render_android_sections():
-                fields_inputs[:] = []
-                android_sections_host.clear_widgets()
-                for index, section_state in enumerate(android_section_states):
-                    clean_title = re.sub(
-                        r"\[/?b\]", "", section_state["title"] or ""
-                    ).strip()
-                    card = BoxLayout(
-                        orientation="vertical",
-                        size_hint_y=None,
-                        spacing=4,
-                        padding=[0, 2, 0, 2],
-                    )
-                    card.bind(minimum_height=card.setter("height"))
-                    title_label = Label(
-                        text=section_state["title"] or "",
-                        size_hint_y=None,
-                        height=0,
-                        opacity=0,
-                        markup=True,
-                        font_size=1,
-                    )
-                    card.add_widget(title_label)
-                    header_button = Button(
-                        text=f"{'[-]' if section_state['open'] else '[+]'} {clean_title}",
-                        size_hint_y=None,
-                        height=56,
-                        halign="left",
-                        valign="middle",
-                        font_size="15sp",
-                    )
-                    header_button.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (max(value - 20, 0), None)
-                        )
-                    )
-
-                    def _toggle_android_section(_instance=None, section_index=index):
-                        android_section_states[section_index][
-                            "open"
-                        ] = not android_section_states[section_index]["open"]
-                        render_android_sections()
-                        schedule_popup_layout_refresh()
-
-                    header_button.bind(on_press=_toggle_android_section)
-                    card.add_widget(header_button)
-                    section_row_widgets = []
-
-                    if section_state["open"]:
-                        for row_label in section_state["rows"]:
-                            if not row_label:
-                                continue
-                            section_row_widgets.append(
-                                add_inspection_row(
-                                    card,
-                                    row_label,
-                                    initial_text=android_field_values.get(
-                                        row_label, ""
-                                    ),
-                                    on_text_change=lambda value, current_label=row_label: (
-                                        android_field_values.__setitem__(
-                                            current_label, value
-                                        )
-                                    ),
-                                )
-                            )
-
-                    card.height = android_section_card_height(
-                        card, header_button, section_row_widgets
-                    )
-                    android_sections_host.add_widget(card)
-
-                android_sections_host.height = max(
-                    layout_content_height(android_sections_host),
-                    int(getattr(android_sections_host, "minimum_height", 0) or 0),
-                )
-                refresh_widget_layout(android_sections_host)
-                refresh_widget_layout(content_layout)
-
-            render_android_sections()
-            content_layout.add_widget(android_sections_host)
-        else:
-            for index, (section_title, section_rows) in enumerate(section_definitions):
-                add_mobile_section(section_title, section_rows, expanded=index == 0)
+        for index, (section_title, section_rows) in enumerate(section_definitions):
+            add_mobile_section(section_title, section_rows, expanded=index == 0)
 
         scroll.add_widget(content_layout)
         main_layout.add_widget(scroll)
