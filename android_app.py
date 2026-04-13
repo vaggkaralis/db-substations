@@ -168,15 +168,7 @@ def _register_kivy_exception_handler():
 
 
 def _build_inspection_fields(strings_map):
-    if isinstance(strings_map, dict):
-        messages = strings_map.get("MESSAGES", {})
-    elif hasattr(strings_map, "get"):
-        try:
-            messages = strings_map.get("MESSAGES", {})
-        except Exception:
-            messages = {}
-    else:
-        messages = {}
+    messages = _get_inspection_messages(strings_map)
     rows = list(messages.get("INSPECTION_ROWS", []) or [])
     fields = []
 
@@ -267,6 +259,37 @@ def _build_inspection_fields(strings_map):
         ]
     )
     return fields
+
+
+def _get_inspection_messages(strings_map):
+    if isinstance(strings_map, dict):
+        messages = dict(strings_map.get("MESSAGES", {}) or {})
+    elif hasattr(strings_map, "get"):
+        try:
+            messages = dict(strings_map.get("MESSAGES", {}) or {})
+        except Exception:
+            messages = {}
+    else:
+        messages = {}
+
+    if messages.get("INSPECTION_ROWS"):
+        return messages
+
+    try:
+        from config_manager import get_current_language
+        from strings import STRINGS_EL, STRINGS_EN
+
+        language = get_current_language()
+        static_bundle = STRINGS_EN if language == "en" else STRINGS_EL
+        static_messages = dict(static_bundle.get("MESSAGES", {}) or {})
+        if static_messages.get("INSPECTION_ROWS"):
+            messages = dict(messages)
+            messages["INSPECTION_ROWS"] = list(
+                static_messages.get("INSPECTION_ROWS", []) or []
+            )
+        return messages
+    except Exception:
+        return messages
 
 
 def _format_android_inspection_value(value):
@@ -7225,7 +7248,7 @@ class SubstationAndroidApp(App):
         """Add a new inspection entry using the desktop inspection form layout."""
         selected_substation_id = substation_id or (substation or {}).get("id")
         selected_substation_name = (substation or {}).get("name") or "-"
-        messages = S.get("MESSAGES", {})
+        messages = _get_inspection_messages(S)
 
         popup = Popup(
             title=S.get("TITLES", {}).get("INSPECTION_ENTRY", "Νέα Επιθεώρηση"),
@@ -7363,58 +7386,6 @@ class SubstationAndroidApp(App):
             Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.2)
             if is_android_runtime:
                 Clock.schedule_once(lambda *_inner_args: refresh_popup_layout(), 0.5)
-
-        # In-memory debug buffer and helpers for on-screen debugging (safe/fault-tolerant)
-        debug_log = []
-
-        def debug_log_append(msg: str):
-            try:
-                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                entry = f"{ts} {msg}"
-                debug_log.append(entry)
-                # Keep buffer bounded
-                if len(debug_log) > 300:
-                    del debug_log[0 : len(debug_log) - 300]
-                try:
-                    Logger.info(f"APP-DBG: {entry}")
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-        def show_debug_popup():
-            try:
-                dlg_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
-                sv = ScrollView(size_hint=(1, 0.85))
-                grid = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=4)
-                grid.bind(minimum_height=grid.setter("height"))
-                for line in list(debug_log):
-                    lbl = Label(
-                        text=line, size_hint_y=None, halign="left", valign="middle"
-                    )
-                    lbl.bind(
-                        texture_size=lambda inst, val: setattr(
-                            inst, "height", max(24, val[1])
-                        )
-                    )
-                    lbl.bind(
-                        width=lambda inst, val: setattr(inst, "text_size", (val, None))
-                    )
-                    grid.add_widget(lbl)
-                sv.add_widget(grid)
-                dlg_layout.add_widget(sv)
-                ok_btn = Button(text="OK", size_hint_y=None, height=48)
-                popup_dbg = Popup(
-                    title="Debug Logs", content=dlg_layout, size_hint=(0.9, 0.8)
-                )
-                ok_btn.bind(on_press=popup_dbg.dismiss)
-                dlg_layout.add_widget(ok_btn)
-                popup_dbg.open()
-            except Exception as e:
-                try:
-                    Logger.info(f"APP-DBG: show_debug_popup failed: {e}")
-                except Exception:
-                    pass
 
         def add_meta_row(*columns):
             row = BoxLayout(
@@ -7570,12 +7541,6 @@ class SubstationAndroidApp(App):
         update_date_meta()
 
         rows = list(messages.get("INSPECTION_ROWS", []) or [])
-        try:
-            # Short single-line on-device diagnostic (easy to remove later): show count and up to 3 previews
-            preview = "|".join(str(x)[:24] for x in (rows or [])[:3])
-            debug_log_append(f"INIT_ROWS {len(rows)} pv={preview}")
-        except Exception:
-            pass
 
         def add_inspection_row(
             parent_layout,
@@ -7649,9 +7614,6 @@ class SubstationAndroidApp(App):
 
             row.add_widget(label)
             row.add_widget(input_widget)
-            row._debug_label = label
-            row._debug_input = input_widget
-            row._debug_name = str(label_text or "")[:18]
             parent_layout.add_widget(row)
             if track_input:
                 fields_inputs.append((label_text, input_widget))
@@ -7659,14 +7621,6 @@ class SubstationAndroidApp(App):
 
         def add_mobile_section(title_text, row_labels, expanded=False):
             clean_title = re.sub(r"\[/?b\]", "", title_text or "").strip()
-            section_tag = clean_title[:14] or "section"
-            try:
-                preview = ",".join((str(x)[:18] for x in (row_labels or [])))
-                debug_log_append(
-                    f"init {section_tag} rows={len(row_labels or [])} pv={preview[:80]}"
-                )
-            except Exception:
-                pass
             card = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
@@ -7744,43 +7698,16 @@ class SubstationAndroidApp(App):
                     resolve_row_height(row_widget) for row_widget in section_rows
                 )
                 gaps = max(len(section_rows) - 1, 0) * spacing
-                body_layout_height = layout_content_height(body)
-                body_min_height = int(getattr(body, "minimum_height", 0) or 0)
-                computed = max(
+                return max(
                     padding + gaps + rows_height,
-                    body_layout_height,
-                    body_min_height,
+                    layout_content_height(body),
+                    int(getattr(body, "minimum_height", 0) or 0),
                     0,
                 )
-                if toggle_state["open"]:
-                    min_rows = 0
-                    min_inputs = 0
-                    flat_labels = 0
-                    for row_widget in section_rows:
-                        label_widget = getattr(row_widget, "_debug_label", None)
-                        input_widget = getattr(row_widget, "_debug_input", None)
-                        resolved_height = resolve_row_height(row_widget)
-                        if resolved_height <= mobile_row_min_height:
-                            min_rows += 1
-                        if (
-                            int(getattr(input_widget, "height", 0) or 0)
-                            <= mobile_multiline_min_height
-                        ):
-                            min_inputs += 1
-                        if int(getattr(label_widget, "height", 0) or 0) <= 38:
-                            flat_labels += 1
-                    debug_log_append(
-                        f"bh {section_tag}={computed} r={rows_height} lc={body_layout_height} "
-                        f"mh={body_min_height} mr={min_rows}/{len(section_rows)} "
-                        f"mi={min_inputs} fl={flat_labels}"
-                    )
-                return computed
 
             def refresh_section(*_args):
                 if refresh_state["running"]:
                     refresh_state["pending"] = True
-                    if toggle_state["open"]:
-                        debug_log_append(f"rf {section_tag} busy->pend")
                     return
                 refresh_state["running"] = True
                 is_open = toggle_state["open"]
@@ -7804,12 +7731,6 @@ class SubstationAndroidApp(App):
                         layout_content_height(card),
                         int(getattr(card, "minimum_height", 0) or 0),
                     )
-                    if is_open:
-                        debug_log_append(
-                            f"rf {section_tag} bh={int(body.height)} wh={int(body_wrapper.height)} "
-                            f"par={1 if body_wrapper.parent is card else 0} ch={int(card.height)} "
-                            f"cc={len(card.children)}"
-                        )
                     refresh_widget_layout(body)
                     refresh_widget_layout(body_wrapper)
                     refresh_widget_layout(card)
@@ -7824,18 +7745,8 @@ class SubstationAndroidApp(App):
 
             def toggle_section(_instance=None):
                 toggle_state["open"] = not toggle_state["open"]
-                try:
-                    debug_log_append(
-                        f"toggle_section: {clean_title} -> {('open' if toggle_state['open'] else 'closed')}"
-                    )
-                except Exception:
-                    pass
                 refresh_section()
                 schedule_popup_layout_refresh()
-                try:
-                    show_debug_popup()
-                except Exception:
-                    pass
 
             header_button.bind(on_press=toggle_section)
             toggle_state["open"] = expanded
@@ -8005,11 +7916,6 @@ class SubstationAndroidApp(App):
         main_layout.add_widget(buttons_layout)
         popup.content = main_layout
         popup.open()
-        try:
-            debug_log_append("Inspection popup opened")
-            show_debug_popup()
-        except Exception:
-            pass
 
     def _has_element_maintenance_history(self, element_id):
         """Check if an element has any maintenance records"""

@@ -595,6 +595,56 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
     assert getattr(second_row_label.parent, "height", 0) >= 160
 
 
+def test_show_inspection_entry_popup_falls_back_when_inspection_rows_missing(
+    monkeypatch,
+):
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = None
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+    monkeypatch.setattr(android_app, "platform", "android")
+    monkeypatch.setattr(
+        android_app,
+        "S",
+        {
+            "MESSAGES": {
+                "INSPECTION_SECTION_2": "[b]Έλεγχος Περιοχών Υποσταθμού[/b]",
+                "INSPECTION_SECTION_3": "[b]Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV[/b]",
+                "INSPECTION_SECTION_3A": "[b]Εξωτερικές Πύλες 20 kV[/b]",
+                "INSPECTION_SECTION_3B": "[b]Πίνακες 20 kV[/b]",
+                "INSPECTION_SECTION_4": "[b]Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες[/b]",
+                "INSPECTION_SECTION_5": "[b]Διακόπτες Γραμμής[/b]",
+                "INSPECTION_SECTION_6": "[b]PC Ελέγχου[/b]",
+                "INSPECTION_SECTION_7": "[b]Απόψεις[/b]",
+                "INSPECTION_OPINIONS": "Απόψεις - Προτάσεις",
+            }
+        },
+    )
+
+    app = android_app.SubstationAndroidApp()
+    app.substations = [{"id": 1, "name": "S1"}]
+
+    app.show_inspection_entry_popup(1, {"id": 1, "name": "S1"})
+
+    popup_content = captured["instance"].content
+    fallback_messages = android_app._get_inspection_messages(android_app.S)
+    first_row = fallback_messages.get("INSPECTION_ROWS", [])[0]
+    assert first_row
+    assert first_row in _collect_widget_texts(popup_content)
+
+
 def test_show_inspection_entry_popup_does_not_double_attach_section_widgets(
     monkeypatch,
 ):
