@@ -67,12 +67,149 @@ except Exception:
     ANDROID_DEFAULT_DB_PATH = "/storage/emulated/0/Download/substations.db"
 
 
+_STRINGS_PROXY_LOAD_ERROR = ""
+_STATIC_STRINGS_LOAD_ERROR = ""
+_LANGUAGE_LOAD_ERROR = ""
+
+_LOCAL_INSPECTION_MESSAGES = {
+    "el": {
+        "OBSERVATIONS_FMT": "Παρατηρήσεις ({n}. {sec})",
+        "INSPECTION_OPINIONS": "Απόψεις - Προτάσεις",
+        "INSPECTION_SECTION_2": "[b]Έλεγχος Περιοχών Υποσταθμού[/b]",
+        "INSPECTION_SECTION_3": "[b]Μετασχηματιστής 150/20kV & Διακόπτες ΥΤ/20kV[/b]",
+        "INSPECTION_SECTION_3A": "[b]Εξωτερικές Πύλες 20 kV[/b]",
+        "INSPECTION_SECTION_3B": "[b]Πίνακες 20 kV[/b]",
+        "INSPECTION_SECTION_4": "[b]Κτίριο Ελέγχου & Βοηθητικές Υπηρεσίες[/b]",
+        "INSPECTION_SECTION_5": "[b]Διακόπτες Γραμμής[/b]",
+        "INSPECTION_SECTION_6": "[b]PC Ελέγχου[/b]",
+        "INSPECTION_SECTION_7": "[b]Απόψεις[/b]",
+        "INSPECTION_BASE_FIELDS": [
+            "Υποσταθμός",
+            "Αρ. Φόρμας",
+            "Μήνας",
+            "Όνομα Επιθεωρητή",
+            "Περιοχή",
+            "Ημέρα",
+            "Έτος",
+            "Ημερομηνία",
+        ],
+        "INSPECTION_ROWS": [
+            "Έλεγχος εξωτερικών και εσωτερικών θυρών του υποσταθμού",
+            "Έλεγχος εσωτερικού κτιρίου (φωτισμός, κλιματισμός, κ.λπ.)",
+            "Έλεγχος περιβάλλοντος χώρου (βλαστικότητα, δέντρα, φωτισμός, κ.λπ.)",
+            "Γενική επιθεώρηση εξοπλισμού πυρασφάλειας",
+            "Οπτικός έλεγχος διαρροής/στάθμης/θερμοκρασίας λαδιού, σιλικογέλης στο μετασχηματιστή",
+            "Οπτικός έλεγχος διαρροής λαδιού ή πίεσης SF6 ή πίεσης αέρα στους διακόπτες ΥΤ & 20kV",
+            "Έλεγχος λειτουργίας ανεμιστήρα μετασχηματιστή",
+            "Οπτικός έλεγχος μετασχηματιστή έγχυσης, ΜΕ, ΜΤ, μετασχηματιστή υπηρεσίας, ουδέτερης αντίστασης (θερμοκρασία)",
+            "Οπτικός έλεγχος μονωτήρων (ρύπανση, γρατζουνιές, κ.λπ.)",
+            "Οπτικός έλεγχος ασφαλειών και πυκνωτών",
+            "Έλεγχος σημάνσεων στα πάνελ μετασχηματιστή, ηλεκτροδότη 150kV & 20kV",
+            "Λήψη φωτογραφίας όταν απαιτείται",
+            "Οπτικός έλεγχος πυλών, διαζεύκτων και γενικών κατασκευών για φωλιές, σπασίματα, μονωτήρες, κλαδιά, καλώδια κ.λπ.",
+            "Οπτικός έλεγχος πάνελ ηλεκτροδότη 20kV (συναγερμοί, ενδείξεις, θύρες) και έλεγχος θορύβου/ιονοποίησης",
+            "Έλεγχος υγρασίας (υπόγειο, κανάλια καλωδίων), αφυγραντήρες, θερμαντήρες, φορητές πυροσβεστήρες",
+            "Έλεγχος φορτιστή 110V με οπτικό έλεγχο και μέτρηση/καταγραφή τάσης/ρεύματος",
+            "Έλεγχος διάσβεσης συνεχούς ρεύματος στο κύριο πάνελ DC",
+            "Οπτικός έλεγχος διαρροών στα στοιχεία μπαταρίας",
+            "Οπτικός έλεγχος γεννητριών και γεφυρών τους στον 1ο πόλο κάθε γραμμής (σπάσιμο, μονωτήρες, κ.λπ.)",
+            "Έλεγχος λειτουργίας ψηφιακού συστήματος (λειτουργίες, ενδείξεις, σημάνσεις)",
+            "Τροφοδοσία PC",
+            "Απόψεις και προτάσεις για καλύτερη λειτουργία εξοπλισμού και κτιρίου γενικά",
+        ],
+    },
+    "en": {
+        "OBSERVATIONS_FMT": "Observations ({n}. {sec})",
+        "INSPECTION_OPINIONS": "Views - Suggestions",
+        "INSPECTION_SECTION_2": "[b]Substation Areas Check[/b]",
+        "INSPECTION_SECTION_3": "[b]150/20kV Transformer & 150kV/20kV Breakers[/b]",
+        "INSPECTION_SECTION_3A": "[b]Outdoor 20 kV gates[/b]",
+        "INSPECTION_SECTION_3B": "[b]20 kV panels[/b]",
+        "INSPECTION_SECTION_4": "[b]Control building & Aux. Services[/b]",
+        "INSPECTION_SECTION_5": "[b]Line Disconnectors[/b]",
+        "INSPECTION_SECTION_6": "[b]Control PC[/b]",
+        "INSPECTION_SECTION_7": "[b]Views[/b]",
+        "INSPECTION_BASE_FIELDS": [
+            "Substation",
+            "Form No.",
+            "Month",
+            "Inspector Name",
+            "Region",
+            "Day",
+            "Year",
+            "Date",
+        ],
+        "INSPECTION_ROWS": [
+            "Check external & internal doors of the substation",
+            "Check interior of the building (lighting, air conditioning, etc)",
+            "Check surrounding area (vegetation, trees, lighting, etc)",
+            "General inspection of fire protection equipment",
+            "Visual check for oil leakage/level/temperature, silica gel on the transformer",
+            "Visual check for oil leakage or SF6 pressure or air pressure on 150kV & 20kV circuit breakers",
+            "Check transformer fan operation",
+            "Visual check of injection transformer, CTs, VTs, service transformer, neutral resistor (temperature)",
+            "Visual check of insulators (pollution, scratches, etc)",
+            "Visual check of fuses and capacitors",
+            "Check markings on transformer panels, 150kV & 20kV switchgear",
+            "Take photo when required",
+            "Visual check of gates, A/Z and general structures for nests, breaks, insulators, branches, wires, etc",
+            "Visual check on 20kV switchgear panels (alarms, indications, doors) and check for noise/ionization",
+            "Check for humidity (basement, cable channels), dehumidifiers, heaters, portable fire extinguishers",
+            "Check 110V charger visually with voltage/current measurement and recording",
+            "Check for DC loss alarm on main DC panel",
+            "Visual check for leaks in battery elements",
+            "Visual check of generators and their bridges on the 1st pole of each line (broken, insulators, etc)",
+            "Check operation of digital system (operations, indications, markings)",
+            "PC power supply",
+            "Views and suggestions for better operation of equipment and building in general",
+        ],
+    },
+}
+
+
+def _format_import_error(exc):
+    return f"{type(exc).__name__}:{exc}"[:120]
+
+
+def _get_inspection_language():
+    global _LANGUAGE_LOAD_ERROR
+    try:
+        from config_manager import get_current_language
+
+        return get_current_language()
+    except Exception as exc:
+        _LANGUAGE_LOAD_ERROR = _format_import_error(exc)
+        return "el"
+
+
+def _get_local_inspection_messages(language):
+    selected_language = "en" if language == "en" else "el"
+    return dict(_LOCAL_INSPECTION_MESSAGES.get(selected_language, {}))
+
+
+def _get_static_inspection_messages(language):
+    global _STATIC_STRINGS_LOAD_ERROR
+    local_messages = _get_local_inspection_messages(language)
+    try:
+        from strings import STRINGS_EL, STRINGS_EN
+
+        static_bundle = STRINGS_EN if language == "en" else STRINGS_EL
+        merged_messages = dict(local_messages)
+        merged_messages.update(dict(static_bundle.get("MESSAGES", {}) or {}))
+        return merged_messages
+    except Exception as exc:
+        _STATIC_STRINGS_LOAD_ERROR = _format_import_error(exc)
+        return local_messages
+
+
 def _load_strings():
+    global _STRINGS_PROXY_LOAD_ERROR, _STATIC_STRINGS_LOAD_ERROR
     try:
         from strings_proxy import STRINGS as proxied_strings
 
         return proxied_strings
     except Exception as proxy_err:
+        _STRINGS_PROXY_LOAD_ERROR = _format_import_error(proxy_err)
         try:
             from strings import STRINGS_EL
 
@@ -82,6 +219,7 @@ def _load_strings():
             )
             return STRINGS_EL
         except Exception as fallback_err:
+            _STATIC_STRINGS_LOAD_ERROR = _format_import_error(fallback_err)
             Logger.warning(f"APP: Static strings fallback also failed: {fallback_err}")
             return {"BUTTONS": {}, "TITLES": {}, "MESSAGES": {}}
 
@@ -275,39 +413,24 @@ def _get_inspection_messages(strings_map):
     if messages.get("INSPECTION_ROWS"):
         return messages
 
-    try:
-        from config_manager import get_current_language
-        from strings import STRINGS_EL, STRINGS_EN
-
-        language = get_current_language()
-        static_bundle = STRINGS_EN if language == "en" else STRINGS_EL
-        static_messages = dict(static_bundle.get("MESSAGES", {}) or {})
-        if static_messages.get("INSPECTION_ROWS"):
-            messages = dict(messages)
-            messages["INSPECTION_ROWS"] = list(
-                static_messages.get("INSPECTION_ROWS", []) or []
+    language = _get_inspection_language()
+    static_messages = _get_static_inspection_messages(language)
+    if static_messages.get("INSPECTION_ROWS"):
+        messages = dict(messages)
+        messages["INSPECTION_ROWS"] = list(
+            static_messages.get("INSPECTION_ROWS", []) or []
+        )
+        try:
+            Logger.info(
+                f"APP: Inspection rows missing at runtime; restored {len(messages['INSPECTION_ROWS'])} rows from fallback bundle (lang={language})"
             )
-            try:
-                Logger.info(
-                    f"APP: Inspection rows missing at runtime; restored {len(messages['INSPECTION_ROWS'])} rows from static bundle (lang={language})"
-                )
-            except Exception:
-                pass
-        return messages
-    except Exception:
-        return messages
+        except Exception:
+            pass
+    return messages
 
 
 def _build_inspection_debug_text(strings_map):
-    try:
-        from config_manager import get_current_language
-        from strings import STRINGS_EL, STRINGS_EN
-
-        language = get_current_language()
-        static_bundle = STRINGS_EN if language == "en" else STRINGS_EL
-    except Exception:
-        language = "?"
-        static_bundle = {"MESSAGES": {}}
+    language = _get_inspection_language()
 
     raw_messages = {}
     if isinstance(strings_map, dict):
@@ -318,7 +441,7 @@ def _build_inspection_debug_text(strings_map):
         except Exception:
             raw_messages = {}
 
-    static_messages = dict(static_bundle.get("MESSAGES", {}) or {})
+    static_messages = _get_static_inspection_messages(language)
     final_messages = _get_inspection_messages(strings_map)
 
     raw_rows = list(raw_messages.get("INSPECTION_ROWS", []) or [])
@@ -344,6 +467,11 @@ def _build_inspection_debug_text(strings_map):
                 f"fb={fallback_used} lang={language} src={source_name}"
             ),
             "  ".join(sections),
+            (
+                f"perr={_STRINGS_PROXY_LOAD_ERROR or '-'} "
+                f"serr={_STATIC_STRINGS_LOAD_ERROR or '-'} "
+                f"lerr={_LANGUAGE_LOAD_ERROR or '-'}"
+            )[:220],
         ]
     )
 
