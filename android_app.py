@@ -170,7 +170,6 @@ def _register_kivy_exception_handler():
 def _build_inspection_fields(strings_map):
     messages = _get_inspection_messages(strings_map)
     rows = list(messages.get("INSPECTION_ROWS", []) or [])
-    _maybe_show_inspection_debug(strings_map)
     fields = []
 
     sec1 = messages.get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
@@ -347,128 +346,6 @@ def _build_inspection_debug_text(strings_map):
             "  ".join(sections),
         ]
     )
-
-
-def _show_compact_inspection_debug_popup(debug_text):
-    try:
-        app_class = globals().get("App")
-        running_app = app_class.get_running_app() if app_class else None
-    except Exception:
-        running_app = None
-
-    if not running_app:
-        return
-
-    try:
-        from kivy.clock import Clock
-        from kivy.uix.popup import Popup
-        from kivy.uix.label import Label
-        from kivy.uix.button import Button
-        from kivy.uix.boxlayout import BoxLayout
-    except Exception:
-        return
-
-    def _show(_dt):
-        try:
-            box = BoxLayout(orientation="vertical", spacing=6, padding=6)
-            box.add_widget(Label(text=debug_text, halign="left", valign="middle"))
-            btn = Button(text="OK", size_hint=(1, None), height=40)
-            popup = Popup(
-                title="InspectDBG",
-                content=box,
-                size_hint=(0.95, None),
-                height=180,
-                auto_dismiss=False,
-            )
-            btn.bind(on_release=lambda *_: popup.dismiss())
-            box.add_widget(btn)
-            popup.open()
-        except Exception as exc:
-            try:
-                Logger.warning(f"APP: Failed to open inspection debug popup: {exc}")
-            except Exception:
-                pass
-
-    try:
-        Clock.schedule_once(_show, 0.05)
-    except Exception:
-        try:
-            _show(0)
-        except Exception:
-            pass
-
-
-def _maybe_show_inspection_debug(strings_map):
-    """Show a tiny popup with a compact inspection rows summary when enabled.
-
-    Controlled via env var `INSPECTION_DEBUG_POPUP=1` or by setting
-    `MESSAGES['INSPECTION_DEBUG_POPUP']=True` in the strings bundle. This is
-    intentionally minimal and safe-fails on any import/runtime error.
-    """
-    try:
-        enabled = os.environ.get("INSPECTION_DEBUG_POPUP") == "1"
-    except Exception:
-        enabled = False
-
-    # Force-enable on Android devices for quick diagnostics when not explicitly set.
-    try:
-        if not enabled and globals().get("_EARLY_KIVY_HOME"):
-            enabled = True
-    except Exception:
-        pass
-
-    try:
-        raw_messages = {}
-        if isinstance(strings_map, dict):
-            raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
-        elif hasattr(strings_map, "get"):
-            raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
-        if not enabled:
-            enabled = bool(raw_messages.get("INSPECTION_DEBUG_POPUP"))
-    except Exception:
-        pass
-
-    if not enabled:
-        return
-
-    _show_compact_inspection_debug_popup(_build_inspection_debug_text(strings_map))
-
-
-def _show_startup_inspection_debug():
-    """Show a compact inspection debug popup at app startup on Android.
-
-    This is temporary diagnostic UI; it will show once shortly after import
-    when running on Android (detected by `_EARLY_KIVY_HOME`). It is safe and
-    will no-op on other platforms.
-    """
-    try:
-        if not _EARLY_KIVY_HOME:
-            return
-    except Exception:
-        return
-
-    try:
-        from strings_proxy import STRINGS as SP
-    except Exception:
-        return
-
-    try:
-        from kivy.clock import Clock
-    except Exception:
-        return
-
-    debug_text = _build_inspection_debug_text(SP)
-    Clock.schedule_once(
-        lambda _dt: _show_compact_inspection_debug_popup(debug_text),
-        1.0,
-    )
-
-
-# Trigger the startup popup on Android to surface compact diagnostics immediately.
-try:
-    _show_startup_inspection_debug()
-except Exception:
-    pass
 
 
 def _format_android_inspection_value(value):
@@ -1910,6 +1787,13 @@ class SubstationAndroidApp(App):
         except Exception as start_err:
             Logger.warning(
                 f"APP: Failed to display pending uncaught errors: {start_err}"
+            )
+        try:
+            if platform == "android":
+                self.show_error(_build_inspection_debug_text(S), is_info=True)
+        except Exception as debug_err:
+            Logger.warning(
+                f"APP: Failed to show startup inspection debug popup: {debug_err}"
             )
         try:
             if not self._startup_change_log_review_shown:
@@ -7428,6 +7312,14 @@ class SubstationAndroidApp(App):
         selected_substation_id = substation_id or (substation or {}).get("id")
         selected_substation_name = (substation or {}).get("name") or "-"
         messages = _get_inspection_messages(S)
+
+        if platform == "android":
+            try:
+                self.show_error(_build_inspection_debug_text(S), is_info=True)
+            except Exception as debug_err:
+                Logger.warning(
+                    f"APP: Failed to show inspection-entry debug popup: {debug_err}"
+                )
 
         popup = Popup(
             title=S.get("TITLES", {}).get("INSPECTION_ENTRY", "Νέα Επιθεώρηση"),
