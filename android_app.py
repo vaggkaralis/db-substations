@@ -7459,9 +7459,9 @@ class SubstationAndroidApp(App):
             Logger.info(
                 "APP: Inspection popup using Android rebuild-on-toggle section layout"
             )
-        mobile_multiline_min_height = 156 if is_android_runtime else 88
-        mobile_multiline_max_height = 360 if is_android_runtime else 260
-        mobile_row_min_height = 214 if is_android_runtime else 0
+        mobile_multiline_min_height = 104 if is_android_runtime else 88
+        mobile_multiline_max_height = 280 if is_android_runtime else 260
+        mobile_row_min_height = 0
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         content_layout = GridLayout(cols=1, spacing=12, size_hint_y=None, padding=8)
@@ -7752,8 +7752,8 @@ class SubstationAndroidApp(App):
             row = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
-                spacing=6,
-                padding=[0, 2, 0, 4],
+                spacing=4,
+                padding=[0, 0, 0, 2],
             )
             row.bind(minimum_height=row.setter("height"))
             label = wrapped_form_label(label_text, min_height=38)
@@ -7765,7 +7765,7 @@ class SubstationAndroidApp(App):
                 height=mobile_multiline_min_height,
                 multiline=True,
                 font_size="15sp",
-                padding=[10, 10, 10, 10],
+                padding=[10, 8, 10, 8],
                 background_normal="",
                 background_color=(1, 1, 1, 1),
                 foreground_color=(0, 0, 0, 1),
@@ -7804,7 +7804,7 @@ class SubstationAndroidApp(App):
             if is_android_runtime:
                 input_widget.height = mobile_multiline_min_height
                 row.height = max(
-                    mobile_row_min_height, label.height + input_widget.height + 16
+                    mobile_row_min_height, label.height + input_widget.height + 8
                 )
                 for delay in (0, 0.05, 0.2, 0.5, 0.8):
                     Clock.schedule_once(lambda *_args: refresh_row_height(), delay)
@@ -7823,8 +7823,8 @@ class SubstationAndroidApp(App):
             card = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
-                spacing=4,
-                padding=[0, 2, 0, 2],
+                spacing=2,
+                padding=[0, 0, 0, 1],
             )
             card.bind(minimum_height=card.setter("height"))
 
@@ -7857,9 +7857,9 @@ class SubstationAndroidApp(App):
 
             body = GridLayout(
                 cols=1,
-                spacing=8,
+                spacing=4,
                 size_hint_y=None,
-                padding=[6, 4, 6, 8],
+                padding=[4, 0, 4, 4],
             )
             body.bind(minimum_height=body.setter("height"))
 

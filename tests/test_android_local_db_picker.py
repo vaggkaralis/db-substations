@@ -555,7 +555,7 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
         if getattr(widget, "multiline", False)
     ]
     assert multiline_inputs
-    assert all(widget.height >= 156 for widget in multiline_inputs)
+    assert all(widget.height >= 104 for widget in multiline_inputs)
 
     messages = android_app.S.get("MESSAGES", {})
     first_title = re.sub(
@@ -585,14 +585,14 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
 
     first_row_label = _find_widget_by_text(popup_content, first_section_first_row)
     assert first_row_label is not None
-    assert getattr(first_row_label.parent, "height", 0) >= 160
+    assert getattr(first_row_label.parent, "height", 0) >= 140
 
     second_header.on_press(second_header)
 
     assert _find_widget_by_text(popup_content, f"[-] {second_title}") is not None
     second_row_label = _find_widget_by_text(popup_content, second_section_first_row)
     assert second_row_label is not None
-    assert getattr(second_row_label.parent, "height", 0) >= 160
+    assert getattr(second_row_label.parent, "height", 0) >= 140
 
 
 def test_show_inspection_entry_popup_falls_back_when_inspection_rows_missing(
