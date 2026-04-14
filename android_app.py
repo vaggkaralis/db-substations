@@ -50,6 +50,42 @@ def _configure_kivy_environment():
 _EARLY_LOGGER = logging.getLogger("android_app.bootstrap")
 _EARLY_KIVY_HOME = _configure_kivy_environment()
 
+
+def _bootstrap_app_module_paths():
+    """Ensure likely Android app-source directories are importable early."""
+    candidate_dirs = []
+
+    def add_candidate(path_value):
+        normalized = (path_value or "").strip()
+        if not normalized:
+            return
+        absolute = os.path.abspath(normalized)
+        if absolute not in candidate_dirs:
+            candidate_dirs.append(absolute)
+
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+    add_candidate(current_file_dir)
+    add_candidate(os.getcwd())
+
+    android_argument = os.environ.get("ANDROID_ARGUMENT", "")
+    android_private = os.environ.get("ANDROID_PRIVATE", "")
+    if android_argument:
+        add_candidate(os.path.dirname(android_argument))
+    if android_private:
+        add_candidate(android_private)
+        add_candidate(os.path.join(android_private, "app"))
+        add_candidate(os.path.join(android_private, "files"))
+
+    added_paths = []
+    for candidate in candidate_dirs:
+        if os.path.isdir(candidate) and candidate not in sys.path:
+            sys.path.insert(0, candidate)
+            added_paths.append(candidate)
+    return added_paths
+
+
+_BOOTSTRAPPED_APP_PATHS = _bootstrap_app_module_paths()
+
 # Set up logging FIRST before any other Kivy imports
 Logger = importlib.import_module("kivy.logger").Logger
 
@@ -179,6 +215,23 @@ def _summarize_module(module_name):
         return f"ok:{module.__name__}:{module_file}:{module_package}"[:120]
     except Exception as exc:
         return f"err:{_format_import_error(exc)}"
+
+
+def _summarize_module_files(module_name):
+    file_name = f"{module_name}.py"
+    hits = []
+    for path_entry in list(dict.fromkeys(sys.path)):
+        try:
+            candidate = os.path.join(path_entry, file_name)
+        except Exception:
+            continue
+        if os.path.isfile(candidate):
+            hits.append(os.path.basename(os.path.dirname(candidate)) or ".")
+        if len(hits) >= 4:
+            break
+    if hits:
+        return f"files={','.join(hits)}"[:120]
+    return "files=-"
 
 
 def _try_import_module(module_name):
@@ -509,6 +562,12 @@ def _build_inspection_debug_text(strings_map):
     proxy_status = _summarize_module("strings_proxy")
     strings_status = _summarize_module("strings")
     config_status = _summarize_module("config_manager")
+    proxy_files = _summarize_module_files("strings_proxy")
+    strings_files = _summarize_module_files("strings")
+    config_files = _summarize_module_files("config_manager")
+    boot_paths = ",".join(
+        os.path.basename(path) or path for path in _BOOTSTRAPPED_APP_PATHS
+    )
 
     sections = [
         f"S1:{min(4, len(final_rows))}",
@@ -527,9 +586,13 @@ def _build_inspection_debug_text(strings_map):
                 f"raw={len(raw_rows)} final={len(final_rows)} static={len(static_rows)} "
                 f"fb={fallback_used} lang={language} src={source_name}"
             ),
+            f"boot={boot_paths or '-'}",
             f"proxy={proxy_status}",
+            f"proxyf={proxy_files}",
             f"strings={strings_status}",
+            f"stringsf={strings_files}",
             f"cfg={config_status}",
+            f"cfgf={config_files}",
             "  ".join(sections),
             (
                 f"perr={_STRINGS_PROXY_LOAD_ERROR or '-'} "
