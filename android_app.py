@@ -170,7 +170,7 @@ def _register_kivy_exception_handler():
 def _build_inspection_fields(strings_map):
     messages = _get_inspection_messages(strings_map)
     rows = list(messages.get("INSPECTION_ROWS", []) or [])
-    _maybe_show_inspection_debug(rows, messages)
+    _maybe_show_inspection_debug(strings_map)
     fields = []
 
     sec1 = messages.get("INSPECTION_SECTION_2", "Έλεγχος Χώρων ΥΣ")
@@ -299,34 +299,57 @@ def _get_inspection_messages(strings_map):
         return messages
 
 
-def _maybe_show_inspection_debug(rows, messages):
-    """Show a tiny popup with a compact inspection rows summary when enabled.
-
-    Controlled via env var `INSPECTION_DEBUG_POPUP=1` or by setting
-    `MESSAGES['INSPECTION_DEBUG_POPUP']=True` in the strings bundle. This is
-    intentionally minimal and safe-fails on any import/runtime error.
-    """
+def _build_inspection_debug_text(strings_map):
     try:
-        enabled = os.environ.get("INSPECTION_DEBUG_POPUP") == "1"
+        from config_manager import get_current_language
+        from strings import STRINGS_EL, STRINGS_EN
+
+        language = get_current_language()
+        static_bundle = STRINGS_EN if language == "en" else STRINGS_EL
     except Exception:
-        enabled = False
+        language = "?"
+        static_bundle = {"MESSAGES": {}}
 
-    # Force-enable on Android devices for quick diagnostics when not explicitly set.
-    try:
-        if not enabled and globals().get("_EARLY_KIVY_HOME"):
-            enabled = True
-    except Exception:
-        pass
+    raw_messages = {}
+    if isinstance(strings_map, dict):
+        raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
+    elif hasattr(strings_map, "get"):
+        try:
+            raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
+        except Exception:
+            raw_messages = {}
 
-    try:
-        if not enabled and isinstance(messages, dict):
-            enabled = bool(messages.get("INSPECTION_DEBUG_POPUP"))
-    except Exception:
-        pass
+    static_messages = dict(static_bundle.get("MESSAGES", {}) or {})
+    final_messages = _get_inspection_messages(strings_map)
 
-    if not enabled:
-        return
+    raw_rows = list(raw_messages.get("INSPECTION_ROWS", []) or [])
+    static_rows = list(static_messages.get("INSPECTION_ROWS", []) or [])
+    final_rows = list(final_messages.get("INSPECTION_ROWS", []) or [])
+    fallback_used = int(not raw_rows and bool(final_rows))
 
+    sections = [
+        f"S1:{min(4, len(final_rows))}",
+        f"S2:{max(0, min(12, len(final_rows)) - 4)}",
+        f"S3a:{1 if len(final_rows) > 12 else 0}",
+        f"S3b:{max(0, min(15, len(final_rows)) - 13)}",
+        f"S4:{max(0, min(18, len(final_rows)) - 15)}",
+        f"S5:{1 if len(final_rows) > 18 else 0}",
+        f"S6:{max(0, min(21, len(final_rows)) - 19)}",
+        "S7:1",
+    ]
+    source_name = type(strings_map).__name__
+    return "\n".join(
+        [
+            (
+                f"raw={len(raw_rows)} final={len(final_rows)} static={len(static_rows)} "
+                f"fb={fallback_used} lang={language} src={source_name}"
+            ),
+            "  ".join(sections),
+        ]
+    )
+
+
+def _show_compact_inspection_debug_popup(debug_text):
     try:
         app_class = globals().get("App")
         running_app = app_class.get_running_app() if app_class else None
@@ -347,33 +370,22 @@ def _maybe_show_inspection_debug(rows, messages):
 
     def _show(_dt):
         try:
-            total = len(rows)
-            parts = [f"INIT_ROWS: {total}"]
-            parts.append(f"S1:{min(4, total)}")
-            parts.append(f"S2:{max(0, min(12, total) - 4)}")
-            parts.append(f"S3a:{1 if total > 12 else 0}")
-            parts.append(f"S3b:{max(0, min(15, total) - 13)}")
-            parts.append(f"S4:{max(0, min(18, total) - 15)}")
-            parts.append(f"S5:{1 if total > 18 else 0}")
-            parts.append(f"S6:{max(0, min(21, total) - 19)}")
-            parts.append("S7:1")
-            text = "  ·  ".join(parts)
             box = BoxLayout(orientation="vertical", spacing=6, padding=6)
-            box.add_widget(Label(text=text))
+            box.add_widget(Label(text=debug_text, halign="left", valign="middle"))
             btn = Button(text="OK", size_hint=(1, None), height=40)
             popup = Popup(
                 title="InspectDBG",
                 content=box,
                 size_hint=(0.95, None),
-                height=140,
+                height=180,
                 auto_dismiss=False,
             )
             btn.bind(on_release=lambda *_: popup.dismiss())
             box.add_widget(btn)
             popup.open()
-        except Exception as e:
+        except Exception as exc:
             try:
-                Logger.warning(f"APP: Failed to open inspection debug popup: {e}")
+                Logger.warning(f"APP: Failed to open inspection debug popup: {exc}")
             except Exception:
                 pass
 
@@ -384,6 +396,42 @@ def _maybe_show_inspection_debug(rows, messages):
             _show(0)
         except Exception:
             pass
+
+
+def _maybe_show_inspection_debug(strings_map):
+    """Show a tiny popup with a compact inspection rows summary when enabled.
+
+    Controlled via env var `INSPECTION_DEBUG_POPUP=1` or by setting
+    `MESSAGES['INSPECTION_DEBUG_POPUP']=True` in the strings bundle. This is
+    intentionally minimal and safe-fails on any import/runtime error.
+    """
+    try:
+        enabled = os.environ.get("INSPECTION_DEBUG_POPUP") == "1"
+    except Exception:
+        enabled = False
+
+    # Force-enable on Android devices for quick diagnostics when not explicitly set.
+    try:
+        if not enabled and globals().get("_EARLY_KIVY_HOME"):
+            enabled = True
+    except Exception:
+        pass
+
+    try:
+        raw_messages = {}
+        if isinstance(strings_map, dict):
+            raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
+        elif hasattr(strings_map, "get"):
+            raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
+        if not enabled:
+            enabled = bool(raw_messages.get("INSPECTION_DEBUG_POPUP"))
+    except Exception:
+        pass
+
+    if not enabled:
+        return
+
+    _show_compact_inspection_debug_popup(_build_inspection_debug_text(strings_map))
 
 
 def _show_startup_inspection_debug():
@@ -401,63 +449,19 @@ def _show_startup_inspection_debug():
 
     try:
         from strings_proxy import STRINGS as SP
-
-        rows = SP.get("MESSAGES", {}).get("INSPECTION_ROWS", []) or []
     except Exception:
-        rows = []
+        return
 
     try:
         from kivy.clock import Clock
     except Exception:
         return
 
-    def _open(_dt):
-        try:
-            from kivy.uix.popup import Popup
-            from kivy.uix.label import Label
-            from kivy.uix.button import Button
-            from kivy.uix.boxlayout import BoxLayout
-        except Exception:
-            return
-
-        try:
-            total = len(rows)
-            parts = [f"INIT_ROWS: {total}"]
-            parts.append(f"S1:{min(4, total)}")
-            parts.append(f"S2:{max(0, min(12, total) - 4)}")
-            parts.append(f"S3a:{1 if total > 12 else 0}")
-            parts.append(f"S3b:{max(0, min(15, total) - 13)}")
-            parts.append(f"S4:{max(0, min(18, total) - 15)}")
-            parts.append(f"S5:{1 if total > 18 else 0}")
-            parts.append(f"S6:{max(0, min(21, total) - 19)}")
-            parts.append("S7:1")
-            text = "  ·  ".join(parts)
-            box = BoxLayout(orientation="vertical", spacing=6, padding=6)
-            box.add_widget(Label(text=text))
-            btn = Button(text="OK", size_hint=(1, None), height=40)
-            popup = Popup(
-                title="InspectDBG",
-                content=box,
-                size_hint=(0.95, None),
-                height=140,
-                auto_dismiss=False,
-            )
-            btn.bind(on_release=lambda *_: popup.dismiss())
-            box.add_widget(btn)
-            popup.open()
-        except Exception:
-            try:
-                Logger.warning("APP: Failed to open startup inspection debug popup")
-            except Exception:
-                pass
-
-    try:
-        Clock.schedule_once(_open, 1.0)
-    except Exception:
-        try:
-            _open(0)
-        except Exception:
-            pass
+    debug_text = _build_inspection_debug_text(SP)
+    Clock.schedule_once(
+        lambda _dt: _show_compact_inspection_debug_popup(debug_text),
+        1.0,
+    )
 
 
 # Trigger the startup popup on Android to surface compact diagnostics immediately.
