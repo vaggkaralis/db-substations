@@ -485,7 +485,7 @@ def test_show_inspection_entry_popup_expands_sections_and_uses_tall_mobile_input
         if getattr(widget, "multiline", False)
     ]
     assert multiline_inputs
-    assert all(widget.height >= 88 for widget in multiline_inputs)
+    assert all(widget.height >= 72 for widget in multiline_inputs)
 
     messages = android_app.S.get("MESSAGES", {})
     first_title = re.sub(
@@ -521,7 +521,7 @@ def test_show_inspection_entry_popup_expands_sections_and_uses_tall_mobile_input
     assert getattr(expanded_second_header.parent, "height", 0) > getattr(
         expanded_second_header, "height", 0
     )
-    assert any(widget.height >= 88 for widget in multiline_inputs)
+    assert any(widget.height >= 72 for widget in multiline_inputs)
 
 
 def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypatch):
@@ -555,7 +555,7 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
         if getattr(widget, "multiline", False)
     ]
     assert multiline_inputs
-    assert all(widget.height >= 104 for widget in multiline_inputs)
+    assert all(widget.height >= 72 for widget in multiline_inputs)
 
     messages = android_app.S.get("MESSAGES", {})
     first_title = re.sub(
@@ -585,14 +585,14 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
 
     first_row_label = _find_widget_by_text(popup_content, first_section_first_row)
     assert first_row_label is not None
-    assert getattr(first_row_label.parent, "height", 0) >= 140
+    assert getattr(first_row_label.parent, "height", 0) >= 95
 
     second_header.on_press(second_header)
 
     assert _find_widget_by_text(popup_content, f"[-] {second_title}") is not None
     second_row_label = _find_widget_by_text(popup_content, second_section_first_row)
     assert second_row_label is not None
-    assert getattr(second_row_label.parent, "height", 0) >= 140
+    assert getattr(second_row_label.parent, "height", 0) >= 95
 
 
 def test_show_inspection_entry_popup_falls_back_when_inspection_rows_missing(

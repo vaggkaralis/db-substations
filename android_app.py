@@ -171,12 +171,65 @@ def _format_import_error(exc):
     return f"{type(exc).__name__}:{exc}"[:120]
 
 
+def _summarize_module(module_name):
+    try:
+        module = _try_import_module(module_name)
+        module_file = os.path.basename(getattr(module, "__file__", "") or "-")
+        module_package = getattr(module, "__package__", "") or "-"
+        return f"ok:{module.__name__}:{module_file}:{module_package}"[:120]
+    except Exception as exc:
+        return f"err:{_format_import_error(exc)}"
+
+
+def _try_import_module(module_name):
+    """Try several import strategies for modules that may be packaged under
+    a top-level package on Android (or installed as top-level modules).
+
+    Attempts (in order):
+    - top-level importlib.import_module(module_name)
+    - relative import using __package__ if available
+    - prefixed import with the distribution package name `dbsubstations`
+    """
+    try:
+        return importlib.import_module(module_name)
+    except Exception:
+        pass
+    # Try relative import if running as a package
+    pkg = globals().get("__package__")
+    if pkg:
+        try:
+            return importlib.import_module(f".{module_name}", package=pkg)
+        except Exception:
+            pass
+    # Try the known distribution package prefix as a last resort
+    try:
+        return importlib.import_module(f"dbsubstations.{module_name}")
+    except Exception:
+        pass
+    # Give up
+    raise ModuleNotFoundError(module_name)
+
+
+# Eagerly attempt to import commonly-needed modules so they are included
+# in static packaging layouts (some Android packaging paths relocate modules).
+for _mod in ("strings_proxy", "strings", "config_manager"):
+    try:
+        _try_import_module(_mod)
+    except Exception as _exc:
+        try:
+            Logger.debug(f"APP: eager import failed for {_mod}: {_exc}")
+        except Exception:
+            pass
+
+
 def _get_inspection_language():
     global _LANGUAGE_LOAD_ERROR
     try:
-        from config_manager import get_current_language
-
-        return get_current_language()
+        cfg = _try_import_module("config_manager")
+        get_current_language = getattr(cfg, "get_current_language", None)
+        if callable(get_current_language):
+            return get_current_language()
+        raise ImportError("get_current_language not found in config_manager")
     except Exception as exc:
         _LANGUAGE_LOAD_ERROR = _format_import_error(exc)
         return "el"
@@ -191,8 +244,9 @@ def _get_static_inspection_messages(language):
     global _STATIC_STRINGS_LOAD_ERROR
     local_messages = _get_local_inspection_messages(language)
     try:
-        from strings import STRINGS_EL, STRINGS_EN
-
+        strings_mod = _try_import_module("strings")
+        STRINGS_EL = getattr(strings_mod, "STRINGS_EL", None)
+        STRINGS_EN = getattr(strings_mod, "STRINGS_EN", None)
         static_bundle = STRINGS_EN if language == "en" else STRINGS_EL
         merged_messages = dict(local_messages)
         merged_messages.update(dict(static_bundle.get("MESSAGES", {}) or {}))
@@ -205,19 +259,23 @@ def _get_static_inspection_messages(language):
 def _load_strings():
     global _STRINGS_PROXY_LOAD_ERROR, _STATIC_STRINGS_LOAD_ERROR
     try:
-        from strings_proxy import STRINGS as proxied_strings
-
-        return proxied_strings
+        sp = _try_import_module("strings_proxy")
+        proxied_strings = getattr(sp, "STRINGS", None)
+        if proxied_strings is not None:
+            return proxied_strings
+        raise ImportError("STRINGS attribute missing in strings_proxy")
     except Exception as proxy_err:
         _STRINGS_PROXY_LOAD_ERROR = _format_import_error(proxy_err)
         try:
-            from strings import STRINGS_EL
-
+            strings_mod = _try_import_module("strings")
+            STRINGS_EL = getattr(strings_mod, "STRINGS_EL", None)
             Logger.warning(
                 "APP: strings_proxy import failed; falling back to static Greek strings: "
                 f"{proxy_err}"
             )
-            return STRINGS_EL
+            if STRINGS_EL is not None:
+                return STRINGS_EL
+            raise ImportError("STRINGS_EL missing in strings")
         except Exception as fallback_err:
             _STATIC_STRINGS_LOAD_ERROR = _format_import_error(fallback_err)
             Logger.warning(f"APP: Static strings fallback also failed: {fallback_err}")
@@ -448,6 +506,9 @@ def _build_inspection_debug_text(strings_map):
     static_rows = list(static_messages.get("INSPECTION_ROWS", []) or [])
     final_rows = list(final_messages.get("INSPECTION_ROWS", []) or [])
     fallback_used = int(not raw_rows and bool(final_rows))
+    proxy_status = _summarize_module("strings_proxy")
+    strings_status = _summarize_module("strings")
+    config_status = _summarize_module("config_manager")
 
     sections = [
         f"S1:{min(4, len(final_rows))}",
@@ -466,6 +527,9 @@ def _build_inspection_debug_text(strings_map):
                 f"raw={len(raw_rows)} final={len(final_rows)} static={len(static_rows)} "
                 f"fb={fallback_used} lang={language} src={source_name}"
             ),
+            f"proxy={proxy_status}",
+            f"strings={strings_status}",
+            f"cfg={config_status}",
             "  ".join(sections),
             (
                 f"perr={_STRINGS_PROXY_LOAD_ERROR or '-'} "
@@ -7459,12 +7523,12 @@ class SubstationAndroidApp(App):
             Logger.info(
                 "APP: Inspection popup using Android rebuild-on-toggle section layout"
             )
-        mobile_multiline_min_height = 104 if is_android_runtime else 88
-        mobile_multiline_max_height = 280 if is_android_runtime else 260
+        mobile_multiline_min_height = 72 if is_android_runtime else 72
+        mobile_multiline_max_height = 180 if is_android_runtime else 200
         mobile_row_min_height = 0
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        content_layout = GridLayout(cols=1, spacing=12, size_hint_y=None, padding=8)
+        content_layout = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=8)
         content_layout.bind(minimum_height=content_layout.setter("height"))
 
         def wrapped_form_label(text_value, min_height=34, markup=False):
@@ -7480,7 +7544,7 @@ class SubstationAndroidApp(App):
                     instance, "text_size", (max(value - 8, 0), None)
                 ),
                 texture_size=lambda instance, value: setattr(
-                    instance, "height", max(min_height, value[1] + 10)
+                    instance, "height", max(min_height, value[1] + 6)
                 ),
             )
             return label
@@ -7752,11 +7816,11 @@ class SubstationAndroidApp(App):
             row = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
-                spacing=4,
-                padding=[0, 0, 0, 2],
+                spacing=1,
+                padding=[0, 0, 0, 0],
             )
             row.bind(minimum_height=row.setter("height"))
-            label = wrapped_form_label(label_text, min_height=38)
+            label = wrapped_form_label(label_text, min_height=24)
 
             input_widget = TextInput(
                 text=initial_text,
@@ -7765,14 +7829,14 @@ class SubstationAndroidApp(App):
                 height=mobile_multiline_min_height,
                 multiline=True,
                 font_size="15sp",
-                padding=[10, 8, 10, 8],
+                padding=[8, 4, 8, 4],
                 background_normal="",
                 background_color=(1, 1, 1, 1),
                 foreground_color=(0, 0, 0, 1),
             )
 
             def refresh_row_height(*_args):
-                label_height = max(int(getattr(label, "height", 0) or 0), 38)
+                label_height = max(int(getattr(label, "height", 0) or 0), 24)
                 input_height = max(
                     int(getattr(input_widget, "height", 0) or 0),
                     mobile_multiline_min_height,
@@ -7804,7 +7868,7 @@ class SubstationAndroidApp(App):
             if is_android_runtime:
                 input_widget.height = mobile_multiline_min_height
                 row.height = max(
-                    mobile_row_min_height, label.height + input_widget.height + 8
+                    mobile_row_min_height, label.height + input_widget.height + 1
                 )
                 for delay in (0, 0.05, 0.2, 0.5, 0.8):
                     Clock.schedule_once(lambda *_args: refresh_row_height(), delay)
@@ -7823,8 +7887,8 @@ class SubstationAndroidApp(App):
             card = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
-                spacing=2,
-                padding=[0, 0, 0, 1],
+                spacing=0,
+                padding=[0, 0, 0, 0],
             )
             card.bind(minimum_height=card.setter("height"))
 
@@ -7844,7 +7908,7 @@ class SubstationAndroidApp(App):
             header_button = Button(
                 text="",
                 size_hint_y=None,
-                height=56,
+                height=44,
                 halign="left",
                 valign="middle",
                 font_size="15sp",
@@ -7857,9 +7921,9 @@ class SubstationAndroidApp(App):
 
             body = GridLayout(
                 cols=1,
-                spacing=4,
+                spacing=1,
                 size_hint_y=None,
-                padding=[4, 0, 4, 4],
+                padding=[2, 0, 2, 2],
             )
             body.bind(minimum_height=body.setter("height"))
 

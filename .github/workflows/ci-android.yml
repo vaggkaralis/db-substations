@@ -110,9 +110,9 @@ jobs:
         run: |
           pip3 install --upgrade pip
           pip3 install --upgrade buildozer cython==0.29.33
-      - name: Rename android_app.py to main.py
+      - name: Copy android_app.py to main.py (preserve original)
         run: |
-          mv android_app.py main.py || true
+          cp android_app.py main.py || true
           ls -la main.py || true
           echo "Building installable internal APK"
       - name: Setup Android SDK
