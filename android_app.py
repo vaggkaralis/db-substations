@@ -311,6 +311,13 @@ def _maybe_show_inspection_debug(rows, messages):
     except Exception:
         enabled = False
 
+    # Force-enable on Android devices for quick diagnostics when not explicitly set.
+    try:
+        if not enabled and globals().get("_EARLY_KIVY_HOME"):
+            enabled = True
+    except Exception:
+        pass
+
     try:
         if not enabled and isinstance(messages, dict):
             enabled = bool(messages.get("INSPECTION_DEBUG_POPUP"))
