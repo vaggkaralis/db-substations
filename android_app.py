@@ -386,6 +386,87 @@ def _maybe_show_inspection_debug(rows, messages):
             pass
 
 
+def _show_startup_inspection_debug():
+    """Show a compact inspection debug popup at app startup on Android.
+
+    This is temporary diagnostic UI; it will show once shortly after import
+    when running on Android (detected by `_EARLY_KIVY_HOME`). It is safe and
+    will no-op on other platforms.
+    """
+    try:
+        if not _EARLY_KIVY_HOME:
+            return
+    except Exception:
+        return
+
+    try:
+        from strings_proxy import STRINGS as SP
+
+        rows = SP.get("MESSAGES", {}).get("INSPECTION_ROWS", []) or []
+    except Exception:
+        rows = []
+
+    try:
+        from kivy.clock import Clock
+    except Exception:
+        return
+
+    def _open(_dt):
+        try:
+            from kivy.uix.popup import Popup
+            from kivy.uix.label import Label
+            from kivy.uix.button import Button
+            from kivy.uix.boxlayout import BoxLayout
+        except Exception:
+            return
+
+        try:
+            total = len(rows)
+            parts = [f"INIT_ROWS: {total}"]
+            parts.append(f"S1:{min(4, total)}")
+            parts.append(f"S2:{max(0, min(12, total) - 4)}")
+            parts.append(f"S3a:{1 if total > 12 else 0}")
+            parts.append(f"S3b:{max(0, min(15, total) - 13)}")
+            parts.append(f"S4:{max(0, min(18, total) - 15)}")
+            parts.append(f"S5:{1 if total > 18 else 0}")
+            parts.append(f"S6:{max(0, min(21, total) - 19)}")
+            parts.append("S7:1")
+            text = "  ·  ".join(parts)
+            box = BoxLayout(orientation="vertical", spacing=6, padding=6)
+            box.add_widget(Label(text=text))
+            btn = Button(text="OK", size_hint=(1, None), height=40)
+            popup = Popup(
+                title="InspectDBG",
+                content=box,
+                size_hint=(0.95, None),
+                height=140,
+                auto_dismiss=False,
+            )
+            btn.bind(on_release=lambda *_: popup.dismiss())
+            box.add_widget(btn)
+            popup.open()
+        except Exception:
+            try:
+                Logger.warning("APP: Failed to open startup inspection debug popup")
+            except Exception:
+                pass
+
+    try:
+        Clock.schedule_once(_open, 1.0)
+    except Exception:
+        try:
+            _open(0)
+        except Exception:
+            pass
+
+
+# Trigger the startup popup on Android to surface compact diagnostics immediately.
+try:
+    _show_startup_inspection_debug()
+except Exception:
+    pass
+
+
 def _format_android_inspection_value(value):
     if value is None:
         return ""
