@@ -8,8 +8,8 @@ source.include_exts = py,png,jpg,kv,atlas,ttf,json,xlsx,pdf,txt,xml
 source.exclude_dirs = .git,.github,.venv,__pycache__,tests,scripts,tools,dist,.pytest_cache,.ruff_cache,.VSCodeCounter
 source.exclude_patterns = tests/*,tests/_shims/*,scripts/*,tools/*,dist/*,__pycache__/*,*.pyc,*.pyo,test_*.py,build_*.py
 
-# Ensure critical standalone modules are always included in APK
-source.include_patterns = strings.py, strings_proxy.py, config_manager.py
+# Ensure critical standalone modules and packaged fallbacks are always included in APK
+source.include_patterns = strings.py,strings_proxy.py,config_manager.py,dbsubstations/*.py
 
 version = 0.4.0
 requirements = python3,kivy==2.3.0,plyer,pillow,certifi,urllib3,charset-normalizer,idna,requests

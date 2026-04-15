@@ -10,22 +10,26 @@ EXCLUDED_MODULES = {
 
 def build_setup_kwargs():
     # avoid importing setuptools at module import time — import inside the function
-    from setuptools import find_namespace_packages
+    from setuptools import find_namespace_packages, find_packages
 
     py_modules = sorted(
         path.stem
         for path in ROOT.glob("*.py")
         if path.stem not in EXCLUDED_MODULES and not path.stem.startswith("test_")
     )
-    packages = find_namespace_packages(
+    namespace_packages = find_namespace_packages(
         include=["ui", "ui.*"],
+        exclude=["tests", "tests.*", "scripts", "scripts.*", "tools", "tools.*"],
+    )
+    regular_packages = find_packages(
+        include=["dbsubstations", "dbsubstations.*"],
         exclude=["tests", "tests.*", "scripts", "scripts.*", "tools", "tools.*"],
     )
     return {
         "name": "dbsubstations",
         "version": "0.4.0",
         "py_modules": py_modules,
-        "packages": packages,
+        "packages": sorted(set(namespace_packages + regular_packages)),
         "include_package_data": True,
     }
 
