@@ -132,6 +132,22 @@ try:
 except Exception:
     _pkg_strings_proxy = None
 
+
+def _register_packaged_module_aliases():
+    """Expose packaged fallback modules under legacy top-level names."""
+
+    packaged_modules = {
+        "config_manager": _pkg_config_manager,
+        "strings": _pkg_strings,
+        "strings_proxy": _pkg_strings_proxy,
+    }
+    for legacy_name, module in packaged_modules.items():
+        if module is not None and legacy_name not in sys.modules:
+            sys.modules[legacy_name] = module
+
+
+_register_packaged_module_aliases()
+
 try:
     from settings import ANDROID_DEFAULT_DB_PATH
 except Exception:
@@ -278,24 +294,25 @@ def _try_import_module(module_name):
     - relative import using __package__ if available
     - prefixed import with the distribution package name `dbsubstations`
     """
+    errors = []
+
     try:
         return importlib.import_module(module_name)
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"top:{_format_import_error(exc)}")
     # Try relative import if running as a package
     pkg = globals().get("__package__")
     if pkg:
         try:
             return importlib.import_module(f".{module_name}", package=pkg)
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"rel:{_format_import_error(exc)}")
     # Try the known distribution package prefix as a last resort
     try:
         return importlib.import_module(f"dbsubstations.{module_name}")
-    except Exception:
-        pass
-    # Give up
-    raise ModuleNotFoundError(module_name)
+    except Exception as exc:
+        errors.append(f"pkg:{_format_import_error(exc)}")
+    raise ImportError(f"{module_name} import failed ({'; '.join(errors)[:180]})")
 
 
 # Eagerly attempt to import commonly-needed modules so they are included
@@ -597,6 +614,9 @@ def _build_inspection_debug_text(strings_map):
     proxy_status = _summarize_module("strings_proxy")
     strings_status = _summarize_module("strings")
     config_status = _summarize_module("config_manager")
+    proxy_pkg_status = _summarize_module("dbsubstations.strings_proxy")
+    strings_pkg_status = _summarize_module("dbsubstations.strings")
+    config_pkg_status = _summarize_module("dbsubstations.config_manager")
     proxy_files = _summarize_module_files("strings_proxy")
     strings_files = _summarize_module_files("strings")
     config_files = _summarize_module_files("config_manager")
@@ -623,10 +643,13 @@ def _build_inspection_debug_text(strings_map):
             ),
             f"boot={boot_paths or '-'}",
             f"proxy={proxy_status}",
+            f"pproxy={proxy_pkg_status}",
             f"proxyf={proxy_files}",
             f"strings={strings_status}",
+            f"pstrings={strings_pkg_status}",
             f"stringsf={strings_files}",
             f"cfg={config_status}",
+            f"pcfg={config_pkg_status}",
             f"cfgf={config_files}",
             "  ".join(sections),
             (
