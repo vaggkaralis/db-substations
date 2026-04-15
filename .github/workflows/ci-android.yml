@@ -110,7 +110,7 @@ jobs:
         run: |
           pip3 install --upgrade pip
           pip3 install --upgrade buildozer cython==0.29.33
-        - name: Prepare Android source tree
+      - name: Prepare Android source tree
         run: |
           python3 - <<'PY'
           from pathlib import Path
