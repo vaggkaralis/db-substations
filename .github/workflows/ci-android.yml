@@ -110,10 +110,63 @@ jobs:
         run: |
           pip3 install --upgrade pip
           pip3 install --upgrade buildozer cython==0.29.33
-      - name: Copy android_app.py to main.py (preserve original)
+        - name: Prepare Android source tree
         run: |
-          cp android_app.py main.py || true
-          ls -la main.py || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          root = Path('.').resolve()
+          dest = root / 'android_ci_src'
+          excluded_roots = {
+            '.git', '.github', '.venv', '__pycache__', 'tests', 'scripts',
+            'tools', 'dist', '.pytest_cache', '.ruff_cache', '.VSCodeCounter',
+            'build', 'backups', 'backups_auto', 'dbsubstations.egg-info',
+          }
+          excluded_suffixes = {'.pyc', '.pyo'}
+
+          if dest.exists():
+            shutil.rmtree(dest)
+          dest.mkdir()
+
+          for path in root.rglob('*'):
+            rel = path.relative_to(root)
+            if not rel.parts:
+              continue
+            if rel.parts[0] == dest.name:
+              continue
+            if any(part in excluded_roots for part in rel.parts):
+              continue
+            if path.is_dir():
+              continue
+            if path.suffix in excluded_suffixes:
+              continue
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+
+          shutil.copy2(root / 'android_app.py', dest / 'main.py')
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('android_ci_src')
+          critical = [
+            root / 'main.py',
+            root / 'strings.py',
+            root / 'strings_proxy.py',
+            root / 'config_manager.py',
+            root / 'dbsubstations' / '__init__.py',
+            root / 'dbsubstations' / 'strings.py',
+            root / 'dbsubstations' / 'strings_proxy.py',
+            root / 'dbsubstations' / 'config_manager.py',
+          ]
+          for path in critical:
+            print(f'{path}: {path.exists()}')
+          PY
+          sed -i 's|^source.dir = .*|source.dir = android_ci_src|' buildozer.spec
+          grep '^source.dir' buildozer.spec
+          find android_ci_src -maxdepth 2 \( -name 'main.py' -o -name 'strings.py' -o -name 'strings_proxy.py' -o -name 'config_manager.py' -o -path 'android_ci_src/dbsubstations' \) | sort
           echo "Building installable internal APK"
       - name: Setup Android SDK
         run: |
