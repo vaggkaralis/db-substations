@@ -554,8 +554,15 @@ def test_show_inspection_entry_popup_uses_taller_android_field_heights(monkeypat
         for widget in _collect_widgets_by_class_name(popup_content, "TextInput")
         if getattr(widget, "multiline", False)
     ]
+    single_line_inputs = [
+        widget
+        for widget in _collect_widgets_by_class_name(popup_content, "TextInput")
+        if not getattr(widget, "multiline", False)
+    ]
     assert multiline_inputs
+    assert single_line_inputs
     assert all(widget.height >= 72 for widget in multiline_inputs)
+    assert all(widget.height >= 64 for widget in single_line_inputs)
 
     messages = android_app.S.get("MESSAGES", {})
     first_title = re.sub(

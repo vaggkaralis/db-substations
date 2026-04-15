@@ -7644,6 +7644,10 @@ class SubstationAndroidApp(App):
             Logger.info(
                 "APP: Inspection popup using Android rebuild-on-toggle section layout"
             )
+        mobile_single_line_height = 64 if is_android_runtime else 56
+        mobile_single_line_padding = (
+            [12, 12, 12, 10] if is_android_runtime else [12, 16, 12, 12]
+        )
         mobile_multiline_min_height = 72 if is_android_runtime else 72
         mobile_multiline_max_height = 180 if is_android_runtime else 200
         mobile_row_min_height = 95 if is_android_runtime else 0
@@ -7675,17 +7679,17 @@ class SubstationAndroidApp(App):
             text="",
             hint_text="",
             readonly=False,
-            height=56,
+            height=None,
         ):
             return TextInput(
                 text=text,
                 hint_text=hint_text,
                 readonly=readonly,
                 size_hint_y=None,
-                height=height,
+                height=height or mobile_single_line_height,
                 multiline=False,
                 font_size="16sp",
-                padding=[12, 16, 12, 12],
+                padding=mobile_single_line_padding,
             )
 
         def bind_autogrow_textinput(input_widget, min_height=72, max_height=240):
@@ -7821,7 +7825,7 @@ class SubstationAndroidApp(App):
             text=inspector_default,
             values=people or [""],
             size_hint_y=None,
-            height=56,
+            height=mobile_single_line_height,
             font_size="16sp",
         )
         month_input = build_single_line_input(
