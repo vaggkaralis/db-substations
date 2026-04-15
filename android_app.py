@@ -115,6 +115,23 @@ try:
 except Exception:
     _packaging_strings_proxy = None
 
+# Also import packaged copies under the `dbsubstations` package to ensure
+# python-for-android picks them up when bundling the APK.
+try:
+    import dbsubstations.config_manager as _pkg_config_manager
+except Exception:
+    _pkg_config_manager = None
+
+try:
+    import dbsubstations.strings as _pkg_strings
+except Exception:
+    _pkg_strings = None
+
+try:
+    import dbsubstations.strings_proxy as _pkg_strings_proxy
+except Exception:
+    _pkg_strings_proxy = None
+
 try:
     from settings import ANDROID_DEFAULT_DB_PATH
 except Exception:
@@ -7606,10 +7623,10 @@ class SubstationAndroidApp(App):
             )
         mobile_multiline_min_height = 72 if is_android_runtime else 72
         mobile_multiline_max_height = 180 if is_android_runtime else 200
-        mobile_row_min_height = 0
+        mobile_row_min_height = 95 if is_android_runtime else 0
 
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
-        content_layout = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=8)
+        content_layout = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=6)
         content_layout.bind(minimum_height=content_layout.setter("height"))
 
         def wrapped_form_label(text_value, min_height=34, markup=False):
@@ -7625,7 +7642,7 @@ class SubstationAndroidApp(App):
                     instance, "text_size", (max(value - 8, 0), None)
                 ),
                 texture_size=lambda instance, value: setattr(
-                    instance, "height", max(min_height, value[1] + 6)
+                    instance, "height", max(min_height, value[1] + 4)
                 ),
             )
             return label
@@ -7897,11 +7914,11 @@ class SubstationAndroidApp(App):
             row = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
-                spacing=1,
+                spacing=0,
                 padding=[0, 0, 0, 0],
             )
             row.bind(minimum_height=row.setter("height"))
-            label = wrapped_form_label(label_text, min_height=24)
+            label = wrapped_form_label(label_text, min_height=22)
 
             input_widget = TextInput(
                 text=initial_text,
@@ -7910,14 +7927,14 @@ class SubstationAndroidApp(App):
                 height=mobile_multiline_min_height,
                 multiline=True,
                 font_size="15sp",
-                padding=[8, 4, 8, 4],
+                padding=[6, 3, 6, 3],
                 background_normal="",
                 background_color=(1, 1, 1, 1),
                 foreground_color=(0, 0, 0, 1),
             )
 
             def refresh_row_height(*_args):
-                label_height = max(int(getattr(label, "height", 0) or 0), 24)
+                label_height = max(int(getattr(label, "height", 0) or 0), 20)
                 input_height = max(
                     int(getattr(input_widget, "height", 0) or 0),
                     mobile_multiline_min_height,
@@ -7949,7 +7966,7 @@ class SubstationAndroidApp(App):
             if is_android_runtime:
                 input_widget.height = mobile_multiline_min_height
                 row.height = max(
-                    mobile_row_min_height, label.height + input_widget.height + 1
+                    mobile_row_min_height, label.height + input_widget.height
                 )
                 for delay in (0, 0.05, 0.2, 0.5, 0.8):
                     Clock.schedule_once(lambda *_args: refresh_row_height(), delay)
@@ -7989,7 +8006,7 @@ class SubstationAndroidApp(App):
             header_button = Button(
                 text="",
                 size_hint_y=None,
-                height=44,
+                height=42,
                 halign="left",
                 valign="middle",
                 font_size="15sp",
@@ -8002,9 +8019,9 @@ class SubstationAndroidApp(App):
 
             body = GridLayout(
                 cols=1,
-                spacing=1,
+                spacing=0,
                 size_hint_y=None,
-                padding=[2, 0, 2, 2],
+                padding=[0, 0, 0, 0],
             )
             body.bind(minimum_height=body.setter("height"))
 
