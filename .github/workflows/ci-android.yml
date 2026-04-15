@@ -114,6 +114,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import json
           import shutil
 
           root = Path('.').resolve()
@@ -145,7 +146,66 @@ jobs:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
 
-          shutil.copy2(root / 'android_app.py', dest / 'main.py')
+            embedded_top_level = {
+              'config_manager': (root / 'config_manager.py').read_text(encoding='utf-8'),
+              'strings': (root / 'strings.py').read_text(encoding='utf-8'),
+              'strings_proxy': (root / 'strings_proxy.py').read_text(encoding='utf-8'),
+            }
+            embedded_packaged = {
+              'config_manager': (root / 'dbsubstations' / 'config_manager.py').read_text(encoding='utf-8'),
+              'strings': (root / 'dbsubstations' / 'strings.py').read_text(encoding='utf-8'),
+              'strings_proxy': (root / 'dbsubstations' / 'strings_proxy.py').read_text(encoding='utf-8'),
+            }
+
+            bootstrap = f'''# Auto-generated for Android CI packaging.
+      import sys as _android_bootstrap_sys
+      import types as _android_bootstrap_types
+
+      _EMBEDDED_TOP_LEVEL_MODULES = {json.dumps(embedded_top_level, ensure_ascii=False)}
+      _EMBEDDED_PACKAGED_MODULES = {json.dumps(embedded_packaged, ensure_ascii=False)}
+
+
+      def _android_bootstrap_load_module(module_name, module_source, package_name=''):
+        if module_name in _android_bootstrap_sys.modules:
+          return _android_bootstrap_sys.modules[module_name]
+        module = _android_bootstrap_types.ModuleType(module_name)
+        module.__file__ = f'<embedded {{module_name}}>'
+        module.__package__ = package_name
+        _android_bootstrap_sys.modules[module_name] = module
+        exec(compile(module_source, module.__file__, 'exec'), module.__dict__)
+        return module
+
+
+      def _android_bootstrap_ensure_package(package_name):
+        if package_name in _android_bootstrap_sys.modules:
+          return _android_bootstrap_sys.modules[package_name]
+        package = _android_bootstrap_types.ModuleType(package_name)
+        package.__file__ = f'<embedded package {{package_name}}>'
+        package.__package__ = package_name
+        package.__path__ = []
+        _android_bootstrap_sys.modules[package_name] = package
+        return package
+
+
+      for _module_name in ('config_manager', 'strings', 'strings_proxy'):
+        _android_bootstrap_load_module(
+          _module_name,
+          _EMBEDDED_TOP_LEVEL_MODULES[_module_name],
+          '',
+        )
+
+      _android_bootstrap_pkg = _android_bootstrap_ensure_package('dbsubstations')
+      for _module_name in ('config_manager', 'strings', 'strings_proxy'):
+        _module = _android_bootstrap_load_module(
+          f'dbsubstations.{{_module_name}}',
+          _EMBEDDED_PACKAGED_MODULES[_module_name],
+          'dbsubstations',
+        )
+        setattr(_android_bootstrap_pkg, _module_name, _module)
+
+      '''
+            main_content = (root / 'android_app.py').read_text(encoding='utf-8')
+            (dest / 'main.py').write_text(bootstrap + main_content, encoding='utf-8')
           PY
           python3 - <<'PY'
           from pathlib import Path
