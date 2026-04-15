@@ -97,6 +97,24 @@ else:
 Logger.info("APP: ========== Starting DB Substations App ==========")
 Logger.info(f"APP: Python version: {sys.version}")
 
+# Keep explicit imports for Android packaging. python-for-android's module
+# discovery is more reliable with literal imports than with importlib-only
+# dynamic loading, so these imports help ensure the modules are bundled.
+try:
+    import config_manager as _packaging_config_manager
+except Exception:
+    _packaging_config_manager = None
+
+try:
+    import strings as _packaging_strings
+except Exception:
+    _packaging_strings = None
+
+try:
+    import strings_proxy as _packaging_strings_proxy
+except Exception:
+    _packaging_strings_proxy = None
+
 try:
     from settings import ANDROID_DEFAULT_DB_PATH
 except Exception:
