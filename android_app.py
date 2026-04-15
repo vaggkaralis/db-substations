@@ -258,33 +258,6 @@ def _format_import_error(exc):
     return f"{type(exc).__name__}:{exc}"[:120]
 
 
-def _summarize_module(module_name):
-    try:
-        module = _try_import_module(module_name)
-        module_file = os.path.basename(getattr(module, "__file__", "") or "-")
-        module_package = getattr(module, "__package__", "") or "-"
-        return f"ok:{module.__name__}:{module_file}:{module_package}"[:120]
-    except Exception as exc:
-        return f"err:{_format_import_error(exc)}"
-
-
-def _summarize_module_files(module_name):
-    file_name = f"{module_name}.py"
-    hits = []
-    for path_entry in list(dict.fromkeys(sys.path)):
-        try:
-            candidate = os.path.join(path_entry, file_name)
-        except Exception:
-            continue
-        if os.path.isfile(candidate):
-            hits.append(os.path.basename(os.path.dirname(candidate)) or ".")
-        if len(hits) >= 4:
-            break
-    if hits:
-        return f"files={','.join(hits)}"[:120]
-    return "files=-"
-
-
 def _try_import_module(module_name):
     """Try several import strategies for modules that may be packaged under
     a top-level package on Android (or installed as top-level modules).
@@ -590,75 +563,6 @@ def _get_inspection_messages(strings_map):
         except Exception:
             pass
     return messages
-
-
-def _build_inspection_debug_text(strings_map):
-    language = _get_inspection_language()
-
-    raw_messages = {}
-    if isinstance(strings_map, dict):
-        raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
-    elif hasattr(strings_map, "get"):
-        try:
-            raw_messages = dict(strings_map.get("MESSAGES", {}) or {})
-        except Exception:
-            raw_messages = {}
-
-    static_messages = _get_static_inspection_messages(language)
-    final_messages = _get_inspection_messages(strings_map)
-
-    raw_rows = list(raw_messages.get("INSPECTION_ROWS", []) or [])
-    static_rows = list(static_messages.get("INSPECTION_ROWS", []) or [])
-    final_rows = list(final_messages.get("INSPECTION_ROWS", []) or [])
-    fallback_used = int(not raw_rows and bool(final_rows))
-    proxy_status = _summarize_module("strings_proxy")
-    strings_status = _summarize_module("strings")
-    config_status = _summarize_module("config_manager")
-    proxy_pkg_status = _summarize_module("dbsubstations.strings_proxy")
-    strings_pkg_status = _summarize_module("dbsubstations.strings")
-    config_pkg_status = _summarize_module("dbsubstations.config_manager")
-    proxy_files = _summarize_module_files("strings_proxy")
-    strings_files = _summarize_module_files("strings")
-    config_files = _summarize_module_files("config_manager")
-    boot_paths = ",".join(
-        os.path.basename(path) or path for path in _BOOTSTRAPPED_APP_PATHS
-    )
-
-    sections = [
-        f"S1:{min(4, len(final_rows))}",
-        f"S2:{max(0, min(12, len(final_rows)) - 4)}",
-        f"S3a:{1 if len(final_rows) > 12 else 0}",
-        f"S3b:{max(0, min(15, len(final_rows)) - 13)}",
-        f"S4:{max(0, min(18, len(final_rows)) - 15)}",
-        f"S5:{1 if len(final_rows) > 18 else 0}",
-        f"S6:{max(0, min(21, len(final_rows)) - 19)}",
-        "S7:1",
-    ]
-    source_name = type(strings_map).__name__
-    return "\n".join(
-        [
-            (
-                f"raw={len(raw_rows)} final={len(final_rows)} static={len(static_rows)} "
-                f"fb={fallback_used} lang={language} src={source_name}"
-            ),
-            f"boot={boot_paths or '-'}",
-            f"proxy={proxy_status}",
-            f"pproxy={proxy_pkg_status}",
-            f"proxyf={proxy_files}",
-            f"strings={strings_status}",
-            f"pstrings={strings_pkg_status}",
-            f"stringsf={strings_files}",
-            f"cfg={config_status}",
-            f"pcfg={config_pkg_status}",
-            f"cfgf={config_files}",
-            "  ".join(sections),
-            (
-                f"perr={_STRINGS_PROXY_LOAD_ERROR or '-'} "
-                f"serr={_STATIC_STRINGS_LOAD_ERROR or '-'} "
-                f"lerr={_LANGUAGE_LOAD_ERROR or '-'}"
-            )[:220],
-        ]
-    )
 
 
 def _format_android_inspection_value(value):
@@ -2100,13 +2004,6 @@ class SubstationAndroidApp(App):
         except Exception as start_err:
             Logger.warning(
                 f"APP: Failed to display pending uncaught errors: {start_err}"
-            )
-        try:
-            if platform == "android":
-                self.show_error(_build_inspection_debug_text(S), is_info=True)
-        except Exception as debug_err:
-            Logger.warning(
-                f"APP: Failed to show startup inspection debug popup: {debug_err}"
             )
         try:
             if not self._startup_change_log_review_shown:
@@ -7625,14 +7522,6 @@ class SubstationAndroidApp(App):
         selected_substation_id = substation_id or (substation or {}).get("id")
         selected_substation_name = (substation or {}).get("name") or "-"
         messages = _get_inspection_messages(S)
-
-        if platform == "android":
-            try:
-                self.show_error(_build_inspection_debug_text(S), is_info=True)
-            except Exception as debug_err:
-                Logger.warning(
-                    f"APP: Failed to show inspection-entry debug popup: {debug_err}"
-                )
 
         popup = Popup(
             title=S.get("TITLES", {}).get("INSPECTION_ENTRY", "Νέα Επιθεώρηση"),
