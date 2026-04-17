@@ -113,9 +113,6 @@ from maintenance_checklists import (
 from maintenance_workflow import (
     dedupe_attachment_paths,
     dump_workflow_to_data_json,
-    get_stage_key_from_label,
-    get_stage_label,
-    get_stage_values,
     load_workflow_from_data_json,
     normalize_workflow_state,
     summarize_workflow,
@@ -12282,7 +12279,6 @@ class SubstationApp(App):
         maintenance_extra_payload = {}
         workflow_state = normalize_workflow_state(prefill_data.get("workflow_state"))
         existing_primary_media_folder = None
-        existing_reports_folder = None
 
         if maintenance_id:
             c.execute(
@@ -12347,7 +12343,6 @@ class SubstationApp(App):
             storage_row = c.fetchone()
             if storage_row:
                 existing_primary_media_folder = storage_row[0]
-                existing_reports_folder = storage_row[1]
 
             c.execute(
                 """
