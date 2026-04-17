@@ -16693,7 +16693,9 @@ class SubstationApp(App):
         # Buttons at the bottom (not scrollable)
         buttons_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
 
-        def save_maintenance(bypass_attachment_prompt=False):
+        def save_maintenance(
+            bypass_attachment_prompt=False, bypass_sf6_methodology_check=False
+        ):
             nonlocal maintenance_id, existing_primary_media_folder
             # Validate at least one element selected
             selected_elements = [
@@ -16863,6 +16865,56 @@ class SubstationApp(App):
                 return
 
             # Insert/update maintenance record with type and user
+            # Check for SF6 leakage values without methodology and confirm
+            if not bypass_sf6_methodology_check:
+                missing = []
+                for elem_id, widgets in selected_elements:
+                    measurements = widgets.get("measurements") or {}
+                    leak_w = measurements.get("sf6_leakage")
+                    if leak_w and getattr(leak_w, "text", "").strip():
+                        meth_w = measurements.get("sf6_leak_methodology")
+                        meth_txt = getattr(meth_w, "text", "").strip() if meth_w else ""
+                        if not meth_txt:
+                            missing.append(elem_id)
+                if missing:
+                    # Ask user whether to continue saving without methodology
+                    msg = (
+                        "Έχετε εισάγει διαρροή SF6 για κάποιο στοιχείο χωρίς μέθοδο. "
+                        "Θέλετε να συνεχίσετε και να αποθηκεύσετε χωρίς μέθοδο;"
+                    )
+                    conf = Popup(
+                        title=S["TITLES"].get("CONFIRM", "Επιβεβαίωση"),
+                        size_hint=(0.7, 0.35),
+                    )
+                    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+                    layout.add_widget(Label(text=msg))
+                    btns = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+                    def _continue(_inst=None):
+                        conf.dismiss()
+                        save_maintenance(
+                            bypass_attachment_prompt=bypass_attachment_prompt,
+                            bypass_sf6_methodology_check=True,
+                        )
+
+                    def _cancel(_inst=None):
+                        conf.dismiss()
+
+                    btns.add_widget(
+                        Button(
+                            text=S["BUTTONS"].get("CANCEL", "Ακύρωση"), on_press=_cancel
+                        )
+                    )
+                    btns.add_widget(
+                        Button(
+                            text=S["BUTTONS"].get("CONTINUE", "Συνέχεια"),
+                            on_press=_continue,
+                        )
+                    )
+                    layout.add_widget(btns)
+                    conf.content = layout
+                    conf.open()
+                    return
             substation_id = substation_map[substation_input.text]
             maintenance_date = datetime_input.text.strip()
             maintenance_type = maintenance_type_spinner.text
@@ -17045,7 +17097,11 @@ class SubstationApp(App):
                             measurements["sf6_leak_methodology"].text.strip() or None
                         )
 
-                    if sf6_leakage_val is not None and not sf6_leak_methodology_val:
+                    if (
+                        sf6_leakage_val is not None
+                        and not sf6_leak_methodology_val
+                        and not bypass_sf6_methodology_check
+                    ):
                         show_message_popup(
                             S["TITLES"].get("ERROR", "Σφάλμα"),
                             S["MESSAGES"].get(
