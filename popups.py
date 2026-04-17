@@ -97,6 +97,33 @@ if KIVY_AVAILABLE:
 
         return fp or None
 
+    def ask_open_files(title: str = "Select files", filetypes=None):
+        """Show a native open-file dialog and return selected paths."""
+        try:
+            win_fps = _win32_get_open_filenames(title=title, filetypes=filetypes)
+            return list(win_fps or [])
+        except Exception:
+            pass
+
+        try:
+            import tkinter as _tk
+            from tkinter import filedialog as _fd
+        except Exception:
+            return []
+
+        _root = _tk.Tk()
+        _root.withdraw()
+        try:
+            ft = list(filetypes) if filetypes else [("All files", "*.*")]
+            fps = _fd.askopenfilenames(title=title, filetypes=ft)
+        finally:
+            try:
+                _root.destroy()
+            except Exception:
+                pass
+
+        return list(fps or [])
+
     def _win32_get_open_filename(title: str = "Select file", filetypes=None):
         try:
             import ctypes
@@ -163,6 +190,81 @@ if KIVY_AVAILABLE:
         if res:
             return buffer.value
         return None
+
+    def _win32_get_open_filenames(title: str = "Select files", filetypes=None):
+        try:
+            import ctypes
+            from ctypes import wintypes
+        except Exception:
+            return []
+
+        import sys
+
+        if sys.platform != "win32":
+            return []
+
+        if filetypes:
+            parts = []
+            for desc, pattern in filetypes:
+                parts.append(f"{desc}\0{pattern}")
+            filter_str = "\0".join(parts) + "\0\0"
+        else:
+            filter_str = "All Files\0*.*\0\0"
+
+        class OPENFILENAMEW(ctypes.Structure):
+            _fields_ = [
+                ("lStructSize", wintypes.DWORD),
+                ("hwndOwner", wintypes.HWND),
+                ("hInstance", wintypes.HINSTANCE),
+                ("lpstrFilter", wintypes.LPCWSTR),
+                ("lpstrCustomFilter", wintypes.LPWSTR),
+                ("nMaxCustFilter", wintypes.DWORD),
+                ("nFilterIndex", wintypes.DWORD),
+                ("lpstrFile", wintypes.LPWSTR),
+                ("nMaxFile", wintypes.DWORD),
+                ("lpstrFileTitle", wintypes.LPWSTR),
+                ("nMaxFileTitle", wintypes.DWORD),
+                ("lpstrInitialDir", wintypes.LPCWSTR),
+                ("lpstrTitle", wintypes.LPCWSTR),
+                ("Flags", wintypes.DWORD),
+                ("nFileOffset", wintypes.WORD),
+                ("nFileExtension", wintypes.WORD),
+                ("lpstrDefExt", wintypes.LPCWSTR),
+                ("lCustData", wintypes.LPARAM),
+                ("lpfnHook", wintypes.LPVOID),
+                ("lpTemplateName", wintypes.LPCWSTR),
+                ("pvReserved", wintypes.LPVOID),
+                ("dwReserved", wintypes.DWORD),
+                ("FlagsEx", wintypes.DWORD),
+            ]
+
+        buffer_size = 65536
+        buffer = ctypes.create_unicode_buffer(buffer_size)
+
+        ofn = OPENFILENAMEW()
+        ofn.lStructSize = ctypes.sizeof(OPENFILENAMEW)
+        ofn.lpstrFilter = filter_str
+        ofn.lpstrFile = ctypes.cast(buffer, wintypes.LPWSTR)
+        ofn.nMaxFile = buffer_size
+        ofn.lpstrTitle = title
+        ofn.Flags = 0x00001000 | 0x00000800 | 0x00080000 | 0x00000200
+
+        try:
+            res = ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn))
+        except Exception:
+            return []
+
+        if not res:
+            return []
+
+        parts = [part for part in buffer[:].split("\0") if part]
+        if not parts:
+            return []
+        if len(parts) == 1:
+            return [parts[0]]
+
+        directory = parts[0]
+        return [directory + "\\" + name for name in parts[1:]]
 
     def ask_save_file(
         title: str = "Save file", default_name: str = None, filetypes=None
@@ -243,6 +345,25 @@ else:
             except Exception:
                 pass
         return fp or None
+
+    def ask_open_files(title: str = "Select files", filetypes=None):
+        try:
+            import tkinter as _tk
+            from tkinter import filedialog as _fd
+        except Exception:
+            return []
+
+        _root = _tk.Tk()
+        _root.withdraw()
+        try:
+            ft = list(filetypes) if filetypes else [("All files", "*.*")]
+            fps = _fd.askopenfilenames(title=title, filetypes=ft)
+        finally:
+            try:
+                _root.destroy()
+            except Exception:
+                pass
+        return list(fps or [])
 
     def ask_save_file(
         title: str = "Save file", default_name: str = None, filetypes=None

@@ -1,0 +1,67 @@
+from maintenance_workflow import (
+    dedupe_attachment_paths,
+    get_stage_key_from_label,
+    normalize_workflow_state,
+    summarize_workflow,
+)
+
+
+def test_normalize_workflow_state_defaults_to_planning():
+    state = normalize_workflow_state(None)
+
+    assert state == {"current_stage": "isolation", "daily_progress": ""}
+
+
+def test_summarize_workflow_prefers_checklist_then_elements():
+    summary = summarize_workflow(
+        {"current_stage": "isolation", "daily_progress": ""},
+        linked_isolation_request_id=12,
+        isolation_display_text="2026-04-15 08:00 - 2026-04-15 15:00 | Accepted",
+        checklist_has_content=True,
+        checklist_summary_text="2 κατηγορίες | 5/7 βήματα ολοκληρωμένα",
+        selected_elements_count=0,
+        completed=False,
+        pending_tasks_text="",
+        attachment_count=0,
+        onedrive_link="",
+    )
+
+    assert summary["stage_key"] == "preparation"
+    assert "#12" in summary["overview_lines"][0]
+    assert "08:00 - 2026-04-15 15:00" in summary["overview_lines"][0]
+    assert "5/7" in summary["overview_lines"][1]
+    assert "Επιλέξτε τα στοιχεία" in summary["next_action"]
+
+
+def test_summarize_workflow_marks_completed_stage():
+    summary = summarize_workflow(
+        {
+            "current_stage": get_stage_key_from_label("Στοιχεία"),
+            "daily_progress": "Ολοκληρώθηκαν οι μετρήσεις.",
+        },
+        linked_isolation_request_id=5,
+        checklist_has_content=True,
+        checklist_summary_text="1 κατηγορία | 3/3 βήματα ολοκληρωμένα",
+        selected_elements_count=4,
+        completed=True,
+        pending_tasks_text="",
+        attachment_count=3,
+        onedrive_link="https://example.invalid/folder",
+    )
+
+    assert summary["stage_key"] == "completed"
+    assert summary["stage_label"] == "Ολοκληρώθηκε"
+    assert "3 αρχεία" in summary["overview_lines"][3]
+
+
+def test_dedupe_attachment_paths_preserves_order():
+    paths = [
+        r"C:\temp\alpha.pdf",
+        r"C:\temp\beta.pdf",
+        r"C:\temp\alpha.pdf",
+    ]
+
+    assert dedupe_attachment_paths(paths) == [
+        r"C:\temp\alpha.pdf",
+        r"C:\temp\beta.pdf",
+    ]

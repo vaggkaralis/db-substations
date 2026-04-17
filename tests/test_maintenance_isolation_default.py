@@ -57,8 +57,8 @@ def test_new_maintenance_defaults_to_most_recent_isolation(tmp_path, monkeypatch
         ),
         (1,),
     )
-    isolation_options_by_label = {"Χωρίς σύνδεση": None}
-    values = ["Χωρίς σύνδεση"]
+    isolation_options_by_label = {"Χωρίς Απομόνωση": None}
+    values = ["Χωρίς Απομόνωση"]
     for req_id, start_dt, end_dt, status in cur.fetchall():
         label = f"#{req_id} | {start_dt} - {end_dt} | {status}"
         isolation_options_by_label[label] = req_id

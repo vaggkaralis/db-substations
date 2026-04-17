@@ -110,6 +110,16 @@ from maintenance_checklists import (
     infer_category_keys_from_elements,
     normalize_state,
 )
+from maintenance_workflow import (
+    dedupe_attachment_paths,
+    dump_workflow_to_data_json,
+    get_stage_key_from_label,
+    get_stage_label,
+    get_stage_values,
+    load_workflow_from_data_json,
+    normalize_workflow_state,
+    summarize_workflow,
+)
 from onedrive_hybrid_storage import (
     ensure_maintenance_folders,
     delete_maintenance_folders,
@@ -123,7 +133,7 @@ from onedrive_hybrid_storage import (
     regenerate_maintenance_reports,
     relink_existing_maintenance_assets,
 )
-from popups import ask_open_file
+from popups import ask_open_file, ask_open_files
 from reports import create_elements_template, create_substations_template
 from dga_reports import (
     generate_dga_excel_report,
@@ -1228,7 +1238,6 @@ class SubstationApp(App):
             msg_label.bind(size=msg_label.setter("text_size"))
             msg_label.bind(texture_size=msg_label.setter("size"))
             scroll.add_widget(msg_label)
-            layout.add_widget(scroll)
 
             # Buttons
             btn_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
@@ -1236,7 +1245,6 @@ class SubstationApp(App):
             continue_clicked = [False]
 
             def on_continue(*args):
-                continue_clicked[0] = True
                 popup.dismiss()
 
             def on_cancel(*args):
@@ -1244,14 +1252,11 @@ class SubstationApp(App):
 
             continue_btn = Button(text=S["BUTTONS"].get("CONTINUE", "Συνέχεια"))
             continue_btn.bind(on_press=on_continue)
-            btn_layout.add_widget(continue_btn)
 
             cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
             cancel_btn.bind(on_press=on_cancel)
-            btn_layout.add_widget(cancel_btn)
 
             layout.add_widget(btn_layout)
-            popup.content = layout
             popup.open()
 
             # Wait for user decision (blocking)
@@ -1261,7 +1266,6 @@ class SubstationApp(App):
                 Clock.tick()
 
             return continue_clicked[0]
-
         # No errors or warnings - all good
         return True
 
@@ -1278,7 +1282,6 @@ class SubstationApp(App):
         if not self._check_db_integrity():
             APP_LOGGER.error("Database integrity check failed")
             return
-
         # Check if first-time setup is needed
         if self._needs_first_time_setup():
             APP_LOGGER.info("First-time setup is required")
@@ -4059,27 +4062,11 @@ class SubstationApp(App):
         webbrowser.open(f"{mailto}?subject={subject_encoded}&body={body_encoded}")
 
     def show_inspection_menu_popup(self, instance=None):
-        # write a small debug trace to disk (visible even if popup hidden)
-        try:
-            with open("inspections_debug.log", "a", encoding="utf-8") as _fh:
-                _fh.write("show_inspection_menu_popup invoked\n")
-        except Exception:
-            pass
-        # visual debug popup removed to avoid obscuring the inspection menu
         try:
             from inspections import handle_inspection_menu as _f
 
             return _f(self, instance)
         except Exception:
-            try:
-                import traceback
-
-                with open("inspections_debug.log", "a", encoding="utf-8") as _fh:
-                    _fh.write("menu_handler_failed:\n")
-                    _fh.write(traceback.format_exc())
-                    _fh.write("\n")
-            except Exception:
-                pass
             return None
 
     def show_import_inspections_dialog(self, instance):
@@ -9981,7 +9968,7 @@ class SubstationApp(App):
         except Exception as e:
             logging.exception(f"Failed to show conflict resolution: {e}")
 
-    def _show_conflict_resolver(self, conflicts, resolved_so_far=0, total_count=None):
+    def _show_conflict_resolver(self, conflicts):
         """Show resolver for unresolved conflicts sequentially."""
         try:
             from kivy.uix.boxlayout import BoxLayout
@@ -9991,14 +9978,8 @@ class SubstationApp(App):
 
             filenames = list(conflicts.keys())
             if not filenames:
-                self._finalize_conflict_resolution(
-                    resolved_count=resolved_so_far,
-                    failed=[],
-                )
+                self._finalize_conflict_resolution(resolved_count=0, failed=[])
                 return
-
-            if total_count is None:
-                total_count = resolved_so_far + len(filenames)
 
             filename = filenames[0]
             context = self._load_conflict_context(filename)
@@ -10010,10 +9991,7 @@ class SubstationApp(App):
             # Show comparison
             content = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-            msg = (
-                f"Σύγκρουση {resolved_so_far + 1}/{total_count} "
-                f"στο {table} (ID: {record_id})\n\n"
-            )
+            msg = f"Σύγκρουση {1}/{len(filenames)} στο {table} (ID: {record_id})\n\n"
             msg += "Δικά μου δεδομένα:\n"
             for k, v in my_data.items():
                 if k != "id":
@@ -10034,14 +10012,11 @@ class SubstationApp(App):
                 remaining = filenames[1:]
                 if remaining:
                     self._show_conflict_resolver(
-                        {name: conflicts[name] for name in remaining},
-                        resolved_so_far=resolved_so_far + 1,
-                        total_count=total_count,
+                        {name: conflicts[name] for name in remaining}
                     )
                 else:
                     self._finalize_conflict_resolution(
-                        resolved_count=total_count,
-                        failed=[],
+                        resolved_count=len(filenames), failed=[]
                     )
 
             def use_theirs():
@@ -10050,14 +10025,11 @@ class SubstationApp(App):
                 remaining = filenames[1:]
                 if remaining:
                     self._show_conflict_resolver(
-                        {name: conflicts[name] for name in remaining},
-                        resolved_so_far=resolved_so_far + 1,
-                        total_count=total_count,
+                        {name: conflicts[name] for name in remaining}
                     )
                 else:
                     self._finalize_conflict_resolution(
-                        resolved_count=total_count,
-                        failed=[],
+                        resolved_count=len(filenames), failed=[]
                     )
 
             buttons.add_widget(Button(text="Δικά μου", on_press=lambda x: keep_mine()))
@@ -11970,6 +11942,39 @@ class SubstationApp(App):
             return f"{len(selected_categories)} κατηγορίες | {completed_items}/{total_items} βήματα ολοκληρωμένα"
         return f"{len(selected_categories)} κατηγορίες επιλεγμένες"
 
+    def _load_maintenance_workflow_state(self, raw_data_json):
+        return load_workflow_from_data_json(raw_data_json)
+
+    def _dump_maintenance_workflow_state(self, existing_payload, workflow_state):
+        return dump_workflow_to_data_json(existing_payload, workflow_state)
+
+    def _summarize_maintenance_workflow(
+        self,
+        workflow_state,
+        *,
+        linked_isolation_request_id=None,
+        isolation_display_text="",
+        checklist_state=None,
+        checklist_summary_text="",
+        selected_elements_count=0,
+        completed=False,
+        pending_tasks_text="",
+        attachment_paths=None,
+        onedrive_link="",
+    ):
+        return summarize_workflow(
+            workflow_state,
+            linked_isolation_request_id=linked_isolation_request_id,
+            isolation_display_text=isolation_display_text,
+            checklist_has_content=self._checklist_has_content(checklist_state),
+            checklist_summary_text=checklist_summary_text,
+            selected_elements_count=selected_elements_count,
+            completed=completed,
+            pending_tasks_text=pending_tasks_text,
+            attachment_count=len(dedupe_attachment_paths(attachment_paths or [])),
+            onedrive_link=onedrive_link,
+        )
+
     def _get_maintenance_element_rows_for_checklist(self, maintenance_id):
         c = self.conn.cursor()
         c.execute(
@@ -12267,18 +12272,24 @@ class SubstationApp(App):
         existing_elements_data = {}
         responsible_person_id = None
         prefill_data = prefill_data or {}
-        prefill_attachment_paths = prefill_data.get("attachment_paths") or []
+        prefill_attachment_paths = dedupe_attachment_paths(
+            prefill_data.get("attachment_paths") or []
+        )
         linked_isolation_request_id = prefill_data.get("linked_isolation_request_id")
         preparation_checklist_state = normalize_state(
             prefill_data.get("preparation_checklist_state")
         )
+        maintenance_extra_payload = {}
+        workflow_state = normalize_workflow_state(prefill_data.get("workflow_state"))
+        existing_primary_media_folder = None
+        existing_reports_folder = None
 
         if maintenance_id:
             c.execute(
                 """
                 SELECT substation_id, name, date_time, overall_comments, maintenance_type,
                        user_name, responsible_id, onedrive_media_folder_link,
-                       isolation_request_id, preparation_checklist_json
+                       isolation_request_id, preparation_checklist_json, data_json
                 FROM maintenance
                 WHERE id = ?
             """,
@@ -12314,11 +12325,29 @@ class SubstationApp(App):
                     )
                 except Exception:
                     preparation_checklist_state = normalize_state(None)
+            maintenance_extra_payload, workflow_state = (
+                self._load_maintenance_workflow_state(maintenance_record[10])
+            )
             if not responsible_person_id:
                 for pid, role in maintenance_people:
                     if role == "responsible":
                         responsible_person_id = pid
                         break
+
+            c.execute(
+                """
+                SELECT media_folder, reports_folder
+                FROM maintenance_storage_paths
+                WHERE maintenance_id=?
+                ORDER BY id
+                LIMIT 1
+                """,
+                (maintenance_id,),
+            )
+            storage_row = c.fetchone()
+            if storage_row:
+                existing_primary_media_folder = storage_row[0]
+                existing_reports_folder = storage_row[1]
 
             c.execute(
                 """
@@ -12443,13 +12472,63 @@ class SubstationApp(App):
             # add navigation row as the first element
             content_layout.add_widget(nav_row)
 
-        # Substation selection
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get("SELECT_SUBSTATION", "Επιλογή Υποσταθμού:"),
-                size_hint_y=None,
-                height=40,
+        wizard_step_widgets = {0: [], 1: [], 2: []}
+        wizard_steps = [
+            ("isolation", "1. Απομόνωση"),
+            ("preparation", "2. Προετοιμασία"),
+            ("elements", "3. Συντήρηση"),
+        ]
+        initial_wizard_index = 2 if maintenance_id else 0
+        try:
+            requested_stage = str(prefill_data.get("_wizard_stage") or "").strip()
+            requested_index = next(
+                (
+                    index
+                    for index, (stage_key, _stage_label) in enumerate(wizard_steps)
+                    if stage_key == requested_stage
+                ),
+                None,
             )
+            if requested_index is not None:
+                initial_wizard_index = requested_index
+        except Exception:
+            pass
+        current_wizard_step = {"index": initial_wizard_index}
+        save_button_ref = {"widget": None}
+        always_visible_widgets = set()
+
+        def _register_wizard_widget(step_index, widget):
+            wizard_step_widgets.setdefault(step_index, []).append(widget)
+            return widget
+
+        def _set_row_highlight(widget, active, rgba_active=(0.86, 0.93, 0.99, 1)):
+            try:
+                from kivy.graphics import Color, Rectangle
+
+                if not hasattr(widget, "_highlight_color"):
+                    with widget.canvas.before:
+                        widget._highlight_color = Color(0, 0, 0, 0)
+                        widget._highlight_rect = Rectangle(
+                            pos=widget.pos, size=widget.size
+                        )
+
+                    def _sync_highlight_rect(*_args):
+                        try:
+                            widget._highlight_rect.pos = widget.pos
+                            widget._highlight_rect.size = widget.size
+                        except Exception:
+                            pass
+
+                    widget.bind(pos=_sync_highlight_rect, size=_sync_highlight_rect)
+
+                widget._highlight_color.rgba = rgba_active if active else (0, 0, 0, 0)
+            except Exception:
+                pass
+
+        # Substation selection
+        substation_label = Label(
+            text=S["MESSAGES"].get("SELECT_SUBSTATION", "Επιλογή Υποσταθμού:"),
+            size_hint_x=0.28,
         )
         substation_map = {s[1]: s[0] for s in substations}
 
@@ -12468,26 +12547,54 @@ class SubstationApp(App):
 
         substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
         substation_input = TextInput(
-            text=initial_substation, readonly=True, size_hint_x=0.7, multiline=False
+            text=initial_substation, readonly=True, size_hint_x=0.5, multiline=False
         )
         select_sub_btn = Button(
-            text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"), size_hint_x=0.3
+            text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"), size_hint_x=0.22
         )
+        substation_row.add_widget(substation_label)
         substation_row.add_widget(substation_input)
         substation_row.add_widget(select_sub_btn)
 
         content_layout.add_widget(substation_row)
+        _register_wizard_widget(0, substation_row)
+        always_visible_widgets.add(substation_row)
+
+        def _set_wizard_widget_visible(widget, visible):
+            try:
+                if not hasattr(widget, "_wizard_saved_height"):
+                    widget._wizard_saved_height = getattr(widget, "height", None)
+                    widget._wizard_saved_size_hint_y = getattr(
+                        widget, "size_hint_y", None
+                    )
+                    widget._wizard_saved_opacity = getattr(widget, "opacity", 1)
+                if visible:
+                    if widget._wizard_saved_size_hint_y is not None:
+                        widget.size_hint_y = widget._wizard_saved_size_hint_y
+                    if widget._wizard_saved_height is not None:
+                        widget.height = widget._wizard_saved_height
+                    if hasattr(widget, "opacity"):
+                        widget.opacity = widget._wizard_saved_opacity
+                else:
+                    widget.size_hint_y = None
+                    widget.height = 0
+                    if hasattr(widget, "opacity"):
+                        widget.opacity = 0
+            except Exception:
+                pass
 
         current_element_rows = []
         isolation_options_by_label = {}
 
-        content_layout.add_widget(
-            Label(text="Συνδεδεμένη Απομόνωση:", size_hint_y=None, height=35)
+        isolation_label = Label(
+            text="Συνδεδεμένη Απομόνωση:", size_hint_y=None, height=35
         )
+        content_layout.add_widget(isolation_label)
+        _register_wizard_widget(0, isolation_label)
         isolation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
         isolation_spinner = Spinner(
-            text="Χωρίς σύνδεση",
-            values=["Χωρίς σύνδεση"],
+            text="Χωρίς Απομόνωση",
+            values=["Χωρίς Απομόνωση"],
             size_hint_x=0.72,
             sync_height=True,
         )
@@ -12495,13 +12602,14 @@ class SubstationApp(App):
         isolation_row.add_widget(isolation_spinner)
         isolation_row.add_widget(open_isolation_btn)
         content_layout.add_widget(isolation_row)
+        _register_wizard_widget(0, isolation_row)
 
         def refresh_isolation_links(substation_name, preferred_request_id=None):
             nonlocal linked_isolation_request_id
             substation_id = substation_map.get(substation_name)
             isolation_options_by_label.clear()
-            isolation_options_by_label["Χωρίς σύνδεση"] = None
-            values = ["Χωρίς σύνδεση"]
+            isolation_options_by_label["Χωρίς Απομόνωση"] = None
+            values = ["Χωρίς Απομόνωση"]
 
             if substation_id:
                 c.execute(
@@ -12536,13 +12644,17 @@ class SubstationApp(App):
                     if rid is not None:
                         target_id = rid
                         break
-            selected_label = "Χωρίς σύνδεση"
+            selected_label = "Χωρίς Απομόνωση"
             for label, req_id in isolation_options_by_label.items():
                 if req_id == target_id:
                     selected_label = label
                     break
             isolation_spinner.text = selected_label
             linked_isolation_request_id = isolation_options_by_label.get(selected_label)
+            try:
+                open_isolation_btn.disabled = linked_isolation_request_id is None
+            except Exception:
+                pass
 
         def open_linked_isolation(_instance=None):
             selected_request_id = isolation_options_by_label.get(isolation_spinner.text)
@@ -12568,6 +12680,14 @@ class SubstationApp(App):
         def _on_isolation_change(_inst, value):
             nonlocal linked_isolation_request_id
             linked_isolation_request_id = isolation_options_by_label.get(value)
+            try:
+                open_isolation_btn.disabled = linked_isolation_request_id is None
+            except Exception:
+                pass
+            try:
+                refresh_workflow_summary()
+            except Exception:
+                pass
 
         isolation_spinner.bind(text=_on_isolation_change)
 
@@ -12575,6 +12695,15 @@ class SubstationApp(App):
             substation_input.text = sub_name
             refresh_isolation_links(sub_name)
             load_elements(sub_name)  # Reload elements when substation changes
+            refresh_substation_context()
+            try:
+                refresh_workflow_summary()
+            except Exception:
+                pass
+            try:
+                refresh_wizard_view()
+            except Exception:
+                pass
 
         def select_substation(*_args):
             self._show_substation_selection_window_with_callback(
@@ -12587,13 +12716,13 @@ class SubstationApp(App):
         select_sub_btn.bind(on_press=select_substation)
 
         # Maintenance Type
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get("MAINT_TYPE_LABEL", "Τύπος Συντήρησης:"),
-                size_hint_y=None,
-                height=35,
-            )
+        maintenance_type_label = Label(
+            text=S["MESSAGES"].get("MAINT_TYPE_LABEL", "Τύπος Συντήρησης:"),
+            size_hint_y=None,
+            height=35,
         )
+        content_layout.add_widget(maintenance_type_label)
+        _register_wizard_widget(2, maintenance_type_label)
         maint_type_default = (
             maintenance_record[4]
             if maintenance_record and maintenance_record[4]
@@ -12620,9 +12749,11 @@ class SubstationApp(App):
 
         maintenance_type_spinner.bind(text=on_maintenance_type_change)
         content_layout.add_widget(maintenance_type_spinner)
+        _register_wizard_widget(2, maintenance_type_spinner)
 
         checklist_state = normalize_state(preparation_checklist_state)
         checklist_user_touched = [self._checklist_has_content(checklist_state)]
+        checklist_categories = get_categories()
 
         def _maintenance_requires_checklist():
             return self._maintenance_type_requires_checklist(
@@ -12630,77 +12761,215 @@ class SubstationApp(App):
             )
 
         def _set_default_checklist_categories():
-            if checklist_user_touched[0]:
-                return
-            inferred_keys = infer_category_keys_from_elements(
-                self, current_element_rows
+            # New maintenance forms start with an empty checklist by design.
+            return
+
+        checklist_section_label = Label(
+            text="Checklist προετοιμασίας:", size_hint_y=None, height=35
+        )
+        content_layout.add_widget(checklist_section_label)
+        _register_wizard_widget(1, checklist_section_label)
+
+        checklist_inline_container = GridLayout(
+            cols=1, spacing=6, size_hint_y=None, padding=5
+        )
+        checklist_inline_container.bind(
+            minimum_height=checklist_inline_container.setter("height")
+        )
+        content_layout.add_widget(checklist_inline_container)
+        _register_wizard_widget(1, checklist_inline_container)
+
+        checklist_actions_row = BoxLayout(size_hint_y=None, height=46, spacing=8)
+        checklist_pdf_btn = Button(text="PDF checklist", size_hint_x=0.34)
+        checklist_actions_row.add_widget(checklist_pdf_btn)
+        checklist_actions_row.add_widget(Widget())
+        content_layout.add_widget(checklist_actions_row)
+        _register_wizard_widget(1, checklist_actions_row)
+
+        def _export_inline_checklist(_instance=None):
+            try:
+                metadata = {
+                    "maintenance_name": maintenance_record[1]
+                    if maintenance_record
+                    else "",
+                    "date_time": datetime_input.text.strip(),
+                    "maintenance_type": maintenance_type_spinner.text,
+                    "substation_name": substation_input.text.strip(),
+                }
+            except Exception:
+                metadata = {
+                    "maintenance_name": maintenance_record[1]
+                    if maintenance_record
+                    else "",
+                    "maintenance_type": maintenance_type_spinner.text,
+                    "substation_name": substation_input.text.strip(),
+                }
+            self._export_preparation_checklist_pdf(
+                checklist_state,
+                maintenance_type=maintenance_type_spinner.text,
+                metadata=metadata,
             )
-            if inferred_keys:
-                state = build_state(inferred_keys, checklist_state)
-                checklist_state["selected_categories"] = state["selected_categories"]
-                checklist_state["items"] = state["items"]
+
+        checklist_pdf_btn.bind(on_press=_export_inline_checklist)
+
+        def render_inline_checklist(*_args):
+            checklist_inline_container.clear_widgets()
+            if not self._maintenance_type_requires_checklist(
+                maintenance_type_spinner.text
+            ) and not self._checklist_has_content(checklist_state):
+                checklist_inline_container.add_widget(
+                    Label(
+                        text="Το checklist προετοιμασίας χρησιμοποιείται κυρίως για επαναληπτική συντήρηση ή βλάβη.",
+                        size_hint_y=None,
+                        height=30,
+                    )
+                )
+
+            for category in checklist_categories:
+                category_key = category["key"]
+                category_row = BoxLayout(size_hint_y=None, height=34, spacing=5)
+                category_checkbox = CheckBox(
+                    active=category_key in checklist_state["selected_categories"],
+                    size_hint_x=None,
+                    width=36,
+                )
+                _set_row_highlight(category_row, category_checkbox.active)
+                category_row.add_widget(category_checkbox)
+                category_row.add_widget(
+                    Label(text=category["label"], halign="left", valign="middle")
+                )
+                checklist_inline_container.add_widget(category_row)
+
+                def _toggle_category(_cb, active, key=category_key):
+                    checklist_user_touched[0] = True
+                    if active and key not in checklist_state["selected_categories"]:
+                        checklist_state["selected_categories"].append(key)
+                    if not active and key in checklist_state["selected_categories"]:
+                        checklist_state["selected_categories"].remove(key)
+                    render_inline_checklist()
+                    _sync_dynamic_step_layout()
+                    try:
+                        refresh_workflow_summary()
+                    except Exception:
+                        pass
+
+                category_checkbox.bind(active=_toggle_category)
+                category_checkbox.bind(
+                    active=lambda _cb, active, row=category_row: _set_row_highlight(
+                        row, active
+                    )
+                )
+
+                if category_key not in checklist_state["selected_categories"]:
+                    continue
+
+                category_items = checklist_state["items"].setdefault(category_key, {})
+                for item in category.get("items", []):
+                    item_key = item["key"]
+                    item_row = BoxLayout(
+                        size_hint_y=None, height=30, spacing=5, padding=[24, 0, 0, 0]
+                    )
+                    item_checkbox = CheckBox(
+                        active=bool(category_items.get(item_key, False)),
+                        size_hint_x=None,
+                        width=36,
+                    )
+                    _set_row_highlight(item_row, item_checkbox.active)
+                    item_row.add_widget(item_checkbox)
+                    item_row.add_widget(
+                        Label(text=item["label"], halign="left", valign="middle")
+                    )
+                    checklist_inline_container.add_widget(item_row)
+
+                    def _toggle_item(
+                        _cb, active, cat_key=category_key, itm_key=item_key
+                    ):
+                        checklist_user_touched[0] = True
+                        checklist_state["items"].setdefault(cat_key, {})[itm_key] = (
+                            bool(active)
+                        )
+                        checklist_pdf_btn.disabled = not self._checklist_has_content(
+                            checklist_state
+                        )
+                        _sync_dynamic_step_layout()
+                        try:
+                            refresh_workflow_summary()
+                        except Exception:
+                            pass
+
+                    item_checkbox.bind(active=_toggle_item)
+                    item_checkbox.bind(
+                        active=lambda _cb, active, row=item_row: _set_row_highlight(
+                            row, active
+                        )
+                    )
+
+            checklist_pdf_btn.disabled = not self._checklist_has_content(
+                checklist_state
+            )
 
         def refresh_checklist_summary(*_args):
-            checklist_summary_label.text = self._summarize_preparation_checklist_state(
-                checklist_state,
-                maintenance_type_spinner.text,
-            )
-            open_checklist_btn.disabled = not (
-                _maintenance_requires_checklist()
-                or self._checklist_has_content(checklist_state)
-            )
-
-        def _apply_checklist_state(updated_state):
-            normalized_state = normalize_state(updated_state)
-            checklist_state["selected_categories"] = normalized_state[
-                "selected_categories"
-            ]
-            checklist_state["items"] = normalized_state["items"]
-            checklist_user_touched[0] = self._checklist_has_content(checklist_state)
-            refresh_checklist_summary()
-
-        def open_checklist_editor(_instance=None):
-            _set_default_checklist_categories()
-            self._show_preparation_checklist_popup(
-                maintenance_type=maintenance_type_spinner.text,
-                element_rows=current_element_rows,
-                initial_state=checklist_state,
-                on_save_callback=_apply_checklist_state,
-            )
-
-        content_layout.add_widget(
-            Label(text="Checklist προετοιμασίας:", size_hint_y=None, height=35)
-        )
-        checklist_summary_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
-        checklist_summary_label = Label(
-            text=self._summarize_preparation_checklist_state(
-                checklist_state, maintenance_type_spinner.text
-            ),
-            halign="left",
-            valign="middle",
-            size_hint_x=0.7,
-        )
-        checklist_summary_label.bind(
-            size=lambda inst, _val: setattr(inst, "text_size", inst.size)
-        )
-        open_checklist_btn = Button(text="Άνοιγμα checklist", size_hint_x=0.3)
-        open_checklist_btn.bind(on_press=open_checklist_editor)
-        checklist_summary_row.add_widget(checklist_summary_label)
-        checklist_summary_row.add_widget(open_checklist_btn)
-        content_layout.add_widget(checklist_summary_row)
+            render_inline_checklist()
+            _sync_dynamic_step_layout()
+            try:
+                refresh_workflow_summary()
+            except Exception:
+                pass
+            _update_save_button_state()
 
         maintenance_type_spinner.bind(text=lambda *_args: refresh_checklist_summary())
+
+        wizard_nav_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
+        wizard_back_btn = Button(
+            text=S["MESSAGES"].get("PREVIOUS", "Προηγούμενη"), size_hint_x=0.2
+        )
+        wizard_step_label = Label(text="", size_hint_x=0.6)
+        wizard_next_btn = Button(
+            text=S["MESSAGES"].get("NEXT", "Επόμενη"), size_hint_x=0.2
+        )
+        wizard_nav_row.add_widget(wizard_back_btn)
+        wizard_nav_row.add_widget(wizard_step_label)
+        wizard_nav_row.add_widget(wizard_next_btn)
+        content_layout.add_widget(wizard_nav_row)
+
+        workflow_next_action_label = Label(
+            text="",
+            size_hint_y=None,
+            halign="left",
+            valign="middle",
+            color=(0.75, 0.4, 0.0, 1),
+        )
+        workflow_next_action_label.bind(
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(36, val[1] + 8)),
+        )
+        content_layout.add_widget(workflow_next_action_label)
+
+        workflow_progress_label = Label(
+            text="Ημερήσια πρόοδος / ημερολόγιο:", size_hint_y=None, height=35
+        )
+        content_layout.add_widget(workflow_progress_label)
+        _register_wizard_widget(2, workflow_progress_label)
+        workflow_progress_input = TextInput(
+            hint_text="Τι ολοκληρώθηκε σήμερα, τι απομένει για την επόμενη ημέρα...",
+            text=workflow_state.get("daily_progress") or "",
+            size_hint_y=None,
+            height=90,
+            multiline=True,
+        )
+        content_layout.add_widget(workflow_progress_input)
+        _register_wizard_widget(2, workflow_progress_input)
 
         # Date/Time (auto-filled with current)
         from datetime import datetime
 
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get("DATE_TIME_LABEL", "Ημερομηνία & Ώρα:"),
-                size_hint_y=None,
-                height=35,
-            )
+        date_time_label = Label(
+            text=S["MESSAGES"].get("DATE_TIME_LABEL", "Ημερομηνία & Ώρα:"),
+            size_hint_y=None,
+            height=35,
         )
+        content_layout.add_widget(date_time_label)
+        _register_wizard_widget(2, date_time_label)
         datetime_default = (
             maintenance_record[2]
             if maintenance_record and maintenance_record[2]
@@ -12716,6 +12985,7 @@ class SubstationApp(App):
             multiline=False,
         )
         content_layout.add_widget(datetime_input)
+        _register_wizard_widget(2, datetime_input)
 
         # Responsible person (mandatory)
         c.execute(
@@ -12733,15 +13003,15 @@ class SubstationApp(App):
             )
             return
 
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "RESPONSIBLE_LABEL", "Υπεύθυνος Συντήρησης (υποχρεωτικό):"
-                ),
-                size_hint_y=None,
-                height=35,
-            )
+        responsible_label = Label(
+            text=S["MESSAGES"].get(
+                "RESPONSIBLE_LABEL", "Υπεύθυνος Συντήρησης (υποχρεωτικό):"
+            ),
+            size_hint_y=None,
+            height=35,
         )
+        content_layout.add_widget(responsible_label)
+        _register_wizard_widget(2, responsible_label)
 
         # Filter people into responsible and crew lists according to role rules
         responsible_people, crew_people = filter_people_for_maintenance(
@@ -12791,15 +13061,16 @@ class SubstationApp(App):
             height=35,
         )
         content_layout.add_widget(responsible_spinner)
+        _register_wizard_widget(2, responsible_spinner)
 
         # Crew selection (optional)
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get("CREW_LABEL", "Ομάδα Συντήρησης (προαιρετικό):"),
-                size_hint_y=None,
-                height=35,
-            )
+        crew_label = Label(
+            text=S["MESSAGES"].get("CREW_LABEL", "Ομάδα Συντήρησης (προαιρετικό):"),
+            size_hint_y=None,
+            height=35,
         )
+        content_layout.add_widget(crew_label)
+        _register_wizard_widget(2, crew_label)
 
         crew_actions = BoxLayout(size_hint_y=None, height=30, spacing=5)
         select_all_btn = Button(
@@ -12809,6 +13080,7 @@ class SubstationApp(App):
         crew_actions.add_widget(select_all_btn)
         crew_actions.add_widget(clear_all_btn)
         content_layout.add_widget(crew_actions)
+        _register_wizard_widget(2, crew_actions)
 
         # Create a table-like, multi-column layout for crew checkboxes so many people fit
 
@@ -12928,6 +13200,7 @@ class SubstationApp(App):
 
         # finally add the whole crew section to content layout so it expands fully
         content_layout.add_widget(crew_section)
+        _register_wizard_widget(2, crew_section)
 
         # The per-category grids are inside `crew_section` and will size themselves;
         # `crew_container` is unused here so don't add it to avoid extra spacing.
@@ -12957,15 +13230,15 @@ class SubstationApp(App):
         responsible_spinner.bind(text=lambda _inst, _val: _sync_responsible_in_crew())
 
         # Overall comments
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια Συντήρησης:"
-                ),
-                size_hint_y=None,
-                height=35,
-            )
+        comments_label = Label(
+            text=S["MESSAGES"].get(
+                "OVERALL_COMMENTS_LABEL", "Γενικά Σχόλια Συντήρησης:"
+            ),
+            size_hint_y=None,
+            height=35,
         )
+        content_layout.add_widget(comments_label)
+        _register_wizard_widget(2, comments_label)
         comments_default = (
             maintenance_record[3]
             if maintenance_record and maintenance_record[3]
@@ -12988,6 +13261,7 @@ class SubstationApp(App):
         overall_comments.bind(text=_resize_comments)
         _resize_comments()
         content_layout.add_widget(overall_comments)
+        _register_wizard_widget(2, overall_comments)
 
         # Completed / Incomplete marker (toggle button) + tasks left input
         # Default: incomplete (Δεν ολοκηρώθηκε) — user can toggle to completed
@@ -13077,15 +13351,6 @@ class SubstationApp(App):
                     except Exception:
                         pass
 
-                    # hide/remove tasks input when completed
-                    try:
-                        if (
-                            getattr(content_layout, "remove_widget", None)
-                            and getattr(tasks_input, "parent", None) is not None
-                        ):
-                            content_layout.remove_widget(tasks_input)
-                    except Exception:
-                        pass
                     try:
                         tasks_input.opacity = 0
                         tasks_input.disabled = True
@@ -13121,24 +13386,6 @@ class SubstationApp(App):
                     except Exception:
                         pass
 
-                    # If tasks_input isn't already in the scroll content, insert it
-                    try:
-                        if (
-                            getattr(content_layout, "add_widget", None)
-                            and getattr(tasks_input, "parent", None) is None
-                        ):
-                            # add after the completion container so it appears underneath
-                            try:
-                                content_layout.add_widget(tasks_input)
-                            except Exception:
-                                # best-effort: try insert at end
-                                try:
-                                    content_layout.add_widget(tasks_input)
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-
                     try:
                         tasks_input.opacity = 1
                         tasks_input.disabled = False
@@ -13146,6 +13393,19 @@ class SubstationApp(App):
                     except Exception:
                         pass
             except Exception:
+                pass
+            try:
+                _sync_dynamic_step_layout()
+            except Exception:
+                pass
+            try:
+                refresh_workflow_summary()
+            except Exception:
+                pass
+            try:
+                _update_save_button_state()
+            except Exception:
+                # Guard against NameError if save-state helper isn't defined yet
                 pass
 
         def _toggle_completion(_instance=None):
@@ -13170,10 +13430,18 @@ class SubstationApp(App):
             height=100,
             multiline=True,
         )
+        completion_section = BoxLayout(
+            orientation="vertical", size_hint_y=None, spacing=6
+        )
+        completion_section.bind(minimum_height=completion_section.setter("height"))
+        completion_section.add_widget(completion_btn_container)
+        completion_section.add_widget(tasks_input)
 
-        # If there are pending tasks loaded, the maintenance is incomplete.
-        # Otherwise default to completed (previously saved maintenances are complete).
-        if tasks_default_text and tasks_default_text.strip():
+        # New maintenances always start as incomplete. Existing ones keep the
+        # incomplete state when pending tasks exist; otherwise they default to complete.
+        if not maintenance_id:
+            completed_state = False
+        elif tasks_default_text and tasks_default_text.strip():
             completed_state = False
         else:
             completed_state = True
@@ -13185,16 +13453,16 @@ class SubstationApp(App):
         # scrollable content.
 
         # OneDrive Media Folder Link
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "ONEDRIVE_MEDIA_LABEL",
-                    "Σύνδεσμος Φάκελου Εικόνων/Video (OneDrive):",
-                ),
-                size_hint_y=None,
-                height=35,
-            )
+        onedrive_media_label = Label(
+            text=S["MESSAGES"].get(
+                "ONEDRIVE_MEDIA_LABEL",
+                "Σύνδεσμος Φάκελου Εικόνων/Video (OneDrive):",
+            ),
+            size_hint_y=None,
+            height=35,
         )
+        content_layout.add_widget(onedrive_media_label)
+        _register_wizard_widget(2, onedrive_media_label)
         onedrive_media_default = (
             maintenance_record[7]
             if maintenance_record and len(maintenance_record) > 7
@@ -13210,26 +13478,340 @@ class SubstationApp(App):
             multiline=False,
         )
         content_layout.add_widget(onedrive_media_link)
+        _register_wizard_widget(2, onedrive_media_link)
+
+        staged_attachment_paths = list(prefill_attachment_paths)
+        session_attachment_added = {"value": False}
+
+        attachments_label = Label(
+            text="Αρχεία συντήρησης για αντιγραφή:", size_hint_y=None, height=35
+        )
+        content_layout.add_widget(attachments_label)
+        _register_wizard_widget(2, attachments_label)
+        attachment_summary_label = Label(
+            text="",
+            size_hint_y=None,
+            halign="left",
+            valign="middle",
+        )
+        attachment_summary_label.bind(
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(28, val[1] + 6)),
+        )
+        content_layout.add_widget(attachment_summary_label)
+        _register_wizard_widget(2, attachment_summary_label)
+
+        attachment_files_label = Label(
+            text="",
+            size_hint_y=None,
+            halign="left",
+            valign="top",
+        )
+        attachment_files_label.bind(
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(24, val[1] + 6)),
+        )
+        content_layout.add_widget(attachment_files_label)
+        _register_wizard_widget(2, attachment_files_label)
+
+        attachment_btn_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
+        add_attachment_btn = Button(text="Προσθήκη αρχείων", size_hint_x=0.34)
+        clear_attachment_btn = Button(text="Καθαρισμός", size_hint_x=0.22)
+        open_attachment_folder_btn = Button(text="Άνοιγμα φακέλου", size_hint_x=0.44)
+        attachment_btn_row.add_widget(add_attachment_btn)
+        attachment_btn_row.add_widget(clear_attachment_btn)
+        attachment_btn_row.add_widget(open_attachment_folder_btn)
+        content_layout.add_widget(attachment_btn_row)
+        _register_wizard_widget(2, attachment_btn_row)
+
+        def _open_folder_or_url(path):
+            target = str(path or "").strip()
+            if not target:
+                return
+            if target.startswith(("http://", "https://")):
+                webbrowser.open(target)
+                return
+            try:
+                os.startfile(target)
+            except Exception:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Αποτυχία ανοίγματος φακέλου ή συνδέσμου:\n{target}",
+                )
+
+        def _get_attachment_target():
+            if existing_primary_media_folder:
+                return existing_primary_media_folder
+            return onedrive_media_link.text.strip()
+
+        def refresh_attachment_summary(*_args):
+            target = _get_attachment_target()
+            count = len(staged_attachment_paths)
+            summary = f"{count} αρχείο/α έτοιμα για αντιγραφή με την αποθήκευση."
+            if target:
+                summary += f"\nΤρέχων φάκελος: {target}"
+            else:
+                summary += "\nΟ φάκελος θα δημιουργηθεί αυτόματα με την αποθήκευση."
+            attachment_summary_label.text = summary
+
+            if staged_attachment_paths:
+                preview_names = [
+                    os.path.basename(path) or path
+                    for path in staged_attachment_paths[:5]
+                ]
+                attachment_files_label.text = "\n".join(preview_names)
+                if len(staged_attachment_paths) > 5:
+                    attachment_files_label.text += (
+                        f"\n... και {len(staged_attachment_paths) - 5} ακόμη"
+                    )
+            else:
+                attachment_files_label.text = "Δεν έχουν επιλεγεί αρχεία ακόμη."
+
+            clear_attachment_btn.disabled = not staged_attachment_paths
+            open_attachment_folder_btn.disabled = not bool(target)
+
+        def _add_attachment_file(_instance=None):
+            try:
+                selected_paths = ask_open_files(
+                    title="Επιλογή αρχείων για τη συντήρηση",
+                    filetypes=(
+                        (
+                            S["MESSAGES"].get("FILE_DIALOG_ALL_FILES", "Όλα τα αρχεία"),
+                            "*.*",
+                        ),
+                    ),
+                )
+            except Exception:
+                selected_paths = []
+            if not selected_paths:
+                return
+            staged_attachment_paths[:] = dedupe_attachment_paths(
+                staged_attachment_paths + list(selected_paths)
+            )
+            session_attachment_added["value"] = True
+            refresh_attachment_summary()
+            refresh_workflow_summary()
+
+        def _clear_attachment_files(_instance=None):
+            staged_attachment_paths[:] = []
+            refresh_attachment_summary()
+            refresh_workflow_summary()
+
+        add_attachment_btn.bind(on_press=_add_attachment_file)
+        clear_attachment_btn.bind(on_press=_clear_attachment_files)
+        open_attachment_folder_btn.bind(
+            on_press=lambda _x: _open_folder_or_url(_get_attachment_target())
+        )
+        onedrive_media_link.bind(text=lambda *_args: refresh_attachment_summary())
 
         # Elements selection area
-        content_layout.add_widget(
-            Label(
-                text=S["MESSAGES"].get(
-                    "ELEMENTS_SECTION_LABEL",
-                    "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
-                ),
-                size_hint_y=None,
-                height=40,
-            )
+        elements_section_label = Label(
+            text=S["MESSAGES"].get(
+                "ELEMENTS_SECTION_LABEL",
+                "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
+            ),
+            size_hint_y=None,
+            height=40,
         )
+        content_layout.add_widget(elements_section_label)
+        _register_wizard_widget(2, elements_section_label)
 
         # Container for element checkboxes (no longer in a separate ScrollView)
         elements_container = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
         elements_container.bind(minimum_height=elements_container.setter("height"))
         content_layout.add_widget(elements_container)
+        _register_wizard_widget(2, elements_container)
 
         # Dictionary to store element widgets
         element_widgets = {}
+        bulk_element_selection = {"active": False}
+        gate_sections = {}
+
+        def _get_selected_element_count():
+            return sum(
+                1
+                for widgets in element_widgets.values()
+                if getattr(widgets.get("checkbox"), "active", False)
+            )
+
+        def _set_gate_body_expanded(gate_name, expanded):
+            section = gate_sections.get(gate_name)
+            if not section:
+                return
+            section["expanded"] = bool(expanded)
+            body = section.get("body")
+            toggle_btn = section.get("toggle_btn")
+            section_widget = section.get("section_widget")
+            try:
+                if body is not None and section_widget is not None:
+                    if expanded:
+                        # re-insert body when expanding (avoids reserved space when collapsed)
+                        if body.parent is None:
+                            section_widget.add_widget(body)
+                    else:
+                        # remove body when collapsing so layout does not reserve its space
+                        if body.parent is section_widget:
+                            section_widget.remove_widget(body)
+            except Exception:
+                pass
+            try:
+                if toggle_btn is not None:
+                    toggle_btn.text = "-" if expanded else "+"
+            except Exception:
+                pass
+
+        def _sync_gate_expansion(gate_name, force=None):
+            section = gate_sections.get(gate_name)
+            if not section:
+                return
+            selected_count = 0
+            for elem_id in section.get("element_ids", []):
+                widgets = element_widgets.get(elem_id, {})
+                if getattr(widgets.get("checkbox"), "active", False):
+                    selected_count += 1
+            if force is None:
+                expanded = (
+                    True if selected_count > 0 else bool(section.get("expanded", False))
+                )
+            else:
+                expanded = bool(force) or selected_count > 0
+            _set_gate_body_expanded(gate_name, expanded)
+
+        def refresh_substation_context(*_args):
+            return
+
+        def refresh_workflow_summary(*_args):
+            stage_key, stage_title = wizard_steps[current_wizard_step["index"]]
+            workflow_snapshot = {
+                "current_stage": stage_key,
+                "daily_progress": workflow_progress_input.text.strip(),
+            }
+            workflow_summary = self._summarize_maintenance_workflow(
+                workflow_snapshot,
+                linked_isolation_request_id=linked_isolation_request_id,
+                isolation_display_text=(
+                    isolation_spinner.text
+                    if isolation_spinner.text != "Χωρίς Απομόνωση"
+                    else ""
+                ),
+                checklist_state=checklist_state,
+                checklist_summary_text=self._summarize_preparation_checklist_state(
+                    checklist_state, maintenance_type_spinner.text
+                ),
+                selected_elements_count=_get_selected_element_count(),
+                completed=completed_state,
+                pending_tasks_text=tasks_input.text.strip(),
+                attachment_paths=staged_attachment_paths,
+                onedrive_link=_get_attachment_target(),
+            )
+            wizard_step_label.text = stage_title
+            workflow_next_action_label.text = (
+                f"Επόμενη κίνηση: {workflow_summary['next_action']}"
+            )
+
+        def _has_minimum_save_data():
+            return (
+                bool(substation_input.text.strip())
+                and bool(maintenance_type_spinner.text.strip())
+                and bool(datetime_input.text.strip())
+                and bool(responsible_spinner.text.strip())
+                and _get_selected_element_count() > 0
+            )
+
+        def _sync_dynamic_step_layout(*_args):
+            active_index = current_wizard_step["index"]
+            try:
+                if active_index == 1:
+                    checklist_inline_container.height = max(
+                        0,
+                        getattr(checklist_inline_container, "minimum_height", 0),
+                    )
+                elif getattr(checklist_inline_container, "size_hint_y", None) is None:
+                    checklist_inline_container.height = 0
+            except Exception:
+                pass
+            try:
+                if active_index == 2:
+                    crew_section.height = max(
+                        0, getattr(crew_section, "minimum_height", 0)
+                    )
+                    elements_container.height = max(
+                        0, getattr(elements_container, "minimum_height", 0)
+                    )
+                else:
+                    if getattr(crew_section, "size_hint_y", None) is None:
+                        crew_section.height = 0
+                    if getattr(elements_container, "size_hint_y", None) is None:
+                        elements_container.height = 0
+            except Exception:
+                pass
+            for widget in (
+                checklist_inline_container,
+                crew_section,
+                elements_container,
+                content_layout,
+                scroll_view,
+            ):
+                try:
+                    widget.do_layout()
+                except Exception:
+                    pass
+
+        def _update_save_button_state(*_args):
+            save_btn = save_button_ref.get("widget")
+            if not save_btn:
+                return
+            try:
+                if maintenance_id:
+                    save_btn.disabled = False
+                    save_btn.opacity = 1
+                    return
+                disabled = (
+                    current_wizard_step["index"] != 2 or not _has_minimum_save_data()
+                )
+                save_btn.disabled = disabled
+                save_btn.opacity = 0.55 if disabled else 1
+            except Exception:
+                pass
+
+        def refresh_wizard_view(*_args):
+            active_index = current_wizard_step["index"]
+            for step_index, widgets in wizard_step_widgets.items():
+                for widget in widgets:
+                    _set_wizard_widget_visible(
+                        widget,
+                        step_index == active_index or widget in always_visible_widgets,
+                    )
+            if active_index == 1:
+                try:
+                    checklist_inline_container.disabled = False
+                except Exception:
+                    pass
+                try:
+                    render_inline_checklist()
+                except Exception:
+                    pass
+            wizard_back_btn.disabled = active_index <= 0
+            wizard_next_btn.disabled = active_index >= len(wizard_steps) - 1
+            wizard_next_btn.text = S["MESSAGES"].get("NEXT", "Επόμενη")
+            _sync_dynamic_step_layout()
+            refresh_workflow_summary()
+            _update_save_button_state()
+
+        def _go_to_previous_wizard_step(_instance=None):
+            if current_wizard_step["index"] <= 0:
+                return
+            current_wizard_step["index"] -= 1
+            refresh_wizard_view()
+
+        def _go_to_next_wizard_step(_instance=None):
+            if current_wizard_step["index"] >= len(wizard_steps) - 1:
+                return
+            current_wizard_step["index"] += 1
+            refresh_wizard_view()
+
+        wizard_back_btn.bind(on_press=_go_to_previous_wizard_step)
+        wizard_next_btn.bind(on_press=_go_to_next_wizard_step)
 
         def load_elements(substation_name):
             """Load elements for selected substation"""
@@ -13266,6 +13848,18 @@ class SubstationApp(App):
                         height=40,
                     )
                 )
+                try:
+                    _sync_dynamic_step_layout()
+                except Exception:
+                    pass
+                try:
+                    refresh_workflow_summary()
+                except Exception:
+                    pass
+                try:
+                    _update_save_button_state()
+                except Exception:
+                    pass
                 return
 
             element_ids = [elem[0] for elem in elements]
@@ -13369,16 +13963,133 @@ class SubstationApp(App):
             for gate_name in sorted_gates:
                 gate_elements = gates_dict[gate_name]
 
-                # Gate header with count
+                def _apply_gate_selection(
+                    selection_mode,
+                    gate_value=gate_name,
+                    gate_rows=list(gate_elements),
+                ):
+                    bulk_element_selection["active"] = True
+                    try:
+                        for (
+                            gate_elem_id,
+                            gate_elem_type,
+                            _gate_elem_name,
+                            _serial_number,
+                            _gate,
+                            _is_main_switch,
+                            _breaker_category,
+                            _manufacturer,
+                            _model,
+                            _operations_count,
+                            _model_manufacturer,
+                            _model_name,
+                        ) in gate_rows:
+                            widgets = element_widgets.get(gate_elem_id)
+                            checkbox_widget = (
+                                widgets.get("checkbox") if widgets else None
+                            )
+                            if not checkbox_widget:
+                                continue
+                            if selection_mode == "clear":
+                                should_select = False
+                            elif selection_mode == "all":
+                                should_select = True
+                            elif selection_mode == "mv_breakers":
+                                should_select = gate_elem_type == self.ELEM_BREAKER_MT
+                            elif selection_mode == "transformers":
+                                should_select = self._is_transformer(gate_elem_type)
+                            else:
+                                should_select = bool(checkbox_widget.active)
+                            if bool(checkbox_widget.active) != bool(should_select):
+                                checkbox_widget.active = bool(should_select)
+                    finally:
+                        bulk_element_selection["active"] = False
+
+                    _sync_gate_expansion(
+                        gate_value,
+                        force=(selection_mode != "clear"),
+                    )
+                    refresh_workflow_summary()
+                    _update_save_button_state()
+                    _sync_dynamic_step_layout()
+
                 element_count = len(gate_elements)
-                gate_label = Label(
-                    text=f"{gate_name} ({element_count} στοιχεία)",
-                    size_hint_y=None,
-                    height=35,
-                    bold=True,
-                    color=(0.2, 0.6, 1, 1),  # Blue color for gate headers
+                gate_section = BoxLayout(
+                    orientation="vertical", size_hint_y=None, spacing=4
                 )
-                elements_container.add_widget(gate_label)
+                gate_section.bind(minimum_height=gate_section.setter("height"))
+                gate_header = BoxLayout(size_hint_y=None, height=38, spacing=6)
+                gate_toggle_btn = Button(text="+", size_hint_x=0.08)
+                gate_header.add_widget(gate_toggle_btn)
+                gate_header.add_widget(
+                    Label(
+                        text=f"{gate_name} ({element_count} στοιχεία)",
+                        size_hint_x=0.34,
+                        bold=True,
+                        color=(0.2, 0.6, 1, 1),
+                    )
+                )
+                gate_all_btn = Button(text="Όλα", size_hint_x=0.14)
+                gate_mv_btn = Button(text="Ζυγοί ΜΤ", size_hint_x=0.18)
+                gate_tr_btn = Button(text="Μ/Σ", size_hint_x=0.12)
+                gate_clear_btn = Button(text="Καμία", size_hint_x=0.14)
+                gate_all_btn.bind(
+                    on_press=lambda _x, mode="all", apply_fn=_apply_gate_selection: (
+                        apply_fn(mode)
+                    )
+                )
+                gate_mv_btn.bind(
+                    on_press=lambda _x, mode="mv_breakers", apply_fn=_apply_gate_selection: (
+                        apply_fn(mode)
+                    )
+                )
+                gate_tr_btn.bind(
+                    on_press=lambda _x, mode="transformers", apply_fn=_apply_gate_selection: (
+                        apply_fn(mode)
+                    )
+                )
+                gate_clear_btn.bind(
+                    on_press=lambda _x, mode="clear", apply_fn=_apply_gate_selection: (
+                        apply_fn(mode)
+                    )
+                )
+                gate_header.add_widget(gate_all_btn)
+                gate_header.add_widget(gate_mv_btn)
+                gate_header.add_widget(gate_tr_btn)
+                gate_header.add_widget(gate_clear_btn)
+                gate_section.add_widget(gate_header)
+
+                gate_body = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=0)
+                gate_body.bind(minimum_height=gate_body.setter("height"))
+                gate_section.add_widget(gate_body)
+                gate_sections[gate_name] = {
+                    "body": gate_body,
+                    "toggle_btn": gate_toggle_btn,
+                    "element_ids": [],
+                    "expanded": False,
+                    "section_widget": gate_section,
+                }
+
+                def _toggle_gate_body(_instance=None, gate_value=gate_name):
+                    section = gate_sections.get(gate_value) or {}
+                    selected = any(
+                        getattr(
+                            element_widgets.get(elem_id, {}).get("checkbox"),
+                            "active",
+                            False,
+                        )
+                        for elem_id in section.get("element_ids", [])
+                    )
+                    if selected:
+                        _set_gate_body_expanded(gate_value, True)
+                    else:
+                        _set_gate_body_expanded(
+                            gate_value, not bool(section.get("expanded", False))
+                        )
+                    _sync_dynamic_step_layout()
+
+                gate_toggle_btn.bind(on_press=_toggle_gate_body)
+                elements_container.add_widget(gate_section)
 
                 # Display elements in this gate
                 for (
@@ -14525,7 +15236,7 @@ class SubstationApp(App):
                             closed_fa_layout.add_widget(
                                 Label(
                                     text=S["MESSAGES"].get(
-                                        "INSULATION_LABEL_FA_GND", "ΦΑ-Γη:"
+                                        "INSULATION_LABEL_FA_GND", "ΦΑ-ΓΗ:"
                                     ),
                                     size_hint_x=0.15,
                                 )
@@ -14551,7 +15262,7 @@ class SubstationApp(App):
                             closed_fb_layout.add_widget(
                                 Label(
                                     text=S["MESSAGES"].get(
-                                        "INSULATION_LABEL_FB_GND", "ΦΒ-Γη:"
+                                        "INSULATION_LABEL_FB_GND", "ΦΒ-ΓΗ:"
                                     ),
                                     size_hint_x=0.15,
                                 )
@@ -14577,7 +15288,7 @@ class SubstationApp(App):
                             closed_fc_layout.add_widget(
                                 Label(
                                     text=S["MESSAGES"].get(
-                                        "INSULATION_LABEL_FC_GND", "ΦΓ-Γη:"
+                                        "INSULATION_LABEL_FC_GND", "ΦΓ-ΓΗ:"
                                     ),
                                     size_hint_x=0.15,
                                 )
@@ -15666,6 +16377,14 @@ class SubstationApp(App):
                         _checkbox_instance, value, elem_box=elem_box, eid=elem_id
                     ):
                         # toggle_details debug removed
+                        if bulk_element_selection["active"]:
+                            if not value:
+                                dc = element_widgets.get(eid, {}).get(
+                                    "details_container"
+                                )
+                                if dc is not None and dc in elem_box.children:
+                                    elem_box.remove_widget(dc)
+                            return
                         if value:
                             ensure_details(elem_box, eid)
                         else:
@@ -15677,11 +16396,17 @@ class SubstationApp(App):
 
                     # Checkbox active handler (no debug logging)
                     def _on_checkbox_active(instance, value, eid=elem_id):
+                        if bulk_element_selection["active"]:
+                            return
+                        _sync_gate_expansion(gate_name)
+                        refresh_workflow_summary()
+                        _update_save_button_state()
+                        _sync_dynamic_step_layout()
                         return
 
                     checkbox.bind(active=_on_checkbox_active)
 
-                    elements_container.add_widget(elem_box)
+                    gate_body.add_widget(elem_box)
 
                     # Add a visible separator line using Canvas
                     from kivy.uix.widget import Widget
@@ -15703,7 +16428,7 @@ class SubstationApp(App):
                                 Color(0.7, 0.7, 0.7, 1)
                                 Rectangle(pos=self.pos, size=(self.width, 2))
 
-                    elements_container.add_widget(SeparatorLine())
+                    gate_body.add_widget(SeparatorLine())
 
                     # Update existing element_widgets entry instead of overwriting
                     element_widgets.setdefault(elem_id, {})
@@ -15720,12 +16445,14 @@ class SubstationApp(App):
                                 "measurements_toggle"
                             ),
                             "elem_type": elem_type,
+                            "gate_name": gate_name,
                             "details_container": element_widgets[elem_id].get(
                                 "details_container"
                             ),
                             "ensure_details": ensure_details,
                         }
                     )
+                    gate_sections[gate_name]["element_ids"].append(elem_id)
 
             if not maintenance_id and prefill_data.get("element_ids"):
                 prefill_elements = set(prefill_data.get("element_ids"))
@@ -15878,10 +16605,24 @@ class SubstationApp(App):
                             if has_existing_measurements:
                                 measurement_toggle.active = True
 
+            for gate_name in gate_sections:
+                _sync_gate_expansion(gate_name)
+
+            refresh_workflow_summary()
+            _sync_dynamic_step_layout()
+            _update_save_button_state()
+
         # Load initial elements
         refresh_isolation_links(substation_input.text, linked_isolation_request_id)
         load_elements(substation_input.text)
         refresh_checklist_summary()
+        refresh_attachment_summary()
+        refresh_substation_context()
+
+        workflow_progress_input.bind(text=lambda *_args: refresh_workflow_summary())
+        tasks_input.bind(text=lambda *_args: refresh_workflow_summary())
+        maintenance_type_spinner.bind(text=lambda *_args: refresh_workflow_summary())
+        refresh_wizard_view()
 
         # Update elements when substation changes (via selection callback)
 
@@ -15890,6 +16631,25 @@ class SubstationApp(App):
 
         # Main layout with scroll view and buttons
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        wizard_header_layout = BoxLayout(
+            orientation="vertical", size_hint_y=None, spacing=6
+        )
+        wizard_header_layout.bind(minimum_height=wizard_header_layout.setter("height"))
+        for header_widget in (
+            substation_row,
+            wizard_nav_row,
+            workflow_next_action_label,
+        ):
+            try:
+                if getattr(header_widget, "parent", None) is content_layout:
+                    content_layout.remove_widget(header_widget)
+            except Exception:
+                pass
+            try:
+                wizard_header_layout.add_widget(header_widget)
+            except Exception:
+                pass
+        main_layout.add_widget(wizard_header_layout)
         main_layout.add_widget(scroll_view)
 
         # Add-element button row (inside scrollable area, below elements)
@@ -15933,35 +16693,13 @@ class SubstationApp(App):
         add_element_row.add_widget(Widget())
 
         content_layout.add_widget(add_element_row)
-
-        # Insert completion toggle at the very bottom of the scrollable area
-        # so it appears last in the form. If editing an existing incomplete
-        # maintenance that has pending tasks, show the editable tasks input
-        # inline; otherwise the tasks input remains hidden and is only
-        # requested via the temporary-save or the post-save prompt.
-        try:
-            # Show tasks input only when editing an existing maintenance that
-            # already has pending tasks text loaded.
-            if maintenance_id and not completed_state:
-                content_layout.add_widget(tasks_input)
-            # Always show the completion toggle container as the last item in the scroll
-            try:
-                content_layout.add_widget(completion_btn_container)
-            except Exception:
-                # fallback to adding the inner button if container fails
-                try:
-                    content_layout.add_widget(completion_btn)
-                except Exception:
-                    pass
-        except Exception:
-            # Best-effort UI insertion; ignore failures in headless tests
-            pass
+        _register_wizard_widget(2, add_element_row)
 
         # Buttons at the bottom (not scrollable)
         buttons_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
 
-        def save_maintenance():
-            nonlocal maintenance_id
+        def save_maintenance(bypass_attachment_prompt=False):
+            nonlocal maintenance_id, existing_primary_media_folder
             # Validate at least one element selected
             selected_elements = [
                 (eid, widgets)
@@ -15979,6 +16717,46 @@ class SubstationApp(App):
                         "Πρέπει να επιλέξετε τουλάχιστον ένα στοιχείο!",
                     ),
                 )
+                return
+
+            if not bypass_attachment_prompt and not session_attachment_added["value"]:
+                attach_popup = Popup(
+                    title="Συνημμένα συντήρησης",
+                    size_hint=(0.7, 0.35),
+                )
+                attach_layout = BoxLayout(
+                    orientation="vertical", padding=10, spacing=10
+                )
+                attach_layout.add_widget(
+                    Label(
+                        text=(
+                            "Δεν προσθέσατε φωτογραφίες ή αρχεία σε αυτή την επεξεργασία. "
+                            "Θέλετε να προσθέσετε τώρα πριν την αποθήκευση;"
+                        )
+                    )
+                )
+                attach_btns = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+                def _attach_now(_instance=None):
+                    attach_popup.dismiss()
+                    _add_attachment_file()
+
+                def _continue_without_attachments(_instance=None):
+                    attach_popup.dismiss()
+                    save_maintenance(bypass_attachment_prompt=True)
+
+                attach_now_btn = Button(text="Προσθήκη αρχείων")
+                attach_now_btn.bind(on_press=_attach_now)
+                continue_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"))
+                continue_btn.bind(on_press=_continue_without_attachments)
+                cancel_attach_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+                cancel_attach_btn.bind(on_press=attach_popup.dismiss)
+                attach_btns.add_widget(attach_now_btn)
+                attach_btns.add_widget(continue_btn)
+                attach_btns.add_widget(cancel_attach_btn)
+                attach_layout.add_widget(attach_btns)
+                attach_popup.content = attach_layout
+                attach_popup.open()
                 return
 
             if not datetime_input.text.strip():
@@ -16115,6 +16893,16 @@ class SubstationApp(App):
                 checklist_json = json.dumps(
                     normalize_state(checklist_state), ensure_ascii=False
                 )
+            workflow_state_to_save = normalize_workflow_state(
+                {
+                    "current_stage": wizard_steps[current_wizard_step["index"]][0],
+                    "daily_progress": workflow_progress_input.text.strip(),
+                }
+            )
+            maintenance_data_json = self._dump_maintenance_workflow_state(
+                maintenance_extra_payload,
+                workflow_state_to_save,
+            )
 
             if maintenance_id:
                 c.execute(
@@ -16134,6 +16922,10 @@ class SubstationApp(App):
                         checklist_json,
                         maintenance_id,
                     ),
+                )
+                c.execute(
+                    "UPDATE maintenance SET data_json=? WHERE id=?",
+                    (maintenance_data_json, maintenance_id),
                 )
                 try:
                     invalidate_maintenance_reports(
@@ -16169,6 +16961,10 @@ class SubstationApp(App):
                     ),
                 )
                 maintenance_id = c.lastrowid
+                c.execute(
+                    "UPDATE maintenance SET data_json=? WHERE id=?",
+                    (maintenance_data_json, maintenance_id),
+                )
 
             # Store responsible and crew in maintenance_people
             if responsible_id:
@@ -16500,11 +17296,12 @@ class SubstationApp(App):
                     maintenance_type=maintenance_type,
                     date_time=maintenance_date,
                     element_ids=[elem_id for elem_id, _widgets in selected_elements],
-                    attachment_paths=prefill_attachment_paths,
+                    attachment_paths=staged_attachment_paths,
                     db_path=self.db_path,
                 )
                 primary_media_folder = folder_result.get("primary_media_folder")
                 if primary_media_folder:
+                    existing_primary_media_folder = primary_media_folder
                     c.execute(
                         "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
                         (primary_media_folder, maintenance_id),
@@ -16561,6 +17358,7 @@ class SubstationApp(App):
                 "responsible_id": responsible_id,
                 "isolation_request_id": linked_isolation_id_to_save,
                 "preparation_checklist_json": checklist_json,
+                "workflow_state": workflow_state_to_save,
                 "elements": elements_data,
             }
             self._append_change_log(
@@ -16602,69 +17400,32 @@ class SubstationApp(App):
                     ),
                 )
 
-        # Temporary save button: prompts for TODOs and saves maintenance as incomplete
-        def _prompt_temp_tasks(_instance=None):
-            temp_popup = Popup(
-                title=S["MESSAGES"].get("TEMP_SAVE_TITLE", "Προσωρινή Αποθήκευση"),
-                size_hint=(0.8, 0.5),
-            )
-            temp_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
-            temp_tasks = TextInput(
-                hint_text=S["MESSAGES"].get(
-                    "TASKS_LEFT_LABEL", "Εργασίες που απομένουν..."
-                ),
-                text=tasks_input.text or "",
-                multiline=True,
-            )
-            temp_layout.add_widget(temp_tasks)
-            btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
-
-            def _do_temp_save(_x=None):
-                # copy tasks into main field, force incomplete and save
-                tasks_input.text = temp_tasks.text.strip()
-                nonlocal completed_state
-                completed_state = False
-                _update_completion_ui()
-                temp_popup.dismiss()
-                save_maintenance()
-
-            def _cancel_temp(_x=None):
-                temp_popup.dismiss()
-
-            save_temp_btn = Button(
-                text=S["MESSAGES"].get("TEMP_SAVE_BUTTON", "Προσωρινή Αποθήκευση")
-            )
-            save_temp_btn.bind(on_press=_do_temp_save)
-            cancel_temp_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
-            cancel_temp_btn.bind(on_press=_cancel_temp)
-            btn_row.add_widget(save_temp_btn)
-            btn_row.add_widget(cancel_temp_btn)
-            temp_layout.add_widget(btn_row)
-            temp_popup.content = temp_layout
-            temp_popup.open()
-
-        # Make three equal-width footer buttons: Save | Temporary Save | Cancel
-        save_btn = Button(
-            text=S["BUTTONS"].get("SAVE", "Αποθήκευση"), size_hint_x=0.333
-        )
+        save_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"), size_hint_x=0.5)
+        save_button_ref["widget"] = save_btn
         save_btn.bind(on_press=lambda x: save_maintenance())
         buttons_layout.add_widget(save_btn)
 
-        temp_save_btn = Button(
-            text=S["MESSAGES"].get("TEMP_SAVE_BUTTON", "Προσωρινή Αποθήκευση"),
-            size_hint_x=0.333,
-        )
-        temp_save_btn.bind(on_press=_prompt_temp_tasks)
-        buttons_layout.add_widget(temp_save_btn)
-
-        cancel_btn = Button(
-            text=S["BUTTONS"].get("CANCEL", "Ακύρωση"), size_hint_x=0.333
-        )
+        cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"), size_hint_x=0.5)
         cancel_btn.bind(on_press=popup.dismiss)
         buttons_layout.add_widget(cancel_btn)
 
+        try:
+            if getattr(completion_section, "parent", None) is content_layout:
+                content_layout.remove_widget(completion_section)
+        except Exception:
+            pass
+        _register_wizard_widget(2, completion_section)
+        main_layout.add_widget(completion_section)
+        _set_wizard_widget_visible(
+            completion_section, current_wizard_step["index"] == 2
+        )
         main_layout.add_widget(buttons_layout)
         popup.content = main_layout
+        datetime_input.bind(text=lambda *_args: _update_save_button_state())
+        responsible_spinner.bind(text=lambda *_args: _update_save_button_state())
+        maintenance_type_spinner.bind(text=lambda *_args: _update_save_button_state())
+        refresh_wizard_view()
+        _update_save_button_state()
         popup.open()
 
     def show_maintenance_menu_for_substation(
@@ -16757,7 +17518,7 @@ class SubstationApp(App):
 
         c = self.conn.cursor()
         c.execute("""
-            SELECT m.id, m.name, m.date_time, s.name AS sub_name, p.name AS person_name, t.tasks_text
+            SELECT m.id, m.name, m.date_time, s.name AS sub_name, p.name AS person_name, t.tasks_text, m.data_json
             FROM maintenance_pending_tasks t
             JOIN maintenance m ON t.maintenance_id = m.id
             LEFT JOIN substations s ON m.substation_id = s.id
@@ -16787,12 +17548,20 @@ class SubstationApp(App):
 
         from ui.shared import IconOnlyButton
 
-        for mid, mname, mdate, sname, pname, tasks in rows:
+        for mid, mname, mdate, sname, pname, tasks, raw_data_json in rows:
+            _payload, workflow_state = self._load_maintenance_workflow_state(
+                raw_data_json
+            )
+            workflow_summary = self._summarize_maintenance_workflow(
+                workflow_state,
+                pending_tasks_text=tasks or "",
+                completed=False,
+            )
             row = BoxLayout(size_hint_y=None, height=110, spacing=8)
             left = BoxLayout(orientation="vertical")
             left.add_widget(
                 Label(
-                    text=f"{sname or '-'} — {mname} — {mdate}",
+                    text=f"{sname or '-'} — {mname} — {mdate} — {workflow_summary['stage_label']}",
                     size_hint_y=None,
                     height=30,
                 )
@@ -16908,7 +17677,7 @@ class SubstationApp(App):
         c.execute(
             """
             SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type,
-                   m.preparation_checklist_json
+                 m.preparation_checklist_json, m.data_json
             FROM maintenance m
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
@@ -16922,6 +17691,7 @@ class SubstationApp(App):
         people_by_maint = {}
         elements_by_maint = {}
         dga_report_by_maint = {}
+        pending_tasks_by_maint = {}
         all_elements_in_sub = []  # [(id, name, element_type), ...] for element filter
 
         if maintenance_records:
@@ -16946,6 +17716,17 @@ class SubstationApp(App):
                     entry["responsible"] = person_name
                 elif role == "crew":
                     entry["crew"].append(person_name)
+
+            c.execute(
+                f"""
+                SELECT maintenance_id, tasks_text
+                FROM maintenance_pending_tasks
+                WHERE maintenance_id IN ({placeholders})
+                """,
+                maint_ids,
+            )
+            for maintenance_id, tasks_text in c.fetchall():
+                pending_tasks_by_maint[maintenance_id] = tasks_text or ""
 
             c.execute(
                 f"""
@@ -17295,6 +18076,7 @@ class SubstationApp(App):
                 onedrive_media_folder_link,
                 maintenance_type,
                 preparation_checklist_json,
+                maintenance_data_json,
             ) in records_to_show:
                 elements = elements_by_maint.get(maint_id, [])
                 card = BoxLayout(
@@ -17535,6 +18317,44 @@ class SubstationApp(App):
                         ),
                     )
                     card.add_widget(people_label)
+
+                _payload, workflow_state = self._load_maintenance_workflow_state(
+                    maintenance_data_json
+                )
+                try:
+                    workflow_checklist_state = (
+                        json.loads(preparation_checklist_json)
+                        if preparation_checklist_json
+                        else None
+                    )
+                except Exception:
+                    workflow_checklist_state = None
+                workflow_summary = self._summarize_maintenance_workflow(
+                    workflow_state,
+                    checklist_state=normalize_state(workflow_checklist_state),
+                    checklist_summary_text=self._summarize_preparation_checklist_state(
+                        workflow_checklist_state,
+                        maintenance_type,
+                    ),
+                    selected_elements_count=len(elements),
+                    completed=not bool(pending_tasks_by_maint.get(maint_id)),
+                    pending_tasks_text=pending_tasks_by_maint.get(maint_id, ""),
+                    attachment_paths=[],
+                    onedrive_link=onedrive_media_folder_link,
+                )
+                workflow_label = Label(
+                    text=f"Στάδιο: {workflow_summary['stage_label']} | {workflow_summary['next_action']}",
+                    size_hint_y=None,
+                    halign="left",
+                    valign="middle",
+                )
+                workflow_label.bind(
+                    width=lambda inst, _val: setattr(
+                        inst, "text_size", (inst.width, None)
+                    ),
+                    texture_size=lambda inst, val: setattr(inst, "height", val[1] + 6),
+                )
+                card.add_widget(workflow_label)
 
                 # Overall comments
                 if overall_comments:
@@ -18104,14 +18924,6 @@ class SubstationApp(App):
         self, substation_id, substation_name, parent_display_popup=None
     ):
         try:
-            try:
-                with open("inspections_debug.log", "a", encoding="utf-8") as _fh:
-                    _fh.write(
-                        f"show_substation_inspection_history invoked for {substation_name}\n"
-                    )
-            except Exception:
-                pass
-            # visual debug removed; keep file log only
             from inspections import handle_substation_inspection_history as _f
 
             return _f(self, substation_id, substation_name, parent_display_popup)
@@ -18455,17 +19267,17 @@ class SubstationApp(App):
             grid.bind(minimum_height=grid.setter("height"))
             add_kv_row(
                 grid,
-                S["MESSAGES"].get("INSULATION_LABEL_FA_GND", "ΦΑ-Γη"),
+                S["MESSAGES"].get("INSULATION_LABEL_FA_GND", "ΦΑ-ΓΗ"),
                 fmt(ins_closed_fa, ins_closed_fa_unit),
             )
             add_kv_row(
                 grid,
-                S["MESSAGES"].get("INSULATION_LABEL_FB_GND", "ΦΒ-Γη"),
+                S["MESSAGES"].get("INSULATION_LABEL_FB_GND", "ΦΒ-ΓΗ"),
                 fmt(ins_closed_fb, ins_closed_fb_unit),
             )
             add_kv_row(
                 grid,
-                S["MESSAGES"].get("INSULATION_LABEL_FC_GND", "ΦΓ-Γη"),
+                S["MESSAGES"].get("INSULATION_LABEL_FC_GND", "ΦΓ-ΓΗ"),
                 fmt(ins_closed_fc, ins_closed_fc_unit),
             )
             content.add_widget(grid)
