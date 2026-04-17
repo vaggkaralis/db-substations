@@ -15457,10 +15457,10 @@ class SubstationApp(App):
                                 sf6_leakage_input = TextInput(
                                     hint_text="kg", size_hint_x=0.25, multiline=False
                                 )
-                                sf6_methodology_input = TextInput(
-                                    hint_text="Μεθοδολογία",
+                                sf6_methodology_input = Spinner(
+                                    text="",
+                                    values=("Πλήρωση", "Αντικατάσταση"),
                                     size_hint_x=0.55,
-                                    multiline=False,
                                 )
                                 leak_layout = BoxLayout(
                                     size_hint_y=None, height=30, spacing=3
