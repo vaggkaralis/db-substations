@@ -15458,7 +15458,7 @@ class SubstationApp(App):
                                     hint_text="kg", size_hint_x=0.25, multiline=False
                                 )
                                 sf6_methodology_input = Spinner(
-                                    text="",
+                                    text="Πλήρωση",
                                     values=("Πλήρωση", "Αντικατάσταση"),
                                     size_hint_x=0.55,
                                 )
