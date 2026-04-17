@@ -14177,6 +14177,8 @@ class SubstationApp(App):
 
                         # Ensure optional widgets exist in local scope to avoid NameError
                         ops_count_input = None
+                        sf6_leakage_input = None
+                        sf6_methodology_input = None
 
                         # debug logging removed
 
@@ -14517,6 +14519,39 @@ class SubstationApp(App):
                                     bold=True,
                                 )
                             )
+
+                            sf6_leakage_layout = BoxLayout(
+                                size_hint_y=None, height=30, spacing=6
+                            )
+                            sf6_leakage_layout.add_widget(
+                                Label(text="Διαρροή SF6 (kg):", size_hint_x=0.45)
+                            )
+                            sf6_leakage_input = TextInput(
+                                hint_text="kg",
+                                multiline=False,
+                                size_hint_x=0.25,
+                            )
+                            sf6_leakage_layout.add_widget(sf6_leakage_input)
+                            sf6_leakage_layout.add_widget(Widget())
+                            details_container.add_widget(sf6_leakage_layout)
+
+                            sf6_methodology_layout = BoxLayout(
+                                size_hint_y=None, height=30, spacing=6
+                            )
+                            sf6_methodology_layout.add_widget(
+                                Label(
+                                    text="Πλήρωση/Αντικατάσταση (Μεθοδολογία):",
+                                    size_hint_x=0.45,
+                                )
+                            )
+                            sf6_methodology_input = Spinner(
+                                text="Πλήρωση",
+                                values=("Πλήρωση", "Αντικατάσταση"),
+                                size_hint_x=0.35,
+                            )
+                            sf6_methodology_layout.add_widget(sf6_methodology_input)
+                            sf6_methodology_layout.add_widget(Widget())
+                            details_container.add_widget(sf6_methodology_layout)
 
                             # 2) Lubrication checkbox
                             lubrication_row_sf6 = BoxLayout(

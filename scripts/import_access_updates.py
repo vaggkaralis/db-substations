@@ -973,7 +973,7 @@ def import_sf6_leakages(
                 """,
                 (
                     sf6_leakage_kg,
-                    f"Access import from {table_name} ({quantity_grams} g)",
+                    "Πλήρωση",
                     maintenance_id,
                     element["element_id"],
                 ),
