@@ -22,23 +22,245 @@ def _normalize_element_name(value):
     return " ".join(text.split())
 
 
-def _find_duplicate_element_id(conn, substation_id, raw_name, exclude_id=None):
+def _table_has_column(conn, table_name, column_name):
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+    except Exception:
+        return False
+    return any(row[1] == column_name for row in cursor.fetchall())
+
+
+def _find_duplicate_element_id(
+    conn, substation_id, raw_name, exclude_id=None, gate=None
+):
+    """Find an element with the same name in a substation.
+
+    If `gate` is provided, only consider duplicates that are in the same gate.
+    When `gate` is None, preserve previous behaviour (any gate in the substation).
+    """
     normalized_name = _normalize_element_name(raw_name)
     if not normalized_name:
         return None
 
+    has_gate = _table_has_column(conn, "elements", "gate")
+
     params = [substation_id]
-    sql = "SELECT id, name FROM elements WHERE substation_id=?"
+    # Always fetch gate when available so callers can decide match semantics.
+    if has_gate:
+        sql = "SELECT id, name, COALESCE(gate, '') FROM elements WHERE substation_id=?"
+    else:
+        sql = "SELECT id, name, '' FROM elements WHERE substation_id=?"
     if exclude_id is not None:
         sql += " AND id!=?"
         params.append(exclude_id)
 
     cursor = conn.cursor()
     cursor.execute(sql, params)
-    for existing_id, existing_name in cursor.fetchall():
-        if _normalize_element_name(existing_name) == normalized_name:
-            return existing_id
+    for existing_id, existing_name, existing_gate in cursor.fetchall():
+        if _normalize_element_name(existing_name) != normalized_name:
+            continue
+        # If gate specified, require gate equality (string compare of normalized display)
+        if gate is not None:
+            if str(existing_gate or "") == str(gate or ""):
+                return existing_id
+            else:
+                continue
+        # No gate specified: any matching name in substation is a duplicate
+        return existing_id
     return None
+
+
+def _get_matching_element_rows(
+    conn,
+    *,
+    element_id=None,
+    substation_id=None,
+    raw_name=None,
+    element_type=None,
+    exclude_id=None,
+):
+    has_gate = _table_has_column(conn, "elements", "gate")
+    has_element_type = _table_has_column(conn, "elements", "element_type")
+
+    if element_id is not None:
+        cursor = conn.cursor()
+        if has_element_type:
+            cursor.execute(
+                "SELECT substation_id, name, element_type FROM elements WHERE id=?",
+                (element_id,),
+            )
+        else:
+            cursor.execute(
+                "SELECT substation_id, name, NULL FROM elements WHERE id=?",
+                (element_id,),
+            )
+        row = cursor.fetchone()
+        if not row:
+            return []
+        substation_id, raw_name, element_type = row
+
+    normalized_name = _normalize_element_name(raw_name)
+    if substation_id is None or not normalized_name:
+        return []
+
+    params = [substation_id]
+    gate_expr = "COALESCE(gate, '')" if has_gate else "''"
+    type_expr = "element_type" if has_element_type else "NULL"
+    sql = (
+        f"SELECT id, name, {gate_expr}, {type_expr} FROM elements WHERE substation_id=?"
+    )
+    if exclude_id is not None:
+        sql += " AND id!=?"
+        params.append(exclude_id)
+
+    cursor = conn.cursor()
+    cursor.execute(sql, params)
+    matches = []
+    for existing_id, existing_name, existing_gate, existing_type in cursor.fetchall():
+        if _normalize_element_name(existing_name) != normalized_name:
+            continue
+        if element_type and existing_type != element_type:
+            continue
+        matches.append((existing_id, existing_name, existing_gate, existing_type))
+    return matches
+
+
+def _get_element_reference_counts(conn, element_id):
+    cursor = conn.cursor()
+    counts = {}
+    for key, table in (
+        ("maintenance", "maintenance_elements"),
+        ("reports", "maintenance_report_paths"),
+        ("dga", "dga_measurements"),
+        ("isolations", "isolation_request_elements"),
+    ):
+        try:
+            cursor.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE element_id=?", (element_id,)
+            )
+            counts[key] = int(cursor.fetchone()[0] or 0)
+        except sqlite3.OperationalError:
+            counts[key] = 0
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def _choose_canonical_element_id(conn, candidate_ids, preferred_id=None):
+    candidate_ids = [int(cid) for cid in (candidate_ids or []) if cid is not None]
+    if not candidate_ids:
+        return None
+
+    def _sort_key(candidate_id):
+        counts = _get_element_reference_counts(conn, candidate_id)
+        return (
+            -int(counts.get("maintenance", 0) > 0),
+            -counts.get("total", 0),
+            0 if candidate_id == preferred_id else 1,
+            candidate_id,
+        )
+
+    return min(candidate_ids, key=_sort_key)
+
+
+def _merge_duplicate_elements(conn, keep_id, duplicate_ids):
+    duplicate_ids = sorted(
+        {int(cid) for cid in (duplicate_ids or []) if cid != keep_id}
+    )
+    if not duplicate_ids:
+        return []
+
+    cursor = conn.cursor()
+    placeholders = ",".join(["?"] * len(duplicate_ids))
+
+    for duplicate_id in duplicate_ids:
+        cursor.execute(
+            """
+            DELETE FROM maintenance_elements
+            WHERE element_id=?
+              AND EXISTS (
+                  SELECT 1
+                  FROM maintenance_elements me2
+                  WHERE me2.maintenance_id = maintenance_elements.maintenance_id
+                    AND me2.element_id = ?
+              )
+            """,
+            (duplicate_id, keep_id),
+        )
+    cursor.execute(
+        f"UPDATE maintenance_elements SET element_id=? WHERE element_id IN ({placeholders})",
+        [keep_id] + duplicate_ids,
+    )
+
+    for duplicate_id in duplicate_ids:
+        cursor.execute(
+            """
+            DELETE FROM maintenance_report_paths
+            WHERE element_id=?
+              AND EXISTS (
+                  SELECT 1
+                  FROM maintenance_report_paths mr2
+                  WHERE mr2.maintenance_id = maintenance_report_paths.maintenance_id
+                    AND mr2.report_type = maintenance_report_paths.report_type
+                    AND mr2.element_id = ?
+              )
+            """,
+            (duplicate_id, keep_id),
+        )
+    cursor.execute(
+        f"UPDATE maintenance_report_paths SET element_id=? WHERE element_id IN ({placeholders})",
+        [keep_id] + duplicate_ids,
+    )
+
+    cursor.execute(
+        f"UPDATE dga_measurements SET element_id=? WHERE element_id IN ({placeholders})",
+        [keep_id] + duplicate_ids,
+    )
+
+    for duplicate_id in duplicate_ids:
+        cursor.execute(
+            """
+            DELETE FROM isolation_request_elements
+            WHERE element_id=?
+              AND EXISTS (
+                  SELECT 1
+                  FROM isolation_request_elements ire2
+                  WHERE ire2.request_id = isolation_request_elements.request_id
+                    AND ire2.element_id = ?
+              )
+            """,
+            (duplicate_id, keep_id),
+        )
+    cursor.execute(
+        f"UPDATE isolation_request_elements SET element_id=? WHERE element_id IN ({placeholders})",
+        [keep_id] + duplicate_ids,
+    )
+
+    cursor.execute(f"DELETE FROM elements WHERE id IN ({placeholders})", duplicate_ids)
+    # After moving references and deleting duplicates, refresh the kept
+    # element's maintenance_date to reflect any moved maintenance records.
+    try:
+        cursor.execute(
+            """
+            SELECT m.date_time
+            FROM maintenance m
+            JOIN maintenance_elements me ON me.maintenance_id = m.id
+            WHERE me.element_id = ?
+            ORDER BY m.date_time DESC
+            LIMIT 1
+            """,
+            (keep_id,),
+        )
+        row = cursor.fetchone()
+        new_date = row[0] if row else None
+        cursor.execute(
+            "UPDATE elements SET maintenance_date=? WHERE id=?",
+            (new_date, keep_id),
+        )
+    except Exception:
+        pass
+
+    return duplicate_ids
 
 
 def _dismiss_popup_safely(popup):
@@ -51,16 +273,22 @@ def _dismiss_popup_safely(popup):
 
 
 def _element_has_valid_maintenance_history(conn, element_id):
+    matches = _get_matching_element_rows(conn, element_id=element_id)
+    element_ids = [row[0] for row in matches]
+    if not element_ids:
+        return False
+
     cursor = conn.cursor()
+    placeholders = ",".join(["?"] * len(element_ids))
     cursor.execute(
-        """
+        f"""
         SELECT 1
         FROM maintenance_elements me
         JOIN maintenance m ON m.id = me.maintenance_id
-        WHERE me.element_id = ?
+        WHERE me.element_id IN ({placeholders})
         LIMIT 1
         """,
-        (element_id,),
+        element_ids,
     )
     return cursor.fetchone() is not None
 
@@ -922,6 +1150,41 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
 def show_element_maintenance_history(app, element_id, element_name, parent_popup):
     from popups import show_message_popup
 
+    matching_rows = _get_matching_element_rows(app.conn, element_id=element_id)
+    matching_ids = [row[0] for row in matching_rows]
+    canonical_element_id = _choose_canonical_element_id(
+        app.conn, matching_ids, preferred_id=element_id
+    )
+    canonical_name = next(
+        (row[1] for row in matching_rows if row[0] == canonical_element_id),
+        element_name,
+    )
+
+    # Best-effort: refresh the canonical element's stored maintenance_date
+    # in case references moved previously but the elements table wasn't updated.
+    try:
+        cur = app.conn.cursor()
+        cur.execute(
+            """
+            SELECT m.date_time
+            FROM maintenance m
+            JOIN maintenance_elements me ON me.maintenance_id = m.id
+            WHERE me.element_id = ?
+            ORDER BY m.date_time DESC
+            LIMIT 1
+            """,
+            (canonical_element_id or element_id,),
+        )
+        row = cur.fetchone()
+        new_date = row[0] if row else None
+        cur.execute(
+            "UPDATE elements SET maintenance_date=? WHERE id=?",
+            (new_date, canonical_element_id or element_id),
+        )
+        app.conn.commit()
+    except Exception:
+        pass
+
     if not _element_has_valid_maintenance_history(app.conn, element_id):
         show_message_popup(
             S["TITLES"].get("INFO", S["TITLES"].get("ERROR", "Σφάλμα")),
@@ -941,7 +1204,7 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
         WHERE e.id = ?
         LIMIT 1
         """,
-        (element_id,),
+        (canonical_element_id or element_id,),
     )
     row = c.fetchone()
     if not row:
@@ -958,8 +1221,8 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
         substation_id,
         substation_name,
         parent_popup,
-        preselected_element_id=element_id,
-        preselected_element_name=element_name,
+        preselected_element_id=canonical_element_id or element_id,
+        preselected_element_name=canonical_name,
     )
 
 
@@ -1619,15 +1882,70 @@ def show_edit_element_popup(
                 return
 
             c = app.conn.cursor()
+            gate_value = (
+                gate_spinner.text
+                if gate_spinner.text
+                != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+                else ""
+            )
+
+            matching_rows = _get_matching_element_rows(
+                app.conn,
+                substation_id=substation_id,
+                raw_name=name_val,
+                element_type=elem_type,
+            )
+            matching_ids = [row[0] for row in matching_rows]
+            canonical_element_id = _choose_canonical_element_id(
+                app.conn, matching_ids, preferred_id=element_id
+            )
+            merged_duplicate_ids = []
+
             duplicate_id = _find_duplicate_element_id(
                 app.conn, substation_id, name_val, exclude_id=element_id
             )
-            if duplicate_id is not None:
+            if duplicate_id is not None and duplicate_id not in matching_ids:
                 show_message_popup(
                     "Σφάλμα",
                     f'Υπάρχει ήδη στοιχείο με όνομα "{name_val}" σε αυτόν τον υποσταθμό!',
                 )
                 return
+
+            if canonical_element_id is None:
+                canonical_element_id = element_id
+            merged_duplicate_ids = [
+                match_id
+                for match_id in matching_ids
+                if match_id != canonical_element_id
+            ]
+            if merged_duplicate_ids:
+                _merge_duplicate_elements(
+                    app.conn, canonical_element_id, merged_duplicate_ids
+                )
+                # Refresh the canonical element's maintenance_date so the UI shows
+                # the latest maintenance linked to it (merge may have moved records).
+                try:
+                    cur = app.conn.cursor()
+                    cur.execute(
+                        """
+                        SELECT m.date_time
+                        FROM maintenance m
+                        JOIN maintenance_elements me ON me.maintenance_id = m.id
+                        WHERE me.element_id = ?
+                        ORDER BY m.date_time DESC
+                        LIMIT 1
+                        """,
+                        (canonical_element_id,),
+                    )
+                    row = cur.fetchone()
+                    new_date = row[0] if row else None
+                    cur.execute(
+                        "UPDATE elements SET maintenance_date=? WHERE id=?",
+                        (new_date, canonical_element_id),
+                    )
+                except Exception:
+                    # Best-effort refresh; don't break the save flow on failure
+                    pass
 
             new_model_id = (
                 models_data[model_spinner.text]["id"]
@@ -1635,12 +1953,7 @@ def show_edit_element_popup(
                 else None
             )
 
-            gate_value = (
-                gate_spinner.text
-                if gate_spinner.text
-                != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
-                else ""
-            )
+            # gate_value already computed above for the duplicate check
 
             breaker_category_value = None
             if elem_type in app.BREAKER_ELEMENT_TYPES:
@@ -1722,6 +2035,8 @@ def show_edit_element_popup(
             except Exception:
                 power_val_to_set = None
 
+            target_element_id = canonical_element_id or element_id
+
             try:
                 c.execute(
                     """UPDATE elements SET 
@@ -1746,7 +2061,7 @@ def show_edit_element_popup(
                         new_is_main_switch,
                         breaker_category_value,
                         power_val_to_set,
-                        element_id,
+                        target_element_id,
                     ),
                 )
             except sqlite3.IntegrityError:
@@ -1758,7 +2073,7 @@ def show_edit_element_popup(
                 return
 
             element_data = {
-                "id": element_id,
+                "id": target_element_id,
                 "substation_id": substation_id,
                 "element_type": elem_type,
                 "name": name_val,
@@ -1779,6 +2094,10 @@ def show_edit_element_popup(
                 "power_mva": power_val_to_set,
             }
             app._append_change_log("update", "elements", element_data)
+            for duplicate_element_id in merged_duplicate_ids:
+                app._append_change_log(
+                    "delete", "elements", {"id": duplicate_element_id}
+                )
 
             try:
                 sync_substation_gate_folders(

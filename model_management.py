@@ -5,6 +5,7 @@ Model Management UI Functions for Element Models
 import os
 import webbrowser
 
+from breaker_model_utils import infer_breaker_model_values
 from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
 from ui.shared import IconOnlyButton
@@ -214,6 +215,22 @@ def _numeric_error_for_field(field_def):
         .get("MODEL_FIELD_NUM_FMT", "Field {field} must be a number!")
         .format(field=field_name)
     )
+
+
+def _apply_breaker_model_defaults(category, model_name, extra_values, power_val):
+    if category not in {ELEM_BREAKER_YT, ELEM_BREAKER_MT}:
+        return extra_values, power_val
+
+    effective_current, calculated_power = infer_breaker_model_values(
+        category,
+        model_name,
+        extra_values.get("rated_normal_current_a"),
+    )
+    if effective_current is not None:
+        extra_values["rated_normal_current_a"] = effective_current
+    if calculated_power is not None:
+        power_val = calculated_power
+    return extra_values, power_val
 
 
 def _build_model_extra_inputs(container, category, input_map, initial_values=None):
@@ -968,6 +985,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             show_message_popup(S["TITLES"]["ERROR"], str(exc))
             return
 
+        extra_values, power_val = _apply_breaker_model_defaults(
+            category_spinner.text,
+            model_name_input.text.strip(),
+            extra_values,
+            power_val,
+        )
+
         sf6_capacity_val = None
         if breaker_cat == "SF6":
             if not sf6_capacity_input.text.strip():
@@ -1301,6 +1325,13 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         except ValueError as exc:
             show_message_popup(S["TITLES"]["ERROR"], str(exc))
             return
+
+        extra_values, power_val = _apply_breaker_model_defaults(
+            category,
+            model_name_input.text.strip(),
+            extra_values,
+            power_val,
+        )
 
         sf6_capacity_val = None
         if breaker_cat_val == "SF6":

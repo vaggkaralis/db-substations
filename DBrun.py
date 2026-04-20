@@ -3654,15 +3654,29 @@ class SubstationApp(App):
 
     def _format_maintenance_date(self, date_time_str):
         """Format maintenance date to DD/MM/YYYY for naming."""
-        try:
-            dt = datetime.strptime(date_time_str, "%Y-%m-%d %H:%M")
-            return dt.strftime("%d/%m/%Y")
-        except Exception:
+        if not date_time_str:
+            return ""
+        # Accept several common formats (with/without seconds, ISO-like)
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d",
+        ):
             try:
-                dt = datetime.strptime(date_time_str, "%Y-%m-%d")
+                dt = datetime.strptime(date_time_str, fmt)
                 return dt.strftime("%d/%m/%Y")
             except Exception:
-                return date_time_str
+                continue
+        # Fallback: try to extract a YYYY-MM-DD prefix
+        try:
+            m = re.search(r"(\d{4}-\d{2}-\d{2})", str(date_time_str))
+            if m:
+                dt = datetime.strptime(m.group(1), "%Y-%m-%d")
+                return dt.strftime("%d/%m/%Y")
+        except Exception:
+            pass
+        return str(date_time_str) or ""
 
     def _build_maintenance_name(self, substation_name, date_time_str):
         formatted_date = self._format_maintenance_date(date_time_str)
@@ -14667,6 +14681,17 @@ class SubstationApp(App):
                                 "corrosion_check": corrosion_check,
                                 "resistance_raid": (raid_a_sf6, raid_b_sf6, raid_c_sf6),
                             }
+                            # Ensure these SF6-specific inputs are saved by the
+                            # generic save logic which expects keys like
+                            # 'sf6', 'sf6_leakage' and 'sf6_leak_methodology'.
+                            measurements.update(
+                                {
+                                    "ops_count": ops_count_input,
+                                    "sf6": sf6_widgets,
+                                    "sf6_leakage": sf6_leakage_input,
+                                    "sf6_leak_methodology": sf6_methodology_input,
+                                }
+                            )
 
                         elif self._is_transformer(elem_type):
                             try:
@@ -18173,9 +18198,37 @@ class SubstationApp(App):
 
                 # Header row
                 header = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                display_name = maint_name or self._build_maintenance_name(
-                    substation_name, date_time
-                )
+                # Ensure we show the maintenance date (only date, no time) and
+                # strip any time component from existing maintenance names.
+                formatted_date = self._format_maintenance_date(date_time)
+                if maint_name:
+                    # Replace occurrences of 'YYYY-MM-DD HH:MM(:SS)' or 'YYYY-MM-DD' in the name
+                    try:
+                        clean_name = re.sub(
+                            r"(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}(:\d{2})?",
+                            lambda m: datetime.strptime(
+                                m.group(1), "%Y-%m-%d"
+                            ).strftime("%d/%m/%Y"),
+                            maint_name,
+                        )
+                        clean_name = re.sub(
+                            r"(\d{4}-\d{2}-\d{2})",
+                            lambda m: datetime.strptime(
+                                m.group(1), "%Y-%m-%d"
+                            ).strftime("%d/%m/%Y"),
+                            clean_name,
+                        )
+                    except Exception:
+                        clean_name = maint_name
+                    # Append formatted date if not already present
+                    if formatted_date and formatted_date not in clean_name:
+                        display_name = f"{clean_name} ({formatted_date})"
+                    else:
+                        display_name = clean_name
+                else:
+                    display_name = self._build_maintenance_name(
+                        substation_name, date_time
+                    )
                 maint_type_display = maintenance_type or S["MESSAGES"].get(
                     "MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση"
                 )
