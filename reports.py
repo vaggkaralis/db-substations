@@ -12,6 +12,59 @@ from report_sync import safe_generate_and_store_report
 from strings_proxy import STRINGS as S
 
 
+def normalize_decimal_numeric_text(value, decimal_separator="."):
+    text = "" if value is None else str(value)
+    alternate_separator = "," if decimal_separator == "." else "."
+    return text.replace(alternate_separator, decimal_separator)
+
+
+def _compute_sf6_leakage_bands(rows):
+    values = [
+        row.get("leakage") for row in (rows or []) if row.get("leakage") is not None
+    ]
+    if not values:
+        return {"min": None, "low_max": None, "mid_max": None, "max": None}
+
+    min_value = min(values)
+    max_value = max(values)
+    if max_value <= min_value:
+        return {
+            "min": min_value,
+            "low_max": min_value,
+            "mid_max": min_value,
+            "max": max_value,
+        }
+
+    step = (max_value - min_value) / 3.0
+    return {
+        "min": min_value,
+        "low_max": min_value + step,
+        "mid_max": min_value + (2 * step),
+        "max": max_value,
+    }
+
+
+def _classify_sf6_leakage(leakage, bands):
+    if leakage is None or not bands or bands.get("min") is None:
+        return "none"
+    if bands.get("max") == bands.get("min"):
+        return "green"
+    if leakage <= bands.get("low_max"):
+        return "red"
+    if leakage <= bands.get("mid_max"):
+        return "yellow"
+    return "green"
+
+
+def _sf6_row_background_rgba(leakage, bands):
+    return {
+        "red": (1.0, 0.90, 0.90, 1.0),
+        "yellow": (1.0, 0.98, 0.86, 1.0),
+        "green": (0.90, 1.0, 0.90, 1.0),
+        "none": (1.0, 1.0, 1.0, 1.0),
+    }[_classify_sf6_leakage(leakage, bands)]
+
+
 def _format_display_date(app, date_time_value):
     try:
         return app._format_maintenance_date(date_time_value)
@@ -60,7 +113,12 @@ def _short_temp_open_copy(path: str, *, existing_path: str | None = None) -> str
     return temp_path
 
 
-def show_sf6_management_popup(app, instance=None):
+def show_sf6_management_popup(
+    app,
+    instance=None,
+    preselected_year=None,
+    preselected_substation=None,
+):
     """Show SF6 leakage management report popup (delegated from DBrun)."""
     # Import Kivy widgets lazily to avoid top-level Kivy dependency in tests
     Popup = importlib.import_module("kivy.uix.popup").Popup
@@ -70,6 +128,11 @@ def show_sf6_management_popup(app, instance=None):
     Spinner = importlib.import_module("kivy.uix.spinner").Spinner
     GridLayout = importlib.import_module("kivy.uix.gridlayout").GridLayout
     ScrollView = importlib.import_module("kivy.uix.scrollview").ScrollView
+    TextInput = importlib.import_module("kivy.uix.textinput").TextInput
+    Widget = importlib.import_module("kivy.uix.widget").Widget
+    Color = importlib.import_module("kivy.graphics").Color
+    Rectangle = importlib.import_module("kivy.graphics").Rectangle
+    IconOnlyButton = importlib.import_module("ui.shared").IconOnlyButton
 
     c = app.conn.cursor()
     c.execute(
@@ -88,15 +151,52 @@ def show_sf6_management_popup(app, instance=None):
     )
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-    control_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
-    control_row.add_widget(
+    filter_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
+    filter_row.add_widget(
         Label(text=S["MESSAGES"].get("YEAR_LABEL", "Έτος:"), size_hint_x=0.15)
     )
     year_spinner = Spinner(
         text=years[0], values=years, size_hint_x=0.25, size_hint_y=None, height=35
     )
-    control_row.add_widget(year_spinner)
+    if preselected_year in years:
+        year_spinner.text = preselected_year
+    filter_row.add_widget(year_spinner)
 
+    show_all_label = S["MESSAGES"].get(
+        "SHOW_ALL_SUBSTATIONS", "Προβολή Όλων των Υποσταθμών"
+    )
+    selected_substation = {
+        "name": preselected_substation or show_all_label,
+    }
+
+    filter_row.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός:"), size_hint_x=0.18
+        )
+    )
+    substation_filter_input = TextInput(
+        text=selected_substation["name"],
+        readonly=True,
+        multiline=False,
+        size_hint_x=0.25,
+    )
+    filter_row.add_widget(substation_filter_input)
+
+    substation_picker_btn = Button(
+        text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"),
+        size_hint_x=0.11,
+    )
+    filter_row.add_widget(substation_picker_btn)
+
+    reset_filter_btn = Button(
+        text=S["BUTTONS"].get("CLEAR", "Καθαρισμός"),
+        size_hint_x=0.16,
+    )
+    filter_row.add_widget(reset_filter_btn)
+
+    main_layout.add_widget(filter_row)
+
+    control_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
     refresh_btn = Button(text=S["MESSAGES"].get("REFRESH", "Ανανέωση"), size_hint_x=0.2)
     control_row.add_widget(refresh_btn)
     print_btn = Button(text=S["MESSAGES"].get("PRINT", "Εκτύπωση"), size_hint_x=0.2)
@@ -118,14 +218,112 @@ def show_sf6_management_popup(app, instance=None):
     scroll.add_widget(table_layout)
     main_layout.add_widget(scroll)
 
+    def _apply_background(widget, rgba):
+        try:
+            with widget.canvas.before:
+                widget._sf6_bg_color = Color(*rgba)
+                widget._sf6_bg_rect = Rectangle(pos=widget.pos, size=widget.size)
+
+            def _update_bg(_inst, _value):
+                if hasattr(widget, "_sf6_bg_rect"):
+                    widget._sf6_bg_rect.pos = widget.pos
+                    widget._sf6_bg_rect.size = widget.size
+
+            widget.bind(pos=_update_bg, size=_update_bg)
+        except Exception:
+            pass
+
+    def _make_section_header(title_text, subtitle_text=""):
+        header_box = BoxLayout(size_hint_y=None, height=34, padding=(8, 0), spacing=8)
+        _apply_background(header_box, (0.89, 0.92, 0.96, 1.0))
+        header_box.add_widget(
+            Label(
+                text=f"[b]{title_text}[/b]",
+                markup=True,
+                halign="left",
+                valign="middle",
+                size_hint_x=0.6,
+            )
+        )
+        header_box.add_widget(
+            Label(
+                text=subtitle_text,
+                halign="right",
+                valign="middle",
+                size_hint_x=0.4,
+            )
+        )
+        return header_box
+
+    def _make_table_header():
+        header = BoxLayout(size_hint_y=None, height=34, spacing=6, padding=(6, 0))
+        _apply_background(header, (0.84, 0.88, 0.93, 1.0))
+        columns = [
+            (S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), 0.17),
+            (S["MESSAGES"].get("ELEMENT_LABEL", "Στοιχείο"), 0.31),
+            (S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), 0.13),
+            ("Μεθοδολογία", 0.17),
+            (S["MESSAGES"].get("RESPONSIBLE_LABEL", "Υπεύθυνος"), 0.16),
+            ("", 0.06),
+        ]
+        for text, width in columns:
+            header.add_widget(Label(text=text, bold=True, size_hint_x=width))
+        return header
+
+    def _open_maintenance_editor(maintenance_id):
+        popup.dismiss()
+        app.show_maintenance_menu(
+            maintenance_id=maintenance_id,
+            after_save_callback=lambda: show_sf6_management_popup(
+                app,
+                preselected_year=year_spinner.text,
+                preselected_substation=(
+                    None
+                    if selected_substation["name"] == show_all_label
+                    else selected_substation["name"]
+                ),
+            ),
+        )
+
     def render_report(year_value: str):
         table_layout.clear_widgets()
         data = app._get_sf6_report_data(year_value)
-        total_leakage = data["total_leakage"]
-        installed_sf6 = data["installed_sf6"]
-        percentage = data["percentage"]
-        active_elements = data["active_elements"]
-        active_substations = data["active_substations"]
+        available_substations = data.get("available_substations") or []
+        selected_name = selected_substation["name"]
+        if (
+            selected_name != show_all_label
+            and selected_name not in available_substations
+        ):
+            selected_substation["name"] = show_all_label
+            selected_name = show_all_label
+        substation_filter_input.text = selected_name
+
+        substation_rows = data.get("substation_rows") or {}
+        substation_stats = data.get("substation_stats") or {}
+        leakage_bands = data.get("leakage_bands") or {}
+
+        if selected_name == show_all_label:
+            displayed_groups = [
+                (substation, substation_rows.get(substation, []))
+                for substation in sorted(substation_rows)
+            ]
+            total_leakage = data["total_leakage"]
+            installed_sf6 = data["installed_sf6"]
+            percentage = data["percentage"]
+            active_elements = data["active_elements"]
+            active_substations = data["active_substations"]
+            displayed_rows = [
+                row for _substation, rows in displayed_groups for row in rows
+            ]
+        else:
+            displayed_rows = substation_rows.get(selected_name, [])
+            displayed_groups = [(selected_name, displayed_rows)]
+            selected_stats = substation_stats.get(selected_name, {})
+            total_leakage = sum((row.get("leakage") or 0.0) for row in displayed_rows)
+            installed_sf6 = selected_stats.get("installed_sf6", 0.0)
+            percentage = (total_leakage / installed_sf6 * 100) if installed_sf6 else 0.0
+            active_elements = selected_stats.get("active_elements", 0)
+            active_substations = 1 if selected_stats else 0
 
         summary_text = "\n".join(
             [
@@ -138,29 +336,12 @@ def show_sf6_management_popup(app, instance=None):
                     f"Έτος: {year_value} | Διαρροές: {total_leakage:.2f} kg | "
                     f"Ποσοστό: {percentage:.2f}%"
                 ),
+                (f"Φίλτρο Υποσταθμού: {selected_name}"),
             ]
         )
         summary_label.text = summary_text
 
-        header = GridLayout(cols=5, size_hint_y=None, height=30)
-        header.add_widget(
-            Label(text=S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), bold=True)
-        )
-        header.add_widget(
-            Label(text=S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός"), bold=True)
-        )
-        header.add_widget(
-            Label(text=S["MESSAGES"].get("ELEMENT_LABEL", "Στοιχείο"), bold=True)
-        )
-        header.add_widget(
-            Label(text=S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), bold=True)
-        )
-        header.add_widget(
-            Label(text=S["MESSAGES"].get("RESPONSIBLE_LABEL", "Υπεύθυνος"), bold=True)
-        )
-        table_layout.add_widget(header)
-
-        if not data["rows"]:
+        if not displayed_rows:
             table_layout.add_widget(
                 Label(
                     text=S["MESSAGES"].get(
@@ -173,18 +354,113 @@ def show_sf6_management_popup(app, instance=None):
             )
             return
 
-        for row in data["rows"]:
-            rlayout = GridLayout(cols=5, size_hint_y=None, height=30)
-            rlayout.add_widget(
-                Label(text=_format_display_date(app, row.get("date_time")) or "-")
+        table_layout.add_widget(_make_table_header())
+
+        for substation_name, rows in displayed_groups:
+            installed_substation = substation_stats.get(substation_name, {}).get(
+                "installed_sf6", 0.0
             )
-            rlayout.add_widget(Label(text=row.get("substation") or "-"))
-            rlayout.add_widget(Label(text=row.get("element") or "-"))
-            leakage = row.get("leakage")
-            leakage_text = "-" if leakage is None else f"{leakage:.2f}"
-            rlayout.add_widget(Label(text=leakage_text))
-            rlayout.add_widget(Label(text=row.get("responsible") or "-"))
-            table_layout.add_widget(rlayout)
+            subtotal = sum((row.get("leakage") or 0.0) for row in rows)
+            table_layout.add_widget(
+                _make_section_header(
+                    substation_name or "-",
+                    f"Διαρροές: {subtotal:.2f} kg | Εγκατεστημένο SF6: {installed_substation:.2f} kg",
+                )
+            )
+            for row in rows:
+                leakage = row.get("leakage")
+                leakage_text = "-" if leakage is None else f"{leakage:.2f}"
+                row_layout = BoxLayout(
+                    size_hint_y=None,
+                    height=36,
+                    spacing=6,
+                    padding=(6, 0),
+                )
+                _apply_background(
+                    row_layout,
+                    _sf6_row_background_rgba(leakage, leakage_bands),
+                )
+                row_layout.add_widget(
+                    Label(
+                        text=_format_display_date(app, row.get("date_time")) or "-",
+                        size_hint_x=0.17,
+                        color=(0, 0, 0, 1),
+                    )
+                )
+                row_layout.add_widget(
+                    Label(
+                        text=row.get("element") or "-",
+                        size_hint_x=0.31,
+                        color=(0, 0, 0, 1),
+                    )
+                )
+                row_layout.add_widget(
+                    Label(text=leakage_text, size_hint_x=0.13, color=(0, 0, 0, 1))
+                )
+                row_layout.add_widget(
+                    Label(
+                        text=row.get("methodology") or "-",
+                        size_hint_x=0.17,
+                        color=(0, 0, 0, 1),
+                    )
+                )
+                row_layout.add_widget(
+                    Label(
+                        text=row.get("responsible") or "-",
+                        size_hint_x=0.16,
+                        color=(0, 0, 0, 1),
+                    )
+                )
+                edit_btn = IconOnlyButton(
+                    icon_type="edit",
+                    icon_color=getattr(app, "theme", {}).get(
+                        "primary", (0.2, 0.6, 1, 1)
+                    ),
+                    size=(30, 30),
+                    tooltip=S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"),
+                    size_hint_x=0.06,
+                )
+                edit_btn.bind(
+                    on_press=lambda _instance, maintenance_id=row.get("maintenance_id"): (
+                        _open_maintenance_editor(maintenance_id)
+                    )
+                )
+                row_layout.add_widget(edit_btn)
+                table_layout.add_widget(row_layout)
+
+            table_layout.add_widget(Widget(size_hint_y=None, height=6))
+
+    def _open_substation_picker(*_args):
+        chooser_rows = [(-1, show_all_label)] + [
+            (index, substation_name)
+            for index, substation_name in enumerate(
+                data_cache.get("available_substations") or [], start=1
+            )
+        ]
+
+        def _on_select(substation_name):
+            selected_substation["name"] = substation_name or show_all_label
+            substation_filter_input.text = selected_substation["name"]
+            render_report(year_spinner.text)
+
+        app._show_substation_selection_window_with_callback(
+            popup,
+            chooser_rows,
+            on_select=_on_select,
+            title=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού"),
+        )
+
+    def _reset_substation_filter(*_args):
+        selected_substation["name"] = show_all_label
+        substation_filter_input.text = show_all_label
+        render_report(year_spinner.text)
+
+    data_cache = {}
+
+    def _refresh_and_cache(*_args):
+        data_cache.clear()
+        data_cache.update(app._get_sf6_report_data(year_spinner.text))
+        render_report(year_spinner.text)
 
     def handle_print(*_args):
         try:
@@ -219,7 +495,12 @@ def show_sf6_management_popup(app, instance=None):
 
     def handle_excel(*_args):
         try:
-            excel_path = app._export_sf6_excel(year_spinner.text)
+            excel_path = app._export_sf6_excel(
+                year_spinner.text,
+                None
+                if selected_substation["name"] == show_all_label
+                else selected_substation["name"],
+            )
 
             def _open_excel():
                 try:
@@ -247,12 +528,14 @@ def show_sf6_management_popup(app, instance=None):
                 .format(err=str(exc)),
             )
 
-    refresh_btn.bind(on_press=lambda _x: render_report(year_spinner.text))
-    year_spinner.bind(text=lambda _s, _t: render_report(year_spinner.text))
+    refresh_btn.bind(on_press=_refresh_and_cache)
+    year_spinner.bind(text=lambda _s, _t: _refresh_and_cache())
     print_btn.bind(on_press=handle_print)
     excel_btn.bind(on_press=handle_excel)
+    substation_picker_btn.bind(on_press=_open_substation_picker)
+    reset_filter_btn.bind(on_press=_reset_substation_filter)
 
-    render_report(year_spinner.text)
+    _refresh_and_cache()
 
     close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
     close_btn.bind(on_press=popup.dismiss)
@@ -547,7 +830,7 @@ def _get_sf6_report_data(app, year: str):
 
     c.execute(
         """
-             SELECT m.date_time, s.name, e.name, e.element_type, me.sf6_leakage_kg,
+             SELECT m.id, m.date_time, s.id, s.name, e.id, e.name, e.element_type, me.sf6_leakage_kg,
                  me.sf6_leak_methodology, p.name
         FROM maintenance_elements me
         JOIN maintenance m ON me.maintenance_id = m.id
@@ -567,8 +850,11 @@ def _get_sf6_report_data(app, year: str):
     total_leakage = 0.0
     rows = []
     for (
+        maintenance_id,
         date_time,
+        substation_id,
         sub_name,
+        element_id,
         elem_name,
         elem_type,
         leakage,
@@ -578,9 +864,13 @@ def _get_sf6_report_data(app, year: str):
         total_leakage += leakage
         rows.append(
             {
-                "date_time": _format_display_date(app, date_time) or "-",
+                "maintenance_id": maintenance_id,
+                "date_time": date_time,
+                "substation_id": substation_id,
                 "substation": sub_name or "-",
+                "element_id": element_id,
                 "element": elem_name or "-",
+                "element_type": elem_type or "-",
                 "leakage": leakage,
                 "methodology": methodology or "",
                 "responsible": responsible_name or "-",
@@ -618,7 +908,7 @@ def _get_sf6_report_data(app, year: str):
     active_substations = active_counts[1] or 0
 
     c.execute("""
-        SELECT s.name, SUM(COALESCE(em.sf6_capacity_kg, 0))
+        SELECT s.name, COUNT(*), SUM(COALESCE(em.sf6_capacity_kg, 0))
         FROM elements e
         JOIN substations s ON e.substation_id = s.id
         LEFT JOIN element_models em ON e.element_model_id = em.id
@@ -627,7 +917,18 @@ def _get_sf6_report_data(app, year: str):
           AND e.element_type IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')
         GROUP BY s.name
         """)
-    substation_installed = {row[0]: (row[1] or 0.0) for row in c.fetchall()}
+    substation_stats = {
+        row[0]: {
+            "active_elements": row[1] or 0,
+            "installed_sf6": row[2] or 0.0,
+        }
+        for row in c.fetchall()
+    }
+
+    available_substations = sorted(
+        {substation for substation in substation_rows}
+        | {substation for substation in substation_stats}
+    )
 
     percentage = (total_leakage / installed_sf6 * 100) if installed_sf6 else 0.0
 
@@ -640,11 +941,17 @@ def _get_sf6_report_data(app, year: str):
         "active_substations": active_substations,
         "rows": rows,
         "substation_rows": substation_rows,
-        "substation_installed": substation_installed,
+        "substation_installed": {
+            name: stats.get("installed_sf6", 0.0)
+            for name, stats in substation_stats.items()
+        },
+        "substation_stats": substation_stats,
+        "available_substations": available_substations,
+        "leakage_bands": _compute_sf6_leakage_bands(rows),
     }
 
 
-def _export_sf6_excel(app, year: str):
+def _export_sf6_excel(app, year: str, substation_filter=None):
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -654,6 +961,26 @@ def _export_sf6_excel(app, year: str):
         ) from exc
 
     data = _get_sf6_report_data(app, year)
+    selected_substation_stats = None
+    if substation_filter:
+        selected_rows = data["substation_rows"].get(substation_filter, [])
+        selected_substation_stats = data.get("substation_stats", {}).get(
+            substation_filter, {}
+        )
+        data = {
+            **data,
+            "rows": selected_rows,
+            "substation_rows": {substation_filter: selected_rows},
+            "total_leakage": sum((row.get("leakage") or 0.0) for row in selected_rows),
+            "installed_sf6": selected_substation_stats.get("installed_sf6", 0.0),
+            "active_elements": selected_substation_stats.get("active_elements", 0),
+            "active_substations": 1 if selected_substation_stats else 0,
+        }
+        data["percentage"] = (
+            (data["total_leakage"] / data["installed_sf6"] * 100)
+            if data["installed_sf6"]
+            else 0.0
+        )
 
     wb = Workbook()
     ws = wb.active

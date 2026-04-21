@@ -3652,6 +3652,11 @@ class SubstationApp(App):
 
         return _f(self, instance)
 
+    def _normalize_decimal_numeric_text(self, value, decimal_separator="."):
+        from reports import normalize_decimal_numeric_text as _f
+
+        return _f(value, decimal_separator)
+
     def _format_maintenance_date(self, date_time_str):
         """Format maintenance date to DD/MM/YYYY for naming."""
         if not date_time_str:
@@ -14547,6 +14552,17 @@ class SubstationApp(App):
                                 multiline=False,
                                 size_hint_x=0.25,
                             )
+                            sf6_leakage_input.bind(
+                                text=lambda inst, val: (
+                                    setattr(
+                                        inst,
+                                        "text",
+                                        self._normalize_decimal_numeric_text(val),
+                                    )
+                                    if val and "," in val
+                                    else None
+                                )
+                            )
                             sf6_leakage_layout.add_widget(sf6_leakage_input)
                             sf6_leakage_layout.add_widget(Widget())
                             details_container.add_widget(sf6_leakage_layout)
@@ -15518,6 +15534,17 @@ class SubstationApp(App):
                             if breaker_category == "SF6":
                                 sf6_leakage_input = TextInput(
                                     hint_text="kg", size_hint_x=0.25, multiline=False
+                                )
+                                sf6_leakage_input.bind(
+                                    text=lambda inst, val: (
+                                        setattr(
+                                            inst,
+                                            "text",
+                                            self._normalize_decimal_numeric_text(val),
+                                        )
+                                        if val and "," in val
+                                        else None
+                                    )
                                 )
                                 sf6_methodology_input = Spinner(
                                     text="Πλήρωση",
@@ -17128,7 +17155,12 @@ class SubstationApp(App):
                     # Helper to parse float or None
                     def parse_float(val):
                         try:
-                            return float(val.strip()) if val.strip() else None
+                            normalized_val = self._normalize_decimal_numeric_text(val)
+                            return (
+                                float(normalized_val.strip())
+                                if normalized_val.strip()
+                                else None
+                            )
                         except Exception:
                             return None
 
@@ -17162,7 +17194,11 @@ class SubstationApp(App):
 
                     sf6_leakage_val = None
                     if measurements.get("sf6_leakage"):
-                        sf6_leakage_val = parse_float(measurements["sf6_leakage"].text)
+                        leak_widget = measurements["sf6_leakage"]
+                        leak_widget.text = self._normalize_decimal_numeric_text(
+                            leak_widget.text
+                        )
+                        sf6_leakage_val = parse_float(leak_widget.text)
 
                     sf6_leak_methodology_val = None
                     if measurements.get("sf6_leak_methodology"):
