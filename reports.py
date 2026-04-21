@@ -12,6 +12,14 @@ from report_sync import safe_generate_and_store_report
 from strings_proxy import STRINGS as S
 
 
+def _format_display_date(app, date_time_value):
+    try:
+        return app._format_maintenance_date(date_time_value)
+    except Exception:
+        pass
+    return str(date_time_value or "")
+
+
 def _win_existing_path(path: str | None) -> str | None:
     if not path:
         return None
@@ -134,7 +142,7 @@ def show_sf6_management_popup(app, instance=None):
         )
         summary_label.text = summary_text
 
-        header = GridLayout(cols=4, size_hint_y=None, height=30)
+        header = GridLayout(cols=5, size_hint_y=None, height=30)
         header.add_widget(
             Label(text=S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), bold=True)
         )
@@ -146,6 +154,9 @@ def show_sf6_management_popup(app, instance=None):
         )
         header.add_widget(
             Label(text=S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), bold=True)
+        )
+        header.add_widget(
+            Label(text=S["MESSAGES"].get("RESPONSIBLE_LABEL", "Υπεύθυνος"), bold=True)
         )
         table_layout.add_widget(header)
 
@@ -163,13 +174,16 @@ def show_sf6_management_popup(app, instance=None):
             return
 
         for row in data["rows"]:
-            rlayout = GridLayout(cols=4, size_hint_y=None, height=30)
-            rlayout.add_widget(Label(text=row.get("date_time") or "-"))
+            rlayout = GridLayout(cols=5, size_hint_y=None, height=30)
+            rlayout.add_widget(
+                Label(text=_format_display_date(app, row.get("date_time")) or "-")
+            )
             rlayout.add_widget(Label(text=row.get("substation") or "-"))
             rlayout.add_widget(Label(text=row.get("element") or "-"))
             leakage = row.get("leakage")
             leakage_text = "-" if leakage is None else f"{leakage:.2f}"
             rlayout.add_widget(Label(text=leakage_text))
+            rlayout.add_widget(Label(text=row.get("responsible") or "-"))
             table_layout.add_widget(rlayout)
 
     def handle_print(*_args):
@@ -564,7 +578,7 @@ def _get_sf6_report_data(app, year: str):
         total_leakage += leakage
         rows.append(
             {
-                "date_time": date_time or "-",
+                "date_time": _format_display_date(app, date_time) or "-",
                 "substation": sub_name or "-",
                 "element": elem_name or "-",
                 "leakage": leakage,
@@ -756,7 +770,7 @@ def _export_sf6_excel(app, year: str):
                 row.get("methodology", "") or "",
                 f"{installed_sub:.2f}",
                 f"{row['leakage']:.2f}",
-                row["date_time"],
+                _format_display_date(app, row.get("date_time")) or "-",
                 row.get("responsible", "-") or "-",
                 "",
             ]

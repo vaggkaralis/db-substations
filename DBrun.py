@@ -4032,7 +4032,9 @@ class SubstationApp(App):
         lines = []
         lines.append(f"Αναφορά Συντήρησης: {display_name}")
         lines.append(f"Υποσταθμός: {substation_name}")
-        lines.append(f"{S['MESSAGES'].get('DATE_LABEL', 'Ημερομηνία')}: {date_time}")
+        lines.append(
+            f"{S['MESSAGES'].get('DATE_LABEL', 'Ημερομηνία')}: {self._format_maintenance_date(date_time) or '-'}"
+        )
         lines.append(
             S["MESSAGES"]
             .get("PEOPLE_SUMMARY", "Υπεύθυνος: {resp} | Ομάδα: {crew}")
@@ -16757,6 +16759,12 @@ class SubstationApp(App):
             bypass_attachment_prompt=False, bypass_sf6_methodology_check=False
         ):
             nonlocal maintenance_id, existing_primary_media_folder
+
+            def _get_element_comments_text(widgets):
+                comments_widget = (widgets or {}).get("comments")
+                comments_text = getattr(comments_widget, "text", None)
+                return comments_text.strip() if isinstance(comments_text, str) else ""
+
             # Validate at least one element selected
             selected_elements = [
                 (eid, widgets)
@@ -17145,7 +17153,12 @@ class SubstationApp(App):
                     sf6_widgets = measurements.get("sf6")
                     if sf6_widgets:
                         for key, widget in sf6_widgets.items():
-                            sf6_vals[key] = parse_float(widget.text)
+                            if isinstance(widget, (tuple, list)):
+                                continue
+                            widget_text = getattr(widget, "text", None)
+                            if widget_text is None:
+                                continue
+                            sf6_vals[key] = parse_float(widget_text)
 
                     sf6_leakage_val = None
                     if measurements.get("sf6_leakage"):
@@ -17292,7 +17305,7 @@ class SubstationApp(App):
                         (
                             maintenance_id,
                             elem_id,
-                            widgets["comments"].text.strip(),
+                            _get_element_comments_text(widgets),
                             ins_closed_fa_val,
                             ins_closed_fa_unit,
                             ins_closed_fb_val,
@@ -17364,7 +17377,7 @@ class SubstationApp(App):
                         (
                             maintenance_id,
                             elem_id,
-                            widgets["comments"].text.strip(),
+                            _get_element_comments_text(widgets),
                             data_json,
                         ),
                     )
@@ -17454,7 +17467,7 @@ class SubstationApp(App):
                 elements_data.append(
                     {
                         "element_id": elem_id,
-                        "element_comments": widgets["comments"].text.strip(),
+                        "element_comments": _get_element_comments_text(widgets),
                     }
                 )
 
@@ -17672,7 +17685,11 @@ class SubstationApp(App):
             left = BoxLayout(orientation="vertical")
             left.add_widget(
                 Label(
-                    text=f"{sname or '-'} — {mname} — {mdate} — {workflow_summary['stage_label']}",
+                    text=(
+                        f"{sname or '-'} — {mname} — "
+                        f"{self._format_maintenance_date(mdate) or '-'} — "
+                        f"{workflow_summary['stage_label']}"
+                    ),
                     size_hint_y=None,
                     height=30,
                 )
@@ -18281,7 +18298,7 @@ class SubstationApp(App):
                     return lambda x: self.send_maintenance_email_report(m_id)
 
                 def make_edit_handler(m_id, p, maint_type, elements):
-                    if maint_type in ("Επαναληπτική συντήρηση", "Βλάβη"):
+                    if maint_type != "Φυσικοχημικές/Αεριοχρωματογραφία":
                         return lambda x: self.show_maintenance_menu(
                             None,
                             substation_name,
@@ -18323,11 +18340,6 @@ class SubstationApp(App):
                                 S["TITLES"].get("ERROR", "Σφάλμα"),
                                 "Δεν βρέθηκε μέτρηση DGA για επεξεργασία.",
                             )
-                    else:
-                        return lambda x: show_message_popup(
-                            S["TITLES"].get("ERROR", "Σφάλμα"),
-                            f"Άγνωστος τύπος συμβάντος: {maint_type}",
-                        )
 
                 def make_checklist_handler(m_id, maint_type, raw_checklist_json):
                     has_saved_checklist = bool(raw_checklist_json)
@@ -18835,7 +18847,7 @@ class SubstationApp(App):
             f"{S['MESSAGES'].get('SUBSTATION_LABEL_PLAIN', 'Υποσταθμός')}: {substation_name}"
         )
         add_wrapped_label(
-            f"{S['MESSAGES'].get('DATE_LABEL', 'Ημερομηνία:')} {date_time or '-'}"
+            f"{S['MESSAGES'].get('DATE_LABEL', 'Ημερομηνία:')} {self._format_maintenance_date(date_time) or '-'}"
         )
         add_wrapped_label(
             f"{S['MESSAGES'].get('MAINT_TYPE_LABEL', 'Τύπος Συντήρησης:')} {maintenance_type or '-'}"
@@ -19335,7 +19347,9 @@ class SubstationApp(App):
                 sub_name or "-",
             )
             add_kv_row(
-                grid, S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία:"), maint_date or "-"
+                grid,
+                S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία:"),
+                self._format_maintenance_date(maint_date) or "-",
             )
             add_kv_row(
                 grid,
