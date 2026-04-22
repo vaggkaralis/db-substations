@@ -17662,31 +17662,172 @@ class SubstationApp(App):
                 parent_popup.dismiss()
             except Exception:
                 pass
-
         from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.gridlayout import GridLayout
         from kivy.uix.scrollview import ScrollView
         from kivy.uix.label import Label
         from kivy.uix.button import Button
+        from kivy.uix.textinput import TextInput
         from kivy.uix.widget import Widget
+        from kivy.graphics import Color, Line, Rectangle
 
         try:
             from reports import show_message_popup
         except Exception:
             show_message_popup = None
 
-        c = self.conn.cursor()
-        c.execute("""
-            SELECT m.id, m.name, m.date_time, s.name AS sub_name, p.name AS person_name, t.tasks_text, m.data_json
-            FROM maintenance_pending_tasks t
-            JOIN maintenance m ON t.maintenance_id = m.id
-            LEFT JOIN substations s ON m.substation_id = s.id
-            LEFT JOIN people p ON m.responsible_id = p.id
-            ORDER BY m.date_time DESC
-            """)
-        rows = c.fetchall() or []
-        if not rows:
+        from ui.shared import IconOnlyButton
+
+        def _fetch_undone_data():
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT m.id, m.name, m.date_time, s.name AS sub_name, t.tasks_text
+                FROM maintenance_pending_tasks t
+                JOIN maintenance m ON t.maintenance_id = m.id
+                LEFT JOIN substations s ON m.substation_id = s.id
+                ORDER BY s.name ASC, m.date_time DESC
+                """
+            )
+            base_rows = cursor.fetchall() or []
+            if not base_rows:
+                return {}, []
+
+            maint_ids = [row[0] for row in base_rows]
+            placeholders = ",".join(["?"] * len(maint_ids))
+            people_by_maint = {}
+            elements_by_maint = {}
+
+            cursor.execute(
+                f"""
+                SELECT mp.maintenance_id, p.name, mp.role
+                FROM maintenance_people mp
+                JOIN people p ON mp.person_id = p.id
+                WHERE mp.maintenance_id IN ({placeholders})
+                ORDER BY p.name
+                """,
+                maint_ids,
+            )
+            for maintenance_id, person_name, role in cursor.fetchall():
+                entry = people_by_maint.setdefault(
+                    maintenance_id, {"responsible": None, "crew": []}
+                )
+                if role == "responsible":
+                    entry["responsible"] = person_name
+                elif role == "crew":
+                    entry["crew"].append(person_name)
+
+            cursor.execute(
+                f"""
+                SELECT me.maintenance_id, e.name
+                FROM maintenance_elements me
+                JOIN elements e ON me.element_id = e.id
+                WHERE me.maintenance_id IN ({placeholders})
+                ORDER BY e.name
+                """,
+                maint_ids,
+            )
+            for maintenance_id, element_name in cursor.fetchall():
+                elements_by_maint.setdefault(maintenance_id, []).append(element_name)
+
+            grouped = {}
+            for (
+                maintenance_id,
+                name,
+                date_time,
+                substation_name,
+                tasks_text,
+            ) in base_rows:
+                people_info = people_by_maint.get(
+                    maintenance_id, {"responsible": None, "crew": []}
+                )
+                grouped.setdefault(substation_name or "-", []).append(
+                    {
+                        "id": maintenance_id,
+                        "name": name or "-",
+                        "date": date_time,
+                        "substation": substation_name or "-",
+                        "responsible": people_info.get("responsible") or "-",
+                        "crew": people_info.get("crew") or [],
+                        "elements": elements_by_maint.get(maintenance_id, []),
+                        "tasks": tasks_text or "-",
+                    }
+                )
+
+            return grouped, sorted(grouped.keys())
+
+        def _style_box(widget, bg=(0.97, 0.98, 0.99, 1), border=(0.75, 0.78, 0.82, 1)):
+            try:
+                with widget.canvas.before:
+                    widget._bg_color = Color(*bg)
+                    widget._bg_rect = Rectangle(pos=widget.pos, size=widget.size)
+                with widget.canvas.after:
+                    widget._border_color = Color(*border)
+                    widget._border_line = Line(
+                        rectangle=(widget.x, widget.y, widget.width, widget.height),
+                        width=1,
+                    )
+
+                def _update(_inst, _val):
+                    widget._bg_rect.pos = widget.pos
+                    widget._bg_rect.size = widget.size
+                    widget._border_line.rectangle = (
+                        widget.x,
+                        widget.y,
+                        widget.width,
+                        widget.height,
+                    )
+
+                widget.bind(pos=_update, size=_update)
+            except Exception:
+                pass
+
+        def _make_wrapped_label(
+            text,
+            *,
+            size_hint_x=1.0,
+            bold=False,
+            color=(0, 0, 0, 1),
+            halign="left",
+            valign="middle",
+        ):
+            label = Label(
+                text=text or "-",
+                size_hint_x=size_hint_x,
+                size_hint_y=None,
+                bold=bold,
+                color=color,
+                halign=halign,
+                valign=valign,
+            )
+            label.bind(
+                width=lambda inst, val: setattr(
+                    inst, "text_size", (max(0, val - 8), None)
+                ),
+                texture_size=lambda inst, val: setattr(
+                    inst, "height", max(24, val[1] + 8)
+                ),
+            )
+            return label
+
+        def _set_row_height(row_widget, labels, min_height=44):
+            def _sync(*_args):
+                row_widget.height = max(
+                    min_height,
+                    max(
+                        (getattr(label, "height", 0) for label in labels),
+                        default=min_height,
+                    )
+                    + 6,
+                )
+
+            for label in labels:
+                label.bind(height=_sync, texture_size=_sync)
+            _sync()
+
+        substation_rows, available_substations = _fetch_undone_data()
+        if not substation_rows:
             if show_message_popup:
                 show_message_popup(
                     S["TITLES"].get("INFO", "Πληροφορία"),
@@ -17696,107 +17837,301 @@ class SubstationApp(App):
                 )
             return
 
+        show_all_label = S["MESSAGES"].get(
+            "SHOW_ALL_SUBSTATIONS", "Προβολή Όλων των Υποσταθμών"
+        )
+        selected_substation = {"name": show_all_label}
+
         popup = Popup(
             title=S["MESSAGES"].get(
                 "UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"
             ),
-            size_hint=(0.9, 0.9),
+            size_hint=(0.95, 0.9),
         )
+
+        main_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
+
+        filter_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
+        filter_row.add_widget(
+            Label(
+                text=S["MESSAGES"].get("SUBSTATION_LABEL", "Υποσταθμός:"),
+                size_hint_x=0.18,
+            )
+        )
+        substation_filter_input = TextInput(
+            text=selected_substation["name"],
+            readonly=True,
+            multiline=False,
+            size_hint_x=0.4,
+        )
+        filter_row.add_widget(substation_filter_input)
+
+        substation_picker_btn = Button(
+            text=S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"),
+            size_hint_x=0.12,
+        )
+        filter_row.add_widget(substation_picker_btn)
+
+        reset_btn = Button(
+            text=S["BUTTONS"].get("CLEAR", "Καθαρισμός"),
+            size_hint_x=0.12,
+        )
+        filter_row.add_widget(reset_btn)
+
+        refresh_btn = Button(
+            text=S["MESSAGES"].get("REFRESH", "Ανανέωση"),
+            size_hint_x=0.18,
+        )
+        filter_row.add_widget(refresh_btn)
+        main_layout.add_widget(filter_row)
+
+        summary_label = Label(text="", size_hint_y=None, height=28)
+        main_layout.add_widget(summary_label)
+
         scroll = ScrollView(bar_width=10)
-        container = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=8)
+        container = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=4)
         container.bind(minimum_height=container.setter("height"))
 
-        from ui.shared import IconOnlyButton
+        # column header will be created per-section inside _render_rows
 
-        for mid, mname, mdate, sname, pname, tasks, raw_data_json in rows:
-            _payload, workflow_state = self._load_maintenance_workflow_state(
-                raw_data_json
+        def _build_card(row_data):
+            card = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                padding=8,
+                spacing=6,
             )
-            workflow_summary = self._summarize_maintenance_workflow(
-                workflow_state,
-                pending_tasks_text=tasks or "",
-                completed=False,
-            )
-            row = BoxLayout(size_hint_y=None, height=110, spacing=8)
-            left = BoxLayout(orientation="vertical")
-            left.add_widget(
-                Label(
-                    text=(
-                        f"{sname or '-'} — {mname} — "
-                        f"{self._format_maintenance_date(mdate) or '-'} — "
-                        f"{workflow_summary['stage_label']}"
-                    ),
-                    size_hint_y=None,
-                    height=30,
-                )
-            )
-            left.add_widget(
-                Label(
-                    text=f"{S['MESSAGES'].get('TASKS_LEFT_LABEL', 'Tasks left')}: {tasks or ''}",
-                    size_hint_y=None,
-                    height=70,
-                )
-            )
-            row.add_widget(left)
+            card.bind(minimum_height=card.setter("height"))
+            _style_box(card)
 
-            actions = BoxLayout(orientation="vertical", size_hint_x=0.28, spacing=6)
-            primary_color = (0.2, 0.6, 1, 1)
-            try:
-                primary_color = getattr(self, "theme", {}).get("primary", primary_color)
-            except Exception:
-                primary_color = primary_color
+            top_row = BoxLayout(size_hint_y=None, spacing=6)
+
+            date_label = _make_wrapped_label(
+                self._format_maintenance_date(row_data.get("date")) or "-",
+                size_hint_x=0.14,
+                halign="center",
+            )
+            top_row.add_widget(date_label)
+
+            maintenance_label = _make_wrapped_label(
+                row_data.get("name") or "-",
+                size_hint_x=0.30,
+                bold=True,
+                valign="top",
+            )
+            top_row.add_widget(maintenance_label)
+
+            crew_text = ", ".join(row_data.get("crew") or []) or "-"
+            people_label = _make_wrapped_label(
+                f"Υπεύθυνος: {row_data.get('responsible') or '-'}\nΣυνεργείο: {crew_text}",
+                size_hint_x=0.32,
+                valign="top",
+            )
+            top_row.add_widget(people_label)
+
+            status_label = _make_wrapped_label(
+                S["MESSAGES"].get("MARK_INCOMPLETE_LABEL", "Δεν ολοκληρώθηκε"),
+                size_hint_x=0.14,
+                color=(1, 0, 0, 1),
+                bold=True,
+                halign="center",
+            )
+            top_row.add_widget(status_label)
+
+            action_box = BoxLayout(
+                orientation="horizontal",
+                size_hint_x=0.10,
+                size_hint_y=None,
+                height=34,
+                spacing=6,
+            )
+            primary_color = getattr(self, "theme", {}).get("primary", (0.2, 0.6, 1, 1))
             edit_btn = IconOnlyButton(
                 icon_type="edit",
                 icon_color=primary_color,
-                size=(36, 36),
+                size=(34, 34),
                 tooltip=S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"),
             )
             edit_btn.bind(
-                on_press=lambda inst, mid=mid: (
+                on_press=lambda _inst, mid=row_data["id"]: (
                     popup.dismiss(),
                     self.show_maintenance_menu(maintenance_id=mid),
                 )
             )
-            done_color = (0.1, 0.6, 0.1, 1)
+
             done_btn = IconOnlyButton(
                 icon_type="check",
-                icon_color=done_color,
-                size=(36, 36),
+                icon_color=(0.1, 0.6, 0.1, 1),
+                size=(34, 34),
                 tooltip=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Ολοκληρώθηκε"),
             )
 
-            def _mark_done(_inst, mid=mid):
+            def _mark_done(_inst, mid=row_data["id"]):
                 try:
-                    c.execute(
+                    done_cursor = self.conn.cursor()
+                    done_cursor.execute(
                         "DELETE FROM maintenance_pending_tasks WHERE maintenance_id=?",
                         (mid,),
                     )
                     self.conn.commit()
                 except Exception:
-                    pass
-
                     logging.exception("Failed to mark maintenance %s done", mid)
-                popup.dismiss()
-                # refresh
-                self.show_undone_maintenances()
+                _refresh()
 
             done_btn.bind(on_press=_mark_done)
-            actions.add_widget(edit_btn)
-            actions.add_widget(done_btn)
-            row.add_widget(actions)
+            action_box.add_widget(edit_btn)
+            action_box.add_widget(done_btn)
+            top_row.add_widget(action_box)
+            _set_row_height(
+                top_row,
+                [date_label, maintenance_label, people_label, status_label],
+                min_height=46,
+            )
+            card.add_widget(top_row)
 
-            container.add_widget(row)
-            container.add_widget(Widget(size_hint_y=None, height=6))
+            elements_text = ", ".join(row_data.get("elements") or []) or "-"
+            elements_label = _make_wrapped_label(
+                f"{S['MESSAGES'].get('ELEMENTS_LIST_LABEL', 'Στοιχεία που συντηρήθηκαν')}: {elements_text}",
+                valign="top",
+            )
+            tasks_label = _make_wrapped_label(
+                f"{S['MESSAGES'].get('TASKS_LEFT_LABEL', 'Εργασίες που απομένουν')}: {row_data.get('tasks') or '-'}",
+                valign="top",
+            )
+            card.add_widget(elements_label)
+            card.add_widget(tasks_label)
+            return card
+
+        def _render_rows():
+            container.clear_widgets()
+            selected_name = selected_substation["name"]
+            if selected_name == show_all_label:
+                groups = sorted(substation_rows.items(), key=lambda item: item[0] or "")
+            else:
+                groups = [(selected_name, substation_rows.get(selected_name, []))]
+
+            total_records = sum(len(rows_list) for _sub, rows_list in groups)
+            summary_label.text = (
+                f"Υποσταθμός: {selected_name} | Εκκρεμείς Συντηρήσεις: {total_records}"
+            )
+
+            if total_records == 0:
+                container.add_widget(
+                    Label(
+                        text=S["MESSAGES"].get(
+                            "NO_UNDONE_MAINTENANCES",
+                            "Δεν υπάρχουν εκκρεμείς συντηρήσεις",
+                        ),
+                        size_hint_y=None,
+                        height=40,
+                    )
+                )
+                return
+
+            for sub_name, rows_list in groups:
+                section_header = BoxLayout(
+                    size_hint_y=None,
+                    height=34,
+                    padding=(8, 0),
+                )
+                _style_box(
+                    section_header,
+                    bg=(0.89, 0.92, 0.96, 1),
+                    border=(0.82, 0.86, 0.90, 1),
+                )
+                section_header.add_widget(
+                    Label(
+                        text=f"[b]{sub_name or '-'}[/b]",
+                        markup=True,
+                        size_hint_x=0.7,
+                        halign="left",
+                        valign="middle",
+                    )
+                )
+                section_header.add_widget(
+                    Label(
+                        text=f"Εγγραφές: {len(rows_list)}",
+                        size_hint_x=0.3,
+                        halign="right",
+                        valign="middle",
+                    )
+                )
+                container.add_widget(section_header)
+                # create a fresh column header for this section (avoid reusing widgets)
+                header = BoxLayout(
+                    size_hint_y=None, height=34, spacing=6, padding=(8, 0)
+                )
+                _style_box(
+                    header, bg=(0.92, 0.95, 0.98, 1), border=(0.82, 0.86, 0.90, 1)
+                )
+                for text, width in [
+                    (S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), 0.14),
+                    (S["MESSAGES"].get("MAINT_LABEL", "Συντήρηση"), 0.30),
+                    ("Υπεύθυνος / Συνεργείο", 0.32),
+                    (S["MESSAGES"].get("STATUS_LABEL", "Κατάσταση"), 0.14),
+                    ("", 0.10),
+                ]:
+                    header_label = Label(text=text, bold=True, size_hint_x=width)
+                    header_label.bind(
+                        size=lambda inst, val: setattr(inst, "text_size", val)
+                    )
+                    header.add_widget(header_label)
+                container.add_widget(header)
+
+                for row_data in rows_list:
+                    container.add_widget(_build_card(row_data))
+
+                container.add_widget(Widget(size_hint_y=None, height=6))
+
+        def _open_substation_picker(*_args):
+            chooser_rows = [(-1, show_all_label)] + [
+                (index, sub_name)
+                for index, sub_name in enumerate(available_substations, start=1)
+            ]
+
+            def _on_select(sub_name):
+                selected_substation["name"] = sub_name or show_all_label
+                substation_filter_input.text = selected_substation["name"]
+                _render_rows()
+
+            self._show_substation_selection_window_with_callback(
+                popup,
+                chooser_rows,
+                on_select=_on_select,
+                title=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού"),
+            )
+
+        def _reset_filter(*_args):
+            selected_substation["name"] = show_all_label
+            substation_filter_input.text = show_all_label
+            _render_rows()
+
+        def _refresh(*_args):
+            fresh_rows, fresh_substations = _fetch_undone_data()
+            substation_rows.clear()
+            substation_rows.update(fresh_rows)
+            available_substations[:] = fresh_substations
+            if (
+                selected_substation["name"] != show_all_label
+                and selected_substation["name"] not in available_substations
+            ):
+                selected_substation["name"] = show_all_label
+                substation_filter_input.text = show_all_label
+            _render_rows()
+
+        substation_picker_btn.bind(on_press=_open_substation_picker)
+        reset_btn.bind(on_press=_reset_filter)
+        refresh_btn.bind(on_press=_refresh)
 
         scroll.add_widget(container)
-        main = BoxLayout(orientation="vertical", padding=8)
-        main.add_widget(scroll)
+        main_layout.add_widget(scroll)
         close = Button(
             text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
         )
         close.bind(on_press=popup.dismiss)
-        main.add_widget(close)
-        popup.content = main
+        main_layout.add_widget(close)
+        popup.content = main_layout
+        _refresh()
         popup.open()
 
     def show_substation_maintenance_history(

@@ -49,11 +49,12 @@ def _classify_sf6_leakage(leakage, bands):
         return "none"
     if bands.get("max") == bands.get("min"):
         return "green"
+    # Inverted mapping: low -> green, mid -> yellow, high -> red
     if leakage <= bands.get("low_max"):
-        return "red"
+        return "green"
     if leakage <= bands.get("mid_max"):
         return "yellow"
-    return "green"
+    return "red"
 
 
 def _sf6_row_background_rgba(leakage, bands):
