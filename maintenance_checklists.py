@@ -87,6 +87,8 @@ def normalize_state(raw_state) -> dict:
     category_map = get_category_map()
     selected_categories = []
     item_values = {}
+    comments = {}
+    custom_items = []
     state = raw_state if isinstance(raw_state, dict) else {}
 
     raw_selected = state.get("selected_categories") or []
@@ -107,10 +109,38 @@ def normalize_state(raw_state) -> dict:
             item_values[category_key][item["key"]] = bool(
                 raw_category_items.get(item["key"], False)
             )
+        # preserve comments for each known item (if present in raw state)
+        raw_comments = (
+            state.get("comments") if isinstance(state.get("comments"), dict) else {}
+        )
+        comments[category_key] = {}
+        raw_category_comments = (
+            raw_comments.get(category_key)
+            if isinstance(raw_comments.get(category_key), dict)
+            else {}
+        )
+        for item in category.get("items", []):
+            comments[category_key][item["key"]] = str(
+                raw_category_comments.get(item["key"], "") or ""
+            )
 
+    # preserve custom free-form items (list of dicts with text, checked, comment)
+    raw_custom = (
+        state.get("custom_items") if isinstance(state.get("custom_items"), list) else []
+    )
+    for entry in raw_custom:
+        try:
+            text = str(entry.get("text") or "").strip()
+            checked = bool(entry.get("checked", False))
+            comment = str(entry.get("comment") or "")
+            custom_items.append({"text": text, "checked": checked, "comment": comment})
+        except Exception:
+            continue
     return {
         "selected_categories": selected_categories,
         "items": item_values,
+        "comments": comments,
+        "custom_items": custom_items,
     }
 
 

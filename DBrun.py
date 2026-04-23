@@ -11973,7 +11973,25 @@ class SubstationApp(App):
         state = normalize_state(checklist_state)
         if state.get("selected_categories"):
             return True
-        return any(any(items.values()) for items in (state.get("items") or {}).values())
+        # any checked items
+        if any(any(items.values()) for items in (state.get("items") or {}).values()):
+            return True
+        # any non-empty comments
+        comments = state.get("comments") or {}
+        for cat, cmap in (comments or {}).items():
+            for v in (cmap or {}).values():
+                if str(v or "").strip():
+                    return True
+        # any custom free-form items
+        custom = state.get("custom_items") or []
+        for entry in custom:
+            if str(entry.get("text", "") or "").strip():
+                return True
+            if str(entry.get("comment", "") or "").strip():
+                return True
+            if entry.get("checked"):
+                return True
+        return False
 
     def _summarize_preparation_checklist_state(
         self, checklist_state, maintenance_type=None
@@ -12198,6 +12216,16 @@ class SubstationApp(App):
                 refresh_summary_label()
                 return
 
+            from kivy.uix.textinput import TextInput
+            from kivy.uix.checkbox import CheckBox
+
+            def _adjust_comment_height(ti):
+                try:
+                    lines = max(1, ti.text.count("\n") + 1)
+                    ti.height = max(30, min(160, 18 * lines))
+                except Exception:
+                    pass
+
             for category in checklist_categories:
                 category_key = category["key"]
                 category_row = BoxLayout(size_hint_y=None, height=34, spacing=5)
@@ -12226,6 +12254,9 @@ class SubstationApp(App):
                     continue
 
                 category_items = checklist_state["items"].setdefault(category_key, {})
+                category_comments = checklist_state.setdefault(
+                    "comments", {}
+                ).setdefault(category_key, {})
                 for item in category.get("items", []):
                     item_key = item["key"]
                     item_row = BoxLayout(
@@ -12238,8 +12269,33 @@ class SubstationApp(App):
                     )
                     item_row.add_widget(item_checkbox)
                     item_row.add_widget(
-                        Label(text=item["label"], halign="left", valign="middle")
+                        Label(
+                            text=item["label"],
+                            halign="left",
+                            valign="middle",
+                            size_hint_x=0.45,
+                        )
                     )
+                    comment_ti = TextInput(
+                        text=str(category_comments.get(item_key, "") or ""),
+                        size_hint_x=0.45,
+                        multiline=True,
+                        size_hint_y=None,
+                        height=30,
+                    )
+                    _adjust_comment_height(comment_ti)
+                    comment_ti.bind(
+                        text=lambda inst, val, cat=category_key, it=item_key: (
+                            checklist_user_touched.__setitem__(0, True),
+                            checklist_state.setdefault("comments", {}).setdefault(
+                                cat, {}
+                            )
+                            and checklist_state["comments"].__setitem__(it, val),
+                            _adjust_comment_height(inst),
+                            refresh_summary_label(),
+                        )
+                    )
+                    item_row.add_widget(comment_ti)
                     checklist_container.add_widget(item_row)
 
                     def _toggle_item(
@@ -12252,6 +12308,69 @@ class SubstationApp(App):
                         refresh_summary_label()
 
                     item_checkbox.bind(active=_toggle_item)
+
+            # Custom free-form items section
+            custom_label = Label(
+                text="Προσαρμοσμένα είδη:", size_hint_y=None, height=30
+            )
+            checklist_container.add_widget(custom_label)
+            custom_list = checklist_state.setdefault("custom_items", [])
+            # ensure at least one empty entry exists
+            if not custom_list:
+                custom_list.append({"text": "", "checked": False, "comment": ""})
+            for idx, entry in enumerate(list(custom_list)):
+                row = BoxLayout(
+                    size_hint_y=None, height=34, spacing=6, padding=[24, 0, 0, 0]
+                )
+                chk = CheckBox(
+                    active=bool(entry.get("checked", False)), size_hint_x=None, width=36
+                )
+                txt = TextInput(
+                    text=str(entry.get("text") or ""), multiline=False, size_hint_x=0.45
+                )
+                cmt = TextInput(
+                    text=str(entry.get("comment") or ""),
+                    multiline=True,
+                    size_hint_x=0.45,
+                    size_hint_y=None,
+                    height=30,
+                )
+                _adjust_comment_height(cmt)
+
+                def _on_txt_change(inst, val, i=idx):
+                    try:
+                        custom_list[i]["text"] = val
+                    except Exception:
+                        pass
+                    # if last entry was filled, append a new empty one
+                    try:
+                        if i == len(custom_list) - 1 and str(val or "").strip():
+                            custom_list.append(
+                                {"text": "", "checked": False, "comment": ""}
+                            )
+                            render_checklists()
+                    except Exception:
+                        pass
+
+                def _on_cmt_change(inst, val, i=idx):
+                    try:
+                        custom_list[i]["comment"] = val
+                    except Exception:
+                        pass
+
+                def _on_chk(_cb, active, i=idx):
+                    try:
+                        custom_list[i]["checked"] = bool(active)
+                    except Exception:
+                        pass
+
+                txt.bind(text=_on_txt_change)
+                cmt.bind(text=_on_cmt_change)
+                chk.bind(active=_on_chk)
+                row.add_widget(chk)
+                row.add_widget(txt)
+                row.add_widget(cmt)
+                checklist_container.add_widget(row)
 
             refresh_summary_label()
 
@@ -12880,6 +12999,16 @@ class SubstationApp(App):
                     )
                 )
 
+            from kivy.uix.textinput import TextInput
+            from kivy.uix.checkbox import CheckBox
+
+            def _adjust_comment_height(ti):
+                try:
+                    lines = max(1, ti.text.count("\n") + 1)
+                    ti.height = max(30, min(160, 18 * lines))
+                except Exception:
+                    pass
+
             for category in checklist_categories:
                 category_key = category["key"]
                 category_row = BoxLayout(size_hint_y=None, height=34, spacing=5)
@@ -12919,6 +13048,9 @@ class SubstationApp(App):
                     continue
 
                 category_items = checklist_state["items"].setdefault(category_key, {})
+                category_comments = checklist_state.setdefault(
+                    "comments", {}
+                ).setdefault(category_key, {})
                 for item in category.get("items", []):
                     item_key = item["key"]
                     item_row = BoxLayout(
@@ -12932,8 +13064,34 @@ class SubstationApp(App):
                     _set_row_highlight(item_row, item_checkbox.active)
                     item_row.add_widget(item_checkbox)
                     item_row.add_widget(
-                        Label(text=item["label"], halign="left", valign="middle")
+                        Label(
+                            text=item["label"],
+                            halign="left",
+                            valign="middle",
+                            size_hint_x=0.45,
+                        )
                     )
+                    comment_ti = TextInput(
+                        text=str(category_comments.get(item_key, "") or ""),
+                        size_hint_x=0.45,
+                        multiline=True,
+                        size_hint_y=None,
+                        height=30,
+                    )
+                    _adjust_comment_height(comment_ti)
+                    comment_ti.bind(
+                        text=lambda inst, val, cat=category_key, it=item_key: (
+                            checklist_user_touched.__setitem__(0, True),
+                            checklist_state.setdefault("comments", {}).setdefault(
+                                cat, {}
+                            )
+                            and checklist_state["comments"].__setitem__(it, val),
+                            _adjust_comment_height(inst),
+                            _sync_dynamic_step_layout(),
+                            (refresh_workflow_summary() if True else None),
+                        )
+                    )
+                    item_row.add_widget(comment_ti)
                     checklist_inline_container.add_widget(item_row)
 
                     def _toggle_item(
@@ -12958,6 +13116,67 @@ class SubstationApp(App):
                             row, active
                         )
                     )
+
+            # Custom free-form items
+            custom_label = Label(
+                text="Προσαρμοσμένα είδη:", size_hint_y=None, height=30
+            )
+            checklist_inline_container.add_widget(custom_label)
+            custom_list = checklist_state.setdefault("custom_items", [])
+            if not custom_list:
+                custom_list.append({"text": "", "checked": False, "comment": ""})
+            for idx, entry in enumerate(list(custom_list)):
+                row = BoxLayout(
+                    size_hint_y=None, height=34, spacing=6, padding=[24, 0, 0, 0]
+                )
+                chk = CheckBox(
+                    active=bool(entry.get("checked", False)), size_hint_x=None, width=36
+                )
+                txt = TextInput(
+                    text=str(entry.get("text") or ""), multiline=False, size_hint_x=0.45
+                )
+                cmt = TextInput(
+                    text=str(entry.get("comment") or ""),
+                    multiline=True,
+                    size_hint_x=0.45,
+                    size_hint_y=None,
+                    height=30,
+                )
+                _adjust_comment_height(cmt)
+
+                def _on_txt_change(inst, val, i=idx):
+                    try:
+                        custom_list[i]["text"] = val
+                    except Exception:
+                        pass
+                    try:
+                        if i == len(custom_list) - 1 and str(val or "").strip():
+                            custom_list.append(
+                                {"text": "", "checked": False, "comment": ""}
+                            )
+                            render_inline_checklist()
+                    except Exception:
+                        pass
+
+                def _on_cmt_change(inst, val, i=idx):
+                    try:
+                        custom_list[i]["comment"] = val
+                    except Exception:
+                        pass
+
+                def _on_chk(_cb, active, i=idx):
+                    try:
+                        custom_list[i]["checked"] = bool(active)
+                    except Exception:
+                        pass
+
+                txt.bind(text=_on_txt_change)
+                cmt.bind(text=_on_cmt_change)
+                chk.bind(active=_on_chk)
+                row.add_widget(chk)
+                row.add_widget(txt)
+                row.add_widget(cmt)
+                checklist_inline_container.add_widget(row)
 
             checklist_pdf_btn.disabled = not self._checklist_has_content(
                 checklist_state
