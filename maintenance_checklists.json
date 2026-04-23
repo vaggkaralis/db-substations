@@ -1,93 +1,79 @@
 {
   "categories": [
     {
-      "key": "transformer_maintenance",
-      "label": "Συντήρηση μετασχηματιστή",
+      "key": "general",
+      "label": "Γενικά",
       "items": [
-        {
-          "key": "work_permit_reviewed",
-          "label": "Έχει ελεγχθεί η άδεια εργασίας και η αλληλουχία χειρισμών"
-        },
-        {
-          "key": "crew_assigned",
-          "label": "Έχει οριστεί το συνεργείο και ο υπεύθυνος εργασίας"
-        },
-        {
-          "key": "materials_ready",
-          "label": "Έχουν εξασφαλιστεί ανταλλακτικά, αναλώσιμα και εργαλεία"
-        },
-        {
-          "key": "measurements_ready",
-          "label": "Έχουν προετοιμαστεί τα όργανα μετρήσεων και τα έντυπα καταγραφής"
-        },
-        {
-          "key": "oil_and_safety_checked",
-          "label": "Έχει γίνει έλεγχος για λάδια, διαρροές και μέσα πυροπροστασίας"
-        },
-        {
-          "key": "site_prepared",
-          "label": "Έχει επιβεβαιωθεί η πρόσβαση, η καθαριότητα και η ασφάλιση του χώρου"
-        }
+        { "key": "screwdrivers_wrenches", "label": "Κατσαβίδια, καστάνιες, ματσόλα, σπαθί" },
+        { "key": "flashlights", "label": "Φακοί" },
+        { "key": "scrapers", "label": "Σπάτουλες για καθαρισμό επικαθίσεων" },
+        { "key": "grounds_6x", "label": "Γειώσεις 6x (π.χ. Είτε 3x150KV + 1x20KV ή Είτε 6x150KV)" },
+        { "key": "contact_grease", "label": "Γράσο επαφών" },
+        { "key": "screws", "label": "Βίδες" },
+        { "key": "wooden_ladder", "label": "Ξύλινη σκάλα" }
       ]
     },
     {
-      "key": "hv_breaker_maintenance",
-      "label": "Συντήρηση διακόπτη υψηλής τάσης",
+      "key": "oil_items",
+      "label": "Στοιχεία λαδιού (Μ/Σ, Diverter, ΔΙ Ελαίου ή Πτωχού Ελαίου)",
       "items": [
-        {
-          "key": "switching_sequence_reviewed",
-          "label": "Έχει ελεγχθεί η αλληλουχία χειρισμών και η απομόνωση του διακόπτη"
-        },
-        {
-          "key": "mechanism_tools_ready",
-          "label": "Έχουν προετοιμαστεί ειδικά εργαλεία μηχανισμού και ανταλλακτικά"
-        },
-        {
-          "key": "gas_or_oil_checked",
-          "label": "Έχει επιβεβαιωθεί η διαθεσιμότητα SF6 ή λαδιών και των σχετικών διαδικασιών"
-        },
-        {
-          "key": "measurement_devices_ready",
-          "label": "Έχουν προετοιμαστεί όργανα για μονώσεις, αντιστάσεις επαφών και απαριθμητή χειρισμών"
-        },
-        {
-          "key": "spare_contacts_ready",
-          "label": "Έχουν ελεγχθεί τα απαραίτητα υλικά για επαφές, συνδέσμους και λίπανση"
-        },
-        {
-          "key": "safety_briefing_done",
-          "label": "Έχει γίνει ενημέρωση προσωπικού για κινδύνους και μέτρα ασφαλείας"
-        }
+        { "key": "gloves", "label": "Γάντια" },
+        { "key": "overalls", "label": "Στολές" },
+        { "key": "oil_pump", "label": "Αντλία για λάδια (Φορητή, NV, Renault)" },
+        { "key": "empty_oil_barrels", "label": "Βαρέλια Λαδιού Άδεια" },
+        { "key": "full_oil_barrels", "label": "Βαρέλια Λαδιού Γεμάτα" },
+        { "key": "level_hose", "label": "Αλφαδολάστιχο" }
       ]
     },
     {
-      "key": "mv_bar_maintenance",
-      "label": "Συντήρηση μέσης τάσης",
+      "key": "diverter",
+      "label": "Diverter",
       "items": [
-        {
-          "key": "mv_switching_reviewed",
-          "label": "Έχει ελεγχθεί η απομόνωση και η τροφοδότηση των κυκλωμάτων ΜΤ"
-        },
-        {
-          "key": "panel_access_ready",
-          "label": "Έχει εξασφαλιστεί πρόσβαση στους πίνακες ή στις πύλες ΜΤ"
-        },
-        {
-          "key": "spares_ready",
-          "label": "Έχουν εξασφαλιστεί ασφάλειες, επαφές και αναλώσιμα για τον εξοπλισμό ΜΤ"
-        },
-        {
-          "key": "test_equipment_ready",
-          "label": "Έχουν προετοιμαστεί όργανα ελέγχου μονώσεων και λειτουργικών δοκιμών"
-        },
-        {
-          "key": "labels_and_markings_checked",
-          "label": "Έχουν ελεγχθεί οι επισημάνσεις, τα κλειδώματα και οι σημάνσεις ασφαλείας"
-        },
-        {
-          "key": "restoration_plan_ready",
-          "label": "Έχει επιβεβαιωθεί το σχέδιο επαναφοράς και δοκιμών μετά την εργασία"
-        }
+        { "key": "palagko", "label": "Παλάγκο" },
+        { "key": "palagko_supports", "label": "Στηρίγματα/ποδαρικά για παλάγκο" }
+      ]
+    },
+    {
+      "key": "measurements",
+      "label": "Μετρήσεις",
+      "items": [
+        { "key": "blue_group_instruments", "label": "[Μπλε ομάδα] Schuetz, DV power Winding resistance, Doble tanδ" },
+        { "key": "red_group_instruments", "label": "[Κόκκινη ομάδα]" },
+        { "key": "green_group_instruments", "label": "[Πράσινη ομάδα]" },
+        { "key": "megger", "label": "Megger" },
+        { "key": "ducter", "label": "Ducter" },
+        { "key": "short_circuits", "label": "Βραχυκυκλώματα" },
+        { "key": "laptop", "label": "Laptop" },
+        { "key": "table_chairs", "label": "Τραπέζι/Καρέκλες" }
+      ]
+    },
+    {
+      "key": "sf6_switches",
+      "label": "Διακόπτες SF6",
+      "items": [
+        { "key": "sf6_cylinders", "label": "Φιάλες SF6" },
+        { "key": "sf6_rapidox", "label": "Rapidox" },
+        { "key": "sf6_dilo", "label": "DILO" }
+      ]
+    },
+    {
+      "key": "constructions",
+      "label": "Κατασκευές",
+      "items": [
+        { "key": "metal_workbench", "label": "Μεταλλικός πάγκος εργασίας" },
+        { "key": "vise", "label": "Μόρσα" },
+        { "key": "magnetic_drill", "label": "Μαγνητικό τρυπάνι" },
+        { "key": "grounding_blade", "label": "Λάμα γείωσης" },
+        { "key": "bimetallics", "label": "Διμεταλλικά" },
+        { "key": "loctite", "label": "Loctite" },
+        { "key": "molykote", "label": "Molykote" },
+        { "key": "cutter", "label": "Κόφτης" },
+        { "key": "press", "label": "Πρέσα" },
+        { "key": "grounding_cable_35mm2", "label": "Καλώδιο γείωσης 35mm2" },
+        { "key": "big_socket_wrench", "label": "Μεγάλο μπουλονόκλειδο" },
+        { "key": "torque_wrench", "label": "Δυναμόκλειδο" },
+        { "key": "pallets", "label": "Παλέτες για μεταφορά" },
+        { "key": "copper_pipe_cutter", "label": "Σωληνοκόφτης Cu" }
       ]
     }
   ]
