@@ -6461,6 +6461,29 @@ class SubstationApp(App):
         self, on_sync=None, on_skip=None, summary_text=""
     ):
         """Prompt the user to start full startup sync only when probe detects differences."""
+        # Avoid showing duplicate prompt popups: if one already exists and appears
+        # to be open, do nothing. We store the active popup on `self` so other
+        # callers can detect it.
+        try:
+            existing = getattr(self, "_startup_sync_prompt_popup", None)
+            if existing is not None:
+                # Kivy Popup when opened typically has a non-None parent; fall back
+                # to checking a custom `is_open` attribute if present.
+                try:
+                    if getattr(existing, "parent", None) is not None:
+                        return
+                except Exception:
+                    pass
+                try:
+                    if getattr(existing, "is_open", False):
+                        return
+                except Exception:
+                    pass
+        except Exception:
+            # On any unexpected failure, continue and show a new popup rather
+            # than risk silently swallowing a prompt.
+            pass
+
         popup = Popup(
             title=S["MESSAGES"].get(
                 "STARTUP_SYNC_PROMPT_TITLE", "Synchronization Detected"
@@ -6497,6 +6520,11 @@ class SubstationApp(App):
         buttons.add_widget(skip_btn)
         layout.add_widget(buttons)
         popup.content = layout
+        # Track active prompt so subsequent periodic checks won't open duplicates.
+        try:
+            self._startup_sync_prompt_popup = popup
+        except Exception:
+            pass
 
         def _do_sync(_btn):
             try:
@@ -6516,6 +6544,17 @@ class SubstationApp(App):
 
         sync_btn.bind(on_press=_do_sync)
         skip_btn.bind(on_press=_do_skip)
+        # Clear the stored reference when the popup is dismissed (either by
+        # user action or programmatically) so future prompts can be shown.
+        try:
+            popup.bind(
+                on_dismiss=lambda *_args: setattr(
+                    self, "_startup_sync_prompt_popup", None
+                )
+            )
+        except Exception:
+            pass
+
         popup.open()
 
     def _display_substations(
