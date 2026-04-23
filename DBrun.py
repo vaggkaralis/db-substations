@@ -17718,6 +17718,26 @@ class SubstationApp(App):
                 elif role == "crew":
                     entry["crew"].append(person_name)
 
+            # Fallback: some older records store responsible in maintenance.responsible_id
+            # (instead of maintenance_people). Fetch and resolve those IDs to names.
+            if maint_ids:
+                cursor.execute(
+                    f"SELECT id, responsible_id FROM maintenance WHERE id IN ({placeholders})",
+                    maint_ids,
+                )
+                for m_id, resp_pid in cursor.fetchall():
+                    if resp_pid and not people_by_maint.get(m_id, {}).get(
+                        "responsible"
+                    ):
+                        cursor.execute(
+                            "SELECT name FROM people WHERE id=?", (resp_pid,)
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            people_by_maint.setdefault(
+                                m_id, {"responsible": None, "crew": []}
+                            )["responsible"] = row[0]
+
             cursor.execute(
                 f"""
                 SELECT me.maintenance_id, e.name
@@ -18215,6 +18235,24 @@ class SubstationApp(App):
                     entry["responsible"] = person_name
                 elif role == "crew":
                     entry["crew"].append(person_name)
+
+            # Fallback: some maintenance rows may have responsible_id in maintenance table
+            # (instead of an entry in maintenance_people). Resolve those to person names.
+            if maint_ids:
+                c.execute(
+                    f"SELECT id, responsible_id FROM maintenance WHERE id IN ({placeholders})",
+                    maint_ids,
+                )
+                for m_id, resp_pid in c.fetchall():
+                    if resp_pid and not people_by_maint.get(m_id, {}).get(
+                        "responsible"
+                    ):
+                        c.execute("SELECT name FROM people WHERE id=?", (resp_pid,))
+                        r = c.fetchone()
+                        if r:
+                            people_by_maint.setdefault(
+                                m_id, {"responsible": None, "crew": []}
+                            )["responsible"] = r[0]
 
             c.execute(
                 f"""

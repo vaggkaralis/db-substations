@@ -8248,6 +8248,49 @@ class SubstationAndroidApp(App):
             maintenance_records = c.fetchall()
             conn.close()
 
+            # Bulk-prefetch people (responsible + crew) for the maintenance records
+            people_by_maint = {}
+            if maintenance_records:
+                maint_ids = [r[0] for r in maintenance_records]
+                placeholders = ",".join(["?"] * len(maint_ids))
+                conn2 = sqlite3.connect(self.local_db_path)
+                c2 = conn2.cursor()
+                c2.execute(
+                    f"""
+                    SELECT mp.maintenance_id, p.name, mp.role
+                    FROM maintenance_people mp
+                    JOIN people p ON mp.person_id = p.id
+                    WHERE mp.maintenance_id IN ({placeholders})
+                    ORDER BY p.name
+                    """,
+                    maint_ids,
+                )
+                for m_id, pname, role in c2.fetchall():
+                    entry = people_by_maint.setdefault(
+                        m_id, {"responsible": None, "crew": []}
+                    )
+                    if role == "responsible":
+                        entry["responsible"] = pname
+                    elif role == "crew":
+                        entry["crew"].append(pname)
+
+                # Fallback: if responsible stored on maintenance.responsible_id, resolve it
+                c2.execute(
+                    f"SELECT id, responsible_id FROM maintenance WHERE id IN ({placeholders})",
+                    maint_ids,
+                )
+                for m_id, resp_pid in c2.fetchall():
+                    if resp_pid and not people_by_maint.get(m_id, {}).get(
+                        "responsible"
+                    ):
+                        c2.execute("SELECT name FROM people WHERE id=?", (resp_pid,))
+                        r = c2.fetchone()
+                        if r:
+                            people_by_maint.setdefault(
+                                m_id, {"responsible": None, "crew": []}
+                            )["responsible"] = r[0]
+                conn2.close()
+
             # Create popup
             popup = Popup(
                 title=f"Ιστορικό Συντηρήσεων - {element_name}", size_hint=(0.95, 0.9)
@@ -8310,6 +8353,30 @@ class SubstationAndroidApp(App):
 
                     _bind_header_size(header_label)
                     maint_layout.add_widget(header_label)
+
+                    # Show responsible and crew if available
+                    people_info = people_by_maint.get(
+                        maint_id, {"responsible": None, "crew": []}
+                    )
+                    resp_text = people_info.get("responsible") or "-"
+                    crew_text = ", ".join(people_info.get("crew") or []) or "-"
+                    people_label = Label(
+                        text=f"Υπεύθυνος: {resp_text} | Συνεργείο: {crew_text}",
+                        size_hint_y=None,
+                        halign="left",
+                        valign="top",
+                        color=(0.35, 0.35, 0.35, 1),
+                    )
+
+                    def _bind_people_size(inst):
+                        inst.text_size = (inst.width, None)
+                        inst.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+                        inst.bind(
+                            texture_size=lambda i, s: setattr(i, "height", s[1] + 8)
+                        )
+
+                    _bind_people_size(people_label)
+                    maint_layout.add_widget(people_label)
 
                     # OneDrive Media Link removed for Android: mobile app should
                     # not expose or open shared OneDrive folders. (Button omitted.)
