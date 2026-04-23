@@ -12203,6 +12203,50 @@ class SubstationApp(App):
 
         def render_checklists(*_args):
             checklist_container.clear_widgets()
+            # helper: color Greek color words (many morphological forms)
+            import unicodedata
+
+            def _strip_accents(s: str) -> str:
+                try:
+                    nf = unicodedata.normalize("NFD", s)
+                    return "".join(
+                        ch for ch in nf if not unicodedata.category(ch).startswith("M")
+                    ).lower()
+                except Exception:
+                    return (s or "").lower()
+
+            COLOR_MAP = {
+                "μπλε": "0000ff",
+                "μπλεσ": "0000ff",
+                "κοκκιν": "c62828",
+                "πρασιν": "2e7d32",
+                "κιτριν": "f9a825",
+                "μαυρ": "000000",
+                "λευκ": "ffffff",
+            }
+
+            def _markup_color_text(txt: str) -> str:
+                if not txt:
+                    return ""
+                parts = []
+                import re
+
+                tokens = re.findall(r"\w+|\W+", txt, flags=re.UNICODE)
+                for tok in tokens:
+                    if tok.strip() == "":
+                        parts.append(tok)
+                        continue
+                    check = _strip_accents(tok).strip()
+                    colored = False
+                    for root, hexc in COLOR_MAP.items():
+                        if check.startswith(root):
+                            parts.append(f"[color=#{hexc}]{tok}[/color]")
+                            colored = True
+                            break
+                    if not colored:
+                        parts.append(tok)
+                return "".join(parts)
+
             if not self._maintenance_type_requires_checklist(
                 maintenance_type
             ) and not self._checklist_has_content(checklist_state):
@@ -12236,7 +12280,12 @@ class SubstationApp(App):
                 )
                 category_row.add_widget(category_checkbox)
                 category_row.add_widget(
-                    Label(text=category["label"], halign="left", valign="middle")
+                    Label(
+                        text=_markup_color_text(category["label"]),
+                        halign="left",
+                        valign="middle",
+                        markup=True,
+                    )
                 )
                 checklist_container.add_widget(category_row)
 
@@ -12270,10 +12319,11 @@ class SubstationApp(App):
                     item_row.add_widget(item_checkbox)
                     item_row.add_widget(
                         Label(
-                            text=item["label"],
+                            text=_markup_color_text(item["label"]),
                             halign="left",
                             valign="middle",
                             size_hint_x=0.45,
+                            markup=True,
                         )
                     )
                     comment_ti = TextInput(
@@ -12988,6 +13038,50 @@ class SubstationApp(App):
 
         def render_inline_checklist(*_args):
             checklist_inline_container.clear_widgets()
+            # helper: color Greek color words for inline checklist too
+            import unicodedata
+
+            def _strip_accents(s: str) -> str:
+                try:
+                    nf = unicodedata.normalize("NFD", s)
+                    return "".join(
+                        ch for ch in nf if not unicodedata.category(ch).startswith("M")
+                    ).lower()
+                except Exception:
+                    return (s or "").lower()
+
+            COLOR_MAP = {
+                "μπλε": "0000ff",
+                "μπλεσ": "0000ff",
+                "κοκκιν": "c62828",
+                "πρασιν": "2e7d32",
+                "κιτριν": "f9a825",
+                "μαυρ": "000000",
+                "λευκ": "ffffff",
+            }
+
+            def _markup_color_text(txt: str) -> str:
+                if not txt:
+                    return ""
+                parts = []
+                import re
+
+                tokens = re.findall(r"\w+|\W+", txt, flags=re.UNICODE)
+                for tok in tokens:
+                    if tok.strip() == "":
+                        parts.append(tok)
+                        continue
+                    check = _strip_accents(tok).strip()
+                    colored = False
+                    for root, hexc in COLOR_MAP.items():
+                        if check.startswith(root):
+                            parts.append(f"[color=#{hexc}]{tok}[/color]")
+                            colored = True
+                            break
+                    if not colored:
+                        parts.append(tok)
+                return "".join(parts)
+
             if not self._maintenance_type_requires_checklist(
                 maintenance_type_spinner.text
             ) and not self._checklist_has_content(checklist_state):
@@ -13020,7 +13114,12 @@ class SubstationApp(App):
                 _set_row_highlight(category_row, category_checkbox.active)
                 category_row.add_widget(category_checkbox)
                 category_row.add_widget(
-                    Label(text=category["label"], halign="left", valign="middle")
+                    Label(
+                        text=_markup_color_text(category["label"]),
+                        halign="left",
+                        valign="middle",
+                        markup=True,
+                    )
                 )
                 checklist_inline_container.add_widget(category_row)
 
@@ -13065,10 +13164,11 @@ class SubstationApp(App):
                     item_row.add_widget(item_checkbox)
                     item_row.add_widget(
                         Label(
-                            text=item["label"],
+                            text=_markup_color_text(item["label"]),
                             halign="left",
                             valign="middle",
                             size_hint_x=0.45,
+                            markup=True,
                         )
                     )
                     comment_ti = TextInput(
