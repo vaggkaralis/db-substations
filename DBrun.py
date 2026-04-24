@@ -12790,6 +12790,7 @@ class SubstationApp(App):
         initial_substation = (
             prefill_substation_name if prefill_substation_name else substations[0][1]
         )
+        reminded_substation_ids = set()
 
         substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
         substation_input = TextInput(
@@ -12942,6 +12943,12 @@ class SubstationApp(App):
             refresh_isolation_links(sub_name)
             load_elements(sub_name)  # Reload elements when substation changes
             refresh_substation_context()
+            self._maybe_show_incomplete_maintenance_reminder_for_substation_selection(
+                sub_name,
+                substation_map,
+                maintenance_id=maintenance_id,
+                reminded_substation_ids=reminded_substation_ids,
+            )
             try:
                 refresh_workflow_summary()
             except Exception:
@@ -18037,6 +18044,168 @@ class SubstationApp(App):
         _update_save_button_state()
         popup.open()
 
+    def _get_substation_incomplete_maintenances(self, substation_id):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT m.id, m.name, m.date_time, t.tasks_text
+            FROM maintenance_pending_tasks t
+            JOIN maintenance m ON t.maintenance_id = m.id
+            WHERE m.substation_id = ?
+              AND COALESCE(TRIM(t.tasks_text), '') != ''
+            ORDER BY m.date_time DESC, m.id DESC
+            """,
+            (substation_id,),
+        )
+        return [
+            {
+                "id": maintenance_id,
+                "name": name or "-",
+                "date": date_time,
+                "tasks": tasks_text or "-",
+            }
+            for maintenance_id, name, date_time, tasks_text in (cursor.fetchall() or [])
+        ]
+
+    def _build_substation_incomplete_maintenance_reminder_text(
+        self, substation_name, incomplete_maintenances
+    ):
+        header = (
+            S["MESSAGES"]
+            .get(
+                "INCOMPLETE_MAINTENANCE_REMINDER_BODY_FMT",
+                "Βρέθηκαν εκκρεμείς συντηρήσεις για τον υποσταθμό {substation_name}.\n"
+                "Υπενθύμιση εργασιών που απομένουν:",
+            )
+            .format(substation_name=substation_name)
+        )
+        entries = []
+        for index, row in enumerate(incomplete_maintenances or [], start=1):
+            entries.append(
+                S["MESSAGES"]
+                .get(
+                    "INCOMPLETE_MAINTENANCE_REMINDER_ITEM_FMT",
+                    "{index}. {name}\nΗμερομηνία: {date}\nΕργασίες που απομένουν:\n{tasks}",
+                )
+                .format(
+                    index=index,
+                    name=row.get("name") or "-",
+                    date=self._format_maintenance_date(row.get("date")) or "-",
+                    tasks=row.get("tasks") or "-",
+                )
+            )
+        return header if not entries else f"{header}\n\n" + "\n\n".join(entries)
+
+    def _show_substation_incomplete_maintenance_reminder(
+        self, substation_id, substation_name, on_close=None
+    ):
+        incomplete_maintenances = self._get_substation_incomplete_maintenances(
+            substation_id
+        )
+        if not incomplete_maintenances:
+            if callable(on_close):
+                on_close()
+            return False
+
+        reminder_text = self._build_substation_incomplete_maintenance_reminder_text(
+            substation_name,
+            incomplete_maintenances,
+        )
+
+        popup = Popup(
+            title=S["MESSAGES"].get(
+                "INCOMPLETE_MAINTENANCE_REMINDER_TITLE",
+                "Υπενθύμιση εκκρεμών συντηρήσεων",
+            ),
+            size_hint=(0.82, 0.72),
+        )
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        reminder_input = TextInput(
+            text=reminder_text,
+            readonly=True,
+            multiline=True,
+        )
+        main_layout.add_widget(reminder_input)
+
+        buttons_layout = BoxLayout(size_hint_y=None, height=42, spacing=8)
+        copy_btn = Button(
+            text=S["BUTTONS"].get("COPY", S["MESSAGES"].get("COPY", "Copy"))
+        )
+        close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Close"))
+
+        def _copy_reminder(_instance=None):
+            copied = False
+            try:
+                if hasattr(Clipboard, "copy"):
+                    Clipboard.copy(reminder_text)
+                    copied = True
+            except Exception:
+                copied = False
+            if not copied:
+                try:
+                    clip_mod = importlib.import_module("kivy.core.clipboard")
+                    if hasattr(clip_mod, "Clipboard") and hasattr(
+                        clip_mod.Clipboard, "copy"
+                    ):
+                        clip_mod.Clipboard.copy(reminder_text)
+                except Exception:
+                    logging.exception(
+                        "Failed to copy incomplete maintenance reminder to clipboard"
+                    )
+
+        opened_form = {"done": False}
+
+        def _continue_to_form(*_args):
+            if opened_form["done"] or not callable(on_close):
+                return
+            opened_form["done"] = True
+            on_close()
+
+        copy_btn.bind(on_press=_copy_reminder)
+        close_btn.bind(on_press=popup.dismiss)
+        buttons_layout.add_widget(copy_btn)
+        buttons_layout.add_widget(close_btn)
+        main_layout.add_widget(buttons_layout)
+
+        popup.bind(on_dismiss=_continue_to_form)
+        popup.content = main_layout
+        popup.open()
+        return True
+
+    def _maybe_show_incomplete_maintenance_reminder_for_substation_selection(
+        self,
+        substation_name,
+        substation_map,
+        *,
+        maintenance_id=None,
+        reminded_substation_ids=None,
+    ):
+        if maintenance_id:
+            return False
+
+        selected_name = str(substation_name or "").strip()
+        if not selected_name:
+            return False
+
+        substation_id = (substation_map or {}).get(selected_name)
+        if not substation_id:
+            return False
+
+        if (
+            reminded_substation_ids is not None
+            and substation_id in reminded_substation_ids
+        ):
+            return False
+
+        shown = self._show_substation_incomplete_maintenance_reminder(
+            substation_id,
+            selected_name,
+        )
+        if shown and reminded_substation_ids is not None:
+            reminded_substation_ids.add(substation_id)
+        return shown
+
     def show_maintenance_menu_for_substation(
         self,
         substation_id,
@@ -18058,11 +18227,19 @@ class SubstationApp(App):
             "preselected_element_id": preselected_element_id,
             "preselected_element_name": preselected_element_name,
         }
-        self.show_maintenance_menu(
-            instance=None,
-            preselected_substation_name=substation_name,
-            parent_popup=parent_popup,
-            prefill_data=prefill,
+
+        def _open_form():
+            self.show_maintenance_menu(
+                instance=None,
+                preselected_substation_name=substation_name,
+                parent_popup=parent_popup,
+                prefill_data=prefill,
+            )
+
+        self._show_substation_incomplete_maintenance_reminder(
+            substation_id,
+            substation_name,
+            on_close=_open_form,
         )
 
     def show_maintenance_history(self, instance, _deferred=False):
