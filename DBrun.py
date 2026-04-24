@@ -4657,9 +4657,9 @@ class SubstationApp(App):
         popup.content = main_layout
         # If opened from another display (e.g., element list), close that parent
         # so the refreshed history appears correctly on save/close.
-        if parent_display_popup:
+        if parent_popup:
             try:
-                parent_display_popup.dismiss()
+                parent_popup.dismiss()
             except Exception:
                 pass
         popup.open()
@@ -22292,7 +22292,6 @@ class SubstationApp(App):
 
                 # Folder-only button (left of open/eye button)
                 from ui.shared import IconOnlyButton
-                import os
 
                 def _make_open_folder(path):
                     def _open_folder(_x):
@@ -22554,7 +22553,6 @@ class SubstationApp(App):
                 # action icons (folder, view, edit, delete)
                 btns = BoxLayout(size_hint_y=None, height=36, spacing=6)
                 from ui.shared import IconOnlyButton
-                import os
 
                 def _open_folder(path):
                     from reports import (
