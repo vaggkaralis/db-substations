@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import shutil
+import webbrowser
 
 from pdf_reports import generate_sf6_leak_report
 from popups import show_message_popup
@@ -96,6 +97,86 @@ def _win_existing_path(path: str | None) -> str | None:
         long_path = "\\\\?\\" + abs_path
 
     return long_path if os.path.exists(long_path) else None
+
+
+def _normalize_open_path(path: str | None) -> str | None:
+    if path is None:
+        return None
+    text = str(path).strip()
+    if not text:
+        return None
+    try:
+        text = text.replace("\r", "").replace("\n", os.sep)
+    except Exception:
+        pass
+    try:
+        return os.path.normpath(text)
+    except Exception:
+        return text
+
+
+def _nearest_existing_folder(path: str | None) -> str | None:
+    target = _normalize_open_path(path)
+    if not target:
+        return None
+
+    existing = _win_existing_path(target)
+    if existing:
+        return existing if os.path.isdir(existing) else os.path.dirname(existing)
+
+    current = target
+    while current:
+        parent = os.path.dirname(current.rstrip("\\/"))
+        if not parent or parent == current:
+            break
+        existing_parent = _win_existing_path(parent)
+        if existing_parent and os.path.isdir(existing_parent):
+            return existing_parent
+        current = parent
+    return None
+
+
+def open_folder_or_url(
+    path,
+    *,
+    not_found_message="Ο φάκελος δεν βρέθηκε!",
+    error_title="Σφάλμα",
+    error_prefix="Αποτυχία ανοίγματος φακέλου ή συνδέσμου:\n",
+):
+    from popups import show_message_popup
+
+    target = str(path or "").strip()
+    if not target:
+        show_message_popup(error_title, not_found_message)
+        return False
+
+    if target.startswith(("http://", "https://")):
+        try:
+            webbrowser.open(target)
+            return True
+        except Exception as exc:
+            show_message_popup(error_title, f"{error_prefix}{str(exc)}")
+            return False
+
+    existing_folder = _nearest_existing_folder(target)
+    if not existing_folder:
+        show_message_popup(
+            error_title,
+            f"{not_found_message}\n{_normalize_open_path(target) or target}",
+        )
+        return False
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(existing_folder)
+        elif sys.platform == "darwin":
+            subprocess.call(["open", existing_folder])
+        else:
+            subprocess.call(["xdg-open", existing_folder])
+        return True
+    except Exception as exc:
+        show_message_popup(error_title, f"{error_prefix}{str(exc)}")
+        return False
 
 
 def _short_temp_open_copy(path: str, *, existing_path: str | None = None) -> str | None:

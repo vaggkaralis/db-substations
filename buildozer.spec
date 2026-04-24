@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas,ttf,json,xlsx,pdf,txt,xml
 source.exclude_dirs = .git,.github,.venv,__pycache__,tests,scripts,tools,dist,.pytest_cache,.ruff_cache,.VSCodeCounter
 source.exclude_patterns = tests/*,tests/_shims/*,scripts/*,tools/*,dist/*,__pycache__/*,*.pyc,*.pyo,test_*.py,build_*.py
 
-version = 0.4.0
+version = 0.4.1
 requirements = python3,kivy==2.3.0,plyer,pillow,certifi,urllib3,charset-normalizer,idna,requests
 
 permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE

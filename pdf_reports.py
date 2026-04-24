@@ -491,7 +491,12 @@ def generate_preparation_checklist_pdf(
     metadata = metadata or {}
     state = checklist_state if isinstance(checklist_state, dict) else {}
     selected_categories = state.get("selected_categories") or []
-    item_values = state.get("items") if isinstance(state.get("items"), dict) else {}
+    item_comments = (
+        state.get("comments") if isinstance(state.get("comments"), dict) else {}
+    )
+    custom_items = (
+        state.get("custom_items") if isinstance(state.get("custom_items"), list) else []
+    )
 
     if output_path is None:
         reports_dir = os.path.join(os.path.dirname(__file__), "reports")
@@ -531,6 +536,28 @@ def generate_preparation_checklist_pdf(
         spaceBefore=8,
         spaceAfter=6,
     )
+    item_style = ParagraphStyle(
+        "ChecklistItem",
+        parent=styles["BodyText"],
+        fontName=font_name,
+        fontSize=10,
+        leading=13,
+        alignment=TA_LEFT,
+        leftIndent=10,
+        bulletIndent=0,
+        spaceAfter=2,
+    )
+    comment_style = ParagraphStyle(
+        "ChecklistComment",
+        parent=styles["BodyText"],
+        fontName=font_name,
+        fontSize=9,
+        leading=12,
+        alignment=TA_LEFT,
+        leftIndent=22,
+        textColor=colors.HexColor("#475569"),
+        spaceAfter=3,
+    )
     body_style = ParagraphStyle(
         "ChecklistBody",
         parent=styles["BodyText"],
@@ -540,7 +567,7 @@ def generate_preparation_checklist_pdf(
         alignment=TA_LEFT,
     )
 
-    story = [Paragraph("Checklist προετοιμασίας εργασίας", title_style)]
+    story = [Paragraph("Λίστα υλικών / εργαλείων για εργασία", title_style)]
 
     metadata_lines = []
     if metadata.get("maintenance_name"):
@@ -567,52 +594,66 @@ def generate_preparation_checklist_pdf(
     if not visible_categories:
         story.append(Paragraph("Δεν έχουν επιλεγεί κατηγορίες checklist.", body_style))
     else:
+        item_values = state.get("items") or {}
         for category in visible_categories:
             category_key = category.get("key")
+
+            # collect items that are selected OR have a non-empty comment
+            printed_items = []
+            for item in category.get("items", []):
+                item_key = item.get("key")
+                if not item_key:
+                    continue
+                comment_text = str(
+                    ((item_comments.get(category_key) or {}).get(item_key) or "")
+                ).strip()
+                is_selected = bool(item_values.get(category_key, {}).get(item_key))
+                if not is_selected and not comment_text:
+                    continue
+                item_label = str(item.get("label") or item_key or "-")
+                printed_items.append((item_label, comment_text))
+
+            if not printed_items:
+                # skip category if no selected items to print
+                continue
+
             story.append(
                 Paragraph(
                     category.get("label") or category_key or "Κατηγορία", heading_style
                 )
             )
 
-            table_rows = [
-                [
-                    Paragraph("Κατάσταση", body_style),
-                    Paragraph("Ενέργεια", body_style),
-                ]
-            ]
-            for item in category.get("items", []):
-                checked = bool(
-                    item_values.get(category_key, {}).get(item.get("key"), False)
-                )
-                table_rows.append(
-                    [
-                        Paragraph("Ναι" if checked else "Οχι", body_style),
-                        Paragraph(
-                            str(item.get("label") or item.get("key") or "-"), body_style
-                        ),
-                    ]
-                )
+            for item_label, comment_text in printed_items:
+                story.append(Paragraph(item_label, item_style, bulletText="-"))
+                if comment_text:
+                    story.append(Paragraph(f"Σχόλιο: {comment_text}", comment_style))
 
-            table = Table(table_rows, colWidths=[28 * mm, 150 * mm], repeatRows=1)
-            table.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dde6ef")),
-                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-                        ("FONTNAME", (0, 0), (-1, -1), font_name),
-                        ("FONTSIZE", (0, 0), (-1, -1), 9),
-                        ("LEADING", (0, 0), (-1, -1), 11),
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                        ("TOPPADDING", (0, 0), (-1, -1), 5),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                    ]
+            story.append(Spacer(1, 8))
+
+        # print custom items that have text or a comment (checked state not required)
+        visible_custom_items = []
+        for entry in custom_items:
+            if not isinstance(entry, dict):
+                continue
+            text = str(entry.get("text") or "").strip()
+            comment = str(entry.get("comment") or "").strip()
+            if not text and not comment:
+                continue
+            visible_custom_items.append({"text": text, "comment": comment})
+
+        if visible_custom_items:
+            story.append(Paragraph("Προσαρμοσμένα είδη", heading_style))
+            for entry in visible_custom_items:
+                story.append(
+                    Paragraph(entry.get("text") or "-", item_style, bulletText="-")
                 )
-            )
-            story.append(table)
+                if entry.get("comment"):
+                    story.append(
+                        Paragraph(
+                            f"Σχόλιο: {entry['comment']}",
+                            comment_style,
+                        )
+                    )
             story.append(Spacer(1, 8))
 
     temp_path = _temp_pdf_path(output_path)

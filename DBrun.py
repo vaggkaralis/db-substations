@@ -4655,6 +4655,13 @@ class SubstationApp(App):
 
         main_layout.add_widget(buttons_layout)
         popup.content = main_layout
+        # If opened from another display (e.g., element list), close that parent
+        # so the refreshed history appears correctly on save/close.
+        if parent_display_popup:
+            try:
+                parent_display_popup.dismiss()
+            except Exception:
+                pass
         popup.open()
 
     def _detect_inspection_column(self, columns, keywords):
@@ -12228,24 +12235,35 @@ class SubstationApp(App):
             def _markup_color_text(txt: str) -> str:
                 if not txt:
                     return ""
-                parts = []
                 import re
 
-                tokens = re.findall(r"\w+|\W+", txt, flags=re.UNICODE)
-                for tok in tokens:
-                    if tok.strip() == "":
-                        parts.append(tok)
-                        continue
-                    check = _strip_accents(tok).strip()
-                    colored = False
-                    for root, hexc in COLOR_MAP.items():
-                        if check.startswith(root):
-                            parts.append(f"[color=#{hexc}]{tok}[/color]")
-                            colored = True
-                            break
-                    if not colored:
-                        parts.append(tok)
-                return "".join(parts)
+                def _process(s: str) -> str:
+                    parts = []
+                    tokens = re.findall(r"\w+|\W+", s, flags=re.UNICODE)
+                    for tok in tokens:
+                        if tok.strip() == "":
+                            parts.append(tok)
+                            continue
+                        check = _strip_accents(tok).strip()
+                        colored = False
+                        for root, hexc in COLOR_MAP.items():
+                            if check.startswith(root):
+                                parts.append(f"[color=#{hexc}]{tok}[/color]")
+                                colored = True
+                                break
+                        if not colored:
+                            parts.append(tok)
+                    return "".join(parts)
+
+                # Replace bracketed groups like "[Μπλε ομάδα]" with processed inner text
+                try:
+                    result = re.sub(
+                        r"\[([^\]]+)\]", lambda m: _process(m.group(1)), txt
+                    )
+                except Exception:
+                    result = txt
+                # Process remaining text (outside brackets)
+                return _process(result)
 
             if not self._maintenance_type_requires_checklist(
                 maintenance_type
@@ -12279,14 +12297,16 @@ class SubstationApp(App):
                     width=36,
                 )
                 category_row.add_widget(category_checkbox)
-                category_row.add_widget(
-                    Label(
-                        text=_markup_color_text(category["label"]),
-                        halign="left",
-                        valign="middle",
-                        markup=True,
-                    )
+                _cat_lbl = Label(
+                    text=f"[b]{_markup_color_text(category['label'])}[/b]",
+                    halign="left",
+                    valign="middle",
+                    markup=True,
                 )
+                _cat_lbl.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None))
+                )
+                category_row.add_widget(_cat_lbl)
                 checklist_container.add_widget(category_row)
 
                 def _toggle_category(_cb, active, key=category_key):
@@ -12317,15 +12337,17 @@ class SubstationApp(App):
                         width=36,
                     )
                     item_row.add_widget(item_checkbox)
-                    item_row.add_widget(
-                        Label(
-                            text=_markup_color_text(item["label"]),
-                            halign="left",
-                            valign="middle",
-                            size_hint_x=0.45,
-                            markup=True,
-                        )
+                    _itm_lbl = Label(
+                        text=_markup_color_text(item["label"]),
+                        halign="left",
+                        valign="middle",
+                        size_hint_x=0.45,
+                        markup=True,
                     )
+                    _itm_lbl.bind(
+                        width=lambda inst, val: setattr(inst, "text_size", (val, None))
+                    )
+                    item_row.add_widget(_itm_lbl)
                     comment_ti = TextInput(
                         text=str(category_comments.get(item_key, "") or ""),
                         size_hint_x=0.45,
@@ -13063,24 +13085,33 @@ class SubstationApp(App):
             def _markup_color_text(txt: str) -> str:
                 if not txt:
                     return ""
-                parts = []
                 import re
 
-                tokens = re.findall(r"\w+|\W+", txt, flags=re.UNICODE)
-                for tok in tokens:
-                    if tok.strip() == "":
-                        parts.append(tok)
-                        continue
-                    check = _strip_accents(tok).strip()
-                    colored = False
-                    for root, hexc in COLOR_MAP.items():
-                        if check.startswith(root):
-                            parts.append(f"[color=#{hexc}]{tok}[/color]")
-                            colored = True
-                            break
-                    if not colored:
-                        parts.append(tok)
-                return "".join(parts)
+                def _process(s: str) -> str:
+                    parts = []
+                    tokens = re.findall(r"\w+|\W+", s, flags=re.UNICODE)
+                    for tok in tokens:
+                        if tok.strip() == "":
+                            parts.append(tok)
+                            continue
+                        check = _strip_accents(tok).strip()
+                        colored = False
+                        for root, hexc in COLOR_MAP.items():
+                            if check.startswith(root):
+                                parts.append(f"[color=#{hexc}]{tok}[/color]")
+                                colored = True
+                                break
+                        if not colored:
+                            parts.append(tok)
+                    return "".join(parts)
+
+                try:
+                    result = re.sub(
+                        r"\[([^\]]+)\]", lambda m: _process(m.group(1)), txt
+                    )
+                except Exception:
+                    result = txt
+                return _process(result)
 
             if not self._maintenance_type_requires_checklist(
                 maintenance_type_spinner.text
@@ -13113,14 +13144,16 @@ class SubstationApp(App):
                 )
                 _set_row_highlight(category_row, category_checkbox.active)
                 category_row.add_widget(category_checkbox)
-                category_row.add_widget(
-                    Label(
-                        text=_markup_color_text(category["label"]),
-                        halign="left",
-                        valign="middle",
-                        markup=True,
-                    )
+                _cat_lbl = Label(
+                    text=f"[b]{_markup_color_text(category['label'])}[/b]",
+                    halign="left",
+                    valign="middle",
+                    markup=True,
                 )
+                _cat_lbl.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None))
+                )
+                category_row.add_widget(_cat_lbl)
                 checklist_inline_container.add_widget(category_row)
 
                 def _toggle_category(_cb, active, key=category_key):
@@ -13162,15 +13195,17 @@ class SubstationApp(App):
                     )
                     _set_row_highlight(item_row, item_checkbox.active)
                     item_row.add_widget(item_checkbox)
-                    item_row.add_widget(
-                        Label(
-                            text=_markup_color_text(item["label"]),
-                            halign="left",
-                            valign="middle",
-                            size_hint_x=0.45,
-                            markup=True,
-                        )
+                    _itm_lbl = Label(
+                        text=_markup_color_text(item["label"]),
+                        halign="left",
+                        valign="middle",
+                        size_hint_x=0.45,
+                        markup=True,
                     )
+                    _itm_lbl.bind(
+                        width=lambda inst, val: setattr(inst, "text_size", (val, None))
+                    )
+                    item_row.add_widget(_itm_lbl)
                     comment_ti = TextInput(
                         text=str(category_comments.get(item_key, "") or ""),
                         size_hint_x=0.45,
@@ -13899,19 +13934,13 @@ class SubstationApp(App):
         _register_wizard_widget(2, attachment_btn_row)
 
         def _open_folder_or_url(path):
-            target = str(path or "").strip()
-            if not target:
-                return
-            if target.startswith(("http://", "https://")):
-                webbrowser.open(target)
-                return
-            try:
-                os.startfile(target)
-            except Exception:
-                show_message_popup(
-                    S["TITLES"].get("ERROR", "Σφάλμα"),
-                    f"Αποτυχία ανοίγματος φακέλου ή συνδέσμου:\n{target}",
-                )
+            from reports import open_folder_or_url as _open_existing_folder_or_url
+
+            _open_existing_folder_or_url(
+                path,
+                not_found_message="Ο φάκελος δεν βρέθηκε!",
+                error_title=S["TITLES"].get("ERROR", "Σφάλμα"),
+            )
 
         def _get_attachment_target():
             if existing_primary_media_folder:
@@ -17057,6 +17086,20 @@ class SubstationApp(App):
         # Load initial elements
         refresh_isolation_links(substation_input.text, linked_isolation_request_id)
         load_elements(substation_input.text)
+        # Auto-select an element if the caller provided a preselected element id
+        try:
+            pre_elem = (
+                prefill_data.get("preselected_element_id")
+                if isinstance(prefill_data, dict)
+                else None
+            )
+            if pre_elem and pre_elem in element_widgets:
+                try:
+                    element_widgets[pre_elem]["checkbox"].active = True
+                except Exception:
+                    pass
+        except Exception:
+            pass
         refresh_checklist_summary()
         refresh_attachment_summary()
         refresh_substation_context()
@@ -17776,17 +17819,65 @@ class SubstationApp(App):
                         ),
                     )
 
-                # Update element's maintenance_date
-                c.execute(
-                    "UPDATE elements SET maintenance_date=? WHERE id=?",
-                    (maintenance_date, elem_id),
-                )
+                # Update element's maintenance_date only if the new maintenance_date
+                # is newer (or if the element has no recorded maintenance_date).
+                try:
+                    if maintenance_date:
+                        c.execute(
+                            "SELECT maintenance_date FROM elements WHERE id=?",
+                            (elem_id,),
+                        )
+                        _row = c.fetchone()
+                        existing = _row[0] if _row and _row[0] else None
+                        do_update = False
+                        if not existing or str(existing).strip() == "":
+                            do_update = True
+                        else:
+                            try:
+                                new_dt = datetime.strptime(
+                                    maintenance_date.split()[0], "%Y-%m-%d"
+                                )
+                                exist_dt = datetime.strptime(
+                                    str(existing).split()[0], "%Y-%m-%d"
+                                )
+                                if new_dt >= exist_dt:
+                                    do_update = True
+                            except Exception:
+                                # Fallback: lexical compare of strings
+                                try:
+                                    if str(maintenance_date) >= str(existing):
+                                        do_update = True
+                                except Exception:
+                                    do_update = True
 
-            # Update substation's last maintenance date
-            c.execute(
-                "UPDATE substations SET last_maintenance=? WHERE id=?",
-                (maintenance_date, substation_id),
-            )
+                        if do_update:
+                            c.execute(
+                                "UPDATE elements SET maintenance_date=? WHERE id=?",
+                                (maintenance_date, elem_id),
+                            )
+                except Exception:
+                    pass
+
+            # Update substation's last maintenance date using the latest maintenance
+            try:
+                c.execute(
+                    "SELECT MAX(date_time) FROM maintenance WHERE substation_id=?",
+                    (substation_id,),
+                )
+                _r = c.fetchone()
+                _new_sub_date = _r[0] if _r and _r[0] else None
+                c.execute(
+                    "UPDATE substations SET last_maintenance=? WHERE id=?",
+                    (_new_sub_date, substation_id),
+                )
+            except Exception:
+                try:
+                    c.execute(
+                        "UPDATE substations SET last_maintenance=? WHERE id=?",
+                        (maintenance_date, substation_id),
+                    )
+                except Exception:
+                    pass
 
             if maintenance_id:
                 try:
@@ -17947,7 +18038,12 @@ class SubstationApp(App):
         popup.open()
 
     def show_maintenance_menu_for_substation(
-        self, substation_id, substation_name, parent_popup=None
+        self,
+        substation_id,
+        substation_name,
+        parent_popup=None,
+        preselected_element_id=None,
+        preselected_element_name=None,
     ):
         """Wrapper to show maintenance menu with preselected substation
 
@@ -17956,11 +18052,17 @@ class SubstationApp(App):
             substation_name: Name of the substation to preselect
             parent_popup: Parent popup to dismiss when opening this one
         """
-        # Simply call the main function with the preselected substation
+        # Call the main function with the preselected substation and optional
+        # element to auto-select in the maintenance form.
+        prefill = {
+            "preselected_element_id": preselected_element_id,
+            "preselected_element_name": preselected_element_name,
+        }
         self.show_maintenance_menu(
             instance=None,
             preselected_substation_name=substation_name,
             parent_popup=parent_popup,
+            prefill_data=prefill,
         )
 
     def show_maintenance_history(self, instance, _deferred=False):
@@ -18730,7 +18832,11 @@ class SubstationApp(App):
         )
         add_maint_btn.bind(
             on_press=lambda x: self.show_maintenance_menu_for_substation(
-                substation_id, substation_name, popup
+                substation_id,
+                substation_name,
+                popup,
+                preselected_element_id=current_element_filter.get("id"),
+                preselected_element_name=current_element_filter.get("name"),
             )
         )
         main_layout.add_widget(add_maint_btn)
@@ -18974,6 +19080,7 @@ class SubstationApp(App):
                 maintenance_data_json,
             ) in records_to_show:
                 elements = elements_by_maint.get(maint_id, [])
+                is_incomplete = bool(pending_tasks_by_maint.get(maint_id))
                 card = BoxLayout(
                     orientation="vertical", size_hint_y=None, padding=8, spacing=6
                 )
@@ -19016,15 +19123,31 @@ class SubstationApp(App):
                 maint_type_display = maintenance_type or S["MESSAGES"].get(
                     "MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση"
                 )
-                header.add_widget(
-                    Label(
-                        text=S["MESSAGES"]
-                        .get("MAINTENANCE_HEADER", "{type}: {name}")
-                        .format(type=maint_type_display, name=display_name),
-                        bold=True,
-                        size_hint_x=0.6,
-                    )
+                header_title = (
+                    S["MESSAGES"]
+                    .get("MAINTENANCE_HEADER", "{type}: {name}")
+                    .format(type=maint_type_display, name=display_name)
                 )
+                if is_incomplete:
+                    header_title = (
+                        f"[color=ff3333][b]{S['MESSAGES'].get('MARK_INCOMPLETE_LABEL', 'Δεν ολοκληρώθηκε')}[/b][/color]  "
+                        f"{header_title}"
+                    )
+                header_title_label = Label(
+                    text=header_title,
+                    bold=True,
+                    markup=is_incomplete,
+                    size_hint_x=0.6,
+                    halign="left",
+                    valign="middle",
+                )
+                header_title_label.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                    texture_size=lambda inst, val: setattr(
+                        inst, "height", max(40, val[1] + 6)
+                    ),
+                )
+                header.add_widget(header_title_label)
                 # If this maintenance has pending tasks, show an info icon with tooltip on hover
                 from ui.shared import IconOnlyButton
 
@@ -19048,13 +19171,11 @@ class SubstationApp(App):
 
                 # Helper function to open URL or local file path
                 def open_folder_or_url(path):
-                    if path.startswith(("http://", "https://")):
-                        webbrowser.open(path)
-                    else:
-                        try:
-                            os.startfile(path)
-                        except Exception:
-                            pass
+                    from reports import (
+                        open_folder_or_url as _open_existing_folder_or_url,
+                    )
+
+                    _open_existing_folder_or_url(path)
 
                 def make_delete_handler(m_id, p):
                     return lambda x: self.confirm_delete_maintenance_for_substation(
@@ -22175,12 +22296,11 @@ class SubstationApp(App):
 
                 def _make_open_folder(path):
                     def _open_folder(_x):
-                        folder = os.path.dirname(path)
-                        if os.path.exists(folder):
-                            try:
-                                os.startfile(folder)
-                            except Exception:
-                                pass
+                        from reports import (
+                            open_folder_or_url as _open_existing_folder_or_url,
+                        )
+
+                        _open_existing_folder_or_url(path)
 
                     return _open_folder
 
@@ -22437,12 +22557,11 @@ class SubstationApp(App):
                 import os
 
                 def _open_folder(path):
-                    folder = os.path.dirname(path) if path else None
-                    if folder and os.path.exists(folder):
-                        try:
-                            os.startfile(folder)
-                        except Exception:
-                            pass
+                    from reports import (
+                        open_folder_or_url as _open_existing_folder_or_url,
+                    )
+
+                    _open_existing_folder_or_url(path)
 
                 def _open_file(path):
                     from reports import open_file
