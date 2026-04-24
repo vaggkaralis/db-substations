@@ -17089,8 +17089,12 @@ class SubstationApp(App):
 
                         measurement_toggle = widgets.get("measurements_toggle")
                         if measurement_toggle:
+
+                            def _has_value(v):
+                                return v is not None and str(v).strip() != ""
+
                             has_existing_measurements = any(
-                                data.get(key) is not None
+                                _has_value(data.get(key))
                                 for key in (
                                     "ins_closed_fa",
                                     "ins_closed_fb",
@@ -17107,24 +17111,21 @@ class SubstationApp(App):
                             )
                             has_existing_measurements = (
                                 has_existing_measurements
-                                or bool(data.get("sf6_leak_methodology"))
+                                or _has_value(data.get("sf6_leak_methodology"))
                             )
+                            sf6_dict = data.get("sf6") or {}
                             has_existing_measurements = (
                                 has_existing_measurements
-                                or any(
-                                    value is not None
-                                    for value in (data.get("sf6") or {}).values()
-                                )
+                                or any(_has_value(v) for v in sf6_dict.values())
                             )
+                            vidar_dict = data.get("vidar") or {}
                             has_existing_measurements = (
                                 has_existing_measurements
-                                or any(
-                                    value is not None
-                                    for value in (data.get("vidar") or {}).values()
-                                )
+                                or any(_has_value(v) for v in vidar_dict.values())
                             )
-                            if has_existing_measurements:
-                                measurement_toggle.active = True
+                            # Explicitly set the toggle state so it is deselected
+                            # when there are no saved measurement values.
+                            measurement_toggle.active = bool(has_existing_measurements)
 
             for gate_name in gate_sections:
                 _sync_gate_expansion(gate_name)
