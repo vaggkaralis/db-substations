@@ -3709,9 +3709,16 @@ class SubstationApp(App):
 
     def _get_maintenance_people(self, maintenance_id):
         c = self.conn.cursor()
+        person_columns = {row[1] for row in c.execute("PRAGMA table_info(people)")}
+        if {"surname", "given_name"}.issubset(person_columns):
+            person_name_expr = (
+                "COALESCE(p.surname, p.name) || ' ' || COALESCE(p.given_name, '')"
+            )
+        else:
+            person_name_expr = "p.name"
         c.execute(
-            """
-            SELECT COALESCE(p.surname, p.name) || ' ' || COALESCE(p.given_name, '') as display_name, mp.role
+            f"""
+            SELECT {person_name_expr} as display_name, mp.role
             FROM maintenance_people mp
             JOIN people p ON mp.person_id = p.id
             WHERE mp.maintenance_id = ?
@@ -13405,7 +13412,7 @@ class SubstationApp(App):
 
         # Responsible person (mandatory)
         c.execute(
-            "SELECT id, name, role FROM people WHERE active=1 ORDER BY CASE\n                    WHEN role LIKE '%Τομεαρ%' COLLATE NOCASE OR role LIKE '%Τομεάρχ%' COLLATE NOCASE THEN 0\n                    WHEN role LIKE '%Υποτο%' COLLATE NOCASE THEN 1\n                    WHEN role LIKE '%Ειδικ%' COLLATE NOCASE OR role LIKE '%Ειδικό Στέλεχος%' COLLATE NOCASE THEN 2\n                    WHEN role LIKE '%Μηχανικ%' COLLATE NOCASE THEN 3\n                    WHEN role LIKE '%Εργοδηγ%' COLLATE NOCASE THEN 4\n                    WHEN role LIKE '%Αρχιτεχν%' COLLATE NOCASE THEN 5\n                    WHEN role LIKE '%Τεχν%' COLLATE NOCASE THEN 6\n                    WHEN role LIKE '%Χειριστ%' COLLATE NOCASE THEN 7\n                    WHEN role LIKE '%Υποστ%' COLLATE NOCASE THEN 8\n                    ELSE 99 END, COALESCE(surname, name) COLLATE NOCASE"
+            "SELECT id, name, role, active FROM people ORDER BY active DESC, CASE\n                    WHEN role LIKE '%Τομεαρ%' COLLATE NOCASE OR role LIKE '%Τομεάρχ%' COLLATE NOCASE THEN 0\n                    WHEN role LIKE '%Υποτο%' COLLATE NOCASE THEN 1\n                    WHEN role LIKE '%Ειδικ%' COLLATE NOCASE OR role LIKE '%Ειδικό Στέλεχος%' COLLATE NOCASE THEN 2\n                    WHEN role LIKE '%Μηχανικ%' COLLATE NOCASE THEN 3\n                    WHEN role LIKE '%Εργοδηγ%' COLLATE NOCASE THEN 4\n                    WHEN role LIKE '%Αρχιτεχν%' COLLATE NOCASE THEN 5\n                    WHEN role LIKE '%Τεχν%' COLLATE NOCASE THEN 6\n                    WHEN role LIKE '%Χειριστ%' COLLATE NOCASE THEN 7\n                    WHEN role LIKE '%Υποστ%' COLLATE NOCASE THEN 8\n                    ELSE 99 END, COALESCE(surname, name) COLLATE NOCASE"
         )
         people = c.fetchall()
         if not people:
@@ -13430,9 +13437,21 @@ class SubstationApp(App):
         _register_wizard_widget(2, responsible_label)
 
         # Filter people into responsible and crew lists according to role rules
+        crew_ids = {pid for pid, role in maintenance_people if role == "crew"}
         responsible_people, crew_people = filter_people_for_maintenance(
-            people, responsible_person_id
+            people,
+            responsible_person_id,
+            crew_person_ids=crew_ids,
         )
+
+        def _person_is_active(person_row):
+            return len(person_row) < 4 or bool(person_row[3])
+
+        def _person_label(person_row):
+            label = f"{person_row[1]} ({person_row[2]})"
+            if not _person_is_active(person_row):
+                label += f" - {S['MESSAGES'].get('INACTIVE_LABEL', 'Ανενεργός')}"
+            return label
 
         if not responsible_people:
             show_message_popup(
@@ -13445,7 +13464,7 @@ class SubstationApp(App):
             )
             return
 
-        people_map = {f"{p[1]} ({p[2]})": p[0] for p in responsible_people}
+        people_map = {_person_label(p): p[0] for p in responsible_people}
         responsible_default_text = list(people_map.keys())[0] if people_map else ""
 
         # Pre-fill with logged-in user if they're responsible-capable (for new maintenance only)
@@ -13506,7 +13525,6 @@ class SubstationApp(App):
         crew_container = GridLayout(cols=cols, spacing=6, size_hint_y=None, padding=5)
         crew_container.bind(minimum_height=crew_container.setter("height"))
         crew_checks = {}
-        crew_ids = {pid for pid, role in maintenance_people if role == "crew"}
         if not maintenance_id and prefill_data.get("crew_ids"):
             crew_ids = set(prefill_data.get("crew_ids"))
         # Ensure responsible person appears in crew list (preselected & not editable)
@@ -13515,11 +13533,17 @@ class SubstationApp(App):
             responsible_pid = people_map.get(responsible_default_text)
         except Exception:
             responsible_pid = None
-        if responsible_pid and not any(p[0] == responsible_pid for p in crew_people):
+        responsible_row = next((p for p in people if p[0] == responsible_pid), None)
+        if (
+            responsible_pid
+            and responsible_row is not None
+            and _person_is_active(responsible_row)
+            and not any(p[0] == responsible_pid for p in crew_people)
+        ):
             # find responsible in all people and prepend to crew_people
-            found = next((p for p in people if p[0] == responsible_pid), None)
-            if found:
-                crew_people.insert(0, found)
+            crew_people.insert(0, responsible_row)
+
+        inactive_locked_crew_ids = set()
 
         # Build categorized crew area: compact gaps, category headers, and per-category grids
         min_cell_h = 18
@@ -13555,7 +13579,9 @@ class SubstationApp(App):
             )
             cat_grid.bind(minimum_height=cat_grid.setter("height"))
 
-            for pid, name, role in members:
+            for person_row in members:
+                pid, name, role = person_row[:3]
+                person_active = _person_is_active(person_row)
                 # container cell
                 cell = BoxLayout(
                     orientation="horizontal",
@@ -13581,7 +13607,10 @@ class SubstationApp(App):
                 )
                 if pid in crew_ids:
                     cb.active = True
-                if responsible_pid and pid == responsible_pid:
+                if not person_active:
+                    inactive_locked_crew_ids.add(pid)
+                    cb.disabled = True
+                if responsible_pid and pid == responsible_pid and person_active:
                     cb.active = True
                     cb.disabled = True
                 anchor.add_widget(cb)
@@ -13589,7 +13618,10 @@ class SubstationApp(App):
 
                 # Simple fixed-height label so you can adjust heights manually.
                 lbl = Label(
-                    text=f"{name} ({role})", halign="left", valign="top", size_hint_x=1
+                    text=_person_label(person_row),
+                    halign="left",
+                    valign="top",
+                    size_hint_x=1,
                 )
                 lbl.size_hint_y = None
                 lbl.height = crew_cell_h
@@ -13635,6 +13667,10 @@ class SubstationApp(App):
             sel_label = responsible_spinner.text
             sel_pid = people_map.get(sel_label)
             for pid, cb in crew_checks.items():
+                if pid in inactive_locked_crew_ids:
+                    cb.active = True
+                    cb.disabled = True
+                    continue
                 if pid == sel_pid:
                     cb.active = True
                     cb.disabled = True
@@ -14287,6 +14323,8 @@ class SubstationApp(App):
                     element_ids,
                 )
                 for elem_id, ops_count_val, _date_time in c.fetchall():
+                    if ops_count_val is None:
+                        continue
                     if elem_id not in last_ops_map:
                         last_ops_map[elem_id] = ops_count_val
 
@@ -14378,6 +14416,7 @@ class SubstationApp(App):
                     gate_value=gate_name,
                     gate_rows=list(gate_elements),
                 ):
+                    changed_element_ids = []
                     bulk_element_selection["active"] = True
                     try:
                         for (
@@ -14412,8 +14451,15 @@ class SubstationApp(App):
                                 should_select = bool(checkbox_widget.active)
                             if bool(checkbox_widget.active) != bool(should_select):
                                 checkbox_widget.active = bool(should_select)
+                                changed_element_ids.append(gate_elem_id)
                     finally:
                         bulk_element_selection["active"] = False
+
+                    self._sync_selected_element_details_visibility(
+                        element_widgets,
+                        gate_sections.get(gate_value, {}).get("element_ids")
+                        or changed_element_ids,
+                    )
 
                     _sync_gate_expansion(
                         gate_value,
@@ -14441,7 +14487,6 @@ class SubstationApp(App):
                 )
                 gate_all_btn = Button(text="Όλα", size_hint_x=0.14)
                 gate_mv_btn = Button(text="Ζυγοί ΜΤ", size_hint_x=0.18)
-                gate_tr_btn = Button(text="Μ/Σ", size_hint_x=0.12)
                 gate_clear_btn = Button(text="Καμία", size_hint_x=0.14)
                 gate_all_btn.bind(
                     on_press=lambda _x, mode="all", apply_fn=_apply_gate_selection: (
@@ -14453,11 +14498,6 @@ class SubstationApp(App):
                         apply_fn(mode)
                     )
                 )
-                gate_tr_btn.bind(
-                    on_press=lambda _x, mode="transformers", apply_fn=_apply_gate_selection: (
-                        apply_fn(mode)
-                    )
-                )
                 gate_clear_btn.bind(
                     on_press=lambda _x, mode="clear", apply_fn=_apply_gate_selection: (
                         apply_fn(mode)
@@ -14465,7 +14505,14 @@ class SubstationApp(App):
                 )
                 gate_header.add_widget(gate_all_btn)
                 gate_header.add_widget(gate_mv_btn)
-                gate_header.add_widget(gate_tr_btn)
+                if self._gate_has_transformer_elements(gate_elements):
+                    gate_tr_btn = Button(text="Μ/Σ", size_hint_x=0.12)
+                    gate_tr_btn.bind(
+                        on_press=lambda _x, mode="transformers", apply_fn=_apply_gate_selection: (
+                            apply_fn(mode)
+                        )
+                    )
+                    gate_header.add_widget(gate_tr_btn)
                 gate_header.add_widget(gate_clear_btn)
                 gate_section.add_widget(gate_header)
 
@@ -14567,6 +14614,11 @@ class SubstationApp(App):
                         "model_name": model_name,
                         "is_breaker": is_breaker,
                         "operations_count": operations_count,
+                        "last_operations_count": (
+                            last_ops_map.get(elem_id)
+                            if last_ops_map.get(elem_id) is not None
+                            else operations_count
+                        ),
                     }
 
                     def build_details_for(eid):
@@ -14672,6 +14724,7 @@ class SubstationApp(App):
 
                         # High-voltage oil-specific layout (only for ΥΤ & Ελαίου)
                         if is_hv_oil:
+                            last_operations_count = meta.get("last_operations_count")
                             # Category header
                             details_container.add_widget(
                                 Label(
@@ -14683,20 +14736,11 @@ class SubstationApp(App):
                             )
 
                             # Ops count (reuse ops_count_input created above)
-                            ops_layout_custom = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            ops_layout_custom.add_widget(
-                                Label(text="Αριθμός Χειρισμών:", size_hint_x=0.6)
-                            )
-                            try:
-                                ops_count_input.size_hint_x = 0.12
-                                ops_layout_custom.add_widget(ops_count_input)
-                            except Exception:
-                                ops_layout_custom.add_widget(
-                                    TextInput(text="", size_hint_x=0.12)
+                            ops_layout_custom, ops_count_input = (
+                                self._build_breaker_operations_count_row(
+                                    last_operations_count
                                 )
-                            ops_layout_custom.add_widget(Widget())
+                            )
                             details_container.add_widget(ops_layout_custom)
 
                             # ΚΑΤΑΣΤΑΣΗ ΔΙΑΚΟΠΤΗ
@@ -14899,6 +14943,7 @@ class SubstationApp(App):
 
                         # High-voltage SF6-specific layout (only for ΥΤ & SF6)
                         elif is_hv_sf6:
+                            last_operations_count = meta.get("last_operations_count")
                             # Category header (Operations counter)
                             details_container.add_widget(
                                 Label(
@@ -14909,20 +14954,11 @@ class SubstationApp(App):
                                 )
                             )
 
-                            ops_layout_sf6 = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            ops_layout_sf6.add_widget(
-                                Label(text="Αριθμός Χειρισμών:", size_hint_x=0.6)
-                            )
-                            try:
-                                ops_count_input.size_hint_x = 0.12
-                                ops_layout_sf6.add_widget(ops_count_input)
-                            except Exception:
-                                ops_layout_sf6.add_widget(
-                                    TextInput(text="", size_hint_x=0.12)
+                            ops_layout_sf6, ops_count_input = (
+                                self._build_breaker_operations_count_row(
+                                    last_operations_count
                                 )
-                            ops_layout_sf6.add_widget(Widget())
+                            )
                             details_container.add_widget(ops_layout_sf6)
 
                             # Status section
@@ -15685,6 +15721,13 @@ class SubstationApp(App):
 
                         elif is_breaker:
                             # Legacy breaker measurement UI (MV and other categories)
+                            last_operations_count = meta.get("last_operations_count")
+                            ops_layout_legacy, ops_count_input = (
+                                self._build_breaker_operations_count_row(
+                                    last_operations_count
+                                )
+                            )
+                            details_container.add_widget(ops_layout_legacy)
                             details_container.add_widget(
                                 Label(
                                     text=S["MESSAGES"].get(
@@ -18205,6 +18248,80 @@ class SubstationApp(App):
         if shown and reminded_substation_ids is not None:
             reminded_substation_ids.add(substation_id)
         return shown
+
+    def _build_breaker_operations_count_row(self, last_operations_count=None):
+        row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+        row.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "OPERATIONS_COUNT_LABEL",
+                    "Αριθμός Χειρισμών:",
+                ),
+                size_hint_x=0.42,
+            )
+        )
+        ops_count_input = TextInput(
+            hint_text=S["MESSAGES"].get(
+                "OPERATIONS_COUNT_HINT",
+                "Αριθμός Χειρισμών",
+            ),
+            size_hint_x=0.18,
+            multiline=False,
+        )
+        row.add_widget(ops_count_input)
+
+        last_value = (
+            "-"
+            if last_operations_count is None or str(last_operations_count).strip() == ""
+            else str(last_operations_count)
+        )
+        last_value_label = Label(
+            text=(
+                f"{S['MESSAGES'].get('LAST_VALUE_LABEL', 'Τελευταία τιμή:')} "
+                f"{last_value}"
+            ),
+            size_hint_x=0.4,
+            halign="left",
+            valign="middle",
+        )
+        last_value_label.bind(
+            size=lambda inst, val: setattr(inst, "text_size", val),
+        )
+        row.add_widget(last_value_label)
+        return row, ops_count_input
+
+    def _gate_has_transformer_elements(self, gate_elements):
+        return any(self._is_transformer(elem[1]) for elem in gate_elements)
+
+    def _sync_selected_element_details_visibility(
+        self,
+        element_widgets,
+        element_ids=None,
+    ):
+        target_ids = (
+            list(element_widgets.keys()) if element_ids is None else list(element_ids)
+        )
+        for element_id in target_ids:
+            widgets = element_widgets.get(element_id) or {}
+            checkbox = widgets.get("checkbox")
+            ensure_details = widgets.get("ensure_details")
+            details_container = widgets.get("details_container")
+
+            if getattr(checkbox, "active", False):
+                if callable(ensure_details):
+                    ensure_details()
+                continue
+
+            if (
+                details_container is not None
+                and getattr(
+                    details_container,
+                    "parent",
+                    None,
+                )
+                is not None
+            ):
+                details_container.parent.remove_widget(details_container)
 
     def show_maintenance_menu_for_substation(
         self,

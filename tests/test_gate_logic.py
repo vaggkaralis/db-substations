@@ -75,3 +75,101 @@ def test_breaker_category_and_format_helpers():
     assert app._format_elem_type(ELEM_BREAKER_YT, 1).startswith(ELEM_BREAKER_YT)
     assert "Κεντρικός" in app._format_elem_type(ELEM_BREAKER_YT, 1)
     assert "Διασυνδετικός" in app._format_elem_type(ELEM_BREAKER_MT, 2)
+
+
+def test_gate_has_transformer_elements_only_when_gate_contains_transformer():
+    app = SubstationApp()
+
+    transformer_gate = [
+        (
+            1,
+            "Μετασχηματιστής 150/20KV",
+            "T1",
+            None,
+            "ΠΥΛΗ 1",
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        (
+            2,
+            ELEM_BREAKER_MT,
+            "B1",
+            None,
+            "ΠΥΛΗ 1",
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    ]
+    interconnection_gate = [
+        (
+            3,
+            ELEM_BREAKER_MT,
+            "B2",
+            None,
+            "ΠΥΛΗ 1-2",
+            2,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    ]
+
+    assert app._gate_has_transformer_elements(transformer_gate) is True
+    assert app._gate_has_transformer_elements(interconnection_gate) is False
+
+
+def test_sync_selected_element_details_visibility_builds_and_hides_details():
+    app = SubstationApp()
+    calls = []
+
+    class DummyParent:
+        def __init__(self):
+            self.removed = []
+
+        def remove_widget(self, widget):
+            self.removed.append(widget)
+            widget.parent = None
+
+    class DummyCheckbox:
+        def __init__(self, active):
+            self.active = active
+
+    class DummyDetails:
+        def __init__(self, parent=None):
+            self.parent = parent
+
+    active_details = DummyDetails()
+    inactive_parent = DummyParent()
+    inactive_details = DummyDetails(parent=inactive_parent)
+
+    element_widgets = {
+        1: {
+            "checkbox": DummyCheckbox(True),
+            "ensure_details": lambda: calls.append("ensure-active"),
+            "details_container": active_details,
+        },
+        2: {
+            "checkbox": DummyCheckbox(False),
+            "ensure_details": lambda: calls.append("ensure-inactive"),
+            "details_container": inactive_details,
+        },
+    }
+
+    app._sync_selected_element_details_visibility(element_widgets, [1, 2])
+
+    assert calls == ["ensure-active"]
+    assert inactive_parent.removed == [inactive_details]
+    assert inactive_details.parent is None

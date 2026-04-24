@@ -56,19 +56,37 @@ def validate_breaker_category_required(element_type, breaker_category_value):
     return True
 
 
-def filter_people_for_maintenance(people_rows, responsible_person_id=None):
+def filter_people_for_maintenance(
+    people_rows,
+    responsible_person_id=None,
+    crew_person_ids=None,
+):
     """Return (responsible_people, crew_people) filtered for maintenance.
 
-    people_rows: iterable of (id, name, role)
+    people_rows: iterable of (id, name, role[, active])
     If responsible_person_id is provided but the person isn't in allowed responsible
     roles, they are prepended to the responsible_people list so they remain selectable.
+    crew_person_ids allows preserving already-linked crew members when editing older
+    maintenances, even if they are now inactive.
     """
     people = list(people_rows)
+    existing_crew_ids = set(crew_person_ids or [])
+
+    def _is_active(person_row):
+        if len(person_row) < 4:
+            return True
+        return bool(person_row[3])
+
     # Use canonical role matching to be tolerant to diacritics/variants in DB
     responsible_people = [
         p for p in people if canonical_role(p[2]) in ALLOWED_RESPONSIBLE_ROLES
     ]
-    crew_people = [p for p in people if canonical_role(p[2]) != "Υποστήριξη"]
+    crew_people = [
+        p
+        for p in people
+        if canonical_role(p[2]) != "Υποστήριξη"
+        and (_is_active(p) or p[0] in existing_crew_ids)
+    ]
 
     # If a preselected responsible person isn't in the allowed list, prepend
     # them so they remain selectable.
@@ -78,6 +96,13 @@ def filter_people_for_maintenance(people_rows, responsible_person_id=None):
         found = next((p for p in people if p[0] == responsible_person_id), None)
         if found:
             responsible_people.insert(0, found)
+
+    for crew_person_id in existing_crew_ids:
+        if any(p[0] == crew_person_id for p in crew_people):
+            continue
+        found = next((p for p in people if p[0] == crew_person_id), None)
+        if found:
+            crew_people.insert(0, found)
 
     return responsible_people, crew_people
 
