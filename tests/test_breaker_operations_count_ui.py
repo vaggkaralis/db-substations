@@ -44,3 +44,13 @@ def test_operations_count_strings_exist_in_both_modules():
         packaged_strings.STRINGS_EN["MESSAGES"]["OPERATIONS_COUNT_LABEL"]
         == "Operation Count:"
     )
+
+
+def test_has_meaningful_measurement_value_ignores_empty_strings():
+    app = object.__new__(DBrun.SubstationApp)
+
+    assert app._has_meaningful_measurement_value(None) is False
+    assert app._has_meaningful_measurement_value("") is False
+    assert app._has_meaningful_measurement_value("   ") is False
+    assert app._has_meaningful_measurement_value("Πλήρωση") is True
+    assert app._has_meaningful_measurement_value(0) is True

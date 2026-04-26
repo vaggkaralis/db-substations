@@ -866,9 +866,14 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
 
     def _resize_notes_input(*_args):
         try:
-            notes_input.height = max(180, notes_input.minimum_height + 20)
+            rendered_lines = getattr(notes_input, "_lines", None) or []
+            line_count = max(
+                1, len(rendered_lines) or len(notes_input.text.splitlines())
+            )
+            line_height = getattr(notes_input, "line_height", 18) or 18
+            notes_input.height = min(320, max(120, int(line_count * line_height + 28)))
         except Exception:
-            notes_input.height = 180
+            notes_input.height = 120
 
     notes_input.bind(text=lambda *_args: _resize_notes_input())
     notes_input.bind(width=lambda *_args: _resize_notes_input())

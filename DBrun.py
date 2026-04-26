@@ -17089,12 +17089,8 @@ class SubstationApp(App):
 
                         measurement_toggle = widgets.get("measurements_toggle")
                         if measurement_toggle:
-
-                            def _has_value(v):
-                                return v is not None and str(v).strip() != ""
-
                             has_existing_measurements = any(
-                                _has_value(data.get(key))
+                                self._has_meaningful_measurement_value(data.get(key))
                                 for key in (
                                     "ins_closed_fa",
                                     "ins_closed_fb",
@@ -17111,17 +17107,25 @@ class SubstationApp(App):
                             )
                             has_existing_measurements = (
                                 has_existing_measurements
-                                or _has_value(data.get("sf6_leak_methodology"))
+                                or self._has_meaningful_measurement_value(
+                                    data.get("sf6_leak_methodology")
+                                )
                             )
                             sf6_dict = data.get("sf6") or {}
                             has_existing_measurements = (
                                 has_existing_measurements
-                                or any(_has_value(v) for v in sf6_dict.values())
+                                or any(
+                                    self._has_meaningful_measurement_value(v)
+                                    for v in sf6_dict.values()
+                                )
                             )
                             vidar_dict = data.get("vidar") or {}
                             has_existing_measurements = (
                                 has_existing_measurements
-                                or any(_has_value(v) for v in vidar_dict.values())
+                                or any(
+                                    self._has_meaningful_measurement_value(v)
+                                    for v in vidar_dict.values()
+                                )
                             )
                             # Explicitly set the toggle state so it is deselected
                             # when there are no saved measurement values.
@@ -17689,50 +17693,55 @@ class SubstationApp(App):
                                 except Exception:
                                     vidar_vals[key] = None
 
+                    measurements_enabled = True
+                    measurement_toggle = widgets.get("measurements_toggle")
+                    if measurement_toggle is not None:
+                        measurements_enabled = bool(measurement_toggle.active)
+
                     # Build extra JSON for arbitrary/new form fields (transformer, etc.)
                     extra = {}
                     try:
-                        if measurements.get("power_mva"):
+                        if measurements_enabled and measurements.get("power_mva"):
                             t = measurements["power_mva"].text.strip()
                             if t:
                                 extra["power_mva"] = t
                     except Exception:
                         pass
                     try:
-                        if measurements.get("satyf_counter"):
+                        if measurements_enabled and measurements.get("satyf_counter"):
                             extra["satyf_counter"] = measurements[
                                 "satyf_counter"
                             ].text.strip()
                     except Exception:
                         pass
                     try:
-                        if measurements.get("silica"):
+                        if measurements_enabled and measurements.get("silica"):
                             extra["silica"] = measurements["silica"].text
                     except Exception:
                         pass
                     try:
-                        if measurements.get("temp_fan"):
+                        if measurements_enabled and measurements.get("temp_fan"):
                             extra["temp_fan"] = [
                                 w.text.strip() for w in measurements["temp_fan"]
                             ]
                     except Exception:
                         pass
                     try:
-                        if measurements.get("temp_alarm"):
+                        if measurements_enabled and measurements.get("temp_alarm"):
                             extra["temp_alarm"] = [
                                 w.text.strip() for w in measurements["temp_alarm"]
                             ]
                     except Exception:
                         pass
                     try:
-                        if measurements.get("temp_trip"):
+                        if measurements_enabled and measurements.get("temp_trip"):
                             extra["temp_trip"] = [
                                 w.text.strip() for w in measurements["temp_trip"]
                             ]
                     except Exception:
                         pass
                     try:
-                        if measurements.get("diverter_res"):
+                        if measurements_enabled and measurements.get("diverter_res"):
                             extra["diverter_res"] = [
                                 w.text.strip() for w in measurements["diverter_res"]
                             ]
@@ -17743,6 +17752,8 @@ class SubstationApp(App):
 
                     # Safely extract measurement values to avoid KeyError when widgets are absent
                     def _m_text(k):
+                        if not measurements_enabled:
+                            return None
                         w = measurements.get(k)
                         return (
                             w.text
@@ -17751,6 +17762,8 @@ class SubstationApp(App):
                         )
 
                     def _m_float(k):
+                        if not measurements_enabled:
+                            return None
                         w = measurements.get(k)
                         if not w or not getattr(w, "text", None):
                             return None
@@ -17774,6 +17787,12 @@ class SubstationApp(App):
                     cont_fa_val = _m_float("cont_fa")
                     cont_fb_val = _m_float("cont_fb")
                     cont_fc_val = _m_float("cont_fc")
+
+                    if not measurements_enabled:
+                        sf6_leakage_val = None
+                        sf6_leak_methodology_val = None
+                        sf6_vals = {key: None for key in sf6_vals}
+                        vidar_vals = {key: None for key in vidar_vals}
 
                     c.execute(
                         """INSERT INTO maintenance_elements 
@@ -18290,6 +18309,11 @@ class SubstationApp(App):
         )
         row.add_widget(last_value_label)
         return row, ops_count_input
+
+    def _has_meaningful_measurement_value(self, value):
+        if value is None:
+            return False
+        return str(value).strip() != ""
 
     def _gate_has_transformer_elements(self, gate_elements):
         return any(self._is_transformer(elem[1]) for elem in gate_elements)
