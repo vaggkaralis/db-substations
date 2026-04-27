@@ -19372,7 +19372,6 @@ class SubstationApp(App):
                 )
         except Exception:
             pass
-        history_limit = 80
         c = self.conn.cursor()
 
         c.execute(
@@ -19387,23 +19386,24 @@ class SubstationApp(App):
             FROM maintenance m
             WHERE m.substation_id = ?
             ORDER BY m.date_time DESC
-            LIMIT ?
             """,
-            (substation_id, history_limit),
+            (substation_id,),
         )
         maintenance_records = c.fetchall()
 
-        # Bulk-prefetch people and elements for all loaded records
+        # Prefetch containers (will be filled for each page as loaded)
         people_by_maint = {}
         elements_by_maint = {}
         dga_report_by_maint = {}
         pending_tasks_by_maint = {}
         all_elements_in_sub = []  # [(id, name, element_type), ...] for element filter
 
-        if maintenance_records:
-            maint_ids = [row[0] for row in maintenance_records]
+        def prefetch_for_maint_ids(maint_ids):
+            if not maint_ids:
+                return
             placeholders = ",".join(["?"] * len(maint_ids))
 
+            # people
             c.execute(
                 f"""
                 SELECT mp.maintenance_id, p.name, mp.role
@@ -19423,48 +19423,38 @@ class SubstationApp(App):
                 elif role == "crew":
                     entry["crew"].append(person_name)
 
-            # Fallback: some maintenance rows may have responsible_id in maintenance table
-            # (instead of an entry in maintenance_people). Resolve those to person names.
-            if maint_ids:
-                c.execute(
-                    f"SELECT id, responsible_id FROM maintenance WHERE id IN ({placeholders})",
-                    maint_ids,
-                )
-                for m_id, resp_pid in c.fetchall():
-                    if resp_pid and not people_by_maint.get(m_id, {}).get(
-                        "responsible"
-                    ):
-                        c.execute("SELECT name FROM people WHERE id=?", (resp_pid,))
-                        r = c.fetchone()
-                        if r:
-                            people_by_maint.setdefault(
-                                m_id, {"responsible": None, "crew": []}
-                            )["responsible"] = r[0]
-
+            # fallback responsible_id resolution
             c.execute(
-                f"""
-                SELECT maintenance_id, tasks_text
-                FROM maintenance_pending_tasks
-                WHERE maintenance_id IN ({placeholders})
-                """,
+                f"SELECT id, responsible_id FROM maintenance WHERE id IN ({placeholders})",
+                maint_ids,
+            )
+            for m_id, resp_pid in c.fetchall():
+                if resp_pid and not people_by_maint.get(m_id, {}).get("responsible"):
+                    c.execute("SELECT name FROM people WHERE id=?", (resp_pid,))
+                    r = c.fetchone()
+                    if r:
+                        people_by_maint.setdefault(
+                            m_id, {"responsible": None, "crew": []}
+                        )["responsible"] = r[0]
+
+            # pending tasks
+            c.execute(
+                f"SELECT maintenance_id, tasks_text FROM maintenance_pending_tasks WHERE maintenance_id IN ({placeholders})",
                 maint_ids,
             )
             for maintenance_id, tasks_text in c.fetchall():
                 pending_tasks_by_maint[maintenance_id] = tasks_text or ""
 
+            # dga reports
             c.execute(
-                f"""
-                SELECT maintenance_id, report_path
-                FROM dga_measurements
-                WHERE maintenance_id IN ({placeholders})
-                ORDER BY maintenance_id, measurement_date DESC, created_at DESC, id DESC
-                """,
+                f"SELECT maintenance_id, report_path FROM dga_measurements WHERE maintenance_id IN ({placeholders}) ORDER BY maintenance_id, measurement_date DESC, created_at DESC, id DESC",
                 maint_ids,
             )
             for maintenance_id, report_path in c.fetchall():
                 if maintenance_id not in dga_report_by_maint:
                     dga_report_by_maint[maintenance_id] = report_path
 
+            # elements
             elements_added_per_maint = {mid: set() for mid in maint_ids}
             c.execute(
                 f"""
@@ -19501,19 +19491,22 @@ class SubstationApp(App):
                     )
                     elements_added_per_maint[m_id].add(elem_id)
 
-            # Build element filter from all maintained elements of this substation.
-            c.execute(
-                """
-                SELECT DISTINCT e.id, e.name, e.element_type
-                FROM maintenance m
-                JOIN maintenance_elements me ON me.maintenance_id = m.id
-                JOIN elements e ON e.id = me.element_id
-                WHERE m.substation_id = ?
-                ORDER BY e.name
-                """,
-                (substation_id,),
-            )
-            all_elements_in_sub = c.fetchall()
+        if maintenance_records:
+            maint_ids = [row[0] for row in maintenance_records]
+            prefetch_for_maint_ids(maint_ids)
+
+        c.execute(
+            """
+            SELECT DISTINCT e.id, e.name, e.element_type
+            FROM maintenance m
+            JOIN maintenance_elements me ON me.maintenance_id = m.id
+            JOIN elements e ON e.id = me.element_id
+            WHERE m.substation_id = ?
+            ORDER BY e.name
+            """,
+            (substation_id,),
+        )
+        all_elements_in_sub = c.fetchall()
 
         c.execute("""
             SELECT s.id, s.name, COUNT(m.id) AS maint_count
@@ -19545,6 +19538,62 @@ class SubstationApp(App):
                 or element_name_by_id.get(current_element_filter["id"])
                 or ""
             )
+
+        year_all_option = "(Όλα έτη)"
+        month_all_option = "(Όλοι οι μήνες)"
+        month_names = {
+            "01": "Ιαν",
+            "02": "Φεβ",
+            "03": "Μαρ",
+            "04": "Απρ",
+            "05": "Μαϊ",
+            "06": "Ιουν",
+            "07": "Ιουλ",
+            "08": "Αυγ",
+            "09": "Σεπ",
+            "10": "Οκτ",
+            "11": "Νοε",
+            "12": "Δεκ",
+        }
+        current_date_filter = {"year": year_all_option, "month": month_all_option}
+        expanded_maintenance_ids = set()
+
+        def _extract_year_month(date_value):
+            date_text = str(date_value or "")
+            year_value = date_text[:4] if len(date_text) >= 4 else ""
+            month_value = date_text[5:7] if len(date_text) >= 7 else ""
+            return year_value, month_value
+
+        available_years = sorted(
+            {
+                year
+                for _, _, date_time, *_rest in maintenance_records
+                for year, _month in [_extract_year_month(date_time)]
+                if year
+            },
+            reverse=True,
+        )
+
+        def _month_option_label(month_value):
+            if month_value in month_names:
+                return f"{month_value} - {month_names[month_value]}"
+            return month_value
+
+        def _month_options_for_year(year_value):
+            months = {
+                month
+                for _, _, date_time, *_rest in maintenance_records
+                for rec_year, month in [_extract_year_month(date_time)]
+                if month and (year_value == year_all_option or rec_year == year_value)
+            }
+            return [
+                _month_option_label(month) for month in sorted(months, reverse=True)
+            ]
+
+        def _month_option_to_value(month_option):
+            if month_option == month_all_option:
+                return month_all_option
+            return month_option.split(" ", 1)[0]
 
         popup = Popup(
             title=f"Ιστορικό Συντήρησης: {substation_name}", size_hint=(0.95, 0.9)
@@ -19667,6 +19716,29 @@ class SubstationApp(App):
         filter_bar.add_widget(elem_filter_btn)
         main_layout.add_widget(filter_bar)
 
+        date_filter_bar = BoxLayout(size_hint_y=None, height=40, spacing=10)
+        date_filter_bar.add_widget(Label(text="Έτος:", size_hint_x=0.1))
+        year_filter_spinner = Spinner(
+            text=year_all_option,
+            values=[year_all_option] + available_years,
+            size_hint_x=0.22,
+        )
+        date_filter_bar.add_widget(year_filter_spinner)
+        date_filter_bar.add_widget(Label(text="Μήνας:", size_hint_x=0.1))
+        month_filter_spinner = Spinner(
+            text=month_all_option,
+            values=[month_all_option] + _month_options_for_year(year_all_option),
+            size_hint_x=0.24,
+        )
+        date_filter_bar.add_widget(month_filter_spinner)
+        clear_date_filters_btn = Button(
+            text="Καθαρισμός ημερομηνίας",
+            size_hint_x=0.34,
+            **font_kwargs,
+        )
+        date_filter_bar.add_widget(clear_date_filters_btn)
+        main_layout.add_widget(date_filter_bar)
+
         # Export list button under filters and before maintenance list
         main_layout.add_widget(export_bar)
 
@@ -19763,6 +19835,11 @@ class SubstationApp(App):
             selected_element_name = current_element_filter.get("name") or ""
             export_list_btn.disabled = selected_element_id is None
 
+            selected_year = current_date_filter.get("year", year_all_option)
+            selected_month = _month_option_to_value(
+                current_date_filter.get("month", month_all_option)
+            )
+
             if selected_element_id is not None:
                 records_to_show = [
                     r
@@ -19774,6 +19851,20 @@ class SubstationApp(App):
                 ]
             else:
                 records_to_show = maintenance_records
+
+            if selected_year != year_all_option:
+                records_to_show = [
+                    r
+                    for r in records_to_show
+                    if _extract_year_month(r[2])[0] == selected_year
+                ]
+
+            if selected_month != month_all_option:
+                records_to_show = [
+                    r
+                    for r in records_to_show
+                    if _extract_year_month(r[2])[1] == selected_month
+                ]
 
             if not records_to_show:
                 grid.add_widget(
@@ -19789,12 +19880,22 @@ class SubstationApp(App):
                 info_label.text = ""
                 return
 
+            active_filters = []
             if selected_element_id is not None:
-                info_label.text = f"Εμφανίζονται {len(records_to_show)} συμβάντα/μετρήσεις για το στοιχείο: {selected_element_name}."
-            elif total_records > len(maintenance_records):
-                info_label.text = f"Εμφανίζονται οι πιο πρόσφατες {len(maintenance_records)} από {total_records} συμβάντα/μετρήσεις."
+                active_filters.append(f"στοιχείο: {selected_element_name}")
+            if selected_year != year_all_option:
+                active_filters.append(f"έτος: {selected_year}")
+            if selected_month != month_all_option:
+                active_filters.append(f"μήνας: {_month_option_label(selected_month)}")
+            if active_filters:
+                info_label.text = (
+                    f"Εμφανίζονται {len(records_to_show)} από {total_records} συμβάντα/μετρήσεις "
+                    f"με φίλτρα {', '.join(active_filters)}."
+                )
             else:
-                info_label.text = ""
+                info_label.text = (
+                    f"Εμφανίζονται {len(records_to_show)} συμβάντα/μετρήσεις."
+                )
 
             for (
                 maint_id,
@@ -19879,18 +19980,13 @@ class SubstationApp(App):
                 from ui.shared import IconOnlyButton
 
                 try:
-                    c.execute(
-                        "SELECT tasks_text FROM maintenance_pending_tasks WHERE maintenance_id=?",
-                        (maint_id,),
-                    )
-                    _row = c.fetchone()
-                    if _row and _row[0]:
-                        info_tasks = str(_row[0])
+                    info_tasks = pending_tasks_by_maint.get(maint_id)
+                    if info_tasks:
                         info_btn = IconOnlyButton(
                             icon_type="info",
                             icon_color=(1, 0.45, 0, 1),
                             size=(30, 30),
-                            tooltip=info_tasks,
+                            tooltip=str(info_tasks),
                         )
                         header.add_widget(info_btn)
                 except Exception:
@@ -19911,6 +20007,8 @@ class SubstationApp(App):
 
                 def make_email_handler(m_id):
                     return lambda x: self.send_maintenance_email_report(m_id)
+
+                # end per-record loop
 
                 def make_edit_handler(m_id, p, maint_type, elements):
                     if not _is_dga_maintenance_type(maint_type):
@@ -20029,6 +20127,27 @@ class SubstationApp(App):
                     header.add_widget(checklist_btn)
                 header.add_widget(email_btn)
                 header.add_widget(delete_btn)
+
+                expand_btn = Button(
+                    text=(
+                        S["BUTTONS"].get("COLLAPSE", "Σύμπτυξη")
+                        if maint_id in expanded_maintenance_ids
+                        else S["BUTTONS"].get("EXPAND", "Ανάπτυξη")
+                    ),
+                    size_hint_x=None,
+                    width=110,
+                    **font_kwargs,
+                )
+
+                def _toggle_maintenance_card(_instance, maintenance_id=maint_id):
+                    if maintenance_id in expanded_maintenance_ids:
+                        expanded_maintenance_ids.remove(maintenance_id)
+                    else:
+                        expanded_maintenance_ids.add(maintenance_id)
+                    render_cards()
+
+                expand_btn.bind(on_press=_toggle_maintenance_card)
+                header.add_widget(expand_btn)
                 card.add_widget(header)
 
                 # Responsible / crew
@@ -20037,6 +20156,34 @@ class SubstationApp(App):
                 )
                 responsible = people_info.get("responsible")
                 crew = people_info.get("crew") or []
+                summary_parts = [f"Στοιχεία: {len(elements)}"]
+                if responsible:
+                    summary_parts.append(f"Υπεύθυνος: {responsible}")
+                if crew:
+                    summary_parts.append(f"Ομάδα: {', '.join(crew)}")
+                if overall_comments:
+                    compact_comments = " ".join(str(overall_comments).split())
+                    if len(compact_comments) > 120:
+                        compact_comments = f"{compact_comments[:117]}..."
+                    summary_parts.append(f"Σχόλια: {compact_comments}")
+
+                summary_label = Label(
+                    text=" | ".join(summary_parts),
+                    size_hint_y=None,
+                    halign="left",
+                    valign="middle",
+                )
+                summary_label.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+                    texture_size=lambda inst, val: setattr(inst, "height", val[1] + 8),
+                )
+                card.add_widget(summary_label)
+
+                if maint_id not in expanded_maintenance_ids:
+                    grid.add_widget(card)
+                    _add_separator(grid, color=(0.82, 0.84, 0.87, 1), height=1)
+                    continue
+
                 if responsible or crew:
                     people_label = Label(
                         text=S["MESSAGES"]
@@ -20333,13 +20480,43 @@ class SubstationApp(App):
                 title=S["MESSAGES"].get("FILTER_SUBSTATION", "Φίλτρο Υποσταθμού"),
             )
 
+        def _refresh_month_spinner_options():
+            month_options = [month_all_option] + _month_options_for_year(
+                current_date_filter.get("year", year_all_option)
+            )
+            month_filter_spinner.values = month_options
+            if current_date_filter.get("month", month_all_option) not in month_options:
+                current_date_filter["month"] = month_all_option
+                month_filter_spinner.text = month_all_option
+
+        def _on_year_filter_changed(_spinner, selected_value):
+            current_date_filter["year"] = selected_value
+            _refresh_month_spinner_options()
+            render_cards()
+
+        def _on_month_filter_changed(_spinner, selected_value):
+            current_date_filter["month"] = selected_value
+            render_cards()
+
+        def _clear_date_filters(_instance=None):
+            current_date_filter["year"] = year_all_option
+            current_date_filter["month"] = month_all_option
+            year_filter_spinner.text = year_all_option
+            _refresh_month_spinner_options()
+            render_cards()
+
         select_sub_btn.bind(on_press=_open_substation_filter_picker)
         elem_filter_btn.bind(on_press=_open_element_picker)
+        year_filter_spinner.bind(text=_on_year_filter_changed)
+        month_filter_spinner.bind(text=_on_month_filter_changed)
+        clear_date_filters_btn.bind(on_press=_clear_date_filters)
 
         if current_element_filter["id"] is not None:
             elem_filter_input.text = (
                 current_element_filter.get("name") or "(Επιλεγμένο)"
             )
+
+        _refresh_month_spinner_options()
 
         render_cards()
 
