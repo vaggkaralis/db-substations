@@ -56,6 +56,8 @@ _LEGACY_ISOLATION_INSTANCE_PREFIX = "ISO_"
 
 _DIR_MEDIA = "Φωτογραφίες_Video"
 _DIR_REPORTS = "Αναφορές"
+_DIR_ELEMENT_ASSETS = "Στοιχεία"
+_DIR_SUBELEMENT_ASSETS = "Υποστοιχεία"
 _DIR_REPORTS_BREAKERS_HV = "Διακόπτες ΥΤ"
 _DIR_REPORTS_BREAKERS_MV = "Διακόπτες ΜΤ"
 _DIR_REPORTS_TRANSFORMERS = "Μετασχηματιστές"
@@ -1982,6 +1984,115 @@ def sync_substation_gate_folders(
     }
 
 
+def _asset_folder_name(name: str, element_id: int) -> str:
+    slug = _sanitize_element_name(name) or f"element_{element_id}"
+    return f"{slug}_E{element_id}"
+
+
+def _subelement_folder_name(element_type: str, name: str, element_id: int) -> str:
+    type_slug = _sanitize_element_name(element_type) or "subelement"
+    name_slug = _sanitize_element_name(name) or f"element_{element_id}"
+    return f"{type_slug}_{name_slug}_E{element_id}"
+
+
+def sync_transformer_subelement_folders(
+    conn, substation_id: int, *, db_path: str | None = None
+) -> dict:
+    """Ensure shared-root child asset folders exist for transformer subelements."""
+    base = ensure_substation_structure(conn, substation_id, db_path=db_path)
+    substation_root = base["substation_root"]
+    assets_root = os.path.join(substation_root, _DIR_ELEMENT_ASSETS)
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            p.id AS parent_id,
+            p.name AS parent_name,
+            c.id AS child_id,
+            c.element_type AS child_type,
+            c.name AS child_name
+        FROM elements c
+        JOIN elements p ON p.id = c.parent_element_id
+        WHERE p.substation_id=?
+        ORDER BY p.name, c.element_type, c.name
+        """,
+        (substation_id,),
+    )
+    rows = cur.fetchall() or []
+
+    desired_child_dirs = set()
+    desired_parent_dirs = set()
+    created = []
+
+    for row in rows:
+        parent_id = row[0] if isinstance(row, (tuple, list)) else row["parent_id"]
+        parent_name = row[1] if isinstance(row, (tuple, list)) else row["parent_name"]
+        child_id = row[2] if isinstance(row, (tuple, list)) else row["child_id"]
+        child_type = row[3] if isinstance(row, (tuple, list)) else row["child_type"]
+        child_name = row[4] if isinstance(row, (tuple, list)) else row["child_name"]
+
+        parent_root = os.path.join(
+            assets_root, _asset_folder_name(parent_name, int(parent_id))
+        )
+        child_root = os.path.join(
+            parent_root,
+            _DIR_SUBELEMENT_ASSETS,
+            _subelement_folder_name(child_type, child_name, int(child_id)),
+        )
+        desired_parent_dirs.add(parent_root)
+        desired_child_dirs.add(child_root)
+        _ensure_dir(parent_root)
+        _ensure_dir(os.path.join(parent_root, _DIR_SUBELEMENT_ASSETS))
+        _ensure_dir(child_root)
+        created.append(child_root)
+
+    if os.path.isdir(assets_root):
+        try:
+            for parent_name in os.listdir(assets_root):
+                parent_root = os.path.join(assets_root, parent_name)
+                if not os.path.isdir(parent_root):
+                    continue
+                subelements_root = os.path.join(parent_root, _DIR_SUBELEMENT_ASSETS)
+                if os.path.isdir(subelements_root):
+                    for child_name in os.listdir(subelements_root):
+                        child_root = os.path.join(subelements_root, child_name)
+                        if not os.path.isdir(child_root):
+                            continue
+                        if child_root in desired_child_dirs:
+                            continue
+                        if _is_dir_empty(child_root):
+                            try:
+                                os.rmdir(child_root)
+                            except Exception:
+                                pass
+                    if _is_dir_empty(subelements_root):
+                        try:
+                            os.rmdir(subelements_root)
+                        except Exception:
+                            pass
+                if parent_root not in desired_parent_dirs and _is_dir_empty(
+                    parent_root
+                ):
+                    try:
+                        os.rmdir(parent_root)
+                    except Exception:
+                        pass
+            if _is_dir_empty(assets_root):
+                try:
+                    os.rmdir(assets_root)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return {
+        "created_or_ensured": created,
+        "assets_root": assets_root,
+        "substation_root": substation_root,
+    }
+
+
 def ensure_maintenance_folders(
     conn,
     *,
@@ -3724,6 +3835,7 @@ def sync_all_substation_structures(
         try:
             # Sync gate/interconnection folders based on actual elements
             sync_substation_gate_folders(conn, substation_id, db_path=db_path)
+            sync_transformer_subelement_folders(conn, substation_id, db_path=db_path)
             synced += 1
         except Exception as exc:
             failed += 1

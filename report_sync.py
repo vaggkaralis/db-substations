@@ -848,6 +848,7 @@ def ensure_all_reports_and_prune(
     """
     from onedrive_hybrid_storage import (
         sync_substation_gate_folders,
+        sync_transformer_subelement_folders,
         resolve_shared_root,
     )
 
@@ -864,6 +865,7 @@ def ensure_all_reports_and_prune(
         try:
             if not dry_run:
                 sync_substation_gate_folders(conn, sid, db_path=db_path)
+                sync_transformer_subelement_folders(conn, sid, db_path=db_path)
         except Exception:
             # Non-fatal; continue
             pass
@@ -899,6 +901,7 @@ def ensure_all_reports_and_prune(
         try:
             if not dry_run:
                 sync_substation_gate_folders(conn, sid, db_path=db_path)
+                sync_transformer_subelement_folders(conn, sid, db_path=db_path)
         except Exception:
             pass
 

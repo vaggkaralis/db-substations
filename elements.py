@@ -11,7 +11,11 @@ from maintenance_type_utils import (
     is_recurring_maintenance_type as _is_recurring_maintenance_type,
 )
 from strings_proxy import STRINGS as S
-from onedrive_hybrid_storage import resolve_shared_root, sync_substation_gate_folders
+from onedrive_hybrid_storage import (
+    resolve_shared_root,
+    sync_substation_gate_folders,
+    sync_transformer_subelement_folders,
+)
 from validation import validate_breaker_category_required, validate_gate_assignment
 from ui.shared import IconOnlyButton
 
@@ -52,7 +56,7 @@ def _table_has_column(conn, table_name, column_name):
 
 
 def _find_duplicate_element_id(
-    conn, substation_id, raw_name, exclude_id=None, gate=None
+    conn, substation_id, raw_name, exclude_id=None, gate=None, parent_element_id=None
 ):
     """Find an element with the same name in a substation.
 
@@ -64,21 +68,31 @@ def _find_duplicate_element_id(
         return None
 
     has_gate = _table_has_column(conn, "elements", "gate")
+    has_parent_element_id = _table_has_column(conn, "elements", "parent_element_id")
 
     params = [substation_id]
     # Always fetch gate when available so callers can decide match semantics.
     if has_gate:
-        sql = "SELECT id, name, COALESCE(gate, '') FROM elements WHERE substation_id=?"
+        parent_expr = "parent_element_id" if has_parent_element_id else "NULL"
+        sql = f"SELECT id, name, COALESCE(gate, ''), {parent_expr} FROM elements WHERE substation_id=?"
     else:
-        sql = "SELECT id, name, '' FROM elements WHERE substation_id=?"
+        parent_expr = "parent_element_id" if has_parent_element_id else "NULL"
+        sql = f"SELECT id, name, '', {parent_expr} FROM elements WHERE substation_id=?"
     if exclude_id is not None:
         sql += " AND id!=?"
         params.append(exclude_id)
 
     cursor = conn.cursor()
     cursor.execute(sql, params)
-    for existing_id, existing_name, existing_gate in cursor.fetchall():
+    for (
+        existing_id,
+        existing_name,
+        existing_gate,
+        existing_parent_id,
+    ) in cursor.fetchall():
         if _normalize_element_name(existing_name) != normalized_name:
+            continue
+        if int(existing_parent_id or 0) != int(parent_element_id or 0):
             continue
         # If gate specified, require gate equality (string compare of normalized display)
         if gate is not None:
@@ -91,34 +105,79 @@ def _find_duplicate_element_id(
     return None
 
 
+def _get_subelement_rows(conn, parent_element_id):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            e.id,
+            e.element_type,
+            e.name,
+            e.serial_number,
+            e.maintenance_date,
+            e.manufacturer,
+            e.vector_group,
+            e.operating_status,
+            e.element_model_id,
+            em.model_name,
+            em.manufacturer AS model_manufacturer
+        FROM elements e
+        LEFT JOIN element_models em ON em.id = e.element_model_id
+        WHERE e.parent_element_id = ?
+        ORDER BY e.element_type, e.name
+        """,
+        (parent_element_id,),
+    )
+    return cursor.fetchall() or []
+
+
+def _get_descendant_element_ids(conn, parent_element_id):
+    pending = [int(parent_element_id)]
+    descendants = []
+    cursor = conn.cursor()
+    while pending:
+        current_id = pending.pop()
+        cursor.execute(
+            "SELECT id FROM elements WHERE parent_element_id=? ORDER BY id",
+            (current_id,),
+        )
+        child_ids = [int(row[0]) for row in (cursor.fetchall() or [])]
+        descendants.extend(child_ids)
+        pending.extend(child_ids)
+    return descendants
+
+
 def _get_matching_element_rows(
     conn,
     *,
     element_id=None,
     substation_id=None,
+    parent_element_id=None,
     raw_name=None,
     element_type=None,
     exclude_id=None,
 ):
     has_gate = _table_has_column(conn, "elements", "gate")
     has_element_type = _table_has_column(conn, "elements", "element_type")
+    has_parent_element_id = _table_has_column(conn, "elements", "parent_element_id")
 
     if element_id is not None:
         cursor = conn.cursor()
+        parent_expr = "parent_element_id" if has_parent_element_id else "NULL"
         if has_element_type:
             cursor.execute(
-                "SELECT substation_id, name, element_type FROM elements WHERE id=?",
+                f"SELECT substation_id, {parent_expr}, name, element_type FROM elements WHERE id=?",
                 (element_id,),
             )
         else:
             cursor.execute(
-                "SELECT substation_id, name, NULL FROM elements WHERE id=?",
+                f"SELECT substation_id, {parent_expr}, name, NULL FROM elements WHERE id=?",
                 (element_id,),
             )
         row = cursor.fetchone()
         if not row:
             return []
-        substation_id, raw_name, element_type = row
+        substation_id, parent_element_id, raw_name, element_type = row
 
     normalized_name = _normalize_element_name(raw_name)
     if substation_id is None or not normalized_name:
@@ -127,9 +186,8 @@ def _get_matching_element_rows(
     params = [substation_id]
     gate_expr = "COALESCE(gate, '')" if has_gate else "''"
     type_expr = "element_type" if has_element_type else "NULL"
-    sql = (
-        f"SELECT id, name, {gate_expr}, {type_expr} FROM elements WHERE substation_id=?"
-    )
+    parent_expr = "parent_element_id" if has_parent_element_id else "NULL"
+    sql = f"SELECT id, name, {gate_expr}, {type_expr}, {parent_expr} FROM elements WHERE substation_id=?"
     if exclude_id is not None:
         sql += " AND id!=?"
         params.append(exclude_id)
@@ -137,10 +195,18 @@ def _get_matching_element_rows(
     cursor = conn.cursor()
     cursor.execute(sql, params)
     matches = []
-    for existing_id, existing_name, existing_gate, existing_type in cursor.fetchall():
+    for (
+        existing_id,
+        existing_name,
+        existing_gate,
+        existing_type,
+        existing_parent_id,
+    ) in cursor.fetchall():
         if _normalize_element_name(existing_name) != normalized_name:
             continue
         if element_type and existing_type != element_type:
+            continue
+        if int(existing_parent_id or 0) != int(parent_element_id or 0):
             continue
         matches.append((existing_id, existing_name, existing_gate, existing_type))
     return matches
@@ -333,6 +399,491 @@ def show_maintenance_element_details_delegate(app, maintenance_id, element_id):
     return app.show_maintenance_element_details(maintenance_id, element_id)
 
 
+def show_manage_subelements_popup(
+    app,
+    parent_element_id,
+    parent_element_name,
+    substation_id,
+    substation_name,
+    parent_popup=None,
+):
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
+
+    from reports import show_confirm
+
+    popup = Popup(
+        title=f"Υποστοιχεία: {parent_element_name}",
+        size_hint=(0.86, 0.82),
+    )
+    main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    header = BoxLayout(size_hint_y=None, height=44, spacing=8)
+    header.add_widget(
+        Label(text=f"Μετασχηματιστής: {parent_element_name}", size_hint_x=0.6)
+    )
+    add_btn = Button(text="+ Υποστοιχείο", size_hint_x=0.22)
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=0.18)
+    close_btn.bind(on_press=popup.dismiss)
+    header.add_widget(add_btn)
+    header.add_widget(close_btn)
+    main_layout.add_widget(header)
+
+    scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+    grid = BoxLayout(orientation="vertical", size_hint_y=None, spacing=8)
+    grid.bind(minimum_height=grid.setter("height"))
+    scroll.add_widget(grid)
+    main_layout.add_widget(scroll)
+
+    def _delete_subelement(child_id, child_name):
+        descendant_ids = _get_descendant_element_ids(app.conn, child_id)
+        delete_ids = descendant_ids + [child_id]
+
+        def _confirm_delete():
+            cursor = app.conn.cursor()
+            placeholders = ",".join(["?"] * len(delete_ids))
+            cursor.execute(
+                f"DELETE FROM elements WHERE id IN ({placeholders})",
+                delete_ids,
+            )
+            for deleted_id in delete_ids:
+                app._append_change_log("delete", "elements", {"id": deleted_id})
+            try:
+                sync_substation_gate_folders(
+                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
+                )
+                sync_transformer_subelement_folders(
+                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
+                )
+            except Exception:
+                pass
+            app.conn.commit()
+            render_rows()
+
+        msg = f'Είστε σίγουροι ότι θέλετε να διαγράψετε το υποστοιχείο "{child_name}";'
+        if descendant_ids:
+            msg += f"\n\nΘα διαγραφούν επίσης {len(descendant_ids)} υποστοιχεία."
+        show_confirm(
+            S["TITLES"].get("INFO", "Επιβεβαίωση"),
+            msg,
+            yes_callback=_confirm_delete,
+            yes_color=(1, 0, 0, 1),
+        )
+
+    def render_rows():
+        grid.clear_widgets()
+        rows = _get_subelement_rows(app.conn, parent_element_id)
+        if not rows:
+            grid.add_widget(
+                Label(
+                    text="Δεν υπάρχουν καταχωρημένα υποστοιχεία για αυτόν τον μετασχηματιστή.",
+                    size_hint_y=None,
+                    height=36,
+                )
+            )
+            return
+
+        for row in rows:
+            (
+                child_id,
+                child_type,
+                child_name,
+                serial_number,
+                maintenance_date,
+                manufacturer,
+                vector_group,
+                operating_status,
+                _model_id,
+                model_name,
+                model_manufacturer,
+            ) = row
+            child_box = BoxLayout(orientation="vertical", size_hint_y=None, height=86)
+            info = (
+                f"[b]{child_name}[/b] - {child_type}\n"
+                f"S/N: {serial_number or '-'} | Κατ.: {model_manufacturer or manufacturer or '-'} | "
+                f"Μοντ.: {model_name or '-'} | Κατάσταση: {operating_status or '-'} | "
+                f"Τελ. Συντ.: {maintenance_date or '-'}"
+            )
+            if vector_group:
+                info += f" | Vector group: {vector_group}"
+            child_box.add_widget(
+                Label(text=info, markup=True, size_hint_y=None, height=52)
+            )
+
+            btn_row = BoxLayout(size_hint_y=None, height=30, spacing=6)
+            view_btn = IconOnlyButton(
+                icon_type="eye",
+                icon_color=app.theme.get("text", (0.12, 0.12, 0.12, 1)),
+            )
+            view_btn.bind(
+                on_press=lambda _x, eid=child_id: app._show_element_quick_view(eid)
+            )
+            btn_row.add_widget(view_btn)
+
+            edit_btn = IconOnlyButton(
+                icon_type="edit",
+                icon_color=app.theme.get("primary", (0.2, 0.6, 1, 1)),
+            )
+            edit_btn.bind(
+                on_press=lambda _x, eid=child_id, sid=substation_id, sname=substation_name, p=popup: (
+                    app.show_edit_element_popup(eid, sid, p, sname)
+                )
+            )
+            btn_row.add_widget(edit_btn)
+
+            delete_btn = IconOnlyButton(
+                icon_type="delete",
+                icon_color=(1, 0.0, 0.0, 1),
+            )
+            delete_btn.bind(
+                on_press=lambda _x, eid=child_id, ename=child_name: _delete_subelement(
+                    eid, ename
+                )
+            )
+            btn_row.add_widget(delete_btn)
+            child_box.add_widget(btn_row)
+            grid.add_widget(child_box)
+
+    def _open_add_popup(_instance=None):
+        show_add_subelement_popup(
+            app,
+            parent_element_id,
+            parent_element_name,
+            substation_id,
+            substation_name,
+            refresh_callback=render_rows,
+        )
+
+    add_btn.bind(on_press=_open_add_popup)
+    render_rows()
+    popup.content = main_layout
+    popup.open()
+
+
+def show_add_subelement_popup(
+    app,
+    parent_element_id,
+    parent_element_name,
+    substation_id,
+    substation_name,
+    refresh_callback=None,
+):
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.textinput import TextInput
+
+    from popups import show_message_popup
+
+    cursor = app.conn.cursor()
+    cursor.execute(
+        "SELECT gate, hemizygos, voltage_level FROM elements WHERE id=?",
+        (parent_element_id,),
+    )
+    parent_row = cursor.fetchone()
+    if not parent_row:
+        show_message_popup(
+            S["TITLES"].get("ERROR", "Σφάλμα"), "Ο γονικός μετασχηματιστής δεν βρέθηκε."
+        )
+        return
+
+    parent_gate = (
+        parent_row[0] if isinstance(parent_row, (tuple, list)) else parent_row["gate"]
+    )
+    parent_hemizygos = (
+        parent_row[1]
+        if isinstance(parent_row, (tuple, list))
+        else parent_row["hemizygos"]
+    )
+    parent_voltage = (
+        parent_row[2]
+        if isinstance(parent_row, (tuple, list))
+        else parent_row["voltage_level"]
+    )
+
+    popup = Popup(
+        title=f"Νέο Υποστοιχείο - {parent_element_name}", size_hint=(0.8, 0.84)
+    )
+    main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+    scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+    layout = BoxLayout(orientation="vertical", size_hint_y=None, padding=5, spacing=8)
+    layout.bind(minimum_height=layout.setter("height"))
+
+    layout.add_widget(
+        Label(
+            text=f"Γονικός μετασχηματιστής: {parent_element_name}",
+            size_hint_y=None,
+            height=30,
+        )
+    )
+    layout.add_widget(Label(text="Τύπος Υποστοιχείου:", size_hint_y=None, height=30))
+    type_values = list(getattr(app, "TRANSFORMER_SUBELEMENT_TYPES", ["Motor Drive"]))
+    type_spinner = Spinner(
+        text=type_values[0], values=type_values, size_hint_y=None, height=40
+    )
+    layout.add_widget(type_spinner)
+
+    layout.add_widget(Label(text="Όνομα Υποστοιχείου:", size_hint_y=None, height=30))
+    name_input = TextInput(
+        hint_text="Όνομα Υποστοιχείου", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(name_input)
+
+    layout.add_widget(Label(text="Σειριακός Αριθμός:", size_hint_y=None, height=30))
+    serial_input = TextInput(
+        hint_text="S/N", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(serial_input)
+
+    model_header = BoxLayout(size_hint_y=None, height=30, spacing=5)
+    model_header.add_widget(
+        Label(text=S["MESSAGES"].get("MODEL_LABEL", "Μοντέλο:"), size_hint_x=0.7)
+    )
+    add_model_btn = Button(
+        text=S["BUTTONS"].get("ADD_MODEL", "+ Νέο Μοντέλο"), size_hint_x=0.3
+    )
+    model_header.add_widget(add_model_btn)
+    layout.add_widget(model_header)
+    model_spinner = Spinner(
+        text=S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο"),
+        values=[S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")],
+        size_hint_y=None,
+        height=40,
+    )
+    layout.add_widget(model_spinner)
+
+    layout.add_widget(Label(text="Κατασκευαστής:", size_hint_y=None, height=30))
+    manufacturer_input = TextInput(
+        hint_text="Κατασκευαστής", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(manufacturer_input)
+
+    layout.add_widget(Label(text="Έτος κατασκευής:", size_hint_y=None, height=30))
+    manufacture_year_input = TextInput(
+        hint_text="YYYY", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(manufacture_year_input)
+
+    layout.add_widget(Label(text="Τελευταία Συντήρηση:", size_hint_y=None, height=30))
+    maintenance_date_input = TextInput(
+        hint_text="YYYY-MM-DD", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(maintenance_date_input)
+
+    layout.add_widget(Label(text="Χώρος Εγκατάστασης:", size_hint_y=None, height=30))
+    installation_space_spinner = Spinner(
+        text=app.INSTALLATION_SPACE[0],
+        values=app.INSTALLATION_SPACE,
+        size_hint_y=None,
+        height=40,
+    )
+    layout.add_widget(installation_space_spinner)
+
+    layout.add_widget(Label(text="Λειτουργική Κατάσταση:", size_hint_y=None, height=30))
+    operating_status_spinner = Spinner(
+        text=app.OPERATING_STATUS[0],
+        values=app.OPERATING_STATUS,
+        size_hint_y=None,
+        height=40,
+    )
+    layout.add_widget(operating_status_spinner)
+
+    layout.add_widget(
+        Label(text="Κύκλος Συντήρησης (έτη):", size_hint_y=None, height=30)
+    )
+    maintenance_cycle_input = TextInput(
+        hint_text="Αριθμός", size_hint_y=None, height=40, multiline=False
+    )
+    layout.add_widget(maintenance_cycle_input)
+
+    models_data = {}
+
+    def _load_models(category):
+        models_data_temp, display_names, _ = app._load_models_for_element_type(category)
+        models_data.clear()
+        models_data.update(models_data_temp)
+        prompt = S["MESSAGES"].get("MODEL_SELECT_PROMPT", "Επιλέξτε μοντέλο")
+        model_spinner.values = display_names if display_names else [prompt]
+        model_spinner.text = display_names[0] if display_names else prompt
+
+    def _on_model_selected(_spinner, text):
+        model = models_data.get(text)
+        if not model:
+            return
+        manufacturer_input.text = model.get("manufacturer") or ""
+        maintenance_cycle_input.text = str(model.get("maintenance_cycle") or 0)
+        installation_space_spinner.text = (
+            model.get("installation_space") or app.INSTALLATION_SPACE[0]
+        )
+
+    def _on_type_changed(_spinner, text):
+        _load_models(text)
+
+    def _open_add_model(_instance=None):
+        from model_management import show_add_model_popup
+
+        show_add_model_popup(
+            app,
+            callback=lambda: _load_models(type_spinner.text),
+            category=type_spinner.text,
+        )
+
+    add_model_btn.bind(on_press=_open_add_model)
+    type_spinner.bind(text=_on_type_changed)
+    model_spinner.bind(text=_on_model_selected)
+    _load_models(type_spinner.text)
+
+    scroll.add_widget(layout)
+    main_layout.add_widget(scroll)
+
+    buttons_layout = BoxLayout(size_hint_y=0.12, spacing=10)
+
+    def _save_subelement():
+        name_val = _normalize_element_name(name_input.text)
+        if not name_val:
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get("ENTER_ELEMENT_NAME", "Συμπληρώστε όνομα στοιχείου."),
+            )
+            return
+        try:
+            maintenance_cycle_int = (
+                int(maintenance_cycle_input.text)
+                if maintenance_cycle_input.text.strip()
+                else 0
+            )
+        except ValueError:
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get(
+                    "MODEL_SERVICE_CYCLE_NUM",
+                    "Ο κύκλος συντήρησης πρέπει να είναι αριθμός!",
+                ),
+            )
+            return
+
+        duplicate_id = _find_duplicate_element_id(
+            app.conn,
+            substation_id,
+            name_val,
+            parent_element_id=parent_element_id,
+        )
+        if duplicate_id is not None:
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get(
+                    "ELEMENT_DUPLICATE",
+                    f'Υπάρχει ήδη υποστοιχείο με όνομα "{name_val}" σε αυτόν τον μετασχηματιστή!',
+                ),
+            )
+            return
+
+        selected_model = models_data.get(model_spinner.text)
+        model_id = selected_model.get("id") if selected_model else None
+        model_name = (selected_model.get("model_name") or "") if selected_model else ""
+        manufacturer = manufacturer_input.text.strip() or (
+            (selected_model.get("manufacturer") or "") if selected_model else ""
+        )
+
+        cursor = app.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO elements (
+                substation_id,
+                parent_element_id,
+                element_type,
+                name,
+                serial_number,
+                maintenance_date,
+                voltage_level,
+                manufacturer,
+                model,
+                gate,
+                hemizygos,
+                installation_space,
+                operating_status,
+                maintenance_cycle,
+                element_model_id,
+                manufacture_year,
+                model_version,
+                is_main_switch,
+                vector_group
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 0, '')
+            """,
+            (
+                substation_id,
+                parent_element_id,
+                type_spinner.text,
+                name_val,
+                serial_input.text.strip(),
+                maintenance_date_input.text.strip(),
+                parent_voltage or "",
+                manufacturer,
+                model_name,
+                parent_gate or "",
+                parent_hemizygos or "",
+                installation_space_spinner.text,
+                operating_status_spinner.text,
+                maintenance_cycle_int,
+                model_id,
+                manufacture_year_input.text.strip(),
+            ),
+        )
+        new_id = cursor.lastrowid
+        app._append_change_log(
+            "insert",
+            "elements",
+            {
+                "id": new_id,
+                "substation_id": substation_id,
+                "parent_element_id": parent_element_id,
+                "element_type": type_spinner.text,
+                "name": name_val,
+                "serial_number": serial_input.text.strip(),
+                "maintenance_date": maintenance_date_input.text.strip(),
+                "voltage_level": parent_voltage or "",
+                "manufacturer": manufacturer,
+                "model": model_name,
+                "gate": parent_gate or "",
+                "hemizygos": parent_hemizygos or "",
+                "installation_space": installation_space_spinner.text,
+                "operating_status": operating_status_spinner.text,
+                "maintenance_cycle": maintenance_cycle_int,
+                "element_model_id": model_id,
+                "manufacture_year": manufacture_year_input.text.strip(),
+            },
+        )
+        try:
+            sync_substation_gate_folders(
+                app.conn, substation_id, db_path=getattr(app, "db_path", None)
+            )
+            sync_transformer_subelement_folders(
+                app.conn, substation_id, db_path=getattr(app, "db_path", None)
+            )
+        except Exception:
+            pass
+        app.conn.commit()
+        popup.dismiss()
+        if refresh_callback:
+            refresh_callback()
+
+    save_btn = Button(text=S["BUTTONS"]["SAVE"])
+    save_btn.bind(on_press=lambda _x: _save_subelement())
+    buttons_layout.add_widget(save_btn)
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+    cancel_btn.bind(on_press=popup.dismiss)
+    buttons_layout.add_widget(cancel_btn)
+    main_layout.add_widget(buttons_layout)
+    popup.content = main_layout
+    popup.open()
+
+
 def show_add_element_popup(app, instance):
     from popups import show_message_popup
 
@@ -478,6 +1029,15 @@ def show_add_element_popup(app, instance):
         multiline=False,
     )
     layout.add_widget(rated_power_input)
+
+    layout.add_widget(Label(text="Vector group:", size_hint_y=None, height=30))
+    vector_group_input = TextInput(
+        hint_text="π.χ. Dyn1",
+        size_hint_y=None,
+        height=40,
+        multiline=False,
+    )
+    layout.add_widget(vector_group_input)
 
     # Update gates when substation changes
     def on_substation_change(spinner, text):
@@ -837,7 +1397,7 @@ def show_add_element_popup(app, instance):
 
             try:
                 c.execute(
-                    "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         substation_id,
                         element_type,
@@ -866,6 +1426,7 @@ def show_add_element_popup(app, instance):
                             if rated_power_val
                             else None
                         ),
+                        vector_group_input.text.strip(),
                     ),
                 )
             except sqlite3.IntegrityError:
@@ -901,6 +1462,7 @@ def show_add_element_popup(app, instance):
                 "hemizygos": hemizygos_value,
                 "is_main_switch": is_main_switch,
                 "breaker_category": breaker_category_value,
+                "vector_group": vector_group_input.text.strip(),
                 "power_mva": (
                     (
                         None
@@ -915,6 +1477,9 @@ def show_add_element_popup(app, instance):
 
             try:
                 sync_substation_gate_folders(
+                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
+                )
+                sync_transformer_subelement_folders(
                     app.conn, substation_id, db_path=getattr(app, "db_path", None)
                 )
             except Exception as exc:
@@ -1039,6 +1604,9 @@ def delete_element(app, element_id, substation_id, parent_popup, substation_name
     c.execute("DELETE FROM elements WHERE id=?", (element_id,))
     try:
         sync_substation_gate_folders(
+            app.conn, substation_id, db_path=getattr(app, "db_path", None)
+        )
+        sync_transformer_subelement_folders(
             app.conn, substation_id, db_path=getattr(app, "db_path", None)
         )
     except Exception:
@@ -1586,7 +2154,7 @@ def show_edit_element_popup(
     # Fetch element data
     c = app.conn.cursor()
     c.execute(
-        "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, hemizygos, is_main_switch, breaker_category, power_mva FROM elements WHERE id=?",
+        "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group, parent_element_id FROM elements WHERE id=?",
         (element_id,),
     )
     element = c.fetchone()
@@ -1614,6 +2182,8 @@ def show_edit_element_popup(
         is_main_switch,
         breaker_category,
         power_mva,
+        vector_group,
+        parent_element_id,
     ) = element
 
     popup = Popup(title=f"Επεξεργασία: {name}", size_hint=(0.9, 0.9))
@@ -1670,6 +2240,16 @@ def show_edit_element_popup(
         multiline=False,
     )
     layout.add_widget(rated_power_input)
+
+    layout.add_widget(Label(text="Vector group:", size_hint_y=None, height=30))
+    vector_group_input = TextInput(
+        text=vector_group or "",
+        hint_text="π.χ. Dyn1",
+        size_hint_y=None,
+        height=40,
+        multiline=False,
+    )
+    layout.add_widget(vector_group_input)
 
     # Model selection
     breaker_category_label = Label(
@@ -1934,6 +2514,7 @@ def show_edit_element_popup(
             matching_rows = _get_matching_element_rows(
                 app.conn,
                 substation_id=substation_id,
+                parent_element_id=parent_element_id,
                 raw_name=name_val,
                 element_type=elem_type,
             )
@@ -1944,7 +2525,11 @@ def show_edit_element_popup(
             merged_duplicate_ids = []
 
             duplicate_id = _find_duplicate_element_id(
-                app.conn, substation_id, name_val, exclude_id=element_id
+                app.conn,
+                substation_id,
+                name_val,
+                exclude_id=element_id,
+                parent_element_id=parent_element_id,
             )
             if duplicate_id is not None and duplicate_id not in matching_ids:
                 show_message_popup(
@@ -2076,7 +2661,7 @@ def show_edit_element_popup(
                     """UPDATE elements SET 
                                     name=?, serial_number=?, maintenance_date=?, voltage_level=?, manufacturer=?, model=?, model_version=?,
                                     installation_space=?, operating_status=?, 
-                                    maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, hemizygos=?, is_main_switch=?, breaker_category=?, power_mva=?
+                                    maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, hemizygos=?, is_main_switch=?, breaker_category=?, power_mva=?, vector_group=?
                                     WHERE id=?""",
                     (
                         name_val,
@@ -2096,6 +2681,7 @@ def show_edit_element_popup(
                         new_is_main_switch,
                         breaker_category_value,
                         power_val_to_set,
+                        vector_group_input.text.strip(),
                         target_element_id,
                     ),
                 )
@@ -2128,6 +2714,7 @@ def show_edit_element_popup(
                 "is_main_switch": new_is_main_switch,
                 "breaker_category": breaker_category_value,
                 "power_mva": power_val_to_set,
+                "vector_group": vector_group_input.text.strip(),
             }
             app._append_change_log("update", "elements", element_data)
             for duplicate_element_id in merged_duplicate_ids:
@@ -2137,6 +2724,9 @@ def show_edit_element_popup(
 
             try:
                 sync_substation_gate_folders(
+                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
+                )
+                sync_transformer_subelement_folders(
                     app.conn, substation_id, db_path=getattr(app, "db_path", None)
                 )
             except Exception as exc:
@@ -2311,6 +2901,15 @@ def show_add_element_popup_for_substation(
         multiline=False,
     )
     input_layout.add_widget(rated_power_input)
+
+    input_layout.add_widget(Label(text="Vector group:", size_hint_y=None, height=30))
+    vector_group_input = TextInput(
+        hint_text="π.χ. Dyn1",
+        size_hint_y=None,
+        height=40,
+        multiline=False,
+    )
+    input_layout.add_widget(vector_group_input)
 
     def on_substation_change(spinner, text):
         selected_substation_id = substation_map[text]
@@ -2695,7 +3294,7 @@ def show_add_element_popup_for_substation(
 
         try:
             c.execute(
-                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     selected_substation_id,
                     element_type,
@@ -2720,6 +3319,7 @@ def show_add_element_popup_for_substation(
                         if rated_power_input.text.strip() == ""
                         else float(rated_power_input.text.strip().replace(",", "."))
                     ),
+                    vector_group_input.text.strip(),
                 ),
             )
         except sqlite3.IntegrityError:
@@ -2753,6 +3353,7 @@ def show_add_element_popup_for_substation(
             "hemizygos": hemizygos_value,
             "is_main_switch": is_main_switch,
             "breaker_category": breaker_category_value,
+            "vector_group": vector_group_input.text.strip(),
             "power_mva": (
                 None
                 if rated_power_input.text.strip() == ""
@@ -2760,6 +3361,31 @@ def show_add_element_popup_for_substation(
             ),
         }
         app._append_change_log("insert", "elements", element_data)
+
+        try:
+            sync_substation_gate_folders(
+                app.conn,
+                selected_substation_id,
+                db_path=getattr(app, "db_path", None),
+            )
+            sync_transformer_subelement_folders(
+                app.conn,
+                selected_substation_id,
+                db_path=getattr(app, "db_path", None),
+            )
+        except Exception as exc:
+            app.conn.rollback()
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"]
+                .get(
+                    "GATE_FOLDERS_SYNC_CREATE_FAILED_FMT",
+                    "Failed to sync gate folders.\nElement creation was cancelled.\n\n{error}",
+                )
+                .format(error=str(exc)),
+            )
+            add_state["busy"] = False
+            return
 
         app.conn.commit()
 

@@ -63,7 +63,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     """)
 
     cursor.execute(
-        "CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, hemizygos TEXT DEFAULT '', FOREIGN KEY(substation_id) REFERENCES substations(id))"
+        "CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, parent_element_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, hemizygos TEXT DEFAULT '', vector_group TEXT DEFAULT '', FOREIGN KEY(substation_id) REFERENCES substations(id), FOREIGN KEY(parent_element_id) REFERENCES elements(id) ON DELETE SET NULL)"
     )
 
     # Maintenance tracking tables
@@ -322,8 +322,9 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
              AND EXISTS (
                 SELECT 1
                 FROM elements e
-                WHERE e.substation_id = NEW.substation_id
-                  AND TRIM(COALESCE(e.name, '')) = TRIM(COALESCE(NEW.name, ''))
+                                WHERE e.substation_id = NEW.substation_id
+                                    AND IFNULL(e.parent_element_id, 0) = IFNULL(NEW.parent_element_id, 0)
+                                    AND TRIM(COALESCE(e.name, '')) = TRIM(COALESCE(NEW.name, ''))
             )
             BEGIN
                 SELECT RAISE(ABORT, 'duplicate element name in substation');
@@ -339,8 +340,9 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
              AND EXISTS (
                 SELECT 1
                 FROM elements e
-                WHERE e.substation_id = NEW.substation_id
-                  AND TRIM(COALESCE(e.name, '')) = TRIM(COALESCE(NEW.name, ''))
+                                WHERE e.substation_id = NEW.substation_id
+                                    AND IFNULL(e.parent_element_id, 0) = IFNULL(NEW.parent_element_id, 0)
+                                    AND TRIM(COALESCE(e.name, '')) = TRIM(COALESCE(NEW.name, ''))
                   AND e.id != NEW.id
             )
             BEGIN
@@ -495,6 +497,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                 CREATE TABLE IF NOT EXISTS elements_new (
                     id INTEGER PRIMARY KEY,
                     substation_id INTEGER,
+                    parent_element_id INTEGER,
                     element_type TEXT,
                     name TEXT,
                     serial_number TEXT,
@@ -513,7 +516,9 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                     power_mva REAL,
                     is_main_switch INTEGER DEFAULT 0,
                     operations_count INTEGER DEFAULT 0,
+                    vector_group TEXT DEFAULT '',
                     FOREIGN KEY(substation_id) REFERENCES substations(id),
+                    FOREIGN KEY(parent_element_id) REFERENCES elements(id) ON DELETE SET NULL,
                     CHECK((element_type NOT IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')) OR (breaker_category IS NOT NULL AND TRIM(breaker_category) != ''))
                 )
             """)
@@ -524,6 +529,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                 for c in [
                     "id",
                     "substation_id",
+                    "parent_element_id",
                     "element_type",
                     "name",
                     "serial_number",
@@ -542,6 +548,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                     "power_mva",
                     "is_main_switch",
                     "operations_count",
+                    "vector_group",
                 ]
                 if c in existing_cols
             ]
@@ -610,6 +617,22 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         try:
             cursor.execute(
                 "ALTER TABLE elements ADD COLUMN element_model_id INTEGER REFERENCES element_models(id)"
+            )
+        except Exception:
+            pass
+
+    if "parent_element_id" not in elem_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE elements ADD COLUMN parent_element_id INTEGER REFERENCES elements(id)"
+            )
+        except Exception:
+            pass
+
+    if "vector_group" not in elem_columns:
+        try:
+            cursor.execute(
+                'ALTER TABLE elements ADD COLUMN vector_group TEXT DEFAULT ""'
             )
         except Exception:
             pass

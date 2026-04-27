@@ -1112,7 +1112,42 @@ except Exception:
 class SubstationApp(App):
     # Define element types as a class variable (loaded from `strings.py`)
     # Keep a small, safe fallback to an empty list if the key is missing.
-    ELEMENT_TYPES = S["MESSAGES"].get("ELEMENT_TYPES", [])
+    RAW_ELEMENT_TYPES = list(S["MESSAGES"].get("ELEMENT_TYPES", []))
+    SUBELEMENT_TYPES = list(
+        S["MESSAGES"].get(
+            "SUBELEMENT_TYPES",
+            [
+                "Motor Drive",
+                "Αλεξικέραυνο",
+                "Ανακουφιστική βαλβίδα",
+                "Πηνίο Buchholz",
+            ],
+        )
+    )
+    TRANSFORMER_SUBELEMENT_TYPES = list(
+        S["MESSAGES"].get(
+            "TRANSFORMER_SUBELEMENT_TYPES",
+            [
+                "Motor Drive",
+                "Αλεξικέραυνο",
+                "Ανακουφιστική βαλβίδα",
+                "Πηνίο Buchholz",
+            ],
+        )
+    )
+    ELEMENT_TYPES = [
+        t for t in RAW_ELEMENT_TYPES if t not in locals().get("SUBELEMENT_TYPES", [])
+    ]
+    # Build MODEL_CATEGORIES without using a list-comprehension that
+    # closes over class-local names (comprehensions inside class bodies
+    # may not see names assigned earlier). Use an explicit loop.
+    _mc = list(ELEMENT_TYPES)
+    for _t in locals().get("SUBELEMENT_TYPES", []):
+        if _t not in _mc:
+            _mc.append(_t)
+    MODEL_CATEGORIES = _mc
+    MOTOR_DRIVE_TYPE = "Motor Drive"
+    SURGE_ARRESTER_TYPE = "Αλεξικέραυνο"
     BREAKER_CATEGORIES_ALL = S["MESSAGES"].get(
         "BREAKER_CATEGORIES_ALL", ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"]
     )  # All breaker categories
@@ -2435,6 +2470,12 @@ class SubstationApp(App):
         return (
             ("150/20" in (elem_type or "")) or ("150/20" in norm) or ("μετασχη" in norm)
         )
+
+    def _is_subelement_type(self, elem_type: str) -> bool:
+        return elem_type in self.SUBELEMENT_TYPES
+
+    def _is_transformer_subelement_type(self, elem_type: str) -> bool:
+        return elem_type in self.TRANSFORMER_SUBELEMENT_TYPES
 
     def _tokenize_text(self, value: str):
         """Wrapper for shared tokenize_text function."""
@@ -7488,7 +7529,7 @@ class SubstationApp(App):
                            e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.power_mva as model_power_mva, em.installation_space, e.operating_status, em.manual_pdf
                     FROM elements e 
                     LEFT JOIN element_models em ON e.element_model_id = em.id 
-                    WHERE e.substation_id=?
+                    WHERE e.substation_id=? AND COALESCE(e.parent_element_id, 0)=0
                 """
                 params = [sub_id]
                 if current_type_filter != "(Όλα)":
@@ -7526,6 +7567,18 @@ class SubstationApp(App):
                 )
                 element_maintenance_counts = {
                     elem_id: count for elem_id, count in c.fetchall()
+                }
+                c.execute(
+                    """
+                    SELECT parent_element_id, COUNT(*)
+                    FROM elements
+                    WHERE substation_id = ? AND parent_element_id IS NOT NULL
+                    GROUP BY parent_element_id
+                    """,
+                    (sub_id,),
+                )
+                child_counts_by_parent = {
+                    parent_id: count for parent_id, count in c.fetchall() if parent_id
                 }
 
                 if active_elements or inactive_elements:
@@ -7738,7 +7791,13 @@ class SubstationApp(App):
                             power_display = (
                                 f"{effective_power} MVA" if effective_power else "-"
                             )
-                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}{inactive_marker}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
+                            child_count = child_counts_by_parent.get(elem_id, 0)
+                            child_info = (
+                                f" | Υποστοιχεία: {child_count}"
+                                if self._is_transformer(elem_type) and child_count
+                                else ""
+                            )
+                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}{inactive_marker}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}{child_info}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
 
                             # Create a horizontal layout for element and buttons
                             elem_layout = BoxLayout(size_hint_y=None, spacing=5)
@@ -7870,6 +7929,22 @@ class SubstationApp(App):
                                 )
                             )
                             btn_box.add_widget(view_btn)
+
+                            if self._is_transformer(elem_type):
+                                subelements_btn = Button(text="Υποστ.")
+                                subelements_btn.size_hint_x = 0.34
+                                subelements_btn.bind(
+                                    on_press=lambda x, eid=elem_id, ename=elem_name, sid=sub_id, sname=sub_name, p=popup: (
+                                        self.show_manage_subelements_popup(
+                                            eid,
+                                            ename,
+                                            sid,
+                                            sname,
+                                            p,
+                                        )
+                                    )
+                                )
+                                btn_box.add_widget(subelements_btn)
 
                             edit_elem_btn = IconOnlyButton(
                                 icon_type="edit",
@@ -10470,7 +10545,7 @@ class SubstationApp(App):
 
         c = self.conn.cursor()
         c.execute(
-            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, e.operations_count, em.power_mva AS model_power_mva, em.installation_space AS model_installation_space, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
+            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, e.operations_count, e.vector_group, em.power_mva AS model_power_mva, em.installation_space AS model_installation_space, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
             (element_id,),
         )
         row = c.fetchone()
@@ -10481,21 +10556,44 @@ class SubstationApp(App):
             )
             return
 
-        (
-            name,
-            elem_type,
-            serial_number,
-            power_mva,
-            manufacturer,
-            manufacture_year,
-            installation_space,
-            maintenance_date,
-            substation_id,
-            operations_count,
-            model_power_mva,
-            model_installation_space,
-            manual_pdf,
-        ) = row
+        if len(row) == 14:
+            (
+                name,
+                elem_type,
+                serial_number,
+                power_mva,
+                manufacturer,
+                manufacture_year,
+                installation_space,
+                maintenance_date,
+                substation_id,
+                operations_count,
+                vector_group,
+                model_power_mva,
+                model_installation_space,
+                manual_pdf,
+            ) = row
+        elif len(row) == 13:
+            (
+                name,
+                elem_type,
+                serial_number,
+                power_mva,
+                manufacturer,
+                manufacture_year,
+                installation_space,
+                maintenance_date,
+                substation_id,
+                operations_count,
+                model_power_mva,
+                model_installation_space,
+                manual_pdf,
+            ) = row
+            vector_group = None
+        else:
+            raise ValueError(
+                f"Unexpected quick-view row shape: expected 13 or 14 columns, got {len(row)}"
+            )
 
         # Check if transformer (150/20 kV)
         is_transformer = self._is_transformer(elem_type) if elem_type else False
@@ -10520,6 +10618,8 @@ class SubstationApp(App):
             .get("MAINT_LAST_LABEL", "Τελευταία Συντήρηση: {date}")
             .format(date=maintenance_date or "-"),
         ]
+        if is_transformer:
+            lines.append(f"Vector group: {vector_group or '-'}")
         if elem_type in self.BREAKER_ELEMENT_TYPES:
             lines.append(
                 (
@@ -10545,6 +10645,26 @@ class SubstationApp(App):
 
         # Add DGA button for transformers
         if is_transformer:
+            subelements_btn = Button(text="Υποστοιχεία")
+            subelements_btn.bind(
+                on_press=lambda x: self.show_manage_subelements_popup(
+                    element_id,
+                    name,
+                    substation_id,
+                    sub_name
+                    if (
+                        sub_name := self.conn.cursor()
+                        .execute(
+                            "SELECT name FROM substations WHERE id=?", (substation_id,)
+                        )
+                        .fetchone()[0]
+                    )
+                    else "",
+                    popup,
+                )
+            )
+            left_buttons.add_widget(subelements_btn)
+
             dga_btn = Button(
                 text=S["MESSAGES"].get("DGA_LABEL", "Φυσικοχημικές/Αεριοχρωματογραφία")
             )
@@ -11798,6 +11918,25 @@ class SubstationApp(App):
         from elements import show_element_maintenance_history as _f
 
         return _f(self, element_id, element_name, parent_popup)
+
+    def show_manage_subelements_popup(
+        self,
+        parent_element_id,
+        parent_element_name,
+        substation_id,
+        substation_name,
+        parent_popup=None,
+    ):
+        from elements import show_manage_subelements_popup as _f
+
+        return _f(
+            self,
+            parent_element_id,
+            parent_element_name,
+            substation_id,
+            substation_name,
+            parent_popup,
+        )
 
     def _get_popup_scroll_y(self, popup):
         """Return the first ScrollView.scroll_y found inside popup.content or None."""
@@ -18399,9 +18538,22 @@ class SubstationApp(App):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT m.id, m.name, m.date_time, t.tasks_text
+            SELECT
+                m.id,
+                m.name,
+                m.date_time,
+                t.tasks_text,
+                COALESCE(elem.element_names, '') AS element_names
             FROM maintenance_pending_tasks t
             JOIN maintenance m ON t.maintenance_id = m.id
+            LEFT JOIN (
+                SELECT
+                    me.maintenance_id,
+                    GROUP_CONCAT(e.name, ', ') AS element_names
+                FROM maintenance_elements me
+                JOIN elements e ON e.id = me.element_id
+                GROUP BY me.maintenance_id
+            ) AS elem ON elem.maintenance_id = m.id
             WHERE m.substation_id = ?
               AND COALESCE(TRIM(t.tasks_text), '') != ''
             ORDER BY m.date_time DESC, m.id DESC
@@ -18414,8 +18566,11 @@ class SubstationApp(App):
                 "name": name or "-",
                 "date": date_time,
                 "tasks": tasks_text or "-",
+                "element_names": element_names or "",
             }
-            for maintenance_id, name, date_time, tasks_text in (cursor.fetchall() or [])
+            for maintenance_id, name, date_time, tasks_text, element_names in (
+                cursor.fetchall() or []
+            )
         ]
 
     def _build_substation_incomplete_maintenance_reminder_text(
@@ -18432,16 +18587,20 @@ class SubstationApp(App):
         )
         entries = []
         for index, row in enumerate(incomplete_maintenances or [], start=1):
+            element_names = (row.get("element_names") or "").strip()
             entries.append(
                 S["MESSAGES"]
                 .get(
                     "INCOMPLETE_MAINTENANCE_REMINDER_ITEM_FMT",
-                    "{index}. {name}\nΗμερομηνία: {date}\nΕργασίες που απομένουν:\n{tasks}",
+                    "{index}. {name}\nΗμερομηνία: {date}{element_names_line}\nΕργασίες που απομένουν:\n{tasks}",
                 )
                 .format(
                     index=index,
                     name=row.get("name") or "-",
                     date=self._format_maintenance_date(row.get("date")) or "-",
+                    element_names_line=(
+                        f"\nΣτοιχεία: {element_names}" if element_names else ""
+                    ),
                     tasks=row.get("tasks") or "-",
                 )
             )

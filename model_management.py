@@ -15,6 +15,7 @@ ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπ�
 ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
 
 TRANSFORMER_CATEGORY_TOKEN = "150/20"
+MOTOR_DRIVE_CATEGORY = "Motor Drive"
 
 TRANSFORMER_MODEL_FIELD_DEFS = [
     {
@@ -185,6 +186,17 @@ MV_BREAKER_MODEL_FIELD_DEFS = [
     },
 ]
 
+MOTOR_DRIVE_MODEL_FIELD_DEFS = [
+    {
+        "key": "drive_mechanism",
+        "label_key": "MODEL_DRIVE_MECHANISM_LABEL",
+        "hint_key": "MODEL_DRIVE_MECHANISM_HINT",
+        "default_label": "Μηχανισμός Κίνησης:",
+        "default_hint": "π.χ. RS9-I-400-150/N-10 19 3W",
+        "numeric": False,
+    }
+]
+
 
 def _is_transformer_model_category(category):
     return TRANSFORMER_CATEGORY_TOKEN in str(category or "")
@@ -195,6 +207,8 @@ def _get_model_extra_field_defs(category):
         return HV_BREAKER_MODEL_FIELD_DEFS
     if category == ELEM_BREAKER_MT:
         return MV_BREAKER_MODEL_FIELD_DEFS
+    if category == MOTOR_DRIVE_CATEGORY:
+        return MOTOR_DRIVE_MODEL_FIELD_DEFS
     if _is_transformer_model_category(category):
         return TRANSFORMER_MODEL_FIELD_DEFS
     return []
@@ -307,7 +321,7 @@ def show_models_management(app_instance):
     # Filter by element type
     available_categories = [row[1] for row in models]
     ordered_categories = []
-    for cat in app_instance.ELEMENT_TYPES:
+    for cat in getattr(app_instance, "MODEL_CATEGORIES", app_instance.ELEMENT_TYPES):
         if cat in available_categories and cat not in ordered_categories:
             ordered_categories.append(cat)
     for cat in available_categories:
@@ -818,8 +832,14 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     # Element category
     layout.add_widget(Label(text="Κατηγορία Στοιχείου:", size_hint_y=None, height=30))
     category_spinner = Spinner(
-        text=category if category else app_instance.ELEMENT_TYPES[0],
-        values=app_instance.ELEMENT_TYPES,
+        text=(
+            category
+            if category
+            else getattr(app_instance, "MODEL_CATEGORIES", app_instance.ELEMENT_TYPES)[
+                0
+            ]
+        ),
+        values=getattr(app_instance, "MODEL_CATEGORIES", app_instance.ELEMENT_TYPES),
         size_hint_y=None,
         height=40,
     )

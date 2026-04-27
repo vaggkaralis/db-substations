@@ -47,6 +47,16 @@ def test_incomplete_maintenance_reminder_lists_all_rows():
     c.execute("INSERT INTO substations (name) VALUES (?)", ("S1",))
     sub_id = c.lastrowid
     c.execute(
+        "INSERT INTO elements (substation_id, element_type, name) VALUES (?, ?, ?)",
+        (sub_id, "Μετασχηματιστής 150/20", "Q1"),
+    )
+    elem1_id = c.lastrowid
+    c.execute(
+        "INSERT INTO elements (substation_id, element_type, name) VALUES (?, ?, ?)",
+        (sub_id, "Μετασχηματιστής 150/20", "ΜΣ1"),
+    )
+    elem2_id = c.lastrowid
+    c.execute(
         "INSERT INTO maintenance (substation_id, name, date_time) VALUES (?, ?, ?)",
         (sub_id, "M older", "2020-01-13"),
     )
@@ -56,6 +66,10 @@ def test_incomplete_maintenance_reminder_lists_all_rows():
         (older_id, "Task A"),
     )
     c.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (?, ?)",
+        (older_id, elem1_id),
+    )
+    c.execute(
         "INSERT INTO maintenance (substation_id, name, date_time) VALUES (?, ?, ?)",
         (sub_id, "M newer", "2026-03-17"),
     )
@@ -63,6 +77,10 @@ def test_incomplete_maintenance_reminder_lists_all_rows():
     c.execute(
         "INSERT INTO maintenance_pending_tasks (maintenance_id, tasks_text, created_at) VALUES (?, ?, datetime('now'))",
         (newer_id, "Task B\nTask C"),
+    )
+    c.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (?, ?)",
+        (newer_id, elem2_id),
     )
     conn.commit()
 
@@ -80,6 +98,8 @@ def test_incomplete_maintenance_reminder_lists_all_rows():
     assert "S1" in reminder_text
     assert "M newer" in reminder_text
     assert "M older" in reminder_text
+    assert "ΜΣ1" in reminder_text
+    assert "Q1" in reminder_text
     assert "Task B" in reminder_text
     assert "Task A" in reminder_text
 
