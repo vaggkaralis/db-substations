@@ -11,60 +11,36 @@ _env.environ.setdefault("KIVY_NO_CONSOLELOG", "0")
 _env.environ.setdefault("KIVY_LOG_LEVEL", "info")
 
 import json
+import logging
 import os
 import re
 import shutil
 import sqlite3
-import sys
-import logging
 import subprocess
-import faulthandler
-import traceback
+import sys
 import threading
 import time
-
+import traceback
 import webbrowser
-from datetime import datetime, timedelta
+
+import faulthandler
 from database import init_db
+from datetime import datetime, timedelta
 
-
-_BOOTSTRAP_START = time.perf_counter()
-
-
-def _bootstrap_console_write(message):
-    stream = getattr(sys, "__stdout__", None) or getattr(sys, "stdout", None)
-    if stream is None:
-        return
-    try:
-        elapsed = time.perf_counter() - _BOOTSTRAP_START
-        stream.write(f"[BOOT {elapsed:6.2f}s] {message}\n")
-        stream.flush()
-    except Exception:
-        pass
-
-
-_bootstrap_console_write("Python process started")
-
-# Make stdout line-buffered in environments like VS Code so startup
-# prints/logging appear immediately instead of after process end.
-try:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
-except Exception:
-    try:
-        import functools
-
-        print = functools.partial(print, flush=True)
-    except Exception:
-        pass
-_bootstrap_console_write("Loading application modules")
 from email_text_utils import (
     normalize_text,
     tokenize_text,
     tokens_match,
+    iter_substation_name_candidates,
     normalize_substation_tokens,
     tokenize_substation_text,
-    iter_substation_name_candidates,
+)
+from maintenance_type_utils import (
+    canonicalize_maintenance_type as _canonicalize_maintenance_type,
+    get_default_recurring_maintenance_type as _get_default_recurring_maintenance_type,
+    is_dga_maintenance_type as _is_dga_maintenance_type,
+    is_fault_maintenance_type as _is_fault_maintenance_type,
+    is_recurring_maintenance_type as _is_recurring_maintenance_type,
 )
 from importers import (
     import_elements_from_csv,
@@ -137,6 +113,127 @@ from dga_reports import (
     load_dga_template_metadata,
     evaluate_dga_limits,
 )
+
+
+_BOOTSTRAP_START = time.perf_counter()
+
+
+def _bootstrap_console_write(message):
+    stream = getattr(sys, "__stdout__", None) or getattr(sys, "stdout", None)
+    if stream is None:
+        return
+    try:
+        elapsed = time.perf_counter() - _BOOTSTRAP_START
+        stream.write(f"[BOOT {elapsed:6.2f}s] {message}\n")
+        stream.flush()
+    except Exception:
+        pass
+
+
+_bootstrap_console_write("Python process started")
+
+# Make stdout line-buffered in environments like VS Code so startup
+# prints/logging appear immediately instead of after process end.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    try:
+        import functools
+
+        print = functools.partial(print, flush=True)
+    except Exception:
+        pass
+_bootstrap_console_write("Loading application modules")
+
+
+def _get_table_columns(cursor, table_name):
+    try:
+        return {row[1] for row in cursor.execute(f"PRAGMA table_info({table_name})")}
+    except Exception:
+        return set()
+
+
+def _unique_non_null_values(values):
+    unique_values = []
+    seen = set()
+    for value in values or []:
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        unique_values.append(value)
+    return unique_values
+
+
+def _refresh_stored_maintenance_dates(cursor, *, element_ids=None, substation_ids=None):
+    maintenance_columns = _get_table_columns(cursor, "maintenance")
+    element_columns = _get_table_columns(cursor, "elements")
+    substation_columns = _get_table_columns(cursor, "substations")
+    has_maintenance_type = "maintenance_type" in maintenance_columns
+
+    unique_element_ids = _unique_non_null_values(element_ids)
+    if unique_element_ids and "maintenance_date" in element_columns:
+        placeholders = ",".join(["?"] * len(unique_element_ids))
+        cursor.execute(
+            f"""
+            SELECT me.element_id, m.date_time,
+                   {"m.maintenance_type" if has_maintenance_type else "NULL"} AS maintenance_type,
+                   m.id
+            FROM maintenance_elements me
+            JOIN maintenance m ON me.maintenance_id = m.id
+            WHERE me.element_id IN ({placeholders})
+            ORDER BY me.element_id ASC, m.date_time DESC, m.id DESC
+            """,
+            unique_element_ids,
+        )
+        latest_element_dates = {}
+        for element_id, date_time, maintenance_type, _maintenance_id in (
+            cursor.fetchall() or []
+        ):
+            if element_id in latest_element_dates:
+                continue
+            if not has_maintenance_type or _is_recurring_maintenance_type(
+                maintenance_type
+            ):
+                latest_element_dates[element_id] = date_time
+
+        for element_id in unique_element_ids:
+            cursor.execute(
+                "UPDATE elements SET maintenance_date=? WHERE id=?",
+                (latest_element_dates.get(element_id), element_id),
+            )
+
+    unique_substation_ids = _unique_non_null_values(substation_ids)
+    if unique_substation_ids and "last_maintenance" in substation_columns:
+        placeholders = ",".join(["?"] * len(unique_substation_ids))
+        cursor.execute(
+            f"""
+            SELECT substation_id, date_time,
+                   {"maintenance_type" if has_maintenance_type else "NULL"} AS maintenance_type,
+                   id
+            FROM maintenance
+            WHERE substation_id IN ({placeholders})
+            ORDER BY substation_id ASC, date_time DESC, id DESC
+            """,
+            unique_substation_ids,
+        )
+        latest_substation_dates = {}
+        for substation_id, date_time, maintenance_type, _maintenance_id in (
+            cursor.fetchall() or []
+        ):
+            if substation_id in latest_substation_dates:
+                continue
+            if not has_maintenance_type or _is_recurring_maintenance_type(
+                maintenance_type
+            ):
+                latest_substation_dates[substation_id] = date_time
+
+        for substation_id in unique_substation_ids:
+            cursor.execute(
+                "UPDATE substations SET last_maintenance=? WHERE id=?",
+                (latest_substation_dates.get(substation_id), substation_id),
+            )
+
 
 from ui.shared import (
     IconButton,
@@ -463,6 +560,7 @@ GATE_COLOR_PALETTE = [
 ]
 _gate_color_map = {}
 _assigned_colors = {}
+HEMIZYGOS_OPTIONS = ["Ημιζυγός 1", "Ημιζυγός 2"]
 
 
 def get_gate_color(label: str):
@@ -508,6 +606,21 @@ def get_gate_color(label: str):
     except Exception:
         pass
     return color
+
+
+def get_hemizygos_color(label: str):
+    return get_gate_color(f"hemizygos:{label}")
+
+
+def format_hemizygos_tag_text(label):
+    value = str(label or "").strip()
+    if not value:
+        return ""
+    if value.endswith("1"):
+        return "ΗΖ 1"
+    if value.endswith("2"):
+        return "ΗΖ 2"
+    return value
 
 
 class GateTag(Widget):
@@ -556,29 +669,91 @@ class GateTag(Widget):
                     pass
 
 
-def add_gate_tag_if_missing(container, gate_name):
-    """Add a GateTag to `container` if one isn't already present."""
+class HemizygosTag(Widget):
+    """Small vertical tag showing hemizygos name rotated bottom->top."""
+
+    def __init__(self, label, **kwargs):
+        super().__init__(**kwargs)
+        self.hemizygos_label = str(label or "")
+        self._display_text = format_hemizygos_tag_text(self.hemizygos_label)
+        self.size_hint_x = None
+        self.width = 36
+        self.size_hint_y = None
+        self.height = 0
+        self._bg = get_hemizygos_color(self.hemizygos_label)
+        self.bind(pos=self._update, size=self._update)
+
+    def _update(self, *a):
+        self.canvas.clear()
+        with self.canvas:
+            Color(*self._bg)
+            Rectangle(pos=self.pos, size=(self.width, self.height))
+            if CoreLabel and self._display_text:
+                try:
+                    lab = CoreLabel(text=self._display_text, font_size=14)
+                    lab.refresh()
+                    tex = lab.texture
+                    if tex:
+                        tex_w, tex_h = tex.size
+                        avail = max(4, self.height - 8)
+                        scale = min(1.0, avail / float(tex_w)) if tex_w > 0 else 1.0
+                        draw_w = tex_w * scale
+                        draw_h = tex_h * scale
+                        PushMatrix()
+                        Translate(self.x + self.width / 2, self.y + self.height / 2)
+                        Rotate(angle=90, origin=(0, 0))
+                        Color(1, 1, 1, 1)
+                        Rectangle(
+                            texture=tex,
+                            pos=(-draw_w / 2, -draw_h / 2),
+                            size=(draw_w, draw_h),
+                        )
+                        PopMatrix()
+                except Exception:
+                    pass
+
+
+def _add_vertical_tag_if_missing(container, label, *, attr_name, tag_cls):
+    if not str(label or "").strip():
+        return
     try:
-        # If any child already looks like a GateTag, skip
         for child in getattr(container, "children", []):
             try:
-                if getattr(child, "gate_label", None) is not None:
+                if getattr(child, attr_name, None) is not None:
                     return
             except Exception:
                 continue
-        gt = GateTag(gate_name)
-        gt.size_hint_x = None
-        gt.width = 36
-        gt.size_hint_y = None
-        gt.height = getattr(container, "height", 64) or 64
-        container.add_widget(gt, index=0)
-        # Bind height so tag follows row height
+        tag = tag_cls(label)
+        tag.size_hint_x = None
+        tag.width = 36
+        tag.size_hint_y = None
+        tag.height = getattr(container, "height", 64) or 64
+        container.add_widget(tag)
         try:
-            container.bind(height=lambda inst, val: setattr(gt, "height", val))
+            container.bind(height=lambda inst, val: setattr(tag, "height", val))
         except Exception:
             pass
     except Exception:
         pass
+
+
+def add_gate_tag_if_missing(container, gate_name):
+    """Add a GateTag to `container` if one isn't already present."""
+    _add_vertical_tag_if_missing(
+        container,
+        gate_name,
+        attr_name="gate_label",
+        tag_cls=GateTag,
+    )
+
+
+def add_hemizygos_tag_if_missing(container, hemizygos_name):
+    _add_vertical_tag_if_missing(
+        container,
+        hemizygos_name,
+        attr_name="hemizygos_label",
+        tag_cls=HemizygosTag,
+    )
 
 
 def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
@@ -628,37 +803,11 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
         maint_cols = []
 
     def _refresh_maintenance_dates(substation_id, element_ids):
-        unique_ids = sorted({int(x) for x in (element_ids or []) if x is not None})
-        for element_id in unique_ids:
-            cur.execute(
-                """
-                SELECT m.date_time
-                FROM maintenance m
-                JOIN maintenance_elements me ON me.maintenance_id = m.id
-                WHERE me.element_id = ?
-                ORDER BY m.date_time DESC
-                LIMIT 1
-                """,
-                (element_id,),
-            )
-            row = cur.fetchone()
-            new_date = row[0] if row else None
-            cur.execute(
-                "UPDATE elements SET maintenance_date=? WHERE id=?",
-                (new_date, element_id),
-            )
-
-        if substation_id is not None:
-            cur.execute(
-                "SELECT MAX(date_time) FROM maintenance WHERE substation_id=?",
-                (substation_id,),
-            )
-            row = cur.fetchone()
-            new_sub_date = row[0] if row and row[0] else None
-            cur.execute(
-                "UPDATE substations SET last_maintenance=? WHERE id=?",
-                (new_sub_date, substation_id),
-            )
+        _refresh_stored_maintenance_dates(
+            cur,
+            element_ids=element_ids,
+            substation_ids=[substation_id] if substation_id is not None else None,
+        )
 
     with open(file_path, "r", encoding="utf-8") as fh:
         raw_text = _normalize_change_log_text(fh.read())
@@ -670,6 +819,11 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
             op = obj.get("operation")
             table = obj.get("table")
             data = obj.get("data") or {}
+            if table == "maintenance" and "maintenance_type" in data:
+                data["maintenance_type"] = _canonicalize_maintenance_type(
+                    data.get("maintenance_type"),
+                    _get_default_recurring_maintenance_type(),
+                )
 
             # Special handling for maintenance rows which may embed elements
             if table == "maintenance":
@@ -761,11 +915,6 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                                 "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
                                 (maintenance_id, elem_id, elem_comments),
                             )
-                            if data.get("date_time"):
-                                cur.execute(
-                                    "UPDATE elements SET maintenance_date=? WHERE id=?",
-                                    (data.get("date_time"), elem_id),
-                                )
                         try:
                             prune_stale_dga_measurements(
                                 conn,
@@ -916,11 +1065,7 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                                 elem_id,
                             ),
                         )
-                    if data.get("date_time") and elem_id:
-                        cur.execute(
-                            "UPDATE elements SET maintenance_date=? WHERE id=?",
-                            (data.get("date_time"), elem_id),
-                        )
+                _refresh_maintenance_dates(data.get("substation_id"), seen_element_ids)
                 conn.commit()
                 # Store any extra maintenance-level fields into maintenance.data_json
                 try:
@@ -1119,6 +1264,110 @@ class SubstationApp(App):
         if element_type == self.ELEM_BREAKER_YT:
             return list(self.BREAKER_CATEGORIES_HV)
         return list(self.BREAKER_CATEGORIES_ALL)
+
+    def _get_general_maintenance_type_choices(self):
+        return [
+            value
+            for value in (S["MESSAGES"].get("MAINTENANCE_TYPES") or [])
+            if not _is_dga_maintenance_type(value)
+        ]
+
+    def _normalize_legacy_maintenance_types(self, commit=False):
+        cursor = self.conn.cursor()
+        recurring_type = _get_default_recurring_maintenance_type()
+        cursor.execute(
+            "UPDATE maintenance SET maintenance_type=? WHERE maintenance_type IS NOT NULL AND LOWER(TRIM(maintenance_type))='email'",
+            (recurring_type,),
+        )
+        changed = int(cursor.rowcount or 0)
+        if commit:
+            self.conn.commit()
+        return changed
+
+    def _refresh_maintenance_dates_for_scope(
+        self, *, element_ids=None, substation_ids=None, commit=False
+    ):
+        cursor = self.conn.cursor()
+        _refresh_stored_maintenance_dates(
+            cursor,
+            element_ids=element_ids,
+            substation_ids=substation_ids,
+        )
+        if commit:
+            self.conn.commit()
+
+    def _refresh_all_stored_maintenance_dates(self, commit=True):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM elements")
+        element_ids = [row[0] for row in (cursor.fetchall() or [])]
+        cursor.execute("SELECT id FROM substations")
+        substation_ids = [row[0] for row in (cursor.fetchall() or [])]
+        _refresh_stored_maintenance_dates(
+            cursor,
+            element_ids=element_ids,
+            substation_ids=substation_ids,
+        )
+        if commit:
+            self.conn.commit()
+
+    def _open_dga_maintenance_editor(self, maintenance_id, parent_popup=None):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT m.substation_id, s.name, e.id, e.name, e.serial_number,
+                   e.gate, e.manufacturer
+            FROM maintenance m
+            LEFT JOIN substations s ON s.id = m.substation_id
+            LEFT JOIN maintenance_elements me ON me.maintenance_id = m.id
+            LEFT JOIN elements e ON e.id = me.element_id
+            WHERE m.id = ?
+            ORDER BY me.id
+            LIMIT 1
+            """,
+            (maintenance_id,),
+        )
+        row = cursor.fetchone()
+        if not row or not row[2]:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                "Δεν βρέθηκε συσχετισμένο στοιχείο για τη μέτρηση DGA.",
+            )
+            return False
+
+        (
+            substation_id,
+            substation_name,
+            element_id,
+            element_name,
+            serial_number,
+            gate_value,
+            manufacturer,
+        ) = row
+        cursor.execute(
+            """
+            SELECT id
+            FROM dga_measurements
+            WHERE maintenance_id=? AND element_id=?
+            ORDER BY measurement_date DESC, created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (maintenance_id, element_id),
+        )
+        dga_row = cursor.fetchone()
+        dga_id = dga_row[0] if dga_row else None
+
+        self.show_dga_measurement_popup(
+            maintenance_id=maintenance_id,
+            element_id=element_id,
+            element_name=element_name,
+            substation_id=substation_id,
+            substation_name=substation_name,
+            gate_value=gate_value,
+            serial_number=serial_number,
+            manufacturer=manufacturer,
+            dga_id=dga_id,
+        )
+        return True
 
     def build(self):
         APP_LOGGER.info("========== BUILD METHOD STARTING ==========")
@@ -1762,6 +2011,8 @@ class SubstationApp(App):
         APP_LOGGER.info("Opening database: %s", selected_db_path)
         self.conn = init_db(selected_db_path)
         self.db_path = os.path.abspath(selected_db_path)
+        self._normalize_legacy_maintenance_types(commit=False)
+        self._refresh_all_stored_maintenance_dates(commit=True)
         self._last_sync_cycle_ts = 0
         self._pending_changes = []  # Track changes for export on close
         self._sync_attention_needed = False  # Probe detected work that user deferred
@@ -5430,6 +5681,13 @@ class SubstationApp(App):
         return [get_unreg()] + gates
 
     @staticmethod
+    def get_available_hemizygos_options(include_empty=True):
+        options = list(HEMIZYGOS_OPTIONS)
+        if include_empty:
+            return [S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")] + options
+        return options
+
+    @staticmethod
     def gate_display_sort_key(gate_label):
         gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
         gate = str(gate_label or "").strip()
@@ -5908,6 +6166,11 @@ class SubstationApp(App):
             if on_select:
                 on_select(sub_name)
 
+        def _cancel_selection(_instance=None):
+            selection_popup.dismiss()
+            if parent_popup:
+                parent_popup.open()
+
         for i in range(total_positions):
             if i < len(all_substations):
                 _sub_id, sub_name = all_substations[i]
@@ -5928,7 +6191,7 @@ class SubstationApp(App):
         layout.add_widget(scroll)
 
         cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.08)
-        cancel_btn.bind(on_press=selection_popup.dismiss)
+        cancel_btn.bind(on_press=_cancel_selection)
         layout.add_widget(cancel_btn)
 
         if parent_popup:
@@ -6649,10 +6912,15 @@ class SubstationApp(App):
             dga_count_map = {sid: cnt for sid, cnt in c.fetchall()}
 
             c.execute(
-                f"SELECT substation_id, MAX(date_time) FROM maintenance WHERE substation_id IN ({placeholders}) GROUP BY substation_id",
+                f"SELECT substation_id, date_time, maintenance_type, id FROM maintenance WHERE substation_id IN ({placeholders}) ORDER BY substation_id ASC, date_time DESC, id DESC",
                 sub_ids,
             )
-            last_maint_map = {sid: dt for sid, dt in c.fetchall()}
+            last_maint_map = {}
+            for sid, dt, maintenance_type, _maintenance_id in c.fetchall() or []:
+                if sid in last_maint_map:
+                    continue
+                if _is_recurring_maintenance_type(maintenance_type):
+                    last_maint_map[sid] = dt
 
             c.execute(
                 f"SELECT substation_id, COUNT(*) FROM elements WHERE substation_id IN ({placeholders}) "
@@ -7215,7 +7483,7 @@ class SubstationApp(App):
                 # Fetch model data from element_models table
                 query = """
                           SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
-                              e.voltage_level, e.power_mva, e.manufacturer, e.manufacture_year, e.gate, e.is_main_switch,
+                              e.voltage_level, e.power_mva, e.manufacturer, e.manufacture_year, e.gate, e.hemizygos, e.is_main_switch,
                            em.breaker_category, em.model_name, em.manufacturer as model_manufacturer,
                            e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.power_mva as model_power_mva, em.installation_space, e.operating_status, em.manual_pdf
                     FROM elements e 
@@ -7238,10 +7506,10 @@ class SubstationApp(App):
 
                 # Split into active and inactive
                 active_elements = [
-                    e for e in all_elements if not e[18] or e[18] == "Ενεργή"
-                ]  # Index 18 is operating_status
+                    e for e in all_elements if not e[19] or e[19] == "Ενεργή"
+                ]
                 inactive_elements = [
-                    e for e in all_elements if e[18] and e[18] == "Ανενεργή"
+                    e for e in all_elements if e[19] and e[19] == "Ανενεργή"
                 ]
 
                 # Get maintenance counts for all elements in this substation
@@ -7274,6 +7542,7 @@ class SubstationApp(App):
                             manufacturer,
                             manufacture_year,
                             gate,
+                            hemizygos,
                             is_main_switch,
                             breaker_category,
                             model_name,
@@ -7326,6 +7595,7 @@ class SubstationApp(App):
                             manufacturer,
                             manufacture_year,
                             gate,
+                            hemizygos,
                             is_main_switch,
                             breaker_category,
                             model_name,
@@ -7387,6 +7657,7 @@ class SubstationApp(App):
                                 manufacturer,
                                 manufacture_year,
                                 gate,
+                                hemizygos,
                                 is_main_switch,
                                 breaker_category,
                                 model_name,
@@ -7475,8 +7746,15 @@ class SubstationApp(App):
                                 minimum_height=elem_layout.setter("height")
                             )
 
-                            # Add a small vertical GateTag at the left of the row
-                            add_gate_tag_if_missing(elem_layout, gate_name)
+                            tags_layout = BoxLayout(
+                                orientation="horizontal",
+                                size_hint_x=None,
+                                spacing=2,
+                            )
+                            tags_layout.width = 74 if hemizygos else 36
+                            add_gate_tag_if_missing(tags_layout, gate_name)
+                            add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+                            elem_layout.add_widget(tags_layout)
 
                             elem_label = Label(
                                 text=elem_text, size_hint=(0.75, None), markup=True
@@ -7525,7 +7803,6 @@ class SubstationApp(App):
                                     except Exception:
                                         pass
 
-                            add_gate_tag_if_missing(elem_layout, gate_name)
                             elem_layout.add_widget(elem_label)
                             # Note: separator will be added to the parent `grid` after the element row
 
@@ -11976,12 +12253,9 @@ class SubstationApp(App):
         popup.open()
 
     def _maintenance_type_requires_checklist(self, maintenance_type):
-        return maintenance_type in {
-            "Επαναληπτική συντήρηση",
-            "Βλάβη",
-            "Recurring maintenance",
-            "Fault",
-        }
+        return _is_recurring_maintenance_type(
+            maintenance_type
+        ) or _is_fault_maintenance_type(maintenance_type)
 
     def _checklist_has_content(self, checklist_state):
         state = normalize_state(checklist_state)
@@ -12559,6 +12833,10 @@ class SubstationApp(App):
                 )
                 return
 
+            if _is_dga_maintenance_type(maintenance_record[4]):
+                self._open_dga_maintenance_editor(maintenance_id, parent_popup)
+                return
+
             maint_substation_id = maintenance_record[0]
             c.execute("SELECT name FROM substations WHERE id=?", (maint_substation_id,))
             sub_row = c.fetchone()
@@ -12797,6 +13075,17 @@ class SubstationApp(App):
         initial_substation = (
             prefill_substation_name if prefill_substation_name else substations[0][1]
         )
+        if not maintenance_id and _is_dga_maintenance_type(
+            prefill_data.get("maintenance_type")
+        ):
+            self._show_dga_maintenance_form(
+                parent_popup=parent_popup,
+                preselected_substation_id=substation_map.get(initial_substation),
+            )
+            return
+        auto_prompt_substation_selection = not maintenance_id and not bool(
+            prefill_substation_name
+        )
         reminded_substation_ids = set()
 
         substation_row = BoxLayout(size_hint_y=None, height=40, spacing=5)
@@ -12990,22 +13279,24 @@ class SubstationApp(App):
         )
         if not maintenance_id and prefill_data.get("maintenance_type"):
             maint_type_default = prefill_data.get("maintenance_type")
+        if _is_dga_maintenance_type(maint_type_default):
+            maint_type_default = S["MESSAGES"]["MAINT_TYPE_DEFAULT"]
         maintenance_type_spinner = Spinner(
             text=maint_type_default,
-            values=S["MESSAGES"]["MAINTENANCE_TYPES"],
+            values=self._get_general_maintenance_type_choices(),
             size_hint_y=None,
             height=35,
         )
 
         # Handle DGA maintenance type specially
         def on_maintenance_type_change(spinner, text):
-            dga_type = S["MESSAGES"].get(
-                "DGA_LABEL", "Physicochemical/Gas Chromatography"
-            )
-            if text == dga_type and not maintenance_id:
+            if _is_dga_maintenance_type(text) and not maintenance_id:
                 # DGA type selected: show simplified transformer selector
                 popup.dismiss()
-                self._show_dga_maintenance_form(parent_popup=parent_popup)
+                self._show_dga_maintenance_form(
+                    parent_popup=parent_popup,
+                    preselected_substation_id=substation_map.get(substation_input.text),
+                )
 
         maintenance_type_spinner.bind(text=on_maintenance_type_change)
         content_layout.add_widget(maintenance_type_spinner)
@@ -14268,7 +14559,7 @@ class SubstationApp(App):
             c = self.conn.cursor()
             c.execute(
                 """
-                  SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.is_main_switch,
+                                    SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.hemizygos, e.is_main_switch,
                        e.breaker_category, e.manufacturer, e.model, e.operations_count,
                        em.manufacturer as model_manufacturer, em.model_name
                 FROM elements e
@@ -14336,6 +14627,7 @@ class SubstationApp(App):
                     elem_name,
                     serial_number,
                     gate,
+                    hemizygos,
                     is_main_switch,
                     breaker_category,
                     manufacturer,
@@ -14380,6 +14672,7 @@ class SubstationApp(App):
                     elem_name,
                     serial_number,
                     gate,
+                    hemizygos,
                     is_main_switch,
                     breaker_category,
                     manufacturer,
@@ -14425,6 +14718,7 @@ class SubstationApp(App):
                             _gate_elem_name,
                             _serial_number,
                             _gate,
+                            _hemizygos,
                             _is_main_switch,
                             _breaker_category,
                             _manufacturer,
@@ -14555,6 +14849,7 @@ class SubstationApp(App):
                     elem_name,
                     serial_number,
                     gate,
+                    hemizygos,
                     is_main_switch,
                     breaker_category,
                     manufacturer,
@@ -14588,6 +14883,15 @@ class SubstationApp(App):
 
                     # Checkbox and name (always visible)
                     checkbox_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
+                    tags_layout = BoxLayout(
+                        orientation="horizontal",
+                        size_hint_x=None,
+                        spacing=2,
+                    )
+                    tags_layout.width = 74 if hemizygos else 36
+                    add_gate_tag_if_missing(tags_layout, gate or gate_name)
+                    add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+                    checkbox_layout.add_widget(tags_layout)
                     checkbox = CheckBox(
                         size_hint_x=0.08,
                         color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
@@ -17469,6 +17773,20 @@ class SubstationApp(App):
             substation_id = substation_map[substation_input.text]
             maintenance_date = datetime_input.text.strip()
             maintenance_type = maintenance_type_spinner.text
+            if _is_dga_maintenance_type(maintenance_type):
+                invalid_element_ids = [
+                    elem_id
+                    for elem_id, widgets in selected_elements
+                    if not self._is_transformer(
+                        (widgets.get("meta") or {}).get("elem_type")
+                    )
+                ]
+                if invalid_element_ids:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        "Η συντήρηση Φυσικοχημικών/Αεριοχρωματογραφίας επιτρέπεται μόνο για μετασχηματιστές.",
+                    )
+                    return
             user_name = ""
             _previous_element_ids = []
             if maintenance_id:
@@ -17601,6 +17919,8 @@ class SubstationApp(App):
                     crew_added_after_prefill=sorted(final_crew - detected_crew),
                     crew_removed_after_prefill=sorted(detected_crew - final_crew),
                 )
+
+            maintenance_type = maintenance_type_spinner.text
 
             # Insert maintenance elements and update their maintenance_date
             for elem_id, widgets in selected_elements:
@@ -17889,65 +18209,10 @@ class SubstationApp(App):
                         ),
                     )
 
-                # Update element's maintenance_date only if the new maintenance_date
-                # is newer (or if the element has no recorded maintenance_date).
-                try:
-                    if maintenance_date:
-                        c.execute(
-                            "SELECT maintenance_date FROM elements WHERE id=?",
-                            (elem_id,),
-                        )
-                        _row = c.fetchone()
-                        existing = _row[0] if _row and _row[0] else None
-                        do_update = False
-                        if not existing or str(existing).strip() == "":
-                            do_update = True
-                        else:
-                            try:
-                                new_dt = datetime.strptime(
-                                    maintenance_date.split()[0], "%Y-%m-%d"
-                                )
-                                exist_dt = datetime.strptime(
-                                    str(existing).split()[0], "%Y-%m-%d"
-                                )
-                                if new_dt >= exist_dt:
-                                    do_update = True
-                            except Exception:
-                                # Fallback: lexical compare of strings
-                                try:
-                                    if str(maintenance_date) >= str(existing):
-                                        do_update = True
-                                except Exception:
-                                    do_update = True
-
-                        if do_update:
-                            c.execute(
-                                "UPDATE elements SET maintenance_date=? WHERE id=?",
-                                (maintenance_date, elem_id),
-                            )
-                except Exception:
-                    pass
-
-            # Update substation's last maintenance date using the latest maintenance
-            try:
-                c.execute(
-                    "SELECT MAX(date_time) FROM maintenance WHERE substation_id=?",
-                    (substation_id,),
-                )
-                _r = c.fetchone()
-                _new_sub_date = _r[0] if _r and _r[0] else None
-                c.execute(
-                    "UPDATE substations SET last_maintenance=? WHERE id=?",
-                    (_new_sub_date, substation_id),
-                )
-            except Exception:
-                try:
-                    c.execute(
-                        "UPDATE substations SET last_maintenance=? WHERE id=?",
-                        (maintenance_date, substation_id),
-                    )
-                except Exception:
-                    pass
+            self._refresh_maintenance_dates_for_scope(
+                element_ids=[elem_id for elem_id, _widgets in selected_elements],
+                substation_ids=[substation_id],
+            )
 
             if maintenance_id:
                 try:
@@ -18107,6 +18372,16 @@ class SubstationApp(App):
         _update_save_button_state()
         popup.open()
 
+        if auto_prompt_substation_selection:
+            initial_substation_id = substation_map.get(initial_substation)
+            shown = self._show_substation_incomplete_maintenance_reminder(
+                initial_substation_id,
+                initial_substation,
+                on_close=select_substation,
+            )
+            if shown and initial_substation_id:
+                reminded_substation_ids.add(initial_substation_id)
+
     def _get_substation_incomplete_maintenances(self, substation_id):
         cursor = self.conn.cursor()
         cursor.execute(
@@ -18184,12 +18459,147 @@ class SubstationApp(App):
         )
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-        reminder_input = TextInput(
-            text=reminder_text,
-            readonly=True,
-            multiline=True,
+        reminder_header = Label(
+            text=(
+                S["MESSAGES"]
+                .get(
+                    "INCOMPLETE_MAINTENANCE_REMINDER_BODY_FMT",
+                    "Βρέθηκαν εκκρεμείς συντηρήσεις για τον υποσταθμό {substation_name}.\n"
+                    "Υπενθύμιση εργασιών που απομένουν:",
+                )
+                .format(substation_name=substation_name)
+            ),
+            size_hint_y=None,
+            halign="left",
+            valign="middle",
         )
-        main_layout.add_widget(reminder_input)
+        reminder_header.bind(
+            width=lambda inst, val: setattr(inst, "text_size", (max(0, val - 8), None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(36, val[1] + 8)),
+        )
+        main_layout.add_widget(reminder_header)
+
+        reminder_scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        reminder_container = GridLayout(
+            cols=1,
+            spacing=8,
+            size_hint_y=None,
+            padding=2,
+        )
+        reminder_container.bind(minimum_height=reminder_container.setter("height"))
+
+        def _style_reminder_card(card_widget):
+            try:
+                from kivy.graphics import Color, Line, Rectangle
+
+                with card_widget.canvas.before:
+                    card_widget._card_bg = Color(0.97, 0.98, 0.99, 1)
+                    card_widget._card_rect = Rectangle(
+                        pos=card_widget.pos,
+                        size=card_widget.size,
+                    )
+                with card_widget.canvas.after:
+                    card_widget._card_border = Color(0.78, 0.82, 0.88, 1)
+                    card_widget._card_line = Line(
+                        rectangle=(
+                            card_widget.x,
+                            card_widget.y,
+                            card_widget.width,
+                            card_widget.height,
+                        ),
+                        width=1,
+                    )
+
+                def _sync_card_graphics(*_args):
+                    try:
+                        card_widget._card_rect.pos = card_widget.pos
+                        card_widget._card_rect.size = card_widget.size
+                        card_widget._card_line.rectangle = (
+                            card_widget.x,
+                            card_widget.y,
+                            card_widget.width,
+                            card_widget.height,
+                        )
+                    except Exception:
+                        pass
+
+                card_widget.bind(pos=_sync_card_graphics, size=_sync_card_graphics)
+            except Exception:
+                pass
+
+        def _make_wrapped_label(text, *, markup=False):
+            label = Label(
+                text=text or "-",
+                markup=markup,
+                size_hint_y=None,
+                halign="left",
+                valign="middle",
+            )
+            label.bind(
+                width=lambda inst, val: setattr(
+                    inst, "text_size", (max(0, val - 8), None)
+                ),
+                texture_size=lambda inst, val: setattr(
+                    inst, "height", max(24, val[1] + 8)
+                ),
+            )
+            return label
+
+        opened_form = {"done": False}
+
+        def _open_incomplete_maintenance(maintenance_row):
+            if opened_form["done"]:
+                return
+            opened_form["done"] = True
+            popup.dismiss()
+            self.show_maintenance_menu(maintenance_id=maintenance_row.get("id"))
+
+        for index, row in enumerate(incomplete_maintenances or [], start=1):
+            card = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                padding=8,
+                spacing=6,
+            )
+            card.bind(minimum_height=card.setter("height"))
+            _style_reminder_card(card)
+            card.add_widget(
+                _make_wrapped_label(
+                    f"[b]{index}. {row.get('name') or '-'}[/b]",
+                    markup=True,
+                )
+            )
+            card.add_widget(
+                _make_wrapped_label(
+                    f"{S['MESSAGES'].get('DATE_LABEL', 'Ημερομηνία:')} {self._format_maintenance_date(row.get('date')) or '-'}"
+                )
+            )
+            tasks_input = TextInput(
+                text=row.get("tasks") or "-",
+                readonly=True,
+                multiline=True,
+                size_hint_y=None,
+                height=100,
+            )
+            card.add_widget(tasks_input)
+
+            action_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
+            action_row.add_widget(Widget())
+            edit_btn = Button(
+                text=S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"),
+                size_hint_x=0.42,
+            )
+            edit_btn.bind(
+                on_press=lambda _inst, maintenance_row=row: (
+                    _open_incomplete_maintenance(maintenance_row)
+                )
+            )
+            action_row.add_widget(edit_btn)
+            card.add_widget(action_row)
+            reminder_container.add_widget(card)
+
+        reminder_scroll.add_widget(reminder_container)
+        main_layout.add_widget(reminder_scroll)
 
         buttons_layout = BoxLayout(size_hint_y=None, height=42, spacing=8)
         copy_btn = Button(
@@ -18216,8 +18626,6 @@ class SubstationApp(App):
                     logging.exception(
                         "Failed to copy incomplete maintenance reminder to clipboard"
                     )
-
-        opened_form = {"done": False}
 
         def _continue_to_form(*_args):
             if opened_form["done"] or not callable(on_close):
@@ -19505,7 +19913,7 @@ class SubstationApp(App):
                     return lambda x: self.send_maintenance_email_report(m_id)
 
                 def make_edit_handler(m_id, p, maint_type, elements):
-                    if maint_type != "Φυσικοχημικές/Αεριοχρωματογραφία":
+                    if not _is_dga_maintenance_type(maint_type):
                         return lambda x: self.show_maintenance_menu(
                             None,
                             substation_name,
@@ -19519,34 +19927,7 @@ class SubstationApp(App):
                                 current_element_filter.get("name"),
                             ),
                         )
-                    elif maint_type == "Φυσικοχημικές/Αεριοχρωματογραφία":
-                        # Find the DGA measurement for this maintenance and element
-                        # Use the first element as the target
-                        if elements:
-                            elem_id = elements[0][0]
-                            c2 = self.conn.cursor()
-                            c2.execute(
-                                "SELECT id FROM dga_measurements WHERE maintenance_id=? AND element_id=? ORDER BY measurement_date DESC, created_at DESC LIMIT 1",
-                                (m_id, elem_id),
-                            )
-                            dga_row = c2.fetchone()
-                            dga_id = dga_row[0] if dga_row else None
-                            return lambda x: self.show_dga_measurement_popup(
-                                maintenance_id=m_id,
-                                element_id=elem_id,
-                                element_name=elements[0][2],
-                                substation_id=substation_id,
-                                substation_name=substation_name,
-                                gate_value=None,
-                                serial_number=elements[0][3],
-                                manufacturer=elements[0][6],
-                                dga_id=dga_id,
-                            )
-                        else:
-                            return lambda x: show_message_popup(
-                                S["TITLES"].get("ERROR", "Σφάλμα"),
-                                "Δεν βρέθηκε μέτρηση DGA για επεξεργασία.",
-                            )
+                    return lambda x: self._open_dga_maintenance_editor(m_id)
 
                 def make_checklist_handler(m_id, maint_type, raw_checklist_json):
                     has_saved_checklist = bool(raw_checklist_json)
@@ -19576,9 +19957,8 @@ class SubstationApp(App):
 
                 # Folder button (only if link exists) — immediately to the left of the eye button
                 header_folder_link = onedrive_media_folder_link
-                if (
-                    not header_folder_link
-                    and maintenance_type == "Φυσικοχημικές/Αεριοχρωματογραφία"
+                if not header_folder_link and _is_dga_maintenance_type(
+                    maintenance_type
                 ):
                     dga_report_path = dga_report_by_maint.get(maint_id)
                     if dga_report_path and os.path.exists(dga_report_path):
@@ -20337,7 +20717,7 @@ class SubstationApp(App):
             SELECT m.name, m.date_time, m.overall_comments, m.maintenance_type, m.user_name,
                    s.name as substation_name, s.location, s.division,
                    e.element_type, e.name, e.serial_number, e.manufacturer, e.model,
-                   e.breaker_category, e.voltage_level, e.gate, e.manufacture_year,
+                     e.breaker_category, e.voltage_level, e.gate, e.hemizygos, e.manufacture_year,
                    em.model_name, em.manufacturer as model_manufacturer, em.manual_pdf
             FROM maintenance m
             JOIN substations s ON m.substation_id = s.id
@@ -20528,6 +20908,7 @@ class SubstationApp(App):
                 breaker_cat,
                 voltage_level,
                 gate,
+                hemizygos,
                 manufacture_year,
                 model_name,
                 model_manufacturer,
@@ -20593,6 +20974,7 @@ class SubstationApp(App):
             add_kv_row(grid, "Κατηγορία Διακόπτη", breaker_cat or "-")
             add_kv_row(grid, "Τάση", voltage_level or "-")
             add_kv_row(grid, S["MESSAGES"].get("GATE_LABEL", "Πύλη"), gate or "-")
+            add_kv_row(grid, "Ημιζυγός", hemizygos or "-")
             add_kv_row(grid, "Έτος Κατασκευής", manufacture_year or "-")
             content.add_widget(grid)
 
@@ -23104,40 +23486,9 @@ class SubstationApp(App):
         # Delete the maintenance record
         c.execute("DELETE FROM maintenance WHERE id=?", (maintenance_id,))
 
-        # Update last maintenance date for each affected element
-        for element_id in affected_elements:
-            c.execute(
-                """
-                SELECT m.date_time 
-                FROM maintenance m
-                JOIN maintenance_elements me ON m.id = me.maintenance_id
-                WHERE me.element_id = ?
-                ORDER BY m.date_time DESC
-                LIMIT 1
-            """,
-                (element_id,),
-            )
-            result = c.fetchone()
-            new_date = result[0] if result else ""
-            c.execute(
-                "UPDATE elements SET maintenance_date=? WHERE id=?",
-                (new_date, element_id),
-            )
-
-        # Update last maintenance date for the substation
-        c.execute(
-            """
-            SELECT MAX(date_time) 
-            FROM maintenance 
-            WHERE substation_id=?
-        """,
-            (substation_id,),
-        )
-        result = c.fetchone()
-        new_sub_date = result[0] if result and result[0] else ""
-        c.execute(
-            "UPDATE substations SET last_maintenance=? WHERE id=?",
-            (new_sub_date, substation_id),
+        self._refresh_maintenance_dates_for_scope(
+            element_ids=affected_elements,
+            substation_ids=[substation_id],
         )
 
         self._append_change_log("delete", "maintenance", {"id": maintenance_id})
@@ -23218,40 +23569,9 @@ class SubstationApp(App):
         # Delete the maintenance record
         c.execute("DELETE FROM maintenance WHERE id=?", (maintenance_id,))
 
-        # Update last maintenance date for each affected element
-        for element_id in affected_elements:
-            c.execute(
-                """
-                SELECT m.date_time 
-                FROM maintenance m
-                JOIN maintenance_elements me ON m.id = me.maintenance_id
-                WHERE me.element_id = ?
-                ORDER BY m.date_time DESC
-                LIMIT 1
-            """,
-                (element_id,),
-            )
-            result = c.fetchone()
-            new_date = result[0] if result else None
-            c.execute(
-                "UPDATE elements SET maintenance_date=? WHERE id=?",
-                (new_date, element_id),
-            )
-
-        # Update last maintenance date for the substation
-        c.execute(
-            """
-            SELECT MAX(date_time) 
-            FROM maintenance 
-            WHERE substation_id=?
-        """,
-            (substation_id,),
-        )
-        result = c.fetchone()
-        new_sub_date = result[0] if (result and result[0] is not None) else None
-        c.execute(
-            "UPDATE substations SET last_maintenance=? WHERE id=?",
-            (new_sub_date, substation_id),
+        self._refresh_maintenance_dates_for_scope(
+            element_ids=affected_elements,
+            substation_ids=[substation_id],
         )
 
         self._append_change_log("delete", "maintenance", {"id": maintenance_id})

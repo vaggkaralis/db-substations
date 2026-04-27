@@ -63,7 +63,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     """)
 
     cursor.execute(
-        "CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, FOREIGN KEY(substation_id) REFERENCES substations(id))"
+        "CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, hemizygos TEXT DEFAULT '', FOREIGN KEY(substation_id) REFERENCES substations(id))"
     )
 
     # Maintenance tracking tables
@@ -667,6 +667,12 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             cursor.execute(
                 'UPDATE elements SET gate = REPLACE(gate, "ΖΥΓΟΣ", "ΠΥΛΗ") WHERE gate LIKE "ΖΥΓΟΣ%"'
             )
+        except Exception:
+            pass
+
+    if "hemizygos" not in elem_columns:
+        try:
+            cursor.execute('ALTER TABLE elements ADD COLUMN hemizygos TEXT DEFAULT ""')
         except Exception:
             pass
 

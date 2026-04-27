@@ -7,6 +7,9 @@ while allowing incremental extraction.
 import sqlite3
 import unicodedata
 
+from maintenance_type_utils import (
+    is_recurring_maintenance_type as _is_recurring_maintenance_type,
+)
 from strings_proxy import STRINGS as S
 from onedrive_hybrid_storage import resolve_shared_root, sync_substation_gate_folders
 from validation import validate_breaker_category_required, validate_gate_assignment
@@ -14,6 +17,23 @@ from ui.shared import IconOnlyButton
 
 # Common placeholder used in multiple UI helpers
 unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+
+
+def _get_latest_recurring_maintenance_date(cursor, element_id):
+    cursor.execute(
+        """
+        SELECT m.date_time, m.maintenance_type
+        FROM maintenance m
+        JOIN maintenance_elements me ON me.maintenance_id = m.id
+        WHERE me.element_id = ?
+        ORDER BY m.date_time DESC, m.id DESC
+        """,
+        (element_id,),
+    )
+    for date_time, maintenance_type in cursor.fetchall() or []:
+        if _is_recurring_maintenance_type(maintenance_type):
+            return date_time
+    return None
 
 
 def _normalize_element_name(value):
@@ -240,19 +260,7 @@ def _merge_duplicate_elements(conn, keep_id, duplicate_ids):
     # After moving references and deleting duplicates, refresh the kept
     # element's maintenance_date to reflect any moved maintenance records.
     try:
-        cursor.execute(
-            """
-            SELECT m.date_time
-            FROM maintenance m
-            JOIN maintenance_elements me ON me.maintenance_id = m.id
-            WHERE me.element_id = ?
-            ORDER BY m.date_time DESC
-            LIMIT 1
-            """,
-            (keep_id,),
-        )
-        row = cursor.fetchone()
-        new_date = row[0] if row else None
+        new_date = _get_latest_recurring_maintenance_date(cursor, keep_id)
         cursor.execute(
             "UPDATE elements SET maintenance_date=? WHERE id=?",
             (new_date, keep_id),
@@ -445,6 +453,16 @@ def show_add_element_popup(app, instance):
     )
     layout.add_widget(gate_spinner)
 
+    layout.add_widget(Label(text="Ημιζυγός:", size_hint_y=None, height=30))
+    hemizygos_values = app.get_available_hemizygos_options()
+    hemizygos_spinner = Spinner(
+        text=hemizygos_values[0],
+        values=hemizygos_values,
+        size_hint_y=None,
+        height=40,
+    )
+    layout.add_widget(hemizygos_spinner)
+
     # Rated power (Ονομαστική Ισχύς) - optional attribute for any element
     layout.add_widget(
         Label(
@@ -631,6 +649,8 @@ def show_add_element_popup(app, instance):
     # Dynamic element fields (auto-filled from model, can be overridden)
     field_inputs = {}
     for field in app.ELEMENT_FIELD_DEFS:
+        if field["key"] == "model":
+            continue
         layout.add_widget(Label(text=f"{field['label']}:", size_hint_y=None, height=30))
         if field.get("type") == "spinner":
             spinner = Spinner(
@@ -655,7 +675,6 @@ def show_add_element_popup(app, instance):
         if text in models_data:
             model = models_data[text]
             field_inputs["manufacturer"].text = model["manufacturer"]
-            field_inputs["model"].text = model["model_name"]
             field_inputs["maintenance_cycle"].text = str(model["maintenance_cycle"])
             field_inputs["installation_space"].text = model["installation_space"]
 
@@ -744,6 +763,12 @@ def show_add_element_popup(app, instance):
                 != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
                 else ""
             )
+            hemizygos_value = (
+                hemizygos_spinner.text
+                if hemizygos_spinner.text
+                != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+                else ""
+            )
 
             try:
                 validate_gate_assignment(
@@ -764,8 +789,11 @@ def show_add_element_popup(app, instance):
                 return
 
             model_id = None
+            stored_model_name = ""
             if model_spinner.text in models_data:
-                model_id = models_data[model_spinner.text]["id"]
+                selected_model = models_data[model_spinner.text]
+                model_id = selected_model["id"]
+                stored_model_name = selected_model.get("model_name") or ""
 
             rated_power_val = ""
             try:
@@ -809,7 +837,7 @@ def show_add_element_popup(app, instance):
 
             try:
                 c.execute(
-                    "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         substation_id,
                         element_type,
@@ -818,7 +846,7 @@ def show_add_element_popup(app, instance):
                         values.get("maintenance_date", ""),
                         voltage_level_value,
                         values.get("manufacturer", ""),
-                        values.get("model", ""),
+                        stored_model_name,
                         values.get("model_version", ""),
                         values.get("installation_space", "Εσωτερικός"),
                         values.get("operating_status", "Ενεργή"),
@@ -826,6 +854,7 @@ def show_add_element_popup(app, instance):
                         model_id,
                         values.get("manufacture_year", ""),
                         gate_value,
+                        hemizygos_value,
                         is_main_switch,
                         breaker_category_value,
                         (
@@ -861,7 +890,7 @@ def show_add_element_popup(app, instance):
                 "maintenance_date": values.get("maintenance_date", ""),
                 "voltage_level": voltage_level_value,
                 "manufacturer": values.get("manufacturer", ""),
-                "model": values.get("model", ""),
+                "model": stored_model_name,
                 "model_version": values.get("model_version", ""),
                 "installation_space": values.get("installation_space", "Εσωτερικός"),
                 "operating_status": values.get("operating_status", "Ενεργή"),
@@ -869,6 +898,7 @@ def show_add_element_popup(app, instance):
                 "element_model_id": model_id,
                 "manufacture_year": values.get("manufacture_year", ""),
                 "gate": gate_value,
+                "hemizygos": hemizygos_value,
                 "is_main_switch": is_main_switch,
                 "breaker_category": breaker_category_value,
                 "power_mva": (
@@ -1164,19 +1194,9 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
     # in case references moved previously but the elements table wasn't updated.
     try:
         cur = app.conn.cursor()
-        cur.execute(
-            """
-            SELECT m.date_time
-            FROM maintenance m
-            JOIN maintenance_elements me ON me.maintenance_id = m.id
-            WHERE me.element_id = ?
-            ORDER BY m.date_time DESC
-            LIMIT 1
-            """,
-            (canonical_element_id or element_id,),
+        new_date = _get_latest_recurring_maintenance_date(
+            cur, canonical_element_id or element_id
         )
-        row = cur.fetchone()
-        new_date = row[0] if row else None
         cur.execute(
             "UPDATE elements SET maintenance_date=? WHERE id=?",
             (new_date, canonical_element_id or element_id),
@@ -1566,7 +1586,7 @@ def show_edit_element_popup(
     # Fetch element data
     c = app.conn.cursor()
     c.execute(
-        "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, is_main_switch, breaker_category, power_mva FROM elements WHERE id=?",
+        "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, hemizygos, is_main_switch, breaker_category, power_mva FROM elements WHERE id=?",
         (element_id,),
     )
     element = c.fetchone()
@@ -1590,6 +1610,7 @@ def show_edit_element_popup(
         manuf_year,
         model_id,
         gate,
+        hemizygos,
         is_main_switch,
         breaker_category,
         power_mva,
@@ -1746,6 +1767,21 @@ def show_edit_element_popup(
     )
     layout.add_widget(gate_spinner)
 
+    layout.add_widget(Label(text="Ημιζυγός:", size_hint_y=None, height=30))
+    hemizygos_values = app.get_available_hemizygos_options()
+    current_hemizygos_text = (
+        hemizygos if hemizygos else S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+    )
+    if current_hemizygos_text not in hemizygos_values:
+        hemizygos_values.append(current_hemizygos_text)
+    hemizygos_spinner = Spinner(
+        text=current_hemizygos_text,
+        values=hemizygos_values,
+        size_hint_y=None,
+        height=40,
+    )
+    layout.add_widget(hemizygos_spinner)
+
     # Breaker type selection
     breaker_type_label = Label(
         text=S["MESSAGES"].get("BREAKER_TYPE_LABEL", "Τύπος Διακόπτη:"),
@@ -1799,6 +1835,8 @@ def show_edit_element_popup(
     # Dynamic fields
     field_inputs = {}
     for field in app.ELEMENT_FIELD_DEFS:
+        if field["key"] == "model":
+            continue
         layout.add_widget(Label(text=f"{field['label']}:", size_hint_y=None, height=30))
 
         current_value = ""
@@ -1812,8 +1850,6 @@ def show_edit_element_popup(
             current_value = maint_date or ""
         elif field["key"] == "manufacturer":
             current_value = manufacturer or ""
-        elif field["key"] == "model":
-            current_value = model or ""
         elif field["key"] == "model_version":
             current_value = model_version or ""
         elif field["key"] == "installation_space":
@@ -1888,6 +1924,12 @@ def show_edit_element_popup(
                 != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
                 else ""
             )
+            hemizygos_value = (
+                hemizygos_spinner.text
+                if hemizygos_spinner.text
+                != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+                else ""
+            )
 
             matching_rows = _get_matching_element_rows(
                 app.conn,
@@ -1926,19 +1968,9 @@ def show_edit_element_popup(
                 # the latest maintenance linked to it (merge may have moved records).
                 try:
                     cur = app.conn.cursor()
-                    cur.execute(
-                        """
-                        SELECT m.date_time
-                        FROM maintenance m
-                        JOIN maintenance_elements me ON me.maintenance_id = m.id
-                        WHERE me.element_id = ?
-                        ORDER BY m.date_time DESC
-                        LIMIT 1
-                        """,
-                        (canonical_element_id,),
+                    new_date = _get_latest_recurring_maintenance_date(
+                        cur, canonical_element_id
                     )
-                    row = cur.fetchone()
-                    new_date = row[0] if row else None
                     cur.execute(
                         "UPDATE elements SET maintenance_date=? WHERE id=?",
                         (new_date, canonical_element_id),
@@ -1947,10 +1979,12 @@ def show_edit_element_popup(
                     # Best-effort refresh; don't break the save flow on failure
                     pass
 
-            new_model_id = (
-                models_data[model_spinner.text]["id"]
-                if model_spinner.text in models_data
-                else None
+            selected_model = models_data.get(model_spinner.text)
+            new_model_id = selected_model["id"] if selected_model else None
+            stored_model_name = (
+                (selected_model.get("model_name") or "")
+                if selected_model
+                else (model or "")
             )
 
             # gate_value already computed above for the duplicate check
@@ -2042,7 +2076,7 @@ def show_edit_element_popup(
                     """UPDATE elements SET 
                                     name=?, serial_number=?, maintenance_date=?, voltage_level=?, manufacturer=?, model=?, model_version=?,
                                     installation_space=?, operating_status=?, 
-                                    maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, is_main_switch=?, breaker_category=?, power_mva=?
+                                    maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, hemizygos=?, is_main_switch=?, breaker_category=?, power_mva=?
                                     WHERE id=?""",
                     (
                         name_val,
@@ -2050,7 +2084,7 @@ def show_edit_element_popup(
                         field_inputs["maintenance_date"].text.strip(),
                         voltage_level_value,
                         field_inputs["manufacturer"].text.strip(),
-                        field_inputs["model"].text.strip(),
+                        stored_model_name,
                         field_inputs["model_version"].text.strip(),
                         field_inputs["installation_space"].text,
                         field_inputs["operating_status"].text,
@@ -2058,6 +2092,7 @@ def show_edit_element_popup(
                         field_inputs["manufacture_year"].text.strip(),
                         new_model_id,
                         gate_value,
+                        hemizygos_value,
                         new_is_main_switch,
                         breaker_category_value,
                         power_val_to_set,
@@ -2081,7 +2116,7 @@ def show_edit_element_popup(
                 "maintenance_date": field_inputs["maintenance_date"].text.strip(),
                 "voltage_level": voltage_level_value,
                 "manufacturer": field_inputs["manufacturer"].text.strip(),
-                "model": field_inputs["model"].text.strip(),
+                "model": stored_model_name,
                 "model_version": field_inputs["model_version"].text.strip(),
                 "installation_space": field_inputs["installation_space"].text,
                 "operating_status": field_inputs["operating_status"].text,
@@ -2089,6 +2124,7 @@ def show_edit_element_popup(
                 "manufacture_year": field_inputs["manufacture_year"].text.strip(),
                 "element_model_id": new_model_id,
                 "gate": gate_value,
+                "hemizygos": hemizygos_value,
                 "is_main_switch": new_is_main_switch,
                 "breaker_category": breaker_category_value,
                 "power_mva": power_val_to_set,
@@ -2250,6 +2286,16 @@ def show_add_element_popup_for_substation(
         height=40,
     )
     input_layout.add_widget(gate_spinner)
+
+    input_layout.add_widget(Label(text="Ημιζυγός:", size_hint_y=None, height=30))
+    hemizygos_values = app.get_available_hemizygos_options()
+    hemizygos_spinner = Spinner(
+        text=hemizygos_values[0],
+        values=hemizygos_values,
+        size_hint_y=None,
+        height=40,
+    )
+    input_layout.add_widget(hemizygos_spinner)
 
     input_layout.add_widget(
         Label(
@@ -2491,8 +2537,6 @@ def show_add_element_popup_for_substation(
                 field_inputs["maintenance_cycle"].text = str(model["maintenance_cycle"])
             if "installation_space" in field_inputs:
                 field_inputs["installation_space"].text = model["installation_space"]
-            if "model" in field_inputs:
-                field_inputs["model"].text = model["model_name"]
 
     model_spinner.bind(text=on_model_selected)
 
@@ -2508,6 +2552,8 @@ def show_add_element_popup_for_substation(
 
     field_inputs = {}
     for field in app.ELEMENT_FIELD_DEFS:
+        if field["key"] == "model":
+            continue
         input_layout.add_widget(
             Label(text=f"{field['label']}:", size_hint_y=None, height=30)
         )
@@ -2591,6 +2637,12 @@ def show_add_element_popup_for_substation(
             != S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
             else ""
         )
+        hemizygos_value = (
+            hemizygos_spinner.text
+            if hemizygos_spinner.text
+            != S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+            else ""
+        )
 
         breaker_category_value = None
         if element_type in app.BREAKER_ELEMENT_TYPES:
@@ -2627,11 +2679,12 @@ def show_add_element_popup_for_substation(
             add_state["busy"] = False
             return
 
-        model_id = (
-            models_data[model_spinner.text]["id"]
-            if model_spinner.text in models_data
-            else None
-        )
+        model_id = None
+        stored_model_name = ""
+        if model_spinner.text in models_data:
+            selected_model = models_data[model_spinner.text]
+            model_id = selected_model["id"]
+            stored_model_name = selected_model.get("model_name") or ""
 
         voltage_level_value = (
             voltage_level_spinner.text
@@ -2642,7 +2695,7 @@ def show_add_element_popup_for_substation(
 
         try:
             c.execute(
-                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     selected_substation_id,
                     element_type,
@@ -2651,7 +2704,7 @@ def show_add_element_popup_for_substation(
                     values.get("maintenance_date", ""),
                     voltage_level_value,
                     values.get("manufacturer", ""),
-                    values.get("model", ""),
+                    stored_model_name,
                     values.get("model_version", ""),
                     values.get("installation_space", "Εσωτερικός"),
                     values.get("operating_status", "Ενεργή"),
@@ -2659,6 +2712,7 @@ def show_add_element_popup_for_substation(
                     model_id,
                     values.get("manufacture_year", ""),
                     gate_value,
+                    hemizygos_value,
                     is_main_switch,
                     breaker_category_value,
                     (
@@ -2688,7 +2742,7 @@ def show_add_element_popup_for_substation(
             "maintenance_date": values.get("maintenance_date", ""),
             "voltage_level": voltage_level_value,
             "manufacturer": values.get("manufacturer", ""),
-            "model": values.get("model", ""),
+            "model": stored_model_name,
             "model_version": values.get("model_version", ""),
             "installation_space": values.get("installation_space", "Εσωτερικός"),
             "operating_status": values.get("operating_status", "Ενεργή"),
@@ -2696,6 +2750,7 @@ def show_add_element_popup_for_substation(
             "element_model_id": model_id,
             "manufacture_year": values.get("manufacture_year", ""),
             "gate": gate_value,
+            "hemizygos": hemizygos_value,
             "is_main_switch": is_main_switch,
             "breaker_category": breaker_category_value,
             "power_mva": (

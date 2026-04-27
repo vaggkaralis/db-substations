@@ -25,6 +25,10 @@ except Exception:
     S = {"MESSAGES": {}}
 
 
+def _default_maintenance_type():
+    return S.get("MESSAGES", {}).get("MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση")
+
+
 _FAULT_SUBJECT_STEMS = (
     "βλαβ",  # βλάβη / βλαβη / βλαβών
     "επισκευ",  # επισκευή / επισκευη / επισκευές
@@ -907,7 +911,9 @@ def create_maintenance_from_email(
         if "maintenance_type" in maint_cols:
             fields.append("maintenance_type")
             values.append(
-                infer_maintenance_type_from_subject(subject, default_type="Email")
+                infer_maintenance_type_from_subject(
+                    subject, default_type=_default_maintenance_type()
+                )
             )
 
         if "user_name" in maint_cols:
@@ -931,7 +937,7 @@ def create_maintenance_from_email(
             mtype = None
             if "maintenance_type" in maint_cols:
                 mtype = infer_maintenance_type_from_subject(
-                    subject, default_type="Email"
+                    subject, default_type=_default_maintenance_type()
                 )
             uname = sender_name or sender_email
             if mtype is not None:
@@ -1045,7 +1051,11 @@ def create_maintenance_from_email(
         maintenance_type = (
             type_row[0]
             if type_row and isinstance(type_row, (tuple, list))
-            else (type_row["maintenance_type"] if type_row else "Email")
+            else (
+                type_row["maintenance_type"]
+                if type_row
+                else _default_maintenance_type()
+            )
         )
 
         folder_result = ensure_maintenance_folders(
@@ -1053,7 +1063,7 @@ def create_maintenance_from_email(
             maintenance_id=maintenance_id,
             substation_id=substation["id"],
             maintenance_name=maintenance_name,
-            maintenance_type=maintenance_type or "Email",
+            maintenance_type=maintenance_type or _default_maintenance_type(),
             date_time=date_time_value,
             element_ids=element_ids,
             attachment_paths=attachment_paths or [],

@@ -56,11 +56,26 @@ def test_get_available_gates_inter_true_false():
     assert all("-" in g for g in inter if g != "(Μη καταχωρημένο)")
 
 
+def test_get_available_hemizygos_options():
+    options = SubstationApp.get_available_hemizygos_options()
+    assert options[0] == S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
+    assert "Ημιζυγός 1" in options
+    assert "Ημιζυγός 2" in options
+
+
 def test_sort_gate_labels_for_display_requested_order():
     ordered = SubstationApp.sort_gate_labels_for_display(
         ["ΠΥΛΗ 2-3", "ΠΥΛΗ 2", "ΠΥΛΗ 1-2", "ΠΥΛΗ 3", "ΠΥΛΗ 1", "ΠΥΛΗ 1-3"]
     )
     assert ordered == ["ΠΥΛΗ 1-3", "ΠΥΛΗ 1", "ΠΥΛΗ 1-2", "ΠΥΛΗ 2", "ΠΥΛΗ 2-3", "ΠΥΛΗ 3"]
+
+
+def test_init_db_adds_hemizygos_column():
+    conn = init_db(":memory:")
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(elements)")
+    columns = [row[1] for row in cursor.fetchall()]
+    assert "hemizygos" in columns
 
 
 def test_breaker_category_and_format_helpers():

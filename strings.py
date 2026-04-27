@@ -363,7 +363,6 @@ STRINGS_EL = {
         "MAINTENANCE_TYPES": [
             "Επαναληπτική συντήρηση",
             "Βλάβη",
-            "Φυσικοχημικές/Αεριοχρωματογραφία",
         ],
         "MAINTENANCE_TYPE_LABEL": "Τύπος:",
         "MAINTENANCE_UPDATED": "Η συντήρηση ενημερώθηκε!",
@@ -1032,7 +1031,6 @@ STRINGS_EN = {
         "MAINTENANCE_TYPES": [
             "Recurring maintenance",
             "Fault",
-            "Physicochemical/Gas Chromatography",
         ],
         "MAINT_TYPE_DEFAULT": "Recurring maintenance",
         "RESPONSIBLE_LABEL": "Maintenance Responsible (required):",

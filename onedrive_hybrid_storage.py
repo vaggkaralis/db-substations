@@ -3,12 +3,12 @@ import os
 import re
 import shutil
 import hashlib
-import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
 from config_manager import get_app_setting
+from maintenance_type_utils import is_dga_maintenance_type, is_fault_maintenance_type
 from strings_proxy import STRINGS as S
 
 _MEDIA_EXTENSIONS = {
@@ -73,38 +73,13 @@ def _join_parts(parts: tuple[str, ...] | list[str] | str) -> str:
 
 
 def _maintenance_root_relative_path(maintenance_type: str | None) -> str:
-    text = (maintenance_type or "").strip().lower()
-    if any(
-        token in text
-        for token in ("φυσικοχημ", "αεριο", "physicochemical", "gas chromat")
-    ):
+    if is_dga_maintenance_type(maintenance_type):
         return _DIR_DGA
     return ""
 
 
 def _instance_prefix_for_maintenance_type(maintenance_type: str | None) -> str:
-    text = (maintenance_type or "").strip().lower()
-    text = "".join(
-        ch
-        for ch in unicodedata.normalize("NFKD", text)
-        if not unicodedata.combining(ch)
-    )
-    if any(
-        token in text
-        for token in (
-            "βλαβ",
-            "επισκευ",
-            "αποκαταστ",
-            "δυσλειτουργ",
-            "βραχυκυκλ",
-            "αστοχι",
-            "fault",
-            "failure",
-            "repair",
-            "restore",
-            "outage",
-        )
-    ):
+    if is_fault_maintenance_type(maintenance_type):
         return _FAULT_INSTANCE_PREFIX
     return _MAINTENANCE_INSTANCE_PREFIX
 
