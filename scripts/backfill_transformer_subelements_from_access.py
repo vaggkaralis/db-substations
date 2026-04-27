@@ -710,7 +710,6 @@ def main(argv=None):
     access_transformers = load_access_transformers(access_cursor, access_models_by_id)
 
     sqlite_transformers = load_sqlite_transformers(sqlite_conn)
-    sqlite_by_id = {item["element_id"]: item for item in sqlite_transformers}
     matched_sqlite_ids = set()
     touched_substations = set()
 

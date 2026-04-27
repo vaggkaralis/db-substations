@@ -9,6 +9,7 @@ import os as _env
 
 _env.environ.setdefault("KIVY_NO_CONSOLELOG", "0")
 _env.environ.setdefault("KIVY_LOG_LEVEL", "info")
+_env.environ.setdefault("KCFG_INPUT_MOUSE", "mouse,disable_multitouch")
 
 import json
 import logging
@@ -7865,38 +7866,36 @@ class SubstationApp(App):
                             elem_layout.add_widget(elem_label)
                             # Note: separator will be added to the parent `grid` after the element row
 
-                            # Button container (icon-only buttons: manual, history, view, edit, delete)
-                            btn_box = BoxLayout(size_hint_x=0.25, spacing=6)
+                            is_transformer = self._is_transformer(elem_type)
+                            button_slots = 4 + (1 if is_transformer else 0)
+                            if manual_pdf and os.path.exists(manual_pdf):
+                                button_slots += 1
+                            slot_size = 1.0 / float(button_slots)
+
+                            # Button container (icon-only buttons: manual, history, view, subelements, edit, delete)
+                            btn_box = BoxLayout(
+                                size_hint_x=(0.3 if is_transformer else 0.25),
+                                spacing=6,
+                            )
 
                             # Add manual button if manual_pdf exists
                             if manual_pdf and os.path.exists(manual_pdf):
                                 manual_btn = IconOnlyButton(
                                     icon_type="book", icon_color=(0.8, 0.4, 0, 1)
                                 )
-                                manual_btn.size_hint_x = 0.2
+                                manual_btn.size_hint_x = slot_size
                                 manual_btn.bind(
                                     on_press=lambda x, mp=manual_pdf: (
                                         self._open_model_manual(mp)
                                     )
                                 )
                                 btn_box.add_widget(manual_btn)
-                                # Adjust button sizes when manual exists (5 buttons)
-                                history_size = 0.2
-                                view_size = 0.2
-                                edit_size = 0.2
-                                delete_size = 0.2
-                            else:
-                                # Adjust button sizes when no manual (4 buttons)
-                                history_size = 0.25
-                                view_size = 0.25
-                                edit_size = 0.25
-                                delete_size = 0.25
 
                             # Add maintenance history button
                             history_btn = IconOnlyButton(
                                 icon_type="maintenance", icon_color=(0.4, 0.6, 0.8, 1)
                             )
-                            history_btn.size_hint_x = history_size
+                            history_btn.size_hint_x = slot_size
 
                             # Check if element has maintenance history
                             elem_maint_count = element_maintenance_counts.get(
@@ -7922,7 +7921,7 @@ class SubstationApp(App):
                                     "text", (0.12, 0.12, 0.12, 1)
                                 ),
                             )
-                            view_btn.size_hint_x = view_size
+                            view_btn.size_hint_x = slot_size
                             view_btn.bind(
                                 on_press=lambda x, eid=elem_id: (
                                     self._show_element_quick_view(eid)
@@ -7930,9 +7929,17 @@ class SubstationApp(App):
                             )
                             btn_box.add_widget(view_btn)
 
-                            if self._is_transformer(elem_type):
-                                subelements_btn = Button(text="Υποστ.")
-                                subelements_btn.size_hint_x = 0.34
+                            if is_transformer:
+                                subelements_btn = IconOnlyButton(
+                                    icon_type="subelements",
+                                    icon_color=self.theme.get(
+                                        "primary", (0.2, 0.6, 1, 1)
+                                    ),
+                                    tooltip=S["MESSAGES"].get(
+                                        "TOOLTIP_SUBELEMENTS", "Υποστοιχεία"
+                                    ),
+                                )
+                                subelements_btn.size_hint_x = slot_size
                                 subelements_btn.bind(
                                     on_press=lambda x, eid=elem_id, ename=elem_name, sid=sub_id, sname=sub_name, p=popup: (
                                         self.show_manage_subelements_popup(
@@ -7950,7 +7957,7 @@ class SubstationApp(App):
                                 icon_type="edit",
                                 icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
                             )
-                            edit_elem_btn.size_hint_x = edit_size
+                            edit_elem_btn.size_hint_x = slot_size
                             edit_elem_btn.bind(
                                 on_press=lambda x, eid=elem_id, sid=sub_id, sname=sub_name, p=popup: (
                                     self.show_edit_element_popup(eid, sid, p, sname)
@@ -7961,7 +7968,7 @@ class SubstationApp(App):
                             delete_elem_btn = IconOnlyButton(
                                 icon_type="delete", icon_color=(1, 0.0, 0.0, 1)
                             )
-                            delete_elem_btn.size_hint_x = delete_size
+                            delete_elem_btn.size_hint_x = slot_size
                             delete_elem_btn.bind(
                                 on_press=lambda x, eid=elem_id, ename=elem_name, sid=sub_id, sname=sub_name, p=popup: (
                                     self.confirm_delete_element(
@@ -10643,23 +10650,33 @@ class SubstationApp(App):
             manual_btn.bind(on_press=lambda x: self._open_model_manual(manual_pdf))
             left_buttons.add_widget(manual_btn)
 
+        substation_name = ""
+        if is_transformer:
+            try:
+                substation_row = (
+                    self.conn.cursor()
+                    .execute(
+                        "SELECT name FROM substations WHERE id=?", (substation_id,)
+                    )
+                    .fetchone()
+                )
+                substation_name = substation_row[0] if substation_row else ""
+            except Exception:
+                substation_name = ""
+
         # Add DGA button for transformers
         if is_transformer:
-            subelements_btn = Button(text="Υποστοιχεία")
+            subelements_btn = IconOnlyButton(
+                icon_type="subelements",
+                icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
+                tooltip=S["MESSAGES"].get("TOOLTIP_SUBELEMENTS", "Υποστοιχεία"),
+            )
             subelements_btn.bind(
                 on_press=lambda x: self.show_manage_subelements_popup(
                     element_id,
                     name,
                     substation_id,
-                    sub_name
-                    if (
-                        sub_name := self.conn.cursor()
-                        .execute(
-                            "SELECT name FROM substations WHERE id=?", (substation_id,)
-                        )
-                        .fetchone()[0]
-                    )
-                    else "",
+                    substation_name,
                     popup,
                 )
             )

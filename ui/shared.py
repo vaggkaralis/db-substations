@@ -470,6 +470,65 @@ class IconWidget(Widget):
                     ],
                     width=max(1.0, line_w),
                 )
+            elif self.icon_type == "subelements":
+                parent_x = x + w * 0.18
+                parent_y = y + h * 0.56
+                parent_w = w * 0.26
+                parent_h = h * 0.22
+                child_w = w * 0.2
+                child_h = h * 0.18
+                left_child_x = x + w * 0.14
+                right_child_x = x + w * 0.66
+                child_y = y + h * 0.18
+
+                Line(
+                    rectangle=(parent_x, parent_y, parent_w, parent_h),
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    rectangle=(left_child_x, child_y, child_w, child_h),
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    rectangle=(right_child_x, child_y, child_w, child_h),
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    points=[
+                        parent_x + parent_w * 0.5,
+                        parent_y,
+                        parent_x + parent_w * 0.5,
+                        y + h * 0.42,
+                    ],
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    points=[
+                        left_child_x + child_w * 0.5,
+                        y + h * 0.42,
+                        right_child_x + child_w * 0.5,
+                        y + h * 0.42,
+                    ],
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    points=[
+                        left_child_x + child_w * 0.5,
+                        y + h * 0.42,
+                        left_child_x + child_w * 0.5,
+                        child_y + child_h,
+                    ],
+                    width=max(1.0, line_w),
+                )
+                Line(
+                    points=[
+                        right_child_x + child_w * 0.5,
+                        y + h * 0.42,
+                        right_child_x + child_w * 0.5,
+                        child_y + child_h,
+                    ],
+                    width=max(1.0, line_w),
+                )
 
 
 def autosize_button_text(
@@ -777,6 +836,8 @@ class StatusButton(ButtonBehavior, BoxLayout):
 class IconOnlyButton(ButtonBehavior, BoxLayout):
     """Compact icon-only button using vector IconWidget or an image source."""
 
+    _active_tooltip_owner = None
+
     icon_type = StringProperty("database")
     source = StringProperty(None)
     icon_color = ListProperty([0.2, 0.6, 1, 1])
@@ -824,6 +885,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         self.bind(icon_type=self._update_icon_type)
         self.bind(source=self._on_source)
         self.bind(icon_color=self._update_icon_color)
+        self.bind(parent=self._on_parent_change)
+        self.bind(disabled=self._on_disabled_change)
         # tooltip support: default Greek labels for common icons
         default_tooltips = {
             "edit": S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"),
@@ -836,6 +899,7 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 "TOOLTIP_FOLDER", "Άνοιγμα Φακέλου Εικόνων/Video"
             ),
             "email": S["MESSAGES"].get("TOOLTIP_EMAIL", "Αποστολή Email"),
+            "subelements": S["MESSAGES"].get("TOOLTIP_SUBELEMENTS", "Υποστοιχεία"),
         }
         if tooltip_text:
             self.tooltip = tooltip_text
@@ -880,12 +944,50 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         if isinstance(self.icon, IconWidget):
             self.icon.icon_color = self.icon_color
 
+    def _hide_tooltip(self):
+        if self._tooltip_widget:
+            try:
+                parent = getattr(self._tooltip_widget, "parent", None)
+                if parent is not None:
+                    try:
+                        parent.remove_widget(self._tooltip_widget)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        Window.remove_widget(self._tooltip_widget)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            self._tooltip_widget = None
+
+        if type(self)._active_tooltip_owner is self:
+            type(self)._active_tooltip_owner = None
+
+    def _on_parent_change(self, _instance, parent):
+        if parent is None:
+            self._hide_tooltip()
+
+    def _on_disabled_change(self, _instance, disabled):
+        if disabled:
+            self._hide_tooltip()
+
+    def on_touch_down(self, touch):
+        self._hide_tooltip()
+        parent_handler = getattr(super(), "on_touch_down", None)
+        if callable(parent_handler):
+            return parent_handler(touch)
+        return False
+
     def _on_mouse_pos(self, _window, pos):
         # show tooltip near mouse when hovering over this widget
         try:
             if not self.get_root_window():
+                self._hide_tooltip()
                 return
         except Exception:
+            self._hide_tooltip()
             return
 
         # convert window coords to local widget coords for collide test
@@ -894,8 +996,15 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         except Exception:
             local = pos
 
-        inside = self.collide_point(*local)
+        inside = self.collide_point(*local) and not getattr(self, "disabled", False)
         if inside and self.tooltip:
+            active_owner = type(self)._active_tooltip_owner
+            if active_owner is not None and active_owner is not self:
+                try:
+                    active_owner._hide_tooltip()
+                except Exception:
+                    pass
+
             win_w, win_h = Window.size
 
             def _calc_tooltip_pos(mx, my, tw, th):
@@ -984,28 +1093,13 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                         return
 
                 self._tooltip_widget = lbl
+                type(self)._active_tooltip_owner = self
             else:
                 # update position on mouse-move using same flip logic
                 lbl = self._tooltip_widget
                 w, h = lbl.size
                 x, y = _calc_tooltip_pos(pos[0], pos[1], w, h)
                 lbl.pos = (x, y)
+                type(self)._active_tooltip_owner = self
         else:
-            # hide/remove existing tooltip if present
-            if self._tooltip_widget:
-                try:
-                    # remove from whichever parent we added it to
-                    parent = getattr(self._tooltip_widget, "parent", None)
-                    if parent is not None:
-                        try:
-                            parent.remove_widget(self._tooltip_widget)
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            Window.remove_widget(self._tooltip_widget)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                self._tooltip_widget = None
+            self._hide_tooltip()
