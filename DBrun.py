@@ -13163,6 +13163,8 @@ class SubstationApp(App):
 
         def refresh_isolation_links(substation_name, preferred_request_id=None):
             nonlocal linked_isolation_request_id
+            from maintenance_email_importer import resolve_linked_isolation_request_id
+
             substation_id = substation_map.get(substation_name)
             isolation_options_by_label.clear()
             isolation_options_by_label["Χωρίς Απομόνωση"] = None
@@ -13185,22 +13187,14 @@ class SubstationApp(App):
                     values.append(label)
 
             isolation_spinner.values = values
-            # Determine the target isolation id to select. Priority:
-            # 1) preferred_request_id (explicit caller preference)
-            # 2) linked_isolation_request_id (existing value)
-            # 3) most recent isolation for the substation (if any)
-            if preferred_request_id is not None:
-                target_id = preferred_request_id
-            elif linked_isolation_request_id is not None:
-                target_id = linked_isolation_request_id
-            else:
-                # Pick the most recent non-null request id from the values list
-                target_id = None
-                for lbl in values[1:]:
-                    rid = isolation_options_by_label.get(lbl)
-                    if rid is not None:
-                        target_id = rid
-                        break
+            target_id = resolve_linked_isolation_request_id(
+                self.conn,
+                substation_id,
+                date_time_value=_get_maintenance_datetime_value(),
+                preferred_request_id=preferred_request_id,
+                linked_request_id=linked_isolation_request_id,
+                auto_select_by_date=not bool(maintenance_id),
+            )
             selected_label = "Χωρίς Απομόνωση"
             for label, req_id in isolation_options_by_label.items():
                 if req_id == target_id:
@@ -13712,6 +13706,19 @@ class SubstationApp(App):
             height=35,
             multiline=False,
         )
+
+        def _get_maintenance_datetime_value():
+            try:
+                return (datetime_input.text or "").strip()
+            except Exception:
+                return ""
+
+        def _refresh_isolation_link_for_datetime_change(_inst, _value):
+            if maintenance_id or linked_isolation_request_id is not None:
+                return
+            refresh_isolation_links(substation_input.text)
+
+        datetime_input.bind(text=_refresh_isolation_link_for_datetime_change)
         content_layout.add_widget(datetime_input)
         _register_wizard_widget(2, datetime_input)
 
@@ -14238,7 +14245,7 @@ class SubstationApp(App):
         _register_wizard_widget(2, onedrive_media_link)
 
         staged_attachment_paths = list(prefill_attachment_paths)
-        session_attachment_added = {"value": False}
+        session_attachment_added = {"value": bool(staged_attachment_paths)}
 
         attachments_label = Label(
             text="Αρχεία συντήρησης για αντιγραφή:", size_hint_y=None, height=35

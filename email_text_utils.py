@@ -84,9 +84,9 @@ def tokens_match(left_tokens, right_tokens):
         if left == right:
             continue
         common_len = min(len(left), len(right))
-        # Allow prefix matching for short words (>=3 chars common length)
-        # or longer words (>=4 chars common length)
-        if common_len >= 3 and (left.startswith(right) or right.startswith(left)):
+        # Prefix matching on only three characters caused false positives such as
+        # the body token "στα" matching the substation "ΣΤΑΓΕΙΡΑ".
+        if common_len >= 4 and (left.startswith(right) or right.startswith(left)):
             continue
         if common_len >= 4 and left[:-1] == right[:-1]:
             continue

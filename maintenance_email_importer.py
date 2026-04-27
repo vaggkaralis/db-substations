@@ -397,6 +397,252 @@ def _match_substation_in_text(conn, text: str):
     return None
 
 
+def _parse_datetime_value(value: str | None):
+    if not value:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+
+    return None
+
+
+def find_matching_isolation_request_id(conn, substation_id: int, date_time_value: str):
+    maintenance_dt = _parse_datetime_value(date_time_value)
+    if not substation_id or maintenance_dt is None:
+        return None
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, start_datetime, end_datetime, status
+        FROM isolation_requests
+        WHERE substation_id = ?
+        ORDER BY start_datetime DESC
+        """,
+        (substation_id,),
+    )
+
+    exact_overlap = []
+    date_overlap = []
+    for row in cur.fetchall() or []:
+        req_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
+        start_dt = row[1] if isinstance(row, (tuple, list)) else row["start_datetime"]
+        end_dt = row[2] if isinstance(row, (tuple, list)) else row["end_datetime"]
+        status = row[3] if isinstance(row, (tuple, list)) else row["status"]
+
+        start_parsed = _parse_datetime_value(start_dt)
+        end_parsed = _parse_datetime_value(end_dt)
+        if not start_parsed or not end_parsed:
+            continue
+
+        status_rank = 1 if str(status or "").strip().lower() == "accepted" else 0
+        if start_parsed <= maintenance_dt <= end_parsed:
+            exact_overlap.append((status_rank, start_parsed, req_id))
+            continue
+
+        if start_parsed.date() <= maintenance_dt.date() <= end_parsed.date():
+            date_overlap.append((status_rank, start_parsed, req_id))
+
+    if exact_overlap:
+        exact_overlap.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return exact_overlap[0][2]
+
+    if date_overlap:
+        date_overlap.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return date_overlap[0][2]
+
+    return None
+
+
+def resolve_linked_isolation_request_id(
+    conn,
+    substation_id: int,
+    *,
+    date_time_value: str | None = None,
+    preferred_request_id=None,
+    linked_request_id=None,
+    auto_select_by_date: bool = False,
+):
+    if preferred_request_id is not None:
+        return preferred_request_id
+
+    if linked_request_id is not None:
+        return linked_request_id
+
+    if auto_select_by_date and substation_id and date_time_value:
+        return find_matching_isolation_request_id(conn, substation_id, date_time_value)
+
+    return None
+
+
+def _largest_gate_cluster(conn, element_ids):
+    ids = [int(x) for x in (element_ids or []) if x is not None]
+    if not ids:
+        return 0
+
+    placeholders = ",".join(["?"] * len(ids))
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT gate, COUNT(*) FROM elements WHERE id IN ({placeholders}) GROUP BY gate",
+        ids,
+    )
+    counts = [
+        row[1] if isinstance(row, (tuple, list)) else row[1] for row in cur.fetchall()
+    ]
+    return max(counts) if counts else 0
+
+
+def _unique_element_name_count(conn, element_ids):
+    ids = [int(x) for x in (element_ids or []) if x is not None]
+    if not ids:
+        return 0
+
+    placeholders = ",".join(["?"] * len(ids))
+    cur = conn.cursor()
+    cur.execute(f"SELECT name FROM elements WHERE id IN ({placeholders})", ids)
+    names = set()
+    for row in cur.fetchall() or []:
+        raw_name = row[0] if isinstance(row, (tuple, list)) else row["name"]
+        normalized_name = _normalize_text(raw_name or "").strip()
+        if normalized_name:
+            names.add(normalized_name)
+    return len(names)
+
+
+def _extract_explicit_breaker_refs(text: str):
+    normalized = _normalize_text(text or "")
+    refs = set()
+    for digits in re.findall(r"\bρ\s*[-/ ]?\s*([0-9]{1,4})\b", normalized):
+        refs.add(f"ρ{digits}")
+    return refs
+
+
+def _matched_breaker_ref_count(conn, element_ids, breaker_refs):
+    ids = [int(x) for x in (element_ids or []) if x is not None]
+    if not ids or not breaker_refs:
+        return 0
+
+    placeholders = ",".join(["?"] * len(ids))
+    cur = conn.cursor()
+    cur.execute(f"SELECT name FROM elements WHERE id IN ({placeholders})", ids)
+    matched_refs = set()
+    for row in cur.fetchall() or []:
+        raw_name = row[0] if isinstance(row, (tuple, list)) else row["name"]
+        normalized_name = _normalize_text(raw_name or "")
+        for digits in re.findall(r"\bρ\s*[-/ ]?\s*([0-9]{1,4})\b", normalized_name):
+            candidate = f"ρ{digits}"
+            if candidate in breaker_refs:
+                matched_refs.add(candidate)
+    return len(matched_refs)
+
+
+def infer_substation_from_email(
+    conn,
+    *,
+    subject: str,
+    body: str,
+    date_time_value: str | None = None,
+    received_at: str | None = None,
+):
+    subject_substation, subject_date = _parse_subject_for_substation_and_date(subject)
+
+    if subject_substation:
+        substation = _match_substation_by_name(conn, subject_substation)
+        if substation:
+            return substation
+
+    substation = _match_substation_in_text(conn, subject)
+    if substation:
+        return substation
+
+    substation = _match_substation_in_text(conn, body)
+    if substation:
+        return substation
+
+    resolved_date_time = date_time_value
+    if not resolved_date_time and subject_date:
+        resolved_date_time = f"{subject_date} 00:00:00"
+    if not resolved_date_time and received_at:
+        parsed_received = _parse_datetime_value(received_at)
+        if parsed_received is not None:
+            resolved_date_time = parsed_received.strftime("%Y-%m-%d %H:%M:%S")
+
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM substations")
+    explicit_breaker_refs = _extract_explicit_breaker_refs(body)
+    scored = []
+    for row in cur.fetchall() or []:
+        row_dict = _row_to_dict(row, cur.description)
+        if not row_dict:
+            continue
+        sub_id = row_dict.get("id")
+        element_ids = _find_elements_in_body(conn, body, sub_id)
+        if not element_ids:
+            continue
+
+        isolation_request_id = find_matching_isolation_request_id(
+            conn, sub_id, resolved_date_time
+        )
+        breaker_ref_count = _matched_breaker_ref_count(
+            conn, element_ids, explicit_breaker_refs
+        )
+        unique_name_count = _unique_element_name_count(conn, element_ids)
+        gate_cluster = _largest_gate_cluster(conn, element_ids)
+        scored.append(
+            {
+                "row": row_dict,
+                "breaker_ref_count": breaker_ref_count,
+                "element_count": unique_name_count,
+                "raw_match_count": len(element_ids),
+                "gate_cluster": gate_cluster,
+                "isolation_match": 1 if isolation_request_id is not None else 0,
+            }
+        )
+
+    if not scored:
+        return None
+
+    scored.sort(
+        key=lambda item: (
+            item["breaker_ref_count"],
+            item["element_count"],
+            item["isolation_match"],
+            item["gate_cluster"],
+            item["raw_match_count"],
+        ),
+        reverse=True,
+    )
+    top = scored[0]
+    if top["element_count"] < 3:
+        return None
+
+    if len(scored) > 1:
+        second = scored[1]
+        if (
+            top["breaker_ref_count"] == second["breaker_ref_count"]
+            and top["element_count"] == second["element_count"]
+            and top["isolation_match"] == second["isolation_match"]
+            and top["gate_cluster"] == second["gate_cluster"]
+            and top["raw_match_count"] == second["raw_match_count"]
+        ):
+            return None
+
+    return top["row"]
+
+
 def _match_person_by_sender(conn, sender_email: str, sender_name: str):
     c = conn.cursor()
     c.execute("SELECT id, name, email FROM people WHERE active=1")
@@ -864,23 +1110,6 @@ def create_maintenance_from_email(
             return False, "Missing subject"
 
         substation_name, date_str = _parse_subject_for_substation_and_date(subject)
-
-        substation = None
-        if substation_name:
-            substation = _match_substation_by_name(conn, substation_name)
-        if not substation:
-            substation = _match_substation_in_text(conn, subject)
-        # Only try body match if no subject match found, to prioritize explicit subject mentions
-        if not substation:
-            substation = _match_substation_in_text(conn, body)
-        if not substation:
-            return False, "Substation not found in subject or body"
-
-        sanitized_body = sanitize_email_body_for_import(body or "")
-
-        person = _match_person_by_sender(conn, sender_email, sender_name)
-        responsible_id = person["id"] if person else None
-
         date_time_value = None
         if date_str:
             date_time_value = f"{date_str} 00:00:00"
@@ -895,6 +1124,21 @@ def create_maintenance_from_email(
         if not date_time_value:
             date_time_value = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        sanitized_body = sanitize_email_body_for_import(body or "")
+
+        substation = infer_substation_from_email(
+            conn,
+            subject=subject,
+            body=sanitized_body or body or "",
+            date_time_value=date_time_value,
+            received_at=received_at,
+        )
+        if not substation:
+            return False, "Substation not found in subject/body or inferred elements"
+
+        person = _match_person_by_sender(conn, sender_email, sender_name)
+        responsible_id = person["id"] if person else None
+
         prev_defaults = {}
         if not responsible_id:
             prev_defaults = _get_previous_maintenance_defaults(
@@ -904,6 +1148,9 @@ def create_maintenance_from_email(
 
         maint_cols = _get_table_columns(conn, "maintenance")
         formatted_body = _format_email_body_for_readability(sanitized_body)
+        linked_isolation_request_id = find_matching_isolation_request_id(
+            conn, substation["id"], date_time_value
+        )
 
         fields = ["substation_id", "date_time", "overall_comments"]
         values = [substation["id"], date_time_value, formatted_body]
@@ -923,6 +1170,10 @@ def create_maintenance_from_email(
         if "responsible_id" in maint_cols and responsible_id:
             fields.append("responsible_id")
             values.append(responsible_id)
+
+        if "isolation_request_id" in maint_cols and linked_isolation_request_id:
+            fields.append("isolation_request_id")
+            values.append(linked_isolation_request_id)
 
         placeholders = ", ".join(["?"] * len(fields))
         insert_sql = (
@@ -963,6 +1214,11 @@ def create_maintenance_from_email(
 
         if existing_mid:
             maintenance_id = existing_mid
+            if "isolation_request_id" in maint_cols and linked_isolation_request_id:
+                c.execute(
+                    "UPDATE maintenance SET isolation_request_id=COALESCE(isolation_request_id, ?) WHERE id=?",
+                    (linked_isolation_request_id, maintenance_id),
+                )
         else:
             c.execute(insert_sql, values)
             maintenance_id = c.lastrowid

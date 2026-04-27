@@ -686,9 +686,15 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     attachment_paths = payload.get("attachment_paths", []) or []
 
     try:
-        from maintenance_email_importer import infer_maintenance_type_from_subject
+        from maintenance_email_importer import (
+            find_matching_isolation_request_id,
+            infer_maintenance_type_from_subject,
+            infer_substation_from_email,
+        )
     except Exception:
         infer_maintenance_type_from_subject = None
+        infer_substation_from_email = None
+        find_matching_isolation_request_id = None
 
     c = app.conn.cursor()
     c.execute("SELECT id, name FROM substations ORDER BY name")
@@ -699,12 +705,32 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["NO_SUBSTATIONS"])
         return
 
+    date_time_value = ""
+    if received_at:
+        try:
+            dt = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+            date_time_value = dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            date_time_value = ""
+    if not date_time_value:
+        date_time_value = datetime.now().strftime("%Y-%m-%d %H:%M")
+
     substation = None
     if forced_substation:
         for sub_id, sub_name in substations:
             if sub_name == forced_substation:
                 substation = (sub_id, sub_name)
                 break
+    if not substation and callable(infer_substation_from_email):
+        inferred = infer_substation_from_email(
+            app.conn,
+            subject=subject,
+            body=body,
+            date_time_value=date_time_value,
+            received_at=received_at,
+        )
+        if inferred:
+            substation = (inferred["id"], inferred["name"])
     if not substation:
         substation = app._find_substation_in_text(subject, substations)
     if not substation:
@@ -753,22 +779,18 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     element_ids = app._find_elements_in_body(body, substation_id)
     incomplete_elements = set(element_ids)
 
-    date_time_value = ""
-    if received_at:
-        try:
-            dt = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
-            date_time_value = dt.strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            date_time_value = ""
-    if not date_time_value:
-        date_time_value = datetime.now().strftime("%Y-%m-%d %H:%M")
-
     default_maintenance_type = S.get("MESSAGES", {}).get(
         "MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"
     )
     if callable(infer_maintenance_type_from_subject):
         default_maintenance_type = infer_maintenance_type_from_subject(
             subject, default_maintenance_type
+        )
+
+    linked_isolation_request_id = None
+    if callable(find_matching_isolation_request_id):
+        linked_isolation_request_id = find_matching_isolation_request_id(
+            app.conn, substation_id, date_time_value
         )
 
     prefill = {
@@ -782,6 +804,7 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         "element_ids": element_ids,
         "incomplete_elements": incomplete_elements,
         "attachment_paths": attachment_paths,
+        "linked_isolation_request_id": linked_isolation_request_id,
         "_diag_origin": "email_ui_prefill",
         "_diag_detected_responsible_id": responsible_id,
         "_diag_detected_crew_ids": sorted(crew_ids),
