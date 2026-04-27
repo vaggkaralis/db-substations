@@ -10470,7 +10470,7 @@ class SubstationApp(App):
 
         c = self.conn.cursor()
         c.execute(
-            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, em.power_mva AS model_power_mva, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
+            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, e.operations_count, em.power_mva AS model_power_mva, em.installation_space AS model_installation_space, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
             (element_id,),
         )
         row = c.fetchone()
@@ -10491,7 +10491,9 @@ class SubstationApp(App):
             installation_space,
             maintenance_date,
             substation_id,
+            operations_count,
             model_power_mva,
+            model_installation_space,
             manual_pdf,
         ) = row
 
@@ -10501,18 +10503,30 @@ class SubstationApp(App):
         effective_power = (
             model_power_mva if (model_power_mva is not None) else power_mva
         )
+        effective_installation_space = (
+            model_installation_space
+            if model_installation_space not in (None, "")
+            else installation_space
+        )
         power_display = f"{effective_power} MVA" if effective_power else "-"
         lines = [
             f"Όνομα: {name}",
             f"Τύπος: {elem_type}",
             f"S/N: {serial_number or '-'}",
             f"Κατασκευαστής: {manufacturer or '-'} ({manufacture_year or '-'})",
-            f"Χώρος: {installation_space or '-'}",
+            f"Χώρος: {effective_installation_space or '-'}",
             f"Ισχύς: {power_display}",
             S["MESSAGES"]
             .get("MAINT_LAST_LABEL", "Τελευταία Συντήρηση: {date}")
             .format(date=maintenance_date or "-"),
         ]
+        if elem_type in self.BREAKER_ELEMENT_TYPES:
+            lines.append(
+                (
+                    f"{S['MESSAGES'].get('OPERATIONS_COUNT_LABEL', 'Αριθμός Χειρισμών:')} "
+                    f"{operations_count if operations_count is not None else '-'}"
+                )
+            )
 
         layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
         for line in lines:
@@ -14985,6 +14999,7 @@ class SubstationApp(App):
                         measurements_toggle_row = None
                         measurements_toggle = None
                         measurements_fields_container = None
+                        always_visible_measurement_widgets = []
                         if has_measurement_form:
                             measurements_toggle_row = BoxLayout(
                                 size_hint_y=None, height=30, spacing=6
@@ -15029,23 +15044,16 @@ class SubstationApp(App):
                         # High-voltage oil-specific layout (only for ΥΤ & Ελαίου)
                         if is_hv_oil:
                             last_operations_count = meta.get("last_operations_count")
-                            # Category header
-                            details_container.add_widget(
-                                Label(
-                                    text="ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
-                            )
-
-                            # Ops count (reuse ops_count_input created above)
-                            ops_layout_custom, ops_count_input = (
-                                self._build_breaker_operations_count_row(
+                            ops_header, ops_layout_custom, ops_count_input = (
+                                self._build_breaker_operations_count_section(
                                     last_operations_count
                                 )
                             )
+                            details_container.add_widget(ops_header)
                             details_container.add_widget(ops_layout_custom)
+                            always_visible_measurement_widgets.extend(
+                                [ops_header, ops_layout_custom]
+                            )
 
                             # ΚΑΤΑΣΤΑΣΗ ΔΙΑΚΟΠΤΗ
                             details_container.add_widget(
@@ -15248,22 +15256,16 @@ class SubstationApp(App):
                         # High-voltage SF6-specific layout (only for ΥΤ & SF6)
                         elif is_hv_sf6:
                             last_operations_count = meta.get("last_operations_count")
-                            # Category header (Operations counter)
-                            details_container.add_widget(
-                                Label(
-                                    text="ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
-                            )
-
-                            ops_layout_sf6, ops_count_input = (
-                                self._build_breaker_operations_count_row(
+                            ops_header, ops_layout_sf6, ops_count_input = (
+                                self._build_breaker_operations_count_section(
                                     last_operations_count
                                 )
                             )
+                            details_container.add_widget(ops_header)
                             details_container.add_widget(ops_layout_sf6)
+                            always_visible_measurement_widgets.extend(
+                                [ops_header, ops_layout_sf6]
+                            )
 
                             # Status section
                             details_container.add_widget(
@@ -16026,12 +16028,16 @@ class SubstationApp(App):
                         elif is_breaker:
                             # Legacy breaker measurement UI (MV and other categories)
                             last_operations_count = meta.get("last_operations_count")
-                            ops_layout_legacy, ops_count_input = (
-                                self._build_breaker_operations_count_row(
+                            ops_header, ops_layout_legacy, ops_count_input = (
+                                self._build_breaker_operations_count_section(
                                     last_operations_count
                                 )
                             )
+                            details_container.add_widget(ops_header)
                             details_container.add_widget(ops_layout_legacy)
+                            always_visible_measurement_widgets.extend(
+                                [ops_header, ops_layout_legacy]
+                            )
                             details_container.add_widget(
                                 Label(
                                     text=S["MESSAGES"].get(
@@ -17143,11 +17149,11 @@ class SubstationApp(App):
                                 measurements_toggle_row,
                                 measurements_fields_container,
                             }
-                            measurement_widgets = [
-                                widget
-                                for widget in list(reversed(details_container.children))
-                                if widget not in fixed_widgets
-                            ]
+                            measurement_widgets = self._collect_measurement_widgets(
+                                details_container,
+                                fixed_widgets,
+                                always_visible_measurement_widgets,
+                            )
 
                             for widget in measurement_widgets:
                                 if widget.parent is details_container:
@@ -18717,6 +18723,33 @@ class SubstationApp(App):
         )
         row.add_widget(last_value_label)
         return row, ops_count_input
+
+    def _build_breaker_operations_count_section(self, last_operations_count=None):
+        header = Label(
+            text="ΜΕΤΡΗΤΗΣ ΧΕΙΡΙΣΜΩΝ",
+            size_hint_y=None,
+            height=25,
+            bold=True,
+        )
+        row, ops_count_input = self._build_breaker_operations_count_row(
+            last_operations_count
+        )
+        return header, row, ops_count_input
+
+    def _collect_measurement_widgets(
+        self,
+        details_container,
+        fixed_widgets,
+        always_visible_widgets=None,
+    ):
+        preserved_widgets = set(fixed_widgets)
+        if always_visible_widgets:
+            preserved_widgets.update(always_visible_widgets)
+        return [
+            widget
+            for widget in list(reversed(details_container.children))
+            if widget not in preserved_widgets
+        ]
 
     def _has_meaningful_measurement_value(self, value):
         if value is None:

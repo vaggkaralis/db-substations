@@ -1,9 +1,11 @@
 import DBrun
 import dbsubstations.strings as packaged_strings
+import kivy.uix.popup as popup_module
 import strings
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
 
 
 def _collect_texts(widget):
@@ -54,3 +56,129 @@ def test_has_meaningful_measurement_value_ignores_empty_strings():
     assert app._has_meaningful_measurement_value("   ") is False
     assert app._has_meaningful_measurement_value("Πλήρωση") is True
     assert app._has_meaningful_measurement_value(0) is True
+
+
+def test_collect_measurement_widgets_keeps_always_visible_section(monkeypatch):
+    monkeypatch.setattr(DBrun, "BoxLayout", BoxLayout)
+    monkeypatch.setattr(DBrun, "Label", Label)
+    monkeypatch.setattr(DBrun, "TextInput", TextInput)
+
+    app = object.__new__(DBrun.SubstationApp)
+    details_container = BoxLayout(orientation="vertical")
+    fixed_widget = Widget()
+    always_visible_widget = Label(text="Αριθμός Χειρισμών:")
+    moved_widget = Label(text="Measurement")
+
+    details_container.add_widget(fixed_widget)
+    details_container.add_widget(always_visible_widget)
+    details_container.add_widget(moved_widget)
+
+    measurement_widgets = app._collect_measurement_widgets(
+        details_container,
+        {fixed_widget},
+        [always_visible_widget],
+    )
+
+    assert measurement_widgets == [moved_widget]
+
+
+def test_show_element_quick_view_displays_breaker_operations_count(monkeypatch):
+    captured = {}
+
+    class FakeCursor:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+        def fetchone(self):
+            return (
+                "Ρ-240",
+                "Διακόπτης ΜΤ",
+                "3AH52/00000913",
+                None,
+                "Siemens",
+                "2010",
+                "Κυψέλη 1",
+                "2024-02-02",
+                26,
+                175,
+                None,
+                "Κυψέλη 1",
+                None,
+            )
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePopup:
+        def __init__(self, *args, **kwargs):
+            captured["popup"] = self
+            self.content = None
+
+        def open(self):
+            captured["opened"] = True
+
+        def dismiss(self):
+            return None
+
+    monkeypatch.setattr(popup_module, "Popup", FakePopup)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = FakeConnection()
+
+    app._show_element_quick_view(441)
+
+    assert captured.get("opened") is True
+    texts = _collect_texts(captured["popup"].content)
+    assert "Αριθμός Χειρισμών: 175" in texts
+
+
+def test_show_element_quick_view_prefers_model_installation_space(monkeypatch):
+    captured = {}
+
+    class FakeCursor:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+        def fetchone(self):
+            return (
+                "Ρ-240",
+                "Διακόπτης ΜΤ",
+                "3AH52/00000913",
+                None,
+                "Siemens",
+                "2010",
+                "",
+                "2024-02-02",
+                26,
+                175,
+                None,
+                "Εσωτερικός",
+                None,
+            )
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePopup:
+        def __init__(self, *args, **kwargs):
+            captured["popup"] = self
+            self.content = None
+
+        def open(self):
+            captured["opened"] = True
+
+        def dismiss(self):
+            return None
+
+    monkeypatch.setattr(popup_module, "Popup", FakePopup)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = FakeConnection()
+
+    app._show_element_quick_view(441)
+
+    assert captured.get("opened") is True
+    texts = _collect_texts(captured["popup"].content)
+    assert "Χώρος: Εσωτερικός" in texts
