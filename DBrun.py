@@ -19073,6 +19073,27 @@ class SubstationApp(App):
             return labels[:count]
         return [f"Τιμή {idx + 1}" for idx in range(count)]
 
+    def _measurement_detail_unit(self, key):
+        unit_map = {
+            "sync_timing": "ms",
+            "open": "ms",
+            "close": "ms",
+            "co": "ms",
+            "resistance_raid": "uOhm",
+            "contact_az": "uOhm",
+            "contact_ms": "uOhm",
+            "sf6_pressure_gauge_value": "bar",
+            "sf6_alarm_appearance_value": "bar",
+            "sf6_block_appearance_value": "bar",
+            "sf6_alarm_disappearance_value": "bar",
+            "sf6_block_disappearance_value": "bar",
+            "sf6_pct": "%",
+            "h2o": "degC",
+            "so": "ppm",
+            "vidar": "kV",
+        }
+        return unit_map.get(key, "")
+
     def _format_measurement_details_payload(self, payload, parent_key=None, indent=0):
         prefix = "  " * indent
 
@@ -19163,14 +19184,105 @@ class SubstationApp(App):
                 return "-"
             return f"{val} {unit}" if unit else f"{val}"
 
-        def add_triplet(lines, title, labels_and_values):
+        def add_section(lines, title, entries):
+            visible_items = [entry for entry in entries if str(entry or "").strip()]
+            if not visible_items:
+                return
+            lines.append(f"[b]{title}[/b]")
+            lines.extend(visible_items)
+
+        def add_triplet(lines, title, labels_and_values, unit=None):
             visible_items = [
-                f"{label}: {value}"
+                f"  [b]{label}:[/b] {value}"
                 for label, value in labels_and_values
                 if value != "-"
             ]
-            if visible_items:
-                lines.append(f"{title}: {', '.join(visible_items)}")
+            if unit:
+                title = f"{title} ({unit})"
+            add_section(lines, title, visible_items)
+
+        def add_line(lines, label, value, unit=None):
+            if not self._has_meaningful_measurement_value(value):
+                return
+            value_text = fmt(value, unit)
+            lines.append(f"  [b]{label}:[/b] {value_text}")
+
+        def normalize_detail_payload(payload):
+            if isinstance(payload, dict):
+                normalized = {}
+                for key, value in payload.items():
+                    if key.endswith("_unit"):
+                        continue
+                    companion_unit = payload.get(f"{key}_unit")
+                    normalized_value = normalize_detail_payload(value)
+                    if (
+                        companion_unit
+                        and self._has_meaningful_measurement_value(normalized_value)
+                        and not isinstance(normalized_value, (dict, list, tuple))
+                    ):
+                        normalized_value = fmt(normalized_value, companion_unit)
+                    if self._has_meaningful_measurement_value(normalized_value):
+                        normalized[key] = normalized_value
+                return normalized
+            if isinstance(payload, (list, tuple)):
+                normalized_items = [normalize_detail_payload(item) for item in payload]
+                return [
+                    item
+                    for item in normalized_items
+                    if self._has_meaningful_measurement_value(item)
+                ]
+            return payload
+
+        def format_detail_payload_for_report(payload, parent_key=None, indent=1):
+            prefix = "  " * indent
+            lines = []
+
+            if isinstance(payload, dict):
+                for key, value in payload.items():
+                    if not self._has_meaningful_measurement_value(value):
+                        continue
+                    label = self._measurement_detail_label(key)
+                    unit = self._measurement_detail_unit(key)
+                    if isinstance(value, (dict, list, tuple)):
+                        title = f"{label} ({unit})" if unit else label
+                        lines.append(f"{prefix}[b]{title}[/b]")
+                        nested = format_detail_payload_for_report(
+                            value, parent_key=key, indent=indent + 1
+                        )
+                        if nested:
+                            lines.extend(nested)
+                    else:
+                        value_text = fmt(value, unit)
+                        lines.append(f"{prefix}[b]{label}:[/b] {value_text}")
+                return lines
+
+            if isinstance(payload, (list, tuple)):
+                labels = self._measurement_detail_sequence_labels(
+                    parent_key, len(payload)
+                )
+                item_unit = self._measurement_detail_unit(parent_key)
+                for index, value in enumerate(payload):
+                    if not self._has_meaningful_measurement_value(value):
+                        continue
+                    item_label = (
+                        labels[index] if index < len(labels) else f"Τιμή {index + 1}"
+                    )
+                    if isinstance(value, (dict, list, tuple)):
+                        lines.append(f"{prefix}[b]{item_label}[/b]")
+                        nested = format_detail_payload_for_report(
+                            value, parent_key=parent_key, indent=indent + 1
+                        )
+                        if nested:
+                            lines.extend(nested)
+                    else:
+                        lines.append(
+                            f"{prefix}[b]{item_label}:[/b] {fmt(value, item_unit)}"
+                        )
+                return lines
+
+            if self._has_meaningful_measurement_value(payload):
+                lines.append(f"{prefix}{payload}")
+            return lines
 
         extra_measurements = {}
         if extra_measurements_json:
@@ -19185,13 +19297,17 @@ class SubstationApp(App):
             extra_measurements,
             exclude_keys=self._maintenance_detail_legacy_measurement_keys(),
         )
+        detail_payload = normalize_detail_payload(detail_payload)
 
         lines = []
         is_hv_breaker = elem_type == self.ELEM_BREAKER_YT
+        measurement_lines = []
+        sf6_lines = []
+        extra_lines = []
 
         if not is_hv_breaker:
             add_triplet(
-                lines,
+                measurement_lines,
                 S["MESSAGES"].get(
                     "INSULATION_RESISTANCE_CLOSED_TITLE",
                     "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)",
@@ -19212,7 +19328,7 @@ class SubstationApp(App):
                 ],
             )
             add_triplet(
-                lines,
+                measurement_lines,
                 S["MESSAGES"].get(
                     "INSULATION_RESISTANCE_OPEN_TITLE",
                     "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)",
@@ -19234,26 +19350,33 @@ class SubstationApp(App):
             )
 
         add_triplet(
-            lines,
+            measurement_lines,
             S["MESSAGES"].get("INSULATION_PASSAGE_TITLE", "Αντίσταση Διαβάσεως (μΩ)"),
             [
                 (S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(cont_fa)),
                 (S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ"), fmt(cont_fb)),
                 (S["MESSAGES"].get("INSULATION_LABEL_FC", "ΦΓ-ΦΓ"), fmt(cont_fc)),
             ],
+            unit="uOhm",
         )
 
         if self._has_meaningful_measurement_value(ops_count):
-            lines.append(
-                f"{S['MESSAGES'].get('OPERATIONS_COUNT_LABEL', 'Αριθμός Χειρισμών:')} {fmt(ops_count)}"
+            add_line(
+                measurement_lines,
+                S["MESSAGES"]
+                .get("OPERATIONS_COUNT_LABEL", "Αριθμός Χειρισμών:")
+                .rstrip(":"),
+                ops_count,
             )
 
         if breaker_category == "SF6":
             sf6_items = []
             if self._has_meaningful_measurement_value(sf6_leakage_kg):
-                sf6_items.append(f"Διαρροή SF6 (kg): {fmt(sf6_leakage_kg)}")
+                sf6_items.append(f"  [b]Διαρροή SF6:[/b] {fmt(sf6_leakage_kg, 'kg')}")
             if self._has_meaningful_measurement_value(sf6_leak_methodology):
-                sf6_items.append(f"Πλήρωση/Αντικατάσταση: {fmt(sf6_leak_methodology)}")
+                sf6_items.append(
+                    f"  [b]Πλήρωση/Αντικατάσταση:[/b] {fmt(sf6_leak_methodology)}"
+                )
             for phase_label, n2_value, h2o_value, so2_value in (
                 ("ΦΑ", sf6_n2_fa, h2o_fa, so2_fa),
                 ("ΦΒ", sf6_n2_fb, h2o_fb, so2_fb),
@@ -19263,30 +19386,37 @@ class SubstationApp(App):
                 if self._has_meaningful_measurement_value(n2_value):
                     phase_parts.append(f"SF6/N2 {fmt(n2_value)}")
                 if self._has_meaningful_measurement_value(h2o_value):
-                    phase_parts.append(f"H2O {fmt(h2o_value)}")
+                    phase_parts.append(f"H2O {fmt(h2o_value, 'degC')}")
                 if self._has_meaningful_measurement_value(so2_value):
-                    phase_parts.append(f"SO2 {fmt(so2_value)}")
+                    phase_parts.append(f"SO2 {fmt(so2_value, 'ppm')}")
                 if phase_parts:
-                    sf6_items.append(f"{phase_label}: {' | '.join(phase_parts)}")
+                    sf6_items.append(
+                        f"  [b]{phase_label}:[/b] {' | '.join(phase_parts)}"
+                    )
             if sf6_items:
-                lines.append(f"Ποιότητα Αερίου SF6: {'; '.join(sf6_items)}")
+                add_section(sf6_lines, "Ποιότητα Αερίου SF6", sf6_items)
 
         if (
             breaker_category in ["Vacuum", "Κενού"]
             and elem_type == self.ELEM_BREAKER_MT
         ):
             add_triplet(
-                lines,
+                measurement_lines,
                 S["MESSAGES"].get("VIDAR_SECTION_TITLE", "Έλεγχος Κενού (VIDAR)"),
                 [
                     (S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(vidar_fa)),
                     (S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ"), fmt(vidar_fb)),
                     (S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ"), fmt(vidar_fc)),
                 ],
+                unit="kV",
             )
 
         if self._has_meaningful_measurement_value(detail_payload):
-            lines.append(self._format_measurement_details_payload(detail_payload))
+            extra_lines = format_detail_payload_for_report(detail_payload)
+
+        add_section(lines, "Μετρήσεις Συντήρησης", measurement_lines)
+        lines.extend(sf6_lines)
+        add_section(lines, "Καταχωρημένα Δεδομένα Φόρμας", extra_lines)
 
         return "\n".join(line for line in lines if str(line or "").strip())
 
@@ -21406,6 +21536,7 @@ class SubstationApp(App):
 
                 elem_label = Label(
                     text=elem_text,
+                    markup=True,
                     size_hint_x=0.62,
                     size_hint_y=None,
                     halign="left",

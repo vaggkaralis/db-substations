@@ -511,6 +511,8 @@ def test_show_maintenance_full_report_includes_element_form_data(monkeypatch):
     assert captured.get("opened") is True
     texts = _collect_texts(captured["popup"].content)
     joined_text = "\n".join(texts)
-    assert "Αριθμός Χειρισμών: 116" in joined_text
-    assert "Έλεγχος ταυτοχρονισμού:" in joined_text
-    assert "Μέτρηση Αντίστασης Διαβάσεως:" in joined_text
+    assert "[b]Μετρήσεις Συντήρησης[/b]" in joined_text
+    assert "[b]Αριθμός Χειρισμών:[/b] 116" in joined_text
+    assert "[b]Καταχωρημένα Δεδομένα Φόρμας[/b]" in joined_text
+    assert "[b]Έλεγχος ταυτοχρονισμού (ms)[/b]" in joined_text
+    assert "[b]Μέτρηση Αντίστασης Διαβάσεως (uOhm)[/b]" in joined_text
