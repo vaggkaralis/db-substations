@@ -56,3 +56,47 @@ def test_show_element_history_ignores_orphan_links(monkeypatch):
     assert captured["substation_name"] == "S1"
 
     conn.close()
+
+
+def test_show_element_history_includes_cross_substation_linked_maintenances():
+    mod = importlib.import_module("elements")
+
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE elements (id INTEGER PRIMARY KEY, substation_id INTEGER, name TEXT);
+        CREATE TABLE maintenance (id INTEGER PRIMARY KEY, substation_id INTEGER, date_time TEXT);
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER
+        );
+        INSERT INTO substations (id, name) VALUES (1, 'S1');
+        INSERT INTO substations (id, name) VALUES (2, 'S2');
+        INSERT INTO elements (id, substation_id, name) VALUES (1296, 1, 'T1');
+        INSERT INTO maintenance (id, substation_id, date_time) VALUES (10, 2, '2024-04-15');
+        INSERT INTO maintenance (id, substation_id, date_time) VALUES (11, 1, '2023-08-10');
+        INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (10, 1296);
+        INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (11, 1296);
+        """
+    )
+
+    captured = {}
+
+    def _show_history(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+    app = types.SimpleNamespace(
+        conn=conn, show_substation_maintenance_history=_show_history
+    )
+
+    mod.show_element_maintenance_history(app, 1296, "T1", None)
+
+    assert captured["args"][:2] == (1, "S1")
+    assert captured["kwargs"]["preselected_element_id"] == 1296
+    assert captured["kwargs"]["include_maintenance_ids"] == [10, 11]
+
+    conn.close()

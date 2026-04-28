@@ -578,6 +578,9 @@ def generate_preparation_checklist_pdf(
         metadata_lines.append(f"Τύπος: {metadata['maintenance_type']}")
     if metadata.get("date_time"):
         metadata_lines.append(f"Ημερομηνία: {metadata['date_time']}")
+    if metadata.get("overall_comments"):
+        # Print overall maintenance comments under metadata
+        metadata_lines.append(f"Σχόλια: {metadata['overall_comments']}")
 
     for line in metadata_lines:
         story.append(Paragraph(line, body_style))

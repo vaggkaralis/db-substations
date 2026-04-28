@@ -72,6 +72,10 @@ reports/
 *.bak
 *.py.broken.*
 *.log
+*_output.txt
+import_check_*.txt
+vulture_report.txt
+change_log.txt
 flake_report*.txt
 tests/results.xml
 .pytest_cache/

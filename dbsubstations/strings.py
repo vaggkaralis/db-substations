@@ -324,7 +324,7 @@ STRINGS_EL = {
         "INSULATION_MEASUREMENT_CLOSED_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ (Φ-ΓΗ):",
         "INSULATION_MEASUREMENT_OPEN_HEADER": "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ - ΔΙΑΚΟΠΤΗΣ ΑΝΟΙΧΤΟΣ (ΦΑ-ΦΑ):",
         "INSULATION_PASSAGE_MEASUREMENT_CLOSED_HEADER": "ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (uOhm) - ΔΙΑΚΟΠΤΗΣ ΚΛΕΙΣΤΟΣ:",
-        "INSULATION_PASSAGE_TITLE": "Αντίσταση Διέλευσης (uOhm)",
+        "INSULATION_PASSAGE_TITLE": "Αντίσταση Διαβάσεως (uOhm)",
         "INSULATION_RESISTANCE_CLOSED_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γείωση)",
         "INSULATION_RESISTANCE_OPEN_TITLE": "Αντίσταση Μόνωσης - Διακόπτης Ανοιχτός (Φάση-Φάση)",
         "INVALID_DATE_FORMAT": "Μη έγκυρη μορφή ημερομηνίας! Χρησιμοποιήστε: YYYY-MM-DD HH:MM",

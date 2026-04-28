@@ -440,6 +440,27 @@ def _element_has_valid_maintenance_history(conn, element_id):
     return cursor.fetchone() is not None
 
 
+def _get_element_maintenance_history_ids(conn, element_id):
+    matches = _get_matching_element_rows(conn, element_id=element_id)
+    element_ids = [row[0] for row in matches]
+    if not element_ids:
+        return []
+
+    cursor = conn.cursor()
+    placeholders = ",".join(["?"] * len(element_ids))
+    cursor.execute(
+        f"""
+        SELECT DISTINCT m.id, m.date_time
+        FROM maintenance_elements me
+        JOIN maintenance m ON m.id = me.maintenance_id
+        WHERE me.element_id IN ({placeholders})
+        ORDER BY m.date_time DESC, m.id DESC
+        """,
+        element_ids,
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
 def show_add_element_popup_delegate(app, instance=None):
     return app.show_add_element_popup(instance)
 
@@ -1877,12 +1898,17 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
         )
         return
 
+    maintenance_ids = _get_element_maintenance_history_ids(
+        app.conn, canonical_element_id or element_id
+    )
+
     app.show_substation_maintenance_history(
         substation_id,
         substation_name,
         parent_popup,
         preselected_element_id=canonical_element_id or element_id,
         preselected_element_name=canonical_name,
+        include_maintenance_ids=maintenance_ids,
     )
 
 

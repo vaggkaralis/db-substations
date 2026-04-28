@@ -10391,7 +10391,9 @@ class SubstationApp(App):
         }
 
     def _apply_conflict_resolution(self, filename, resolution):
-        context = self._load_conflict_context(filename)
+        context = None
+        if resolution == "use_theirs":
+            context = self._load_conflict_context(filename)
         if resolution == "use_theirs":
             update_fields = {
                 key: value
@@ -10406,6 +10408,13 @@ class SubstationApp(App):
                     list(update_fields.values()) + [context["record_id"]],
                 )
                 self.conn.commit()
+        else:
+            try:
+                context = self._load_conflict_context(filename)
+            except Exception:
+                # Keeping the local version should still resolve the conflict even
+                # when the referenced local row no longer exists.
+                context = {"filename": filename}
 
         self._mark_conflict_resolved(filename, resolution)
         return context
@@ -12884,7 +12893,7 @@ class SubstationApp(App):
             c = self.conn.cursor()
             c.execute(
                 """
-                SELECT m.name, m.date_time, m.maintenance_type, s.name, m.preparation_checklist_json
+                SELECT m.name, m.date_time, m.maintenance_type, s.name, m.preparation_checklist_json, m.overall_comments
                 FROM maintenance m
                 JOIN substations s ON s.id = m.substation_id
                 WHERE m.id = ?
@@ -12908,6 +12917,10 @@ class SubstationApp(App):
                 "maintenance_type": row[2],
                 "substation_name": row[3],
             }
+            try:
+                metadata["overall_comments"] = row[5] if len(row) > 5 else None
+            except Exception:
+                pass
             if maintenance_type is None:
                 maintenance_type = row[2]
             if initial_state is None:
@@ -13114,17 +13127,26 @@ class SubstationApp(App):
                         height=30,
                     )
                     _adjust_comment_height(comment_ti)
-                    comment_ti.bind(
-                        text=lambda inst, val, cat=category_key, it=item_key: (
-                            checklist_user_touched.__setitem__(0, True),
+
+                    def _on_comment_text(inst, val, cat=category_key, it=item_key):
+                        try:
+                            checklist_user_touched[0] = True
                             checklist_state.setdefault("comments", {}).setdefault(
                                 cat, {}
                             )
-                            and checklist_state["comments"].__setitem__(it, val),
-                            _adjust_comment_height(inst),
-                            refresh_summary_label(),
-                        )
-                    )
+                            checklist_state["comments"][cat][it] = val
+                        except Exception:
+                            pass
+                        try:
+                            _adjust_comment_height(inst)
+                        except Exception:
+                            pass
+                        try:
+                            refresh_summary_label()
+                        except Exception:
+                            pass
+
+                    comment_ti.bind(text=_on_comment_text)
                     item_row.add_widget(comment_ti)
                     checklist_container.add_widget(item_row)
 
@@ -14005,18 +14027,32 @@ class SubstationApp(App):
                         height=30,
                     )
                     _adjust_comment_height(comment_ti)
-                    comment_ti.bind(
-                        text=lambda inst, val, cat=category_key, it=item_key: (
-                            checklist_user_touched.__setitem__(0, True),
+
+                    def _on_inline_comment_text(
+                        inst, val, cat=category_key, it=item_key
+                    ):
+                        try:
+                            checklist_user_touched[0] = True
                             checklist_state.setdefault("comments", {}).setdefault(
                                 cat, {}
                             )
-                            and checklist_state["comments"].__setitem__(it, val),
-                            _adjust_comment_height(inst),
-                            _sync_dynamic_step_layout(),
-                            (refresh_workflow_summary() if True else None),
-                        )
-                    )
+                            checklist_state["comments"][cat][it] = val
+                        except Exception:
+                            pass
+                        try:
+                            _adjust_comment_height(inst)
+                        except Exception:
+                            pass
+                        try:
+                            _sync_dynamic_step_layout()
+                        except Exception:
+                            pass
+                        try:
+                            refresh_workflow_summary()
+                        except Exception:
+                            pass
+
+                    comment_ti.bind(text=_on_inline_comment_text)
                     item_row.add_widget(comment_ti)
                     checklist_inline_container.add_widget(item_row)
 
@@ -16096,548 +16132,9 @@ class SubstationApp(App):
 
                                 # power is element attribute; not editable in maintenance form
 
-                                # Category: ΧΕΙΡΙΣΜΟΙ
-                                details_container.add_widget(
-                                    Label(
-                                        text="ΧΕΙΡΙΣΜΟΙ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                ops_row = BoxLayout(
-                                    size_hint_y=None, height=30, spacing=6
-                                )
-                                ops_row.add_widget(
-                                    Label(text="Απαριθμητής ΣΑΤΥΦ:", size_hint_x=0.6)
-                                )
-                                satyf_counter = TextInput(
-                                    hint_text="Αριθμός Χειρισμών",
-                                    multiline=False,
-                                    size_hint_x=0.12,
-                                )
-                                ops_row.add_widget(satyf_counter)
-                                ops_row.add_widget(Widget())
-                                details_container.add_widget(ops_row)
-
-                                # Category 1: ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ
-                                details_container.add_widget(
-                                    Label(
-                                        text="1. ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΔΙΑΡΡΟΕΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΚΑΘΑΡΙΣΜΟΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΑΚΙΔΕΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-
-                                # Category 2: ΛΑΔΙΑ Μ/Σ
-                                details_container.add_widget(
-                                    Label(
-                                        text="2. ΛΑΔΙΑ Μ/Σ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                silica_row = BoxLayout(
-                                    size_hint_y=None, height=30, spacing=6
-                                )
-                                silica_row.add_widget(
-                                    Label(text="ΣΙΛΙΚΑ:", size_hint_x=0.4)
-                                )
-                                silica_spinner = Spinner(
-                                    text="N/A",
-                                    values=["OK", "NOT OK", "N/A"],
-                                    size_hint_x=0.2,
-                                )
-                                silica_row.add_widget(silica_spinner)
-                                silica_row.add_widget(Widget())
-                                details_container.add_widget(silica_row)
-
-                                # Category 3: ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ
-                                details_container.add_widget(
-                                    Label(
-                                        text="3. ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-
-                                # Category 4: ΣΩΜΑ Μ/Σ
-                                details_container.add_widget(
-                                    Label(
-                                        text="4. ΣΩΜΑ Μ/Σ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΣΤΕΓΑΝΟΠΟΙΗΣΗ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΚΑΘΑΡΙΣΜΟΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ BUCHOLZ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-
-                                # 7x7 table for temperature checks header and inputs (3x3 values with labels)
-                                details_container.add_widget(
-                                    Label(
-                                        text="ΈΛΕΓΧΟΣ ΘΕΡΜΟΣΤΟΙΧΕΙΩΝ (°C)",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                temp_header = BoxLayout(size_hint_y=None, height=30)
-                                temp_header.add_widget(Label(text="", size_hint_x=0.2))
-                                temp_header.add_widget(
-                                    Label(text="OIL", size_hint_x=0.26)
-                                )
-                                temp_header.add_widget(
-                                    Label(text="X1", size_hint_x=0.26)
-                                )
-                                temp_header.add_widget(
-                                    Label(text="X3", size_hint_x=0.28)
-                                )
-                                details_container.add_widget(temp_header)
-
-                                # Rows: FAN, ALARM, TRIP
-                                fan_row = BoxLayout(size_hint_y=None, height=32)
-                                fan_row.add_widget(Label(text="FAN", size_hint_x=0.2))
-                                fan_oil = TextInput(hint_text="", multiline=False)
-                                fan_x1 = TextInput(hint_text="", multiline=False)
-                                fan_x3 = TextInput(hint_text="", multiline=False)
-                                fan_row.add_widget(fan_oil)
-                                fan_row.add_widget(fan_x1)
-                                fan_row.add_widget(fan_x3)
-                                details_container.add_widget(fan_row)
-
-                                alarm_row = BoxLayout(size_hint_y=None, height=32)
-                                alarm_row.add_widget(
-                                    Label(text="ALARM", size_hint_x=0.2)
-                                )
-                                alarm_oil = TextInput(hint_text="", multiline=False)
-                                alarm_x1 = TextInput(hint_text="", multiline=False)
-                                alarm_x3 = TextInput(hint_text="", multiline=False)
-                                alarm_row.add_widget(alarm_oil)
-                                alarm_row.add_widget(alarm_x1)
-                                alarm_row.add_widget(alarm_x3)
-                                details_container.add_widget(alarm_row)
-
-                                trip_row = BoxLayout(size_hint_y=None, height=32)
-                                trip_row.add_widget(Label(text="TRIP", size_hint_x=0.2))
-                                trip_oil = TextInput(hint_text="", multiline=False)
-                                trip_x1 = TextInput(hint_text="", multiline=False)
-                                trip_x3 = TextInput(hint_text="", multiline=False)
-                                trip_row.add_widget(trip_oil)
-                                trip_row.add_widget(trip_x1)
-                                trip_row.add_widget(trip_x3)
-                                details_container.add_widget(trip_row)
-
-                                # Category 5: ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ
-                                details_container.add_widget(
-                                    Label(
-                                        text="5. ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΑΞΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΩΣΕΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΩΤΩΝ ΤΡΟΧΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΡΩΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-
-                                # Category 6: DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ
-                                details_container.add_widget(
-                                    Label(
-                                        text="6. DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΕΠΑΦΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΣΥΣΦΙΞΕΙΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΑΛΛΑΓΗ ΛΑΔΙΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-
-                                # Diverter resistance measurements (6 values: H1 x2, H2 x2, H3 x2)
-                                details_container.add_widget(
-                                    Label(
-                                        text=S["MESSAGES"].get(
-                                            "MEASUREMENT_RESISTANCE_HEADER",
-                                            "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)",
-                                        ),
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                div_row1 = BoxLayout(size_hint_y=None, height=32)
-                                div_h1_a = TextInput(hint_text="H1-1", multiline=False)
-                                div_h1_b = TextInput(hint_text="H1-2", multiline=False)
-                                div_row1.add_widget(div_h1_a)
-                                div_row1.add_widget(div_h1_b)
-                                details_container.add_widget(div_row1)
-                                div_row2 = BoxLayout(size_hint_y=None, height=32)
-                                div_h2_a = TextInput(hint_text="H2-1", multiline=False)
-                                div_h2_b = TextInput(hint_text="H2-2", multiline=False)
-                                div_row2.add_widget(div_h2_a)
-                                div_row2.add_widget(div_h2_b)
-                                details_container.add_widget(div_row2)
-                                div_row3 = BoxLayout(size_hint_y=None, height=32)
-                                div_h3_a = TextInput(hint_text="H3-1", multiline=False)
-                                div_h3_b = TextInput(hint_text="H3-2", multiline=False)
-                                div_row3.add_widget(div_h3_a)
-                                div_row3.add_widget(div_h3_b)
-                                details_container.add_widget(div_row3)
-
-                                # Category 7: ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ
-                                details_container.add_widget(
-                                    Label(
-                                        text="7. ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΚΑΘΑΡΙΣΜΟΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΜΕΤΡΗΣΗ (Ω)",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΣΥΣΦΙΞΕΙΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-
-                                # Category 8-10: ΤΑΣΕΩΣ/ΕΝΤΑΣΕΩΣ/ΕΓΧΥΣΕΩΣ
-                                for idx, title in enumerate(
-                                    [
-                                        "8. Μ/Σ ΤΑΣΕΩΣ",
-                                        "9. Μ/Σ ΕΝΤΑΣΕΩΣ",
-                                        "10. Μ/Σ ΕΓΧΥΣΕΩΣ",
-                                    ]
-                                ):
-                                    details_container.add_widget(
-                                        Label(
-                                            text=title,
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                # Category 11: ΑΛΕΞΙΚΕΡΑΥΝΑ
-                                details_container.add_widget(
-                                    Label(
-                                        text="11. ΑΛΕΞΙΚΕΡΑΥΝΑ",
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-                                details_container.add_widget(
-                                    TextInput(
-                                        hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
-                                        multiline=False,
-                                        size_hint_y=None,
-                                        height=30,
-                                    )
-                                )
-
-                                # Category 12-13: Α/Ζ ΒΜΣ and Α/Ζ ΤΑΣΕΩΣ
-                                for title in ["12. Α/Ζ ΒΜΣ", "13. Α/Ζ ΤΑΣΕΩΣ"]:
-                                    details_container.add_widget(
-                                        Label(
-                                            text=title,
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                # Expose transformer widgets for persistence
-                                measurements.setdefault("satyf_counter", satyf_counter)
-                                measurements.setdefault("silica", silica_spinner)
-                                measurements.setdefault(
-                                    "temp_fan", (fan_oil, fan_x1, fan_x3)
-                                )
-                                measurements.setdefault(
-                                    "temp_alarm", (alarm_oil, alarm_x1, alarm_x3)
-                                )
-                                measurements.setdefault(
-                                    "temp_trip", (trip_oil, trip_x1, trip_x3)
-                                )
-                                measurements.setdefault(
-                                    "diverter_res",
-                                    (
-                                        div_h1_a,
-                                        div_h1_b,
-                                        div_h2_a,
-                                        div_h2_b,
-                                        div_h3_a,
-                                        div_h3_b,
-                                    ),
+                                self._build_transformer_measurement_section(
+                                    details_container,
+                                    measurements,
                                 )
                             except Exception as _ex:
                                 pass
@@ -17139,570 +16636,9 @@ class SubstationApp(App):
 
                                         # power is element attribute; not editable in maintenance form
 
-                                    # Category: ΧΕΙΡΙΣΜΟΙ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="ΧΕΙΡΙΣΜΟΙ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    ops_row = BoxLayout(
-                                        size_hint_y=None, height=30, spacing=6
-                                    )
-                                    ops_row.add_widget(
-                                        Label(
-                                            text="Απαριθμητής ΣΑΤΥΦ:", size_hint_x=0.6
-                                        )
-                                    )
-                                    satyf_counter = TextInput(
-                                        hint_text="Αριθμός Χειρισμών",
-                                        multiline=False,
-                                        size_hint_x=0.12,
-                                    )
-                                    ops_row.add_widget(satyf_counter)
-                                    ops_row.add_widget(Widget())
-                                    details_container.add_widget(ops_row)
-
-                                    # Category 1: ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="1. ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΔΙΑΡΡΟΕΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΚΑΘΑΡΙΣΜΟΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΑΚΙΔΕΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                    # Category 2: ΛΑΔΙΑ Μ/Σ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="2. ΛΑΔΙΑ Μ/Σ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    silica_row = BoxLayout(
-                                        size_hint_y=None, height=30, spacing=6
-                                    )
-                                    silica_row.add_widget(
-                                        Label(text="ΣΙΛΙΚΑ:", size_hint_x=0.4)
-                                    )
-                                    silica_spinner = Spinner(
-                                        text="N/A",
-                                        values=["OK", "NOT OK", "N/A"],
-                                        size_hint_x=0.2,
-                                    )
-                                    silica_row.add_widget(silica_spinner)
-                                    silica_row.add_widget(Widget())
-                                    details_container.add_widget(silica_row)
-
-                                    # Category 3: ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="3. ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                    # Category 4: ΣΩΜΑ Μ/Σ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="4. ΣΩΜΑ Μ/Σ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΣΤΕΓΑΝΟΠΟΙΗΣΗ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΚΑΘΑΡΙΣΜΟΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ BUCHOLZ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                    # 7x7 table for temperature checks header and inputs (3x3 values with labels)
-                                    details_container.add_widget(
-                                        Label(
-                                            text="ΈΛΕΓΧΟΣ ΘΕΡΜΟΣΤΟΙΧΕΙΩΝ (°C)",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    temp_header = BoxLayout(size_hint_y=None, height=30)
-                                    temp_header.add_widget(
-                                        Label(text="", size_hint_x=0.2)
-                                    )
-                                    temp_header.add_widget(
-                                        Label(text="OIL", size_hint_x=0.26)
-                                    )
-                                    temp_header.add_widget(
-                                        Label(text="X1", size_hint_x=0.26)
-                                    )
-                                    temp_header.add_widget(
-                                        Label(text="X3", size_hint_x=0.28)
-                                    )
-                                    details_container.add_widget(temp_header)
-
-                                    # Rows: FAN, ALARM, TRIP
-                                    fan_row = BoxLayout(size_hint_y=None, height=32)
-                                    fan_row.add_widget(
-                                        Label(text="FAN", size_hint_x=0.2)
-                                    )
-                                    fan_oil = TextInput(hint_text="", multiline=False)
-                                    fan_x1 = TextInput(hint_text="", multiline=False)
-                                    fan_x3 = TextInput(hint_text="", multiline=False)
-                                    fan_row.add_widget(fan_oil)
-                                    fan_row.add_widget(fan_x1)
-                                    fan_row.add_widget(fan_x3)
-                                    details_container.add_widget(fan_row)
-
-                                    alarm_row = BoxLayout(size_hint_y=None, height=32)
-                                    alarm_row.add_widget(
-                                        Label(text="ALARM", size_hint_x=0.2)
-                                    )
-                                    alarm_oil = TextInput(hint_text="", multiline=False)
-                                    alarm_x1 = TextInput(hint_text="", multiline=False)
-                                    alarm_x3 = TextInput(hint_text="", multiline=False)
-                                    alarm_row.add_widget(alarm_oil)
-                                    alarm_row.add_widget(alarm_x1)
-                                    alarm_row.add_widget(alarm_x3)
-                                    details_container.add_widget(alarm_row)
-
-                                    trip_row = BoxLayout(size_hint_y=None, height=32)
-                                    trip_row.add_widget(
-                                        Label(text="TRIP", size_hint_x=0.2)
-                                    )
-                                    trip_oil = TextInput(hint_text="", multiline=False)
-                                    trip_x1 = TextInput(hint_text="", multiline=False)
-                                    trip_x3 = TextInput(hint_text="", multiline=False)
-                                    trip_row.add_widget(trip_oil)
-                                    trip_row.add_widget(trip_x1)
-                                    trip_row.add_widget(trip_x3)
-                                    details_container.add_widget(trip_row)
-
-                                    # Category 5: ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="5. ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΑΞΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΩΣΕΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΩΤΩΝ ΤΡΟΧΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΡΩΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                    # Category 6: DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="6. DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΕΠΑΦΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΣΥΣΦΙΞΕΙΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΑΛΛΑΓΗ ΛΑΔΙΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                    # Diverter resistance measurements (6 values: H1 x2, H2 x2, H3 x2)
-                                    details_container.add_widget(
-                                        Label(
-                                            text=S["MESSAGES"].get(
-                                                "MEASUREMENT_RESISTANCE_HEADER",
-                                                "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)",
-                                            ),
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    div_row1 = BoxLayout(size_hint_y=None, height=32)
-                                    div_h1_a = TextInput(
-                                        hint_text="H1-1", multiline=False
-                                    )
-                                    div_h1_b = TextInput(
-                                        hint_text="H1-2", multiline=False
-                                    )
-                                    div_row1.add_widget(div_h1_a)
-                                    div_row1.add_widget(div_h1_b)
-                                    details_container.add_widget(div_row1)
-                                    div_row2 = BoxLayout(size_hint_y=None, height=32)
-                                    div_h2_a = TextInput(
-                                        hint_text="H2-1", multiline=False
-                                    )
-                                    div_h2_b = TextInput(
-                                        hint_text="H2-2", multiline=False
-                                    )
-                                    div_row2.add_widget(div_h2_a)
-                                    div_row2.add_widget(div_h2_b)
-                                    details_container.add_widget(div_row2)
-                                    div_row3 = BoxLayout(size_hint_y=None, height=32)
-                                    div_h3_a = TextInput(
-                                        hint_text="H3-1", multiline=False
-                                    )
-                                    div_h3_b = TextInput(
-                                        hint_text="H3-2", multiline=False
-                                    )
-                                    div_row3.add_widget(div_h3_a)
-                                    div_row3.add_widget(div_h3_b)
-                                    details_container.add_widget(div_row3)
-
-                                    # Category 7: ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="7. ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΚΑΘΑΡΙΣΜΟΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΜΕΤΡΗΣΗ (Ω)",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΣΥΣΦΙΞΕΙΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                    # Category 8-10: ΤΑΣΕΩΣ/ΕΝΤΑΣΕΩΣ/ΕΓΧΥΣΕΩΣ
-                                    for idx, title in enumerate(
-                                        [
-                                            "8. Μ/Σ ΤΑΣΕΩΣ",
-                                            "9. Μ/Σ ΕΝΤΑΣΕΩΣ",
-                                            "10. Μ/Σ ΕΓΧΥΣΕΩΣ",
-                                        ]
-                                    ):
-                                        details_container.add_widget(
-                                            Label(
-                                                text=title,
-                                                size_hint_y=None,
-                                                height=25,
-                                                bold=True,
-                                            )
-                                        )
-                                        details_container.add_widget(
-                                            TextInput(
-                                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
-                                                multiline=False,
-                                                size_hint_y=None,
-                                                height=30,
-                                            )
-                                        )
-                                        details_container.add_widget(
-                                            TextInput(
-                                                hint_text="ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
-                                                multiline=False,
-                                                size_hint_y=None,
-                                                height=30,
-                                            )
-                                        )
-                                        details_container.add_widget(
-                                            TextInput(
-                                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
-                                                multiline=False,
-                                                size_hint_y=None,
-                                                height=30,
-                                            )
-                                        )
-                                        details_container.add_widget(
-                                            TextInput(
-                                                hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
-                                                multiline=False,
-                                                size_hint_y=None,
-                                                height=30,
-                                            )
-                                        )
-
-                                    # Category 11: ΑΛΕΞΙΚΕΡΑΥΝΑ
-                                    details_container.add_widget(
-                                        Label(
-                                            text="11. ΑΛΕΞΙΚΕΡΑΥΝΑ",
-                                            size_hint_y=None,
-                                            height=25,
-                                            bold=True,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-                                    details_container.add_widget(
-                                        TextInput(
-                                            hint_text="ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
-                                            multiline=False,
-                                            size_hint_y=None,
-                                            height=30,
-                                        )
-                                    )
-
-                                    # Category 12-13: Α/Ζ ΒΜΣ and Α/Ζ ΤΑΣΕΩΣ
-                                    for title in ["12. Α/Ζ ΒΜΣ", "13. Α/Ζ ΤΑΣΕΩΣ"]:
-                                        details_container.add_widget(
-                                            Label(
-                                                text=title,
-                                                size_hint_y=None,
-                                                height=25,
-                                                bold=True,
-                                            )
-                                        )
-                                        details_container.add_widget(
-                                            TextInput(
-                                                hint_text="ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
-                                                multiline=False,
-                                                size_hint_y=None,
-                                                height=30,
-                                            )
-                                        )
-                                        details_container.add_widget(
-                                            TextInput(
-                                                hint_text="ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ",
-                                                multiline=False,
-                                                size_hint_y=None,
-                                                height=30,
-                                            )
-                                        )
-                                        details_container.add_widget(
-                                            TextInput(
-                                                hint_text="ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
-                                                multiline=False,
-                                                size_hint_y=None,
-                                                height=30,
-                                            )
-                                        )
-
-                                    # Expose transformer widgets for persistence
-                                    measurements.setdefault(
-                                        "satyf_counter", satyf_counter
-                                    )
-                                    measurements.setdefault("silica", silica_spinner)
-                                    measurements.setdefault(
-                                        "temp_fan", (fan_oil, fan_x1, fan_x3)
-                                    )
-                                    measurements.setdefault(
-                                        "temp_alarm", (alarm_oil, alarm_x1, alarm_x3)
-                                    )
-                                    measurements.setdefault(
-                                        "temp_trip", (trip_oil, trip_x1, trip_x3)
-                                    )
-                                    measurements.setdefault(
-                                        "diverter_res",
-                                        (
-                                            div_h1_a,
-                                            div_h1_b,
-                                            div_h2_a,
-                                            div_h2_b,
-                                            div_h3_a,
-                                            div_h3_b,
-                                        ),
+                                    self._build_transformer_measurement_section(
+                                        details_container,
+                                        measurements,
                                     )
                                 except Exception:
                                     pass
@@ -19524,6 +18460,240 @@ class SubstationApp(App):
             inputs[row_key] = tuple(row_inputs)
         return inputs
 
+    def _build_transformer_measurement_section(self, details_container, measurements):
+        def _add_section(title):
+            details_container.add_widget(
+                Label(
+                    text=title,
+                    size_hint_y=None,
+                    height=25,
+                    bold=True,
+                )
+            )
+
+        def _add_text_group(group_key, title, field_labels):
+            _add_section(title)
+            inputs = []
+            for field_label in field_labels:
+                text_input = self._create_measurement_input(
+                    hint_text=field_label,
+                    size_hint_x=0.52,
+                )
+                self._add_labeled_measurement_row(
+                    details_container,
+                    f"{field_label}:",
+                    text_input,
+                    label_size_hint_x=0.48,
+                )
+                inputs.append(text_input)
+            measurements.setdefault(group_key, tuple(inputs))
+
+        _add_section("ΧΕΙΡΙΣΜΟΙ")
+        satyf_counter = self._create_measurement_input(
+            hint_text="Αριθμός Χειρισμών",
+            size_hint_x=0.18,
+        )
+        self._add_labeled_measurement_row(
+            details_container,
+            "Απαριθμητής ΣΑΤΥΦ:",
+            satyf_counter,
+            label_size_hint_x=0.6,
+        )
+        measurements.setdefault("satyf_counter", satyf_counter)
+
+        _add_text_group(
+            "insulators_checks",
+            "1. ΜΟΝΩΤΗΡΕΣ Υ.Τ & Μ.Τ",
+            [
+                "ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ",
+                "ΔΙΑΡΡΟΕΣ",
+                "ΚΑΘΑΡΙΣΜΟΣ",
+                "ΑΚΙΔΕΣ",
+            ],
+        )
+
+        _add_section("2. ΛΑΔΙΑ Μ/Σ")
+        oil_check_inputs = []
+        for field_label in ["ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ", "ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ"]:
+            text_input = self._create_measurement_input(
+                hint_text=field_label,
+                size_hint_x=0.52,
+            )
+            self._add_labeled_measurement_row(
+                details_container,
+                f"{field_label}:",
+                text_input,
+                label_size_hint_x=0.48,
+            )
+            oil_check_inputs.append(text_input)
+        measurements.setdefault("oil_checks", tuple(oil_check_inputs))
+        silica_spinner = Spinner(
+            text="N/A",
+            values=["OK", "NOT OK", "N/A"],
+            size_hint_x=0.2,
+        )
+        self._add_labeled_measurement_row(
+            details_container,
+            "ΣΙΛΙΚΑ:",
+            silica_spinner,
+            label_size_hint_x=0.4,
+        )
+        measurements.setdefault("silica", silica_spinner)
+
+        _add_text_group(
+            "terminal_connection_checks",
+            "3. ΑΚΡΟΔΕΚΤΕΣ ΣΥΝΔΕΣΜΟΙ",
+            ["ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ", "ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ"],
+        )
+        _add_text_group(
+            "transformer_body_checks",
+            "4. ΣΩΜΑ Μ/Σ",
+            [
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ",
+                "ΣΤΕΓΑΝΟΠΟΙΗΣΗ",
+                "ΚΑΘΑΡΙΣΜΟΣ",
+                "ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ",
+                "ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ",
+                "ΕΛΕΓΧΟΣ BUCHOLZ",
+            ],
+        )
+
+        _add_section("ΈΛΕΓΧΟΣ ΘΕΡΜΟΣΤΟΙΧΕΙΩΝ (°C)")
+        temp_header = BoxLayout(size_hint_y=None, height=30)
+        temp_header.add_widget(Label(text="", size_hint_x=0.2))
+        temp_header.add_widget(Label(text="OIL", size_hint_x=0.26))
+        temp_header.add_widget(Label(text="X1", size_hint_x=0.26))
+        temp_header.add_widget(Label(text="X3", size_hint_x=0.28))
+        details_container.add_widget(temp_header)
+
+        def _add_temp_row(title):
+            row = BoxLayout(size_hint_y=None, height=32)
+            row.add_widget(Label(text=title, size_hint_x=0.2))
+            oil_input = self._create_measurement_input(hint_text="", size_hint_x=0.26)
+            x1_input = self._create_measurement_input(hint_text="", size_hint_x=0.26)
+            x3_input = self._create_measurement_input(hint_text="", size_hint_x=0.28)
+            row.add_widget(oil_input)
+            row.add_widget(x1_input)
+            row.add_widget(x3_input)
+            details_container.add_widget(row)
+            return oil_input, x1_input, x3_input
+
+        measurements.setdefault("temp_fan", _add_temp_row("FAN"))
+        measurements.setdefault("temp_alarm", _add_temp_row("ALARM"))
+        measurements.setdefault("temp_trip", _add_temp_row("TRIP"))
+
+        _add_text_group(
+            "satyf_mechanism_checks",
+            "5. ΣΑΤΥΦ - ΜΗΧΑΝΙΣΜΟΣ",
+            [
+                "ΕΛΕΓΧΟΣ ΑΞΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ",
+                "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΩΣΕΩΝ",
+                "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΩΤΩΝ ΤΡΟΧΩΝ",
+                "ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ",
+                "ΕΛΕΓΧΟΣ ΡΩΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER",
+            ],
+        )
+        _add_text_group(
+            "diverter_switch_checks",
+            "6. DIVERTER – ΜΕΤΑΓΩΓΙΚΟΣ ΔΙΑΚΟΠΤΗΣ",
+            [
+                "ΕΛΕΓΧΟΣ ΕΠΑΦΩΝ",
+                "ΣΥΣΦΙΞΕΙΣ",
+                "ΑΛΛΑΓΗ ΛΑΔΙΩΝ",
+                "ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ",
+            ],
+        )
+
+        _add_section(
+            S["MESSAGES"].get(
+                "MEASUREMENT_RESISTANCE_HEADER",
+                "ΜΕΤΡΗΣΗ ΑΝΤΙΣΤΑΣΗΣ (Ω)",
+            )
+        )
+
+        def _add_diverter_row(left_label, right_label):
+            left_input = self._create_measurement_input(
+                hint_text=left_label,
+                size_hint_x=0.18,
+            )
+            right_input = self._create_measurement_input(
+                hint_text=right_label,
+                size_hint_x=0.18,
+            )
+            row = BoxLayout(size_hint_y=None, height=34, spacing=6)
+            row.add_widget(self._create_measurement_label(left_label, size_hint_x=0.18))
+            row.add_widget(left_input)
+            row.add_widget(
+                self._create_measurement_label(right_label, size_hint_x=0.18)
+            )
+            row.add_widget(right_input)
+            row.add_widget(Widget())
+            details_container.add_widget(row)
+            return left_input, right_input
+
+        div_row_1 = _add_diverter_row("H1-1", "H1-2")
+        div_row_2 = _add_diverter_row("H2-1", "H2-2")
+        div_row_3 = _add_diverter_row("H3-1", "H3-2")
+        measurements.setdefault(
+            "diverter_res",
+            div_row_1 + div_row_2 + div_row_3,
+        )
+
+        _add_text_group(
+            "transformer_node_resistance_checks",
+            "7. ΑΝΤΙΣΤΑΣΗ ΚΟΜΒΟΥ Μ/Σ",
+            ["ΚΑΘΑΡΙΣΜΟΣ", "ΜΕΤΡΗΣΗ (Ω)", "ΣΥΣΦΙΞΕΙΣ"],
+        )
+        _add_text_group(
+            "vt_checks_voltage",
+            "8. Μ/Σ ΤΑΣΕΩΣ",
+            [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+        )
+        _add_text_group(
+            "vt_checks_current",
+            "9. Μ/Σ ΕΝΤΑΣΕΩΣ",
+            [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+        )
+        _add_text_group(
+            "vt_checks_injection",
+            "10. Μ/Σ ΕΓΧΥΣΕΩΣ",
+            [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+        )
+        _add_text_group(
+            "lightning_arrester_checks",
+            "11. ΑΛΕΞΙΚΕΡΑΥΝΑ",
+            [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+        )
+        _add_text_group(
+            "switch_checks_bms",
+            "12. Α/Ζ ΒΜΣ",
+            ["ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ", "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ"],
+        )
+        _add_text_group(
+            "switch_checks_voltage",
+            "13. Α/Ζ ΤΑΣΕΩΣ",
+            ["ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ", "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ", "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ"],
+        )
+
     def _bind_measurement_alert_color(self, text_input, predicate):
         default_color = self.theme.get("text", (0.12, 0.12, 0.12, 1))
 
@@ -19563,6 +18733,19 @@ class SubstationApp(App):
             "sf6_leak_methodology",
             "ops_count",
             "satyf_counter",
+            "insulators_checks",
+            "oil_checks",
+            "terminal_connection_checks",
+            "transformer_body_checks",
+            "satyf_mechanism_checks",
+            "diverter_switch_checks",
+            "transformer_node_resistance_checks",
+            "vt_checks_voltage",
+            "vt_checks_current",
+            "vt_checks_injection",
+            "lightning_arrester_checks",
+            "switch_checks_bms",
+            "switch_checks_voltage",
         }
 
         def _bind_widget(widget):
@@ -19778,6 +18961,19 @@ class SubstationApp(App):
             "measure": "Τιμή",
             "satyf_counter": "Απαριθμητής ΣΑΤΥΦ",
             "silica": "Σίλικα",
+            "insulators_checks": "1. Μονωτήρες Υ.Τ & Μ.Τ",
+            "oil_checks": "2. Λάδια Μ/Σ",
+            "terminal_connection_checks": "3. Ακροδέκτες σύνδεσμοι",
+            "transformer_body_checks": "4. Σώμα Μ/Σ",
+            "satyf_mechanism_checks": "5. ΣΑΤΥΦ - Μηχανισμός",
+            "diverter_switch_checks": "6. Diverter - Μεταγωγικός διακόπτης",
+            "transformer_node_resistance_checks": "7. Αντίσταση κόμβου Μ/Σ",
+            "vt_checks_voltage": "8. Μ/Σ Τάσεως",
+            "vt_checks_current": "9. Μ/Σ Εντάσεως",
+            "vt_checks_injection": "10. Μ/Σ Εγχύσεως",
+            "lightning_arrester_checks": "11. Αλεξικέραυνα",
+            "switch_checks_bms": "12. Α/Ζ ΒΜΣ",
+            "switch_checks_voltage": "13. Α/Ζ Τάσεως",
             "temp_fan": "Θερμοστοιχεία FAN",
             "temp_alarm": "Θερμοστοιχεία ALARM",
             "temp_trip": "Θερμοστοιχεία TRIP",
@@ -19800,6 +18996,76 @@ class SubstationApp(App):
             "temp_fan": ["OIL", "X1", "X3"],
             "temp_alarm": ["OIL", "X1", "X3"],
             "temp_trip": ["OIL", "X1", "X3"],
+            "insulators_checks": [
+                "ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ",
+                "ΔΙΑΡΡΟΕΣ",
+                "ΚΑΘΑΡΙΣΜΟΣ",
+                "ΑΚΙΔΕΣ",
+            ],
+            "oil_checks": ["ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ", "ΣΥΜΠΛΗΡΩΣΗ ΕΛΑΙΟΥ"],
+            "terminal_connection_checks": [
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΗΣ ΚΟΧΛΙΩΝ",
+                "ΕΛΕΓΧΟΣ ΕΥΚΑΜΠΤΩΝ ΣΥΝΔΕΣΜΩΝ",
+            ],
+            "transformer_body_checks": [
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ ΕΛΑΙΟΥ",
+                "ΣΤΕΓΑΝΟΠΟΙΗΣΗ",
+                "ΚΑΘΑΡΙΣΜΟΣ",
+                "ΕΛΕΓΧΟΣ ΑΝΑΚΟΥΦΙΣΤΙΚΩΝ ΒΑΛΒΙΔΩΝ",
+                "ΕΛΕΓΧΟΣ ΠΡΕΣΣΟΣΤΑΤΙΚΩΝ",
+                "ΕΛΕΓΧΟΣ BUCHOLZ",
+            ],
+            "satyf_mechanism_checks": [
+                "ΕΛΕΓΧΟΣ ΑΞΟΝΩΝ ΜΕΤΑΔΟΣΗΣ ΚΙΝΗΣΗΣ",
+                "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΑΡΘΡΩΣΕΩΝ",
+                "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ ΟΔΟΝΤΩΤΩΝ ΤΡΟΧΩΝ",
+                "ΔΟΚΙΜΑΣΤΙΚΟΙ ΧΕΙΡΙΣΜΟΙ",
+                "ΕΛΕΓΧΟΣ ΡΩΓΜΩΝ ΣΤΟ ΧΩΡΟ ΤΟΥ DIVERTER",
+            ],
+            "diverter_switch_checks": [
+                "ΕΛΕΓΧΟΣ ΕΠΑΦΩΝ",
+                "ΣΥΣΦΙΞΕΙΣ",
+                "ΑΛΛΑΓΗ ΛΑΔΙΩΝ",
+                "ΕΛΕΓΧΟΣ ALARM ΧΑΜΗΛΗΣ ΣΤΑΘΜΗΣ ΛΑΔΙΟΥ",
+            ],
+            "transformer_node_resistance_checks": [
+                "ΚΑΘΑΡΙΣΜΟΣ",
+                "ΜΕΤΡΗΣΗ (Ω)",
+                "ΣΥΣΦΙΞΕΙΣ",
+            ],
+            "vt_checks_voltage": [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+            "vt_checks_current": [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+            "vt_checks_injection": [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΔΙΑΡΡΟΩΝ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+            "lightning_arrester_checks": [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+                "ΕΛΕΓΧΟΣ ΑΝΤΙΣΤΑΣΗΣ ΜΟΝΩΣΗΣ",
+            ],
+            "switch_checks_bms": [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+            ],
+            "switch_checks_voltage": [
+                "ΟΠΤΙΚΟΣ ΕΛΕΓΧΟΣ",
+                "ΚΑΘΑΡΙΣΜΟΣ, ΛΙΠΑΝΣΗ",
+                "ΕΛΕΓΧΟΣ ΣΥΣΦΙΞΕΩΝ",
+            ],
             "diverter_res": ["H1-1", "H1-2", "H2-1", "H2-2", "H3-1", "H3-2"],
         }
         labels = label_map.get(key) or []
@@ -20480,6 +19746,8 @@ class SubstationApp(App):
         parent_display_popup=None,
         preselected_element_id=None,
         preselected_element_name=None,
+        include_maintenance_ids=None,
+        **kwargs,
     ):
         """Show maintenance history for a specific substation with element filter."""
         font_kwargs = self._get_ui_font_kwargs()
@@ -20507,22 +19775,37 @@ class SubstationApp(App):
             pass
         c = self.conn.cursor()
 
-        c.execute(
-            "SELECT COUNT(*) FROM maintenance WHERE substation_id = ?", (substation_id,)
-        )
-        total_records = c.fetchone()[0]
+        include_maintenance_ids = [
+            int(maintenance_id)
+            for maintenance_id in (include_maintenance_ids or [])
+            if maintenance_id is not None
+        ]
 
-        c.execute(
-            """
-            SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type,
-                 m.preparation_checklist_json, m.data_json
-            FROM maintenance m
-            WHERE m.substation_id = ?
-            ORDER BY m.date_time DESC
-            """,
-            (substation_id,),
-        )
+        if include_maintenance_ids:
+            placeholders = ",".join(["?"] * len(include_maintenance_ids))
+            c.execute(
+                f"""
+                SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type,
+                     m.preparation_checklist_json, m.data_json
+                FROM maintenance m
+                WHERE m.substation_id = ? OR m.id IN ({placeholders})
+                ORDER BY m.date_time DESC, m.id DESC
+                """,
+                [substation_id, *include_maintenance_ids],
+            )
+        else:
+            c.execute(
+                """
+                SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type,
+                     m.preparation_checklist_json, m.data_json
+                FROM maintenance m
+                WHERE m.substation_id = ?
+                ORDER BY m.date_time DESC, m.id DESC
+                """,
+                (substation_id,),
+            )
         maintenance_records = c.fetchall()
+        total_records = len(maintenance_records)
 
         # Prefetch containers (will be filled for each page as loaded)
         people_by_maint = {}
@@ -20640,6 +19923,16 @@ class SubstationApp(App):
             (substation_id,),
         )
         all_elements_in_sub = c.fetchall()
+        if preselected_element_id is not None and preselected_element_id not in {
+            row[0] for row in all_elements_in_sub
+        }:
+            c.execute(
+                "SELECT id, name, element_type FROM elements WHERE id = ?",
+                (preselected_element_id,),
+            )
+            extra_element_row = c.fetchone()
+            if extra_element_row:
+                all_elements_in_sub.append(extra_element_row)
 
         c.execute("""
             SELECT s.id, s.name, COUNT(m.id) AS maint_count
@@ -21188,6 +20481,7 @@ class SubstationApp(App):
                                 parent_display_popup,
                                 current_element_filter.get("id"),
                                 current_element_filter.get("name"),
+                                include_maintenance_ids=include_maintenance_ids,
                             ),
                         )
                     return lambda x: self._open_dga_maintenance_editor(m_id)
@@ -22230,6 +21524,7 @@ class SubstationApp(App):
         _serial_for_dga = None
         _manufacturer_for_dga = None
         _substation_name_for_dga = None
+        is_hv_breaker = False
 
         # Extract element type early to check if transformer (for DGA access)
         if header_row:
@@ -22283,6 +21578,7 @@ class SubstationApp(App):
             _serial_for_dga = serial_number
             _manufacturer_for_dga = manufacturer
             _substation_name_for_dga = sub_name
+            is_hv_breaker = elem_type == self.ELEM_BREAKER_YT
 
             c.execute(
                 "SELECT substation_id FROM maintenance WHERE id=?", (maintenance_id,)
@@ -22362,7 +21658,16 @@ class SubstationApp(App):
             )
             content.add_widget(info_msg)
 
-        if has_measurements:
+        has_closed_insulation = (not is_hv_breaker) and any(
+            [ins_closed_fa, ins_closed_fb, ins_closed_fc]
+        )
+        has_open_insulation = (not is_hv_breaker) and any(
+            [ins_open_fa, ins_open_fb, ins_open_fc]
+        )
+        has_contact_resistance = any([cont_fa, cont_fb, cont_fc])
+        has_operations_count = self._has_meaningful_measurement_value(ops_count)
+
+        if has_closed_insulation:
             add_section(
                 S["MESSAGES"].get(
                     "INSULATION_RESISTANCE_CLOSED_TITLE",
@@ -22388,6 +21693,7 @@ class SubstationApp(App):
             )
             content.add_widget(grid)
 
+        if has_open_insulation:
             add_section(
                 S["MESSAGES"].get(
                     "INSULATION_RESISTANCE_OPEN_TITLE",
@@ -22413,9 +21719,10 @@ class SubstationApp(App):
             )
             content.add_widget(grid)
 
+        if has_contact_resistance:
             add_section(
                 S["MESSAGES"].get(
-                    "INSULATION_PASSAGE_TITLE", "Αντίσταση Διέλευσης (μΩ)"
+                    "INSULATION_PASSAGE_TITLE", "Αντίσταση Διαβάσεως (μΩ)"
                 )
             )
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
@@ -22427,6 +21734,7 @@ class SubstationApp(App):
             add_kv_row(grid, "ΦΓ-ΦΓ", fmt(cont_fc))
             content.add_widget(grid)
 
+        if has_operations_count:
             add_section("Μετρητής Χειρισμών")
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
@@ -22499,11 +21807,6 @@ class SubstationApp(App):
             content.add_widget(grid)
 
         if self._has_meaningful_measurement_value(detail_payload):
-            add_section(
-                S["MESSAGES"].get(
-                    "FORM_DATA_SECTION_TITLE", "Καταχωρημένα δεδομένα φόρμας"
-                )
-            )
             content.add_widget(
                 make_wrapped_label(
                     self._format_measurement_details_payload(detail_payload),

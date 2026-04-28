@@ -1,9 +1,14 @@
 import DBrun
 import dbsubstations.strings as packaged_strings
+import json
 import kivy.uix.popup as popup_module
 import strings
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
@@ -220,3 +225,172 @@ def test_format_measurement_details_payload_formats_nested_values():
     assert "O:" in text
     assert "ΦΑΣΗ Α: 10" in text
     assert "Αλλαγή λαδιών: Ναι" in text
+
+
+def test_build_transformer_measurement_section_adds_labels_and_persistent_keys(
+    monkeypatch,
+):
+    monkeypatch.setattr(DBrun, "BoxLayout", BoxLayout)
+    monkeypatch.setattr(DBrun, "Label", Label)
+    monkeypatch.setattr(DBrun, "TextInput", TextInput)
+    monkeypatch.setattr(DBrun, "Spinner", Spinner)
+
+    app = object.__new__(DBrun.SubstationApp)
+    details_container = BoxLayout(orientation="vertical")
+    measurements = {}
+
+    app._build_transformer_measurement_section(details_container, measurements)
+
+    texts = _collect_texts(details_container)
+    assert "ΕΛΕΓΧΟΣ ΓΙΑ ΘΡΑΥΣΗ:" in texts
+    assert "ΕΛΕΓΧΟΣ ΣΤΑΘΜΗΣ ΕΛΑΙΟΥ:" in texts
+    assert "H1-1" in texts
+    assert "satyf_counter" in measurements
+    assert "insulators_checks" in measurements
+    assert len(measurements["insulators_checks"]) == 4
+    assert len(measurements["diverter_res"]) == 6
+
+
+def test_transformer_measurement_groups_round_trip_through_serialization(monkeypatch):
+    monkeypatch.setattr(DBrun, "BoxLayout", BoxLayout)
+    monkeypatch.setattr(DBrun, "Label", Label)
+    monkeypatch.setattr(DBrun, "TextInput", TextInput)
+    monkeypatch.setattr(DBrun, "Spinner", Spinner)
+
+    app = object.__new__(DBrun.SubstationApp)
+
+    original_container = BoxLayout(orientation="vertical")
+    original_measurements = {}
+    app._build_transformer_measurement_section(
+        original_container, original_measurements
+    )
+    original_measurements["insulators_checks"][0].text = "ΟΚ"
+    original_measurements["oil_checks"][1].text = "Συμπληρώθηκε"
+    original_measurements["diverter_res"][0].text = "7.6"
+
+    payload = app._serialize_measurements_for_storage(original_measurements)
+
+    restored_container = BoxLayout(orientation="vertical")
+    restored_measurements = {}
+    app._build_transformer_measurement_section(
+        restored_container, restored_measurements
+    )
+    app._apply_serialized_measurement_value(restored_measurements, payload)
+
+    assert restored_measurements["insulators_checks"][0].text == "ΟΚ"
+    assert restored_measurements["oil_checks"][1].text == "Συμπληρώθηκε"
+    assert restored_measurements["diverter_res"][0].text == "7.6"
+
+
+def test_show_maintenance_element_details_hv_breaker_hides_insulation_sections(
+    monkeypatch,
+):
+    captured = {}
+
+    class FakeCursor:
+        def __init__(self):
+            self._last_query = ""
+
+        def execute(self, query, _params=None):
+            self._last_query = query
+            return self
+
+        def fetchone(self):
+            if "SELECT m.name, m.date_time" in self._last_query:
+                return (
+                    "M1",
+                    "2026-04-28 10:00:00",
+                    "Γενικό σχόλιο",
+                    "Περιοδική",
+                    "tester",
+                    "ΥΣ 1",
+                    "Loc",
+                    "Div",
+                    DBrun.SubstationApp.ELEM_BREAKER_YT,
+                    "Q1",
+                    "SN1",
+                    "ABB",
+                    "Model1",
+                    "SF6",
+                    "150KV",
+                    "Π1",
+                    "H1",
+                    "2020",
+                    None,
+                    None,
+                    None,
+                )
+            if "SELECT me.element_comments" in self._last_query:
+                return (
+                    "Σχόλιο στοιχείου",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "10",
+                    "11",
+                    "12",
+                    5,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    json.dumps({"oil_condition": "Καλή"}, ensure_ascii=False),
+                    "SF6",
+                )
+            if "SELECT substation_id FROM maintenance" in self._last_query:
+                return (1,)
+            return None
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePopup:
+        def __init__(self, *args, **kwargs):
+            captured["popup"] = self
+            self.content = None
+
+        def open(self):
+            captured["opened"] = True
+
+        def dismiss(self):
+            return None
+
+    monkeypatch.setattr(DBrun, "Popup", FakePopup)
+    monkeypatch.setattr(DBrun, "BoxLayout", BoxLayout)
+    monkeypatch.setattr(DBrun, "GridLayout", GridLayout)
+    monkeypatch.setattr(DBrun, "Label", Label)
+    monkeypatch.setattr(DBrun, "Button", Button)
+    monkeypatch.setattr(DBrun, "ScrollView", ScrollView)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = FakeConnection()
+
+    app.show_maintenance_element_details(1, 2, "Q1")
+
+    assert captured.get("opened") is True
+    texts = _collect_texts(captured["popup"].content)
+    assert "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)" not in texts
+    assert "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)" not in texts
+    assert "Καταχωρημένα δεδομένα φόρμας" not in texts
+    assert "[b]Αντίσταση Διαβάσεως (uOhm)[/b]" in texts
+    assert "Κατάσταση λαδιού: Καλή" in texts

@@ -38,3 +38,26 @@ def test_do_export_pending_changes_waits_for_commit(monkeypatch):
 
     assert exported == [False]
     assert app._export_scheduled is False
+
+
+def test_keep_mine_conflict_resolution_skips_missing_local_record(monkeypatch):
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = None
+
+    resolved = []
+
+    monkeypatch.setattr(
+        app,
+        "_load_conflict_context",
+        lambda filename: (_ for _ in ()).throw(RuntimeError("missing local row")),
+    )
+    monkeypatch.setattr(
+        app,
+        "_mark_conflict_resolved",
+        lambda filename, resolution: resolved.append((filename, resolution)),
+    )
+
+    result = app._apply_conflict_resolution("conflict.jsonl", "keep_mine")
+
+    assert result == {"filename": "conflict.jsonl"}
+    assert resolved == [("conflict.jsonl", "keep_mine")]
