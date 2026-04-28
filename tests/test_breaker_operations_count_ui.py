@@ -182,3 +182,41 @@ def test_show_element_quick_view_prefers_model_installation_space(monkeypatch):
     assert captured.get("opened") is True
     texts = _collect_texts(captured["popup"].content)
     assert "Χώρος: Εσωτερικός" in texts
+
+
+def test_prepare_measurement_details_payload_keeps_json_only_fields():
+    app = object.__new__(DBrun.SubstationApp)
+
+    payload = {
+        "ops_count": 123,
+        "sync_timing": {"open": ["10", "11", "12"]},
+        "oil_condition": "Καλή",
+        "empty_value": "   ",
+    }
+
+    prepared = app._prepare_measurement_details_payload(
+        payload,
+        exclude_keys=app._maintenance_detail_legacy_measurement_keys(),
+    )
+
+    assert "ops_count" not in prepared
+    assert prepared == {
+        "sync_timing": {"open": ["10", "11", "12"]},
+        "oil_condition": "Καλή",
+    }
+
+
+def test_format_measurement_details_payload_formats_nested_values():
+    app = object.__new__(DBrun.SubstationApp)
+
+    text = app._format_measurement_details_payload(
+        {
+            "sync_timing": {"open": ["10", "11", "12"]},
+            "oil_changed": True,
+        }
+    )
+
+    assert "Έλεγχος ταυτοχρονισμού:" in text
+    assert "O:" in text
+    assert "ΦΑΣΗ Α: 10" in text
+    assert "Αλλαγή λαδιών: Ναι" in text

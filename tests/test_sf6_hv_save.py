@@ -54,6 +54,13 @@ def test_normalize_decimal_numeric_text_accepts_comma_and_dot():
     assert normalize_decimal_numeric_text("2,50", decimal_separator=",") == "2,50"
 
 
+def test_normalize_decimal_numeric_text_handles_mixed_separators_and_spaces():
+    assert normalize_decimal_numeric_text("1.234,56") == "1234.56"
+    assert normalize_decimal_numeric_text("1,234.56") == "1234.56"
+    assert normalize_decimal_numeric_text(" 1 234,56 ") == "1234.56"
+    assert normalize_decimal_numeric_text("-0,75") == "-0.75"
+
+
 def test_sf6_report_data_groups_by_substation_and_keeps_ids(tmp_path):
     db_path = tmp_path / "test_sf6_report.db"
     conn = init_db(str(db_path))

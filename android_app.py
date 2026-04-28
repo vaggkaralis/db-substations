@@ -7341,6 +7341,8 @@ class SubstationAndroidApp(App):
         button_layout = BoxLayout(size_hint_y=0.15, spacing=10)
 
         def save_maintenance():
+            from reports import normalize_decimal_numeric_text
+
             # Validate
             selected_elements = [
                 (eid, widgets)
@@ -7369,9 +7371,16 @@ class SubstationAndroidApp(App):
                 if measurements:
                     for key, widget in measurements.items():
                         if hasattr(widget, "text"):
+                            normalized_text = normalize_decimal_numeric_text(
+                                widget.text
+                            )
+                            if normalized_text != widget.text:
+                                widget.text = normalized_text
                             try:
                                 elem_data[key] = (
-                                    float(widget.text) if widget.text.strip() else None
+                                    float(normalized_text)
+                                    if normalized_text.strip()
+                                    else None
                                 )
                             except ValueError:
                                 elem_data[key] = None

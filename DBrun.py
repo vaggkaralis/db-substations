@@ -1388,7 +1388,21 @@ class SubstationApp(App):
 
         to_add = sorted(target_ids - current_ids)
         to_remove = sorted(current_ids - target_ids)
-        affected_ids = sorted(current_ids | target_ids)
+        blocked_removals = []
+        removable_ids = []
+
+        for maintenance_id in to_remove:
+            cursor.execute(
+                "SELECT COUNT(*) FROM maintenance_elements WHERE maintenance_id = ?",
+                (maintenance_id,),
+            )
+            linked_count = cursor.fetchone()[0] or 0
+            if linked_count <= 1:
+                blocked_removals.append(maintenance_id)
+            else:
+                removable_ids.append(maintenance_id)
+
+        changed_ids = sorted(set(to_add) | set(removable_ids))
 
         for maintenance_id in to_add:
             cursor.execute(
@@ -1404,7 +1418,7 @@ class SubstationApp(App):
                 (maintenance_id, element_id, maintenance_id, element_id),
             )
 
-        for maintenance_id in to_remove:
+        for maintenance_id in removable_ids:
             cursor.execute(
                 "DELETE FROM maintenance_elements WHERE maintenance_id = ? AND element_id = ?",
                 (maintenance_id, element_id),
@@ -1417,7 +1431,7 @@ class SubstationApp(App):
         )
         self.conn.commit()
 
-        for maintenance_id in affected_ids:
+        for maintenance_id in changed_ids:
             self._append_change_log(
                 "update",
                 "maintenance",
@@ -1432,7 +1446,8 @@ class SubstationApp(App):
 
         return {
             "added": len(to_add),
-            "removed": len(to_remove),
+            "removed": len(removable_ids),
+            "blocked": blocked_removals,
         }
 
     def _show_element_maintenance_link_popup(
@@ -1462,6 +1477,15 @@ class SubstationApp(App):
             (element_id, substation_id),
         )
         maintenance_rows = cursor.fetchall() or []
+        maintenance_info_by_id = {
+            row[0]: {
+                "name": row[1],
+                "date_time": row[2],
+                "maintenance_type": row[3],
+            }
+            for row in maintenance_rows
+            if row and row[0]
+        }
 
         if not maintenance_rows:
             show_message_popup(
@@ -1546,6 +1570,8 @@ class SubstationApp(App):
         buttons = BoxLayout(size_hint_y=None, height=44, spacing=10)
 
         def _apply_links(_instance=None):
+            from reports import show_confirm
+
             chosen_ids = {
                 maintenance_id
                 for maintenance_id, checkbox in checkbox_by_maintenance.items()
@@ -1564,11 +1590,73 @@ class SubstationApp(App):
                 )
                 return
 
+            def _reopen_history():
+                self.show_substation_maintenance_history(
+                    substation_id,
+                    substation_name,
+                    parent_display_popup=parent_display_popup,
+                    preselected_element_id=element_id,
+                    preselected_element_name=element_name,
+                )
+
             popup.dismiss()
             try:
                 history_popup.dismiss()
             except Exception:
                 pass
+
+            blocked_ids = result.get("blocked") or []
+            if blocked_ids:
+                first_blocked_id = blocked_ids[0]
+                blocked_details = maintenance_info_by_id.get(first_blocked_id, {})
+                blocked_name = blocked_details.get(
+                    "name"
+                ) or self._build_maintenance_name(
+                    substation_name,
+                    blocked_details.get("date_time"),
+                )
+                blocked_type = blocked_details.get("maintenance_type") or S[
+                    "MESSAGES"
+                ].get("MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση")
+                blocked_date = (
+                    self._format_maintenance_date(blocked_details.get("date_time"))
+                    or "-"
+                )
+
+                extra_lines = []
+                if result.get("added"):
+                    extra_lines.append(f"Προστέθηκαν συνδέσεις: {result['added']}")
+                if result.get("removed"):
+                    extra_lines.append(f"Αφαιρέθηκαν συνδέσεις: {result['removed']}")
+                extra_text = "\n".join(extra_lines)
+                if extra_text:
+                    extra_text = f"\n\n{extra_text}"
+
+                blocked_suffix = ""
+                if len(blocked_ids) > 1:
+                    blocked_suffix = f"\n\nΒρέθηκαν ακόμη {len(blocked_ids) - 1} συντηρήσεις με το ίδιο πρόβλημα."
+
+                show_confirm(
+                    S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                    (
+                        "Η συντήρηση δεν μπορεί να αποσυνδεθεί από αυτό το στοιχείο, "
+                        "γιατί θα μείνει χωρίς κανένα συνδεδεμένο στοιχείο.\n\n"
+                        f"{blocked_date} | {blocked_type} | {blocked_name}"
+                        f"{extra_text}{blocked_suffix}"
+                    ),
+                    yes_callback=lambda: self.show_maintenance_menu(
+                        None,
+                        substation_name,
+                        None,
+                        first_blocked_id,
+                        _reopen_history,
+                    ),
+                    yes_text="Άνοιγμα συντήρησης",
+                    no_text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"),
+                    no_callback=_reopen_history,
+                    size_hint=(0.72, 0.42),
+                )
+                return
 
             show_message_popup(
                 S["TITLES"].get("SUCCESS", "Επιτυχία"),
@@ -1578,13 +1666,7 @@ class SubstationApp(App):
                     "Οι συνδέσεις συντηρήσεων ενημερώθηκαν. Προστέθηκαν: {added}, αφαιρέθηκαν: {removed}.",
                 )
                 .format(added=result["added"], removed=result["removed"]),
-                callback=lambda: self.show_substation_maintenance_history(
-                    substation_id,
-                    substation_name,
-                    parent_display_popup=parent_display_popup,
-                    preselected_element_id=element_id,
-                    preselected_element_name=element_name,
-                ),
+                callback=_reopen_history,
             )
 
         save_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"))
@@ -17720,6 +17802,8 @@ class SubstationApp(App):
 
                             measurements_toggle.bind(active=_toggle_measurements)
 
+                        self._bind_decimal_measurement_widgets(measurements)
+
                         # Save into per-element storage (use eid)
                         element_widgets.setdefault(eid, {})
                         element_widgets[eid]["details_container"] = details_container
@@ -19318,6 +19402,24 @@ class SubstationApp(App):
         _resize()
         return text_input
 
+    def _bind_row_height_to_children(self, row, *, min_height=34):
+        def _resize(*_args):
+            child_heights = [
+                getattr(child, "height", 0)
+                for child in row.children
+                if getattr(child, "size_hint_y", None) is None
+            ]
+            row.height = max(min_height, max(child_heights, default=min_height))
+
+        for child in row.children:
+            if hasattr(child, "bind"):
+                try:
+                    child.bind(height=_resize)
+                except Exception:
+                    pass
+        _resize()
+        return row
+
     def _create_measurement_input(
         self,
         *,
@@ -19363,6 +19465,7 @@ class SubstationApp(App):
         for widget in widgets:
             row.add_widget(widget)
         row.add_widget(Widget())
+        self._bind_row_height_to_children(row, min_height=height)
         container.add_widget(row)
         return row
 
@@ -19433,6 +19536,53 @@ class SubstationApp(App):
 
         text_input.bind(text=_on_text)
         _on_text(text_input, text_input.text)
+
+    def _bind_decimal_text_input(self, text_input):
+        if text_input is None or getattr(
+            text_input, "_decimal_normalization_bound", False
+        ):
+            return text_input
+
+        text_input._decimal_normalization_bound = True
+
+        def _on_text(inst, value):
+            normalized = self._normalize_decimal_numeric_text(value)
+            if normalized != value:
+                inst.text = normalized
+
+        text_input.bind(text=_on_text)
+        return text_input
+
+    def _bind_decimal_measurement_widgets(self, measurements):
+        excluded_keys = {
+            "oil_condition",
+            "wash_insulators",
+            "corrosion_check",
+            "sf6_leak_check",
+            "heater_resistance_check",
+            "sf6_leak_methodology",
+            "ops_count",
+            "satyf_counter",
+        }
+
+        def _bind_widget(widget):
+            if widget is None:
+                return
+            if isinstance(widget, dict):
+                for child in widget.values():
+                    _bind_widget(child)
+                return
+            if isinstance(widget, (list, tuple)):
+                for child in widget:
+                    _bind_widget(child)
+                return
+            if isinstance(widget, TextInput):
+                self._bind_decimal_text_input(widget)
+
+        for key, widget in (measurements or {}).items():
+            if key in excluded_keys or str(key).endswith("_unit"):
+                continue
+            _bind_widget(widget)
 
     def _collect_measurement_widgets(
         self,
@@ -19537,6 +19687,173 @@ class SubstationApp(App):
         if isinstance(value, bool):
             return value
         return str(value).strip() != ""
+
+    def _maintenance_detail_legacy_measurement_keys(self):
+        return {
+            "ins_closed_fa",
+            "ins_closed_fa_unit",
+            "ins_closed_fb",
+            "ins_closed_fb_unit",
+            "ins_closed_fc",
+            "ins_closed_fc_unit",
+            "ins_open_fa",
+            "ins_open_fa_unit",
+            "ins_open_fb",
+            "ins_open_fb_unit",
+            "ins_open_fc",
+            "ins_open_fc_unit",
+            "cont_fa",
+            "cont_fb",
+            "cont_fc",
+            "ops_count",
+            "sf6_leakage",
+            "sf6_leak_methodology",
+            "sf6",
+            "vidar",
+        }
+
+    def _prepare_measurement_details_payload(self, payload, exclude_keys=None):
+        exclude_keys = set(exclude_keys or [])
+
+        if isinstance(payload, dict):
+            result = {}
+            for key, value in payload.items():
+                if key in exclude_keys:
+                    continue
+                prepared_value = self._prepare_measurement_details_payload(value)
+                if self._has_meaningful_measurement_value(prepared_value):
+                    result[key] = prepared_value
+            return result
+
+        if isinstance(payload, (list, tuple)):
+            items = [
+                self._prepare_measurement_details_payload(item) for item in payload
+            ]
+            return [
+                item for item in items if self._has_meaningful_measurement_value(item)
+            ]
+
+        return payload
+
+    def _measurement_detail_label(self, key):
+        label_map = {
+            "oil_condition": "Κατάσταση λαδιού",
+            "oil_changed": "Αλλαγή λαδιών",
+            "sync_timing": "Έλεγχος ταυτοχρονισμού",
+            "open": "O",
+            "close": "C",
+            "co": "CO",
+            "phase_a": "ΦΑΣΗ Α",
+            "phase_b": "ΦΑΣΗ Β",
+            "phase_c": "ΦΑΣΗ Γ",
+            "wash_insulators": "Πλύσιμο μονωτήρων - έλεγχος φθορών",
+            "connections_check": "Έλεγχος συνδέσμων, κεφαλών, πύρων",
+            "lubrication": "Λίπανση μηχανισμού",
+            "resistance_raid": "Μέτρηση Αντίστασης Διαβάσεως",
+            "contact_az": "Μέτρηση Επαφών Α/Ζ",
+            "contact_ms": "Μέτρηση Επαφών Μ/Σ",
+            "amort_dist": "Αποστάσεις αμορτισέρ",
+            "closed": "Διακόπτης κλειστός",
+            "motor_current_dc": "Ρεύμα κινητήρα DC",
+            "spring_charge_time": "Χρόνος τάνυσης ελατηρίου",
+            "heater_resistance_check": "Έλεγχος λειτουργίας θερμαντικής αντίστασης",
+            "sf6_lubrication": "Λίπανση μηχανισμού αρθρώσεων",
+            "sf6_leak_check": "Έλεγχος διαρροών SF6",
+            "sf6_refill": "Συμπλήρωση SF6",
+            "corrosion_check": "Έλεγχος διάβρωσης εξωτερικών μεταλλικών τμημάτων",
+            "sf6_pressure_gauge_value": "Τιμή μανόμετρου SF6",
+            "sf6_pressure_gauge_unit": "Μονάδα μανόμετρου SF6",
+            "sf6_alarm_appearance_value": "ALARM εμφάνιση",
+            "sf6_alarm_appearance_unit": "Μονάδα ALARM εμφάνισης",
+            "sf6_block_appearance_value": "BLOCK εμφάνιση",
+            "sf6_block_appearance_unit": "Μονάδα BLOCK εμφάνισης",
+            "sf6_alarm_disappearance_value": "ALARM εξαφάνιση",
+            "sf6_alarm_disappearance_unit": "Μονάδα ALARM εξαφάνισης",
+            "sf6_block_disappearance_value": "BLOCK εξαφάνιση",
+            "sf6_block_disappearance_unit": "Μονάδα BLOCK εξαφάνισης",
+            "post_sf6_quality": "Έλεγχος ποιότητας SF6 μετά τη συντήρηση",
+            "sf6_pct": "SF6 (%)",
+            "h2o": "H2O (°C)",
+            "so": "SO (ppm)",
+            "measure": "Τιμή",
+            "satyf_counter": "Απαριθμητής ΣΑΤΥΦ",
+            "silica": "Σίλικα",
+            "temp_fan": "Θερμοστοιχεία FAN",
+            "temp_alarm": "Θερμοστοιχεία ALARM",
+            "temp_trip": "Θερμοστοιχεία TRIP",
+            "diverter_res": "Μετρήσεις αντίστασης diverter",
+        }
+        if key in label_map:
+            return label_map[key]
+        return str(key).replace("_", " ").strip().capitalize()
+
+    def _measurement_detail_sequence_labels(self, key, count):
+        label_map = {
+            "open": ["ΦΑΣΗ Α", "ΦΑΣΗ Β", "ΦΑΣΗ Γ"],
+            "close": ["ΦΑΣΗ Α", "ΦΑΣΗ Β", "ΦΑΣΗ Γ"],
+            "co": ["ΦΑΣΗ Α", "ΦΑΣΗ Β", "ΦΑΣΗ Γ"],
+            "closed": ["ΦΑΣΗ Α", "ΦΑΣΗ Β", "ΦΑΣΗ Γ"],
+            "resistance_raid": ["Α", "Β", "Γ"],
+            "contact_az": ["Α", "Β", "Γ"],
+            "contact_ms": ["Α", "Β", "Γ"],
+            "measure": ["Α", "Β", "Γ"],
+            "temp_fan": ["OIL", "X1", "X3"],
+            "temp_alarm": ["OIL", "X1", "X3"],
+            "temp_trip": ["OIL", "X1", "X3"],
+            "diverter_res": ["H1-1", "H1-2", "H2-1", "H2-2", "H3-1", "H3-2"],
+        }
+        labels = label_map.get(key) or []
+        if len(labels) >= count:
+            return labels[:count]
+        return [f"Τιμή {idx + 1}" for idx in range(count)]
+
+    def _format_measurement_details_payload(self, payload, parent_key=None, indent=0):
+        prefix = "  " * indent
+
+        if isinstance(payload, dict):
+            lines = []
+            for key, value in payload.items():
+                if not self._has_meaningful_measurement_value(value):
+                    continue
+                label = self._measurement_detail_label(key)
+                if isinstance(value, (dict, list, tuple)):
+                    lines.append(f"{prefix}{label}:")
+                    nested_text = self._format_measurement_details_payload(
+                        value, parent_key=key, indent=indent + 1
+                    )
+                    if nested_text:
+                        lines.append(nested_text)
+                else:
+                    scalar_text = self._format_measurement_details_payload(
+                        value, parent_key=key, indent=0
+                    )
+                    lines.append(f"{prefix}{label}: {scalar_text}")
+            return "\n".join(lines)
+
+        if isinstance(payload, (list, tuple)):
+            labels = self._measurement_detail_sequence_labels(parent_key, len(payload))
+            lines = []
+            for index, value in enumerate(payload):
+                if not self._has_meaningful_measurement_value(value):
+                    continue
+                item_label = (
+                    labels[index] if index < len(labels) else f"Τιμή {index + 1}"
+                )
+                if isinstance(value, (dict, list, tuple)):
+                    lines.append(f"{prefix}{item_label}:")
+                    nested_text = self._format_measurement_details_payload(
+                        value, parent_key=parent_key, indent=indent + 1
+                    )
+                    if nested_text:
+                        lines.append(nested_text)
+                else:
+                    lines.append(f"{prefix}{item_label}: {value}")
+            return "\n".join(lines)
+
+        if isinstance(payload, bool):
+            return "Ναι" if payload else "Όχι"
+
+        return str(payload)
 
     def _gate_has_transformer_elements(self, gate_elements):
         return any(self._is_transformer(elem[1]) for elem in gate_elements)
@@ -21774,6 +22091,7 @@ class SubstationApp(App):
                    me.sf6_n2_fb, me.h2o_fb, me.so2_fb,
                    me.sf6_n2_fc, me.h2o_fc, me.so2_fc,
                    me.vidar_fa, me.vidar_fb, me.vidar_fc,
+                     me.data_json,
                    e.breaker_category
             FROM maintenance_elements me
             JOIN elements e ON me.element_id = e.id
@@ -21825,8 +22143,23 @@ class SubstationApp(App):
             vidar_fa,
             vidar_fb,
             vidar_fc,
+            extra_measurements_json,
             breaker_category,
         ) = row
+
+        extra_measurements = {}
+        if extra_measurements_json:
+            try:
+                decoded_data = json.loads(extra_measurements_json)
+                if isinstance(decoded_data, dict):
+                    extra_measurements = decoded_data
+            except Exception:
+                extra_measurements = {}
+
+        detail_payload = self._prepare_measurement_details_payload(
+            extra_measurements,
+            exclude_keys=self._maintenance_detail_legacy_measurement_keys(),
+        )
 
         def fmt(val, unit=None):
             if val is None or val == "":
@@ -21884,6 +22217,9 @@ class SubstationApp(App):
                 vidar_fb,
                 vidar_fc,
             ]
+        )
+        has_measurements = has_measurements or self._has_meaningful_measurement_value(
+            detail_payload
         )
 
         popup = Popup(title=f"Μετρήσεις: {element_name}", size_hint=(0.9, 0.9))
@@ -22161,6 +22497,19 @@ class SubstationApp(App):
                 grid, S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ"), fmt(vidar_fc)
             )
             content.add_widget(grid)
+
+        if self._has_meaningful_measurement_value(detail_payload):
+            add_section(
+                S["MESSAGES"].get(
+                    "FORM_DATA_SECTION_TITLE", "Καταχωρημένα δεδομένα φόρμας"
+                )
+            )
+            content.add_widget(
+                make_wrapped_label(
+                    self._format_measurement_details_payload(detail_payload),
+                    bold=False,
+                )
+            )
 
         scroll.add_widget(content)
         main_layout.add_widget(scroll)

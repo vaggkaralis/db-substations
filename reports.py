@@ -1,6 +1,7 @@
 import importlib
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,9 +15,29 @@ from strings_proxy import STRINGS as S
 
 
 def normalize_decimal_numeric_text(value, decimal_separator="."):
-    text = "" if value is None else str(value)
-    alternate_separator = "," if decimal_separator == "." else "."
-    return text.replace(alternate_separator, decimal_separator)
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+
+    text = text.replace("\u00a0", " ")
+    text = re.sub(r"\s+", "", text)
+    if not text:
+        return ""
+
+    last_comma = text.rfind(",")
+    last_dot = text.rfind(".")
+
+    if last_comma != -1 and last_dot != -1:
+        if last_comma > last_dot:
+            canonical = text.replace(".", "").replace(",", ".")
+        else:
+            canonical = text.replace(",", "")
+    else:
+        canonical = text.replace(",", ".")
+
+    if decimal_separator == ",":
+        return canonical.replace(".", ",")
+    return canonical
 
 
 def _compute_sf6_leakage_bands(rows):
