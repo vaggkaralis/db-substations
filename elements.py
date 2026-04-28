@@ -50,9 +50,82 @@ def _table_has_column(conn, table_name, column_name):
     cursor = conn.cursor()
     try:
         cursor.execute(f"PRAGMA table_info({table_name})")
+        rows = cursor.fetchall() or []
+        return any(row[1] == column_name for row in rows)
     except Exception:
         return False
-    return any(row[1] == column_name for row in cursor.fetchall())
+
+
+def _show_no_history_maintenance_options(
+    app,
+    *,
+    element_id,
+    element_name,
+    substation_id,
+    substation_name,
+    parent_popup,
+):
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+
+    prompt_popup = Popup(
+        title=S["MESSAGES"]
+        .get(
+            "ELEMENT_MAINT_HISTORY_TITLE",
+            "Ιστορικό Συντήρησης - {element_name}",
+        )
+        .format(element_name=element_name or ""),
+        size_hint=(0.72, 0.34),
+    )
+    content = BoxLayout(orientation="vertical", padding=10, spacing=10)
+    content.add_widget(
+        Label(
+            text=(
+                "Δεν υπάρχει ιστορικό συντηρήσεων για αυτό το στοιχείο. "
+                "Θέλετε να καταχωρήσετε νέα συντήρηση ή να το συνδέσετε με υπάρχουσα;"
+            )
+        )
+    )
+    buttons = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+    def _open_new(_instance=None):
+        prompt_popup.dismiss()
+        app.show_maintenance_menu_for_substation(
+            substation_id,
+            substation_name,
+            parent_popup,
+            preselected_element_id=element_id,
+            preselected_element_name=element_name,
+        )
+
+    def _open_existing(_instance=None):
+        prompt_popup.dismiss()
+        app._show_element_maintenance_link_popup(
+            substation_id=substation_id,
+            substation_name=substation_name,
+            element_id=element_id,
+            element_name=element_name,
+            history_popup=prompt_popup,
+            parent_display_popup=parent_popup,
+        )
+
+    add_btn = Button(text="Νέα συντήρηση")
+    add_btn.bind(on_press=_open_new)
+    buttons.add_widget(add_btn)
+
+    existing_btn = Button(text="Σύνδεση με υπάρχουσα")
+    existing_btn.bind(on_press=_open_existing)
+    buttons.add_widget(existing_btn)
+
+    cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+    cancel_btn.bind(on_press=prompt_popup.dismiss)
+    buttons.add_widget(cancel_btn)
+
+    content.add_widget(buttons)
+    prompt_popup.content = content
+    prompt_popup.open()
 
 
 def _find_duplicate_element_id(
@@ -1707,15 +1780,11 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
                 icon_type="maintenance", icon_color=(0.4, 0.6, 0.8, 1), size=(30, 30)
             )
             history_btn.size_hint_x = 0.2
-            if _element_has_valid_maintenance_history(app.conn, elem_id):
-                history_btn.bind(
-                    on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (
-                        app.show_element_maintenance_history(eid, ename, p)
-                    )
+            history_btn.bind(
+                on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (
+                    app.show_element_maintenance_history(eid, ename, p)
                 )
-            else:
-                history_btn.disabled = True
-                history_btn.icon_color = (0.5, 0.5, 0.5, 0.5)
+            )
             btn_layout.add_widget(history_btn)
 
             edit_btn = IconOnlyButton(
@@ -1773,16 +1842,6 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
     except Exception:
         pass
 
-    if not _element_has_valid_maintenance_history(app.conn, element_id):
-        show_message_popup(
-            S["TITLES"].get("INFO", S["TITLES"].get("ERROR", "Σφάλμα")),
-            S["MESSAGES"].get(
-                "NO_MAINTENANCE_HISTORY",
-                "Δεν υπάρχει ιστορικό συντηρήσεων για αυτό το στοιχείο",
-            ),
-        )
-        return
-
     c = app.conn.cursor()
     c.execute(
         """
@@ -1804,6 +1863,19 @@ def show_element_maintenance_history(app, element_id, element_name, parent_popup
 
     substation_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
     substation_name = row[1] if isinstance(row, (tuple, list)) else row["name"]
+
+    if not _element_has_valid_maintenance_history(
+        app.conn, canonical_element_id or element_id
+    ):
+        _show_no_history_maintenance_options(
+            app,
+            element_id=canonical_element_id or element_id,
+            element_name=canonical_name,
+            substation_id=substation_id,
+            substation_name=substation_name,
+            parent_popup=parent_popup,
+        )
+        return
 
     app.show_substation_maintenance_history(
         substation_id,

@@ -1346,6 +1346,258 @@ class SubstationApp(App):
         if commit:
             self.conn.commit()
 
+    def _build_maintenance_change_log_elements(self, maintenance_id):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT element_id, element_comments
+            FROM maintenance_elements
+            WHERE maintenance_id = ?
+            ORDER BY id
+            """,
+            (maintenance_id,),
+        )
+        return [
+            {
+                "element_id": row[0],
+                "element_comments": row[1],
+            }
+            for row in (cursor.fetchall() or [])
+            if row and row[0] is not None
+        ]
+
+    def _sync_element_maintenance_links(
+        self,
+        *,
+        substation_id,
+        element_id,
+        selected_maintenance_ids,
+    ):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT me.maintenance_id
+            FROM maintenance_elements me
+            JOIN maintenance m ON m.id = me.maintenance_id
+            WHERE me.element_id = ? AND m.substation_id = ?
+            """,
+            (element_id, substation_id),
+        )
+        current_ids = {row[0] for row in (cursor.fetchall() or []) if row and row[0]}
+        target_ids = {int(mid) for mid in (selected_maintenance_ids or set()) if mid}
+
+        to_add = sorted(target_ids - current_ids)
+        to_remove = sorted(current_ids - target_ids)
+        affected_ids = sorted(current_ids | target_ids)
+
+        for maintenance_id in to_add:
+            cursor.execute(
+                """
+                INSERT INTO maintenance_elements (maintenance_id, element_id)
+                SELECT ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM maintenance_elements
+                    WHERE maintenance_id = ? AND element_id = ?
+                )
+                """,
+                (maintenance_id, element_id, maintenance_id, element_id),
+            )
+
+        for maintenance_id in to_remove:
+            cursor.execute(
+                "DELETE FROM maintenance_elements WHERE maintenance_id = ? AND element_id = ?",
+                (maintenance_id, element_id),
+            )
+
+        self._refresh_maintenance_dates_for_scope(
+            element_ids=[element_id],
+            substation_ids=[substation_id],
+            commit=False,
+        )
+        self.conn.commit()
+
+        for maintenance_id in affected_ids:
+            self._append_change_log(
+                "update",
+                "maintenance",
+                {
+                    "id": maintenance_id,
+                    "substation_id": substation_id,
+                    "elements": self._build_maintenance_change_log_elements(
+                        maintenance_id
+                    ),
+                },
+            )
+
+        return {
+            "added": len(to_add),
+            "removed": len(to_remove),
+        }
+
+    def _show_element_maintenance_link_popup(
+        self,
+        *,
+        substation_id,
+        substation_name,
+        element_id,
+        element_name,
+        history_popup,
+        parent_display_popup=None,
+    ):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT m.id,
+                   m.name,
+                   m.date_time,
+                   m.maintenance_type,
+                   CASE WHEN me.element_id IS NULL THEN 0 ELSE 1 END AS is_linked
+            FROM maintenance m
+            LEFT JOIN maintenance_elements me
+              ON me.maintenance_id = m.id AND me.element_id = ?
+            WHERE m.substation_id = ?
+            ORDER BY m.date_time DESC, m.id DESC
+            """,
+            (element_id, substation_id),
+        )
+        maintenance_rows = cursor.fetchall() or []
+
+        if not maintenance_rows:
+            show_message_popup(
+                S["TITLES"].get("INFO", "Πληροφορία"),
+                S["MESSAGES"].get(
+                    "NO_MAINTENANCES",
+                    "Δεν υπάρχουν καταχωρημένες συντηρήσεις",
+                ),
+            )
+            return
+
+        popup = Popup(
+            title=S["MESSAGES"].get(
+                "LINK_EXISTING_MAINTENANCE_TITLE",
+                "Σύνδεση με υπάρχουσες συντηρήσεις",
+            ),
+            size_hint=(0.82, 0.82),
+        )
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+        layout.add_widget(
+            Label(
+                text=(
+                    S["MESSAGES"]
+                    .get(
+                        "LINK_EXISTING_MAINTENANCE_PROMPT",
+                        "Επιλέξτε τις συντηρήσεις που θα συνδεθούν με το στοιχείο {element}.",
+                    )
+                    .format(element=element_name)
+                ),
+                size_hint_y=None,
+                height=42,
+            )
+        )
+
+        checkbox_by_maintenance = {}
+
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        content = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=4)
+        content.bind(minimum_height=content.setter("height"))
+
+        for (
+            maintenance_id,
+            maint_name,
+            date_time,
+            maintenance_type,
+            is_linked,
+        ) in maintenance_rows:
+            row = BoxLayout(size_hint_y=None, height=56, spacing=8)
+            checkbox = CheckBox(
+                active=bool(is_linked),
+                size_hint=(None, None),
+                size=(36, 36),
+                color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+            )
+            checkbox_by_maintenance[maintenance_id] = checkbox
+            row.add_widget(checkbox)
+
+            display_name = maint_name or self._build_maintenance_name(
+                substation_name,
+                date_time,
+            )
+            maint_type_display = maintenance_type or S["MESSAGES"].get(
+                "MAINT_TYPE_DEFAULT",
+                "Επαναληπτική Συντήρηση",
+            )
+            info_label = Label(
+                text=f"{self._format_maintenance_date(date_time) or '-'} | {maint_type_display} | {display_name}",
+                halign="left",
+                valign="middle",
+            )
+            info_label.bind(
+                size=lambda inst, _val: setattr(
+                    inst, "text_size", (inst.width, inst.height)
+                )
+            )
+            row.add_widget(info_label)
+            content.add_widget(row)
+
+        scroll.add_widget(content)
+        layout.add_widget(scroll)
+
+        buttons = BoxLayout(size_hint_y=None, height=44, spacing=10)
+
+        def _apply_links(_instance=None):
+            chosen_ids = {
+                maintenance_id
+                for maintenance_id, checkbox in checkbox_by_maintenance.items()
+                if checkbox.active
+            }
+            try:
+                result = self._sync_element_maintenance_links(
+                    substation_id=substation_id,
+                    element_id=element_id,
+                    selected_maintenance_ids=chosen_ids,
+                )
+            except Exception as exc:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Σφάλμα κατά την ενημέρωση συνδέσεων:\n{exc}",
+                )
+                return
+
+            popup.dismiss()
+            try:
+                history_popup.dismiss()
+            except Exception:
+                pass
+
+            show_message_popup(
+                S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                S["MESSAGES"]
+                .get(
+                    "ELEMENT_MAINTENANCE_LINKS_UPDATED",
+                    "Οι συνδέσεις συντηρήσεων ενημερώθηκαν. Προστέθηκαν: {added}, αφαιρέθηκαν: {removed}.",
+                )
+                .format(added=result["added"], removed=result["removed"]),
+                callback=lambda: self.show_substation_maintenance_history(
+                    substation_id,
+                    substation_name,
+                    parent_display_popup=parent_display_popup,
+                    preselected_element_id=element_id,
+                    preselected_element_name=element_name,
+                ),
+            )
+
+        save_btn = Button(text=S["BUTTONS"].get("SAVE", "Αποθήκευση"))
+        save_btn.bind(on_press=_apply_links)
+        cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+        cancel_btn.bind(on_press=popup.dismiss)
+        buttons.add_widget(save_btn)
+        buttons.add_widget(cancel_btn)
+        layout.add_widget(buttons)
+
+        popup.content = layout
+        popup.open()
+
     def _open_dga_maintenance_editor(self, maintenance_id, parent_popup=None):
         cursor = self.conn.cursor()
         cursor.execute(
@@ -7554,21 +7806,6 @@ class SubstationApp(App):
                     e for e in all_elements if e[19] and e[19] == "Ανενεργή"
                 ]
 
-                # Get maintenance counts for all elements in this substation
-                c.execute(
-                    """
-                    SELECT me.element_id, COUNT(*) 
-                    FROM maintenance_elements me
-                    JOIN maintenance m ON m.id = me.maintenance_id
-                    JOIN elements e ON me.element_id = e.id
-                    WHERE e.substation_id = ?
-                    GROUP BY me.element_id
-                """,
-                    (sub_id,),
-                )
-                element_maintenance_counts = {
-                    elem_id: count for elem_id, count in c.fetchall()
-                }
                 c.execute(
                     """
                     SELECT parent_element_id, COUNT(*)
@@ -7896,23 +8133,11 @@ class SubstationApp(App):
                                 icon_type="maintenance", icon_color=(0.4, 0.6, 0.8, 1)
                             )
                             history_btn.size_hint_x = slot_size
-
-                            # Check if element has maintenance history
-                            elem_maint_count = element_maintenance_counts.get(
-                                elem_id, 0
-                            )
-                            if elem_maint_count > 0:
-                                history_btn.bind(
-                                    on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (
-                                        self.show_element_maintenance_history(
-                                            eid, ename, p
-                                        )
-                                    )
+                            history_btn.bind(
+                                on_press=lambda x, eid=elem_id, ename=elem_name, p=popup: (
+                                    self.show_element_maintenance_history(eid, ename, p)
                                 )
-                            else:
-                                # Grey out and disable button if no maintenance history
-                                history_btn.disabled = True
-                                history_btn.icon_color = (0.5, 0.5, 0.5, 0.5)
+                            )
                             btn_box.add_widget(history_btn)
 
                             view_btn = IconOnlyButton(
@@ -13063,13 +13288,22 @@ class SubstationApp(App):
                        operations_count,
                       sf6_leakage_kg, sf6_leak_methodology,
                        sf6_n2_fa, h2o_fa, so2_fa, sf6_n2_fb, h2o_fb, so2_fb, sf6_n2_fc, h2o_fc, so2_fc,
-                       vidar_fa, vidar_fb, vidar_fc
+                       vidar_fa, vidar_fb, vidar_fc, data_json
                 FROM maintenance_elements
                 WHERE maintenance_id = ?
             """,
                 (maintenance_id,),
             )
             for row in c.fetchall():
+                extra_measurements = {}
+                if row[32]:
+                    try:
+                        decoded_data = json.loads(row[32])
+                        if isinstance(decoded_data, dict):
+                            extra_measurements = decoded_data
+                    except Exception:
+                        extra_measurements = {}
+
                 existing_elements_data[row[0]] = {
                     "element_comments": row[1] or "",
                     "ins_closed_fa": row[2],
@@ -13101,6 +13335,12 @@ class SubstationApp(App):
                         "h2o_fc": row[27],
                         "so2_fc": row[28],
                     },
+                    "vidar": {
+                        "vidar_fa": row[29],
+                        "vidar_fb": row[30],
+                        "vidar_fc": row[31],
+                    },
+                    "extra_measurements": extra_measurements,
                 }
                 # Load pending tasks if this maintenance was previously saved as incomplete
                 c.execute(
@@ -15228,191 +15468,148 @@ class SubstationApp(App):
                                 )
                             )
 
-                            oil_cond = TextInput(
+                            oil_cond = self._create_measurement_input(
                                 hint_text="Κατάσταση λαδιού",
-                                multiline=False,
-                                size_hint_y=None,
-                                height=30,
+                                size_hint_x=0.5,
+                                multiline=True,
                             )
-                            details_container.add_widget(oil_cond)
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Κατάσταση λαδιού:",
+                                oil_cond,
+                                label_size_hint_x=0.42,
+                            )
 
-                            oil_changed_row = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            oil_changed_row.add_widget(
-                                Label(text="Αλλαγή λαδιών:", size_hint_x=0.6)
-                            )
                             oil_changed_cb = CheckBox(
                                 size_hint=(None, None), size=(28, 28)
                             )
                             oil_changed_cb.color = (0, 0, 0, 1)
-                            oil_changed_row.add_widget(oil_changed_cb)
-                            oil_changed_row.add_widget(Widget())
-                            details_container.add_widget(oil_changed_row)
-
-                            synch_check = TextInput(
-                                hint_text="Έλεγχος ταυτοχρονισμού",
-                                multiline=False,
-                                size_hint_y=None,
-                                height=30,
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Αλλαγή λαδιών:",
+                                oil_changed_cb,
+                                label_size_hint_x=0.42,
                             )
-                            details_container.add_widget(synch_check)
 
-                            wash_insulators = TextInput(
+                            sync_timing = self._add_measurement_table(
+                                details_container,
+                                "ΕΛΕΓΧΟΣ ΤΑΥΤΟΧΡΟΝΙΣΜΟΥ (ms)",
+                                [("open", "O"), ("close", "C"), ("co", "CO")],
+                                [
+                                    ("phase_a", "ΦΑΣΗ Α"),
+                                    ("phase_b", "ΦΑΣΗ Β"),
+                                    ("phase_c", "ΦΑΣΗ Γ"),
+                                ],
+                                hint_text="ms",
+                            )
+
+                            wash_insulators = self._create_measurement_input(
                                 hint_text="Πλύσιμο Μονωτήρων - Έλεγχος Φθορών",
-                                multiline=False,
-                                size_hint_y=None,
-                                height=30,
+                                size_hint_x=0.5,
+                                multiline=True,
                             )
-                            details_container.add_widget(wash_insulators)
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Πλύσιμο μονωτήρων - έλεγχος φθορών:",
+                                wash_insulators,
+                            )
 
-                            conn_check_row = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            conn_check_row.add_widget(
-                                Label(
-                                    text="Έλεγχος συνδέσμων, κεφαλών, πείρων:",
-                                    size_hint_x=0.6,
-                                )
-                            )
                             conn_check_cb = CheckBox(
                                 size_hint=(None, None), size=(28, 28)
                             )
                             conn_check_cb.color = (0, 0, 0, 1)
-                            conn_check_row.add_widget(conn_check_cb)
-                            conn_check_row.add_widget(Widget())
-                            details_container.add_widget(conn_check_row)
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Έλεγχος συνδέσμων, κεφαλών, πύρων:",
+                                conn_check_cb,
+                            )
 
-                            lubrication_row = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            lubrication_row.add_widget(
-                                Label(text="Λίπανση Μηχανισμού:", size_hint_x=0.6)
-                            )
                             lubrication_cb = CheckBox(
                                 size_hint=(None, None), size=(28, 28)
                             )
                             lubrication_cb.color = (0, 0, 0, 1)
-                            lubrication_row.add_widget(lubrication_cb)
-                            lubrication_row.add_widget(Widget())
-                            details_container.add_widget(lubrication_row)
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Λίπανση μηχανισμού:",
+                                lubrication_cb,
+                            )
 
-                            # Μέτρηση Αντίστασης Διαβάσεως (MΩ) - table 3 columns
-                            details_container.add_widget(
-                                Label(
-                                    text="Μέτρηση Αντίστασης Διαβάσεως (MΩ):",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
+                            raid_inputs = self._add_measurement_table(
+                                details_container,
+                                "Μέτρηση Αντίστασης Διαβάσεως (uΩ):",
+                                [("measure", "Τιμή")],
+                                [("phase_a", "Α"), ("phase_b", "Β"), ("phase_c", "Γ")],
+                                hint_text="uΩ",
                             )
-                            raid_header = BoxLayout(size_hint_y=None, height=25)
-                            raid_header.add_widget(
-                                Label(text="Α(ΦΑΣΗ)", size_hint_x=0.33)
-                            )
-                            raid_header.add_widget(
-                                Label(text="Β(ΦΑΣΗ)", size_hint_x=0.33)
-                            )
-                            raid_header.add_widget(
-                                Label(text="C(ΦΑΣΗ)", size_hint_x=0.34)
-                            )
-                            details_container.add_widget(raid_header)
-                            raid_row = BoxLayout(size_hint_y=None, height=32)
-                            raid_a = TextInput(hint_text="0.0", multiline=False)
-                            raid_b = TextInput(hint_text="0.0", multiline=False)
-                            raid_c = TextInput(hint_text="0.0", multiline=False)
-                            raid_row.add_widget(raid_a)
-                            raid_row.add_widget(raid_b)
-                            raid_row.add_widget(raid_c)
-                            details_container.add_widget(raid_row)
 
-                            # Μέτρηση Επαφών (Μηχανισμός Κλειστός) - two rows (Α/Ζ, Μ/Σ) in μΩ
-                            details_container.add_widget(
-                                Label(
-                                    text="Μέτρηση Επαφών (Μηχανισμός Κλειστός) (μΩ):",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
+                            contact_inputs = self._add_measurement_table(
+                                details_container,
+                                "Μέτρηση Επαφών (Μηχανισμός Κλειστός) (mm):",
+                                [("az", "Α/Ζ"), ("ms", "Μ/Σ")],
+                                [("phase_a", "Α"), ("phase_b", "Β"), ("phase_c", "Γ")],
+                                hint_text="mm",
                             )
-                            contact_header = BoxLayout(size_hint_y=None, height=25)
-                            contact_header.add_widget(Label(text="", size_hint_x=0.2))
-                            contact_header.add_widget(
-                                Label(text="Α(ΦΑΣΗ)", size_hint_x=0.266)
-                            )
-                            contact_header.add_widget(
-                                Label(text="Β(ΦΑΣΗ)", size_hint_x=0.266)
-                            )
-                            contact_header.add_widget(
-                                Label(text="C(ΦΑΣΗ)", size_hint_x=0.274)
-                            )
-                            details_container.add_widget(contact_header)
 
-                            # Row Α/Ζ
-                            contact_row_az = BoxLayout(size_hint_y=None, height=32)
-                            contact_row_az.add_widget(
-                                Label(text="Α/Ζ", size_hint_x=0.2)
+                            amort_inputs = self._add_measurement_table(
+                                details_container,
+                                "Αποστάσεις Αμορτισέρ (mm):",
+                                [
+                                    ("closed", "Διακόπτης κλειστός"),
+                                    ("open", "Διακόπτης ανοιχτός"),
+                                ],
+                                [("phase_a", "Α"), ("phase_b", "Β"), ("phase_c", "Γ")],
+                                hint_text="mm",
                             )
-                            contact_az_a = TextInput(hint_text="0.0", multiline=False)
-                            contact_az_b = TextInput(hint_text="0.0", multiline=False)
-                            contact_az_c = TextInput(hint_text="0.0", multiline=False)
-                            contact_row_az.add_widget(contact_az_a)
-                            contact_row_az.add_widget(contact_az_b)
-                            contact_row_az.add_widget(contact_az_c)
-                            details_container.add_widget(contact_row_az)
 
-                            # Row Μ/Σ
-                            contact_row_ms = BoxLayout(size_hint_y=None, height=32)
-                            contact_row_ms.add_widget(
-                                Label(text="Μ/Σ", size_hint_x=0.2)
+                            motor_current_dc = self._create_measurement_input(
+                                hint_text="A",
+                                size_hint_x=0.22,
                             )
-                            contact_ms_a = TextInput(hint_text="0.0", multiline=False)
-                            contact_ms_b = TextInput(hint_text="0.0", multiline=False)
-                            contact_ms_c = TextInput(hint_text="0.0", multiline=False)
-                            contact_row_ms.add_widget(contact_ms_a)
-                            contact_row_ms.add_widget(contact_ms_b)
-                            contact_row_ms.add_widget(contact_ms_c)
-                            details_container.add_widget(contact_row_ms)
-
-                            # Αποστάσεις Αμορτισέρ (mm) - 3 columns
-                            details_container.add_widget(
-                                Label(
-                                    text="Αποστάσεις Αμορτισέρ (mm):",
-                                    size_hint_y=None,
-                                    height=25,
-                                    bold=True,
-                                )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "ΡΕΥΜΑ ΚΙΝΗΤΗΡΑ DC (ΣΤΟ ΤΕΛΟΣ ΤΗΣ ΚΙΝΗΣΗΣ ΕΛΑΤΗΡΙΟΥ) [A]:",
+                                motor_current_dc,
+                                label_size_hint_x=0.62,
                             )
-                            amort_row = BoxLayout(size_hint_y=None, height=32)
-                            amort_a = TextInput(hint_text="mm", multiline=False)
-                            amort_b = TextInput(hint_text="mm", multiline=False)
-                            amort_c = TextInput(hint_text="mm", multiline=False)
-                            amort_row.add_widget(amort_a)
-                            amort_row.add_widget(amort_b)
-                            amort_row.add_widget(amort_c)
-                            details_container.add_widget(amort_row)
 
-                            # Expose these widgets in measurements dict so save logic can pick them up
+                            spring_charge_time = self._create_measurement_input(
+                                hint_text="sec",
+                                size_hint_x=0.22,
+                            )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "ΧΡΟΝΟΣ ΤΑΝΥΣΗΣ ΕΛΑΤΗΡΙΟΥ [sec]:",
+                                spring_charge_time,
+                                label_size_hint_x=0.62,
+                            )
+
+                            heater_resistance_check = self._create_measurement_input(
+                                hint_text="Έλεγχος λειτουργίας θερμαντικής αντίστασης",
+                                size_hint_x=0.5,
+                                multiline=True,
+                            )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Έλεγχος λειτουργίας θερμαντικής αντίστασης:",
+                                heater_resistance_check,
+                                label_size_hint_x=0.52,
+                            )
+
                             measurements.update(
                                 {
                                     "oil_condition": oil_cond,
                                     "oil_changed": oil_changed_cb,
-                                    "synch_check": synch_check,
+                                    "sync_timing": sync_timing,
                                     "wash_insulators": wash_insulators,
                                     "connections_check": conn_check_cb,
                                     "lubrication": lubrication_cb,
-                                    "resistance_raid": (raid_a, raid_b, raid_c),
-                                    "contact_az": (
-                                        contact_az_a,
-                                        contact_az_b,
-                                        contact_az_c,
-                                    ),
-                                    "contact_ms": (
-                                        contact_ms_a,
-                                        contact_ms_b,
-                                        contact_ms_c,
-                                    ),
-                                    "amort_dist": (amort_a, amort_b, amort_c),
+                                    "resistance_raid": raid_inputs["measure"],
+                                    "contact_az": contact_inputs["az"],
+                                    "contact_ms": contact_inputs["ms"],
+                                    "amort_dist": amort_inputs,
+                                    "motor_current_dc": motor_current_dc,
+                                    "spring_charge_time": spring_charge_time,
+                                    "heater_resistance_check": heater_resistance_check,
                                 }
                             )
 
@@ -15441,15 +15638,18 @@ class SubstationApp(App):
                             )
 
                             sf6_leakage_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
+                                size_hint_y=None, height=34, spacing=6
                             )
                             sf6_leakage_layout.add_widget(
-                                Label(text="Διαρροή SF6 (kg):", size_hint_x=0.45)
+                                self._create_measurement_label(
+                                    "Διαρροή SF6 (kg):",
+                                    size_hint_x=0.22,
+                                )
                             )
                             sf6_leakage_input = TextInput(
                                 hint_text="kg",
                                 multiline=False,
-                                size_hint_x=0.25,
+                                size_hint_x=0.12,
                             )
                             sf6_leakage_input.bind(
                                 text=lambda inst, val: (
@@ -15463,150 +15663,326 @@ class SubstationApp(App):
                                 )
                             )
                             sf6_leakage_layout.add_widget(sf6_leakage_input)
-                            sf6_leakage_layout.add_widget(Widget())
-                            details_container.add_widget(sf6_leakage_layout)
-
-                            sf6_methodology_layout = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            sf6_methodology_layout.add_widget(
-                                Label(
+                            sf6_leakage_layout.add_widget(
+                                self._create_measurement_label(
                                     text="Πλήρωση/Αντικατάσταση (Μεθοδολογία):",
-                                    size_hint_x=0.45,
+                                    size_hint_x=0.42,
                                 )
                             )
                             sf6_methodology_input = Spinner(
                                 text="Πλήρωση",
                                 values=("Πλήρωση", "Αντικατάσταση"),
-                                size_hint_x=0.35,
+                                size_hint_x=0.2,
                             )
-                            sf6_methodology_layout.add_widget(sf6_methodology_input)
-                            sf6_methodology_layout.add_widget(Widget())
-                            details_container.add_widget(sf6_methodology_layout)
+                            sf6_leakage_layout.add_widget(sf6_methodology_input)
+                            details_container.add_widget(sf6_leakage_layout)
 
-                            # 2) Lubrication checkbox
-                            lubrication_row_sf6 = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            lubrication_row_sf6.add_widget(
-                                Label(
-                                    text="Λίπανση μηχανισμού αρθρώσεων:",
-                                    size_hint_x=0.6,
-                                )
-                            )
                             lubrication_cb_sf6 = CheckBox(
                                 size_hint=(None, None), size=(28, 28)
                             )
                             lubrication_cb_sf6.color = (0, 0, 0, 1)
-                            lubrication_row_sf6.add_widget(lubrication_cb_sf6)
-                            lubrication_row_sf6.add_widget(Widget())
-                            details_container.add_widget(lubrication_row_sf6)
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Λίπανση μηχανισμού αρθρώσεων:",
+                                lubrication_cb_sf6,
+                            )
 
-                            # 3) Leak check (free text)
-                            leak_check = TextInput(
+                            leak_check = self._create_measurement_input(
                                 hint_text="Έλεγχος Διαρροών Sf6",
-                                multiline=False,
-                                size_hint_y=None,
-                                height=30,
+                                size_hint_x=0.5,
+                                multiline=True,
                             )
-                            leak_layout_sf6 = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Έλεγχος διαρροών SF6:",
+                                leak_check,
+                                label_size_hint_x=0.42,
                             )
-                            leak_layout_sf6.add_widget(
-                                Label(text="Έλεγχος Διαρροών Sf6 :", size_hint_x=0.45)
-                            )
-                            leak_layout_sf6.add_widget(leak_check)
-                            leak_layout_sf6.add_widget(Widget())
-                            details_container.add_widget(leak_layout_sf6)
 
-                            # 4) Refill SF6 checkbox
-                            refill_row = BoxLayout(
-                                size_hint_y=None, height=30, spacing=6
-                            )
-                            refill_row.add_widget(
-                                Label(text="Συμπλήρωση Sf6 :", size_hint_x=0.6)
-                            )
                             refill_cb = CheckBox(size_hint=(None, None), size=(28, 28))
                             refill_cb.color = (0, 0, 0, 1)
-                            refill_row.add_widget(refill_cb)
-                            refill_row.add_widget(Widget())
-                            details_container.add_widget(refill_row)
-
-                            # 5) Synchronization check (free text)
-                            synch_check_sf6 = TextInput(
-                                hint_text="Έλεγχος ταυτοχρονισμού",
-                                multiline=False,
-                                size_hint_y=None,
-                                height=30,
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Συμπλήρωση SF6:",
+                                refill_cb,
                             )
-                            details_container.add_widget(synch_check_sf6)
 
-                            # 6) Wash insulators (free text)
-                            wash_insulators_sf6 = TextInput(
+                            sync_timing = self._add_measurement_table(
+                                details_container,
+                                "ΕΛΕΓΧΟΣ ΤΑΥΤΟΧΡΟΝΙΣΜΟΥ (ms)",
+                                [("open", "O"), ("close", "C"), ("co", "CO")],
+                                [
+                                    ("phase_a", "ΦΑΣΗ Α"),
+                                    ("phase_b", "ΦΑΣΗ Β"),
+                                    ("phase_c", "ΦΑΣΗ Γ"),
+                                ],
+                                hint_text="ms",
+                            )
+
+                            wash_insulators_sf6 = self._create_measurement_input(
                                 hint_text="Πλύσιμο Μονωτήρων – Έλεγχος Φθοράς",
-                                multiline=False,
-                                size_hint_y=None,
-                                height=30,
+                                size_hint_x=0.5,
+                                multiline=True,
                             )
-                            details_container.add_widget(wash_insulators_sf6)
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Πλύσιμο μονωτήρων - έλεγχος φθοράς:",
+                                wash_insulators_sf6,
+                                label_size_hint_x=0.48,
+                            )
 
-                            # 7) Corrosion check (free text)
-                            corrosion_check = TextInput(
+                            corrosion_check = self._create_measurement_input(
                                 hint_text="Έλεγχος Διάβρωσης Εξωτερικών Μεταλλικών Τμημάτων",
-                                multiline=False,
-                                size_hint_y=None,
-                                height=30,
+                                size_hint_x=0.5,
+                                multiline=True,
                             )
-                            details_container.add_widget(corrosion_check)
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Έλεγχος διάβρωσης εξωτερικών μεταλλικών τμημάτων:",
+                                corrosion_check,
+                                label_size_hint_x=0.58,
+                            )
 
-                            # 8) Μέτρηση Αντίστασης Διαβάσεως (MΩ) - table 3 columns
+                            raid_inputs_sf6 = self._add_measurement_table(
+                                details_container,
+                                "Μέτρηση Αντίστασης Διαβάσεως (uΩ):",
+                                [("measure", "Τιμή")],
+                                [("phase_a", "Α"), ("phase_b", "Β"), ("phase_c", "Γ")],
+                                hint_text="uΩ",
+                            )
+
+                            pressure_gauge_value = self._create_measurement_input(
+                                hint_text="0.0",
+                                size_hint_x=0.2,
+                            )
+                            pressure_gauge_unit = Spinner(
+                                text="bar",
+                                values=("bar", "kPa", "psi"),
+                                size_hint_x=0.16,
+                            )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6:",
+                                pressure_gauge_value,
+                                pressure_gauge_unit,
+                                label_size_hint_x=0.56,
+                            )
+
                             details_container.add_widget(
                                 Label(
-                                    text="Μέτρηση Αντίστασης Διαβάσεως (MΩ):",
+                                    text="Έλεγχος ορίων alarm και block SF6",
                                     size_hint_y=None,
                                     height=25,
                                     bold=True,
                                 )
                             )
-                            raid_header_sf6 = BoxLayout(size_hint_y=None, height=25)
-                            raid_header_sf6.add_widget(
-                                Label(text="Α(ΦΑΣΗ)", size_hint_x=0.33)
+                            alarm_limits_sections = BoxLayout(
+                                size_hint_y=None,
+                                height=110,
+                                spacing=10,
                             )
-                            raid_header_sf6.add_widget(
-                                Label(text="Β(ΦΑΣΗ)", size_hint_x=0.33)
+                            appearance_section = BoxLayout(
+                                orientation="vertical",
+                                spacing=6,
                             )
-                            raid_header_sf6.add_widget(
-                                Label(text="C(ΦΑΣΗ)", size_hint_x=0.34)
+                            appearance_section.add_widget(
+                                self._create_measurement_label(
+                                    "Εμφάνιση",
+                                    bold=True,
+                                    halign="center",
+                                )
                             )
-                            details_container.add_widget(raid_header_sf6)
-                            raid_row_sf6 = BoxLayout(size_hint_y=None, height=32)
-                            raid_a_sf6 = TextInput(hint_text="0.0", multiline=False)
-                            raid_b_sf6 = TextInput(hint_text="0.0", multiline=False)
-                            raid_c_sf6 = TextInput(hint_text="0.0", multiline=False)
-                            raid_row_sf6.add_widget(raid_a_sf6)
-                            raid_row_sf6.add_widget(raid_b_sf6)
-                            raid_row_sf6.add_widget(raid_c_sf6)
-                            details_container.add_widget(raid_row_sf6)
+                            alarm_appearance_value = self._create_measurement_input(
+                                hint_text="0.0",
+                                size_hint_x=0.2,
+                            )
+                            alarm_appearance_unit = Spinner(
+                                text="bar",
+                                values=("bar", "kPa", "psi"),
+                                size_hint_x=0.16,
+                            )
+                            self._add_labeled_measurement_row(
+                                appearance_section,
+                                "ALARM:",
+                                alarm_appearance_value,
+                                alarm_appearance_unit,
+                                label_size_hint_x=0.2,
+                            )
+                            block_appearance_value = self._create_measurement_input(
+                                hint_text="0.0",
+                                size_hint_x=0.2,
+                            )
+                            block_appearance_unit = Spinner(
+                                text="bar",
+                                values=("bar", "kPa", "psi"),
+                                size_hint_x=0.16,
+                            )
+                            self._add_labeled_measurement_row(
+                                appearance_section,
+                                "BLOCK:",
+                                block_appearance_value,
+                                block_appearance_unit,
+                                label_size_hint_x=0.2,
+                            )
+                            disappearance_section = BoxLayout(
+                                orientation="vertical",
+                                spacing=6,
+                            )
+                            disappearance_section.add_widget(
+                                self._create_measurement_label(
+                                    "Εξαφάνιση",
+                                    bold=True,
+                                    halign="center",
+                                )
+                            )
+                            alarm_disappearance_value = self._create_measurement_input(
+                                hint_text="0.0",
+                                size_hint_x=0.2,
+                            )
+                            alarm_disappearance_unit = Spinner(
+                                text="bar",
+                                values=("bar", "kPa", "psi"),
+                                size_hint_x=0.16,
+                            )
+                            self._add_labeled_measurement_row(
+                                disappearance_section,
+                                "ALARM:",
+                                alarm_disappearance_value,
+                                alarm_disappearance_unit,
+                                label_size_hint_x=0.2,
+                            )
+                            block_disappearance_value = self._create_measurement_input(
+                                hint_text="0.0",
+                                size_hint_x=0.2,
+                            )
+                            block_disappearance_unit = Spinner(
+                                text="bar",
+                                values=("bar", "kPa", "psi"),
+                                size_hint_x=0.16,
+                            )
+                            self._add_labeled_measurement_row(
+                                disappearance_section,
+                                "BLOCK:",
+                                block_disappearance_value,
+                                block_disappearance_unit,
+                                label_size_hint_x=0.2,
+                            )
+                            alarm_limits_sections.add_widget(appearance_section)
+                            alarm_limits_sections.add_widget(disappearance_section)
+                            details_container.add_widget(alarm_limits_sections)
 
-                            # Expose SF6 widgets for persistence
-                            sf6_widgets = {
-                                "lubrication": lubrication_cb_sf6,
-                                "leak_check": leak_check,
-                                "refill": refill_cb,
-                                "synch_check": synch_check_sf6,
-                                "wash_insulators": wash_insulators_sf6,
-                                "corrosion_check": corrosion_check,
-                                "resistance_raid": (raid_a_sf6, raid_b_sf6, raid_c_sf6),
-                            }
-                            # Ensure these SF6-specific inputs are saved by the
-                            # generic save logic which expects keys like
-                            # 'sf6', 'sf6_leakage' and 'sf6_leak_methodology'.
+                            post_sf6_quality = self._add_measurement_table(
+                                details_container,
+                                "Έλεγχος ποιότητας SF6 (ΜΕΤΑ ΤΗ ΣΥΝΤΗΡΗΣΗ)",
+                                [
+                                    ("sf6_pct", "SF6 (%)"),
+                                    ("h2o", "H2O (°C)"),
+                                    ("so", "SO (ppm)"),
+                                ],
+                                [("value", "Τιμή")],
+                                hint_text="0.0",
+                                row_label_size_hint_x=0.42,
+                            )
+                            self._bind_measurement_alert_color(
+                                post_sf6_quality["sf6_pct"][0],
+                                lambda value: (
+                                    (
+                                        float(
+                                            self._normalize_decimal_numeric_text(value)
+                                        )
+                                        < 97.0
+                                    )
+                                    if str(value).strip()
+                                    else False
+                                ),
+                            )
+                            self._bind_measurement_alert_color(
+                                post_sf6_quality["h2o"][0],
+                                lambda value: (
+                                    (
+                                        float(
+                                            self._normalize_decimal_numeric_text(value)
+                                        )
+                                        > -35.0
+                                    )
+                                    if str(value).strip()
+                                    else False
+                                ),
+                            )
+                            self._bind_measurement_alert_color(
+                                post_sf6_quality["so"][0],
+                                lambda value: (
+                                    (
+                                        float(
+                                            self._normalize_decimal_numeric_text(value)
+                                        )
+                                        > 12.0
+                                    )
+                                    if str(value).strip()
+                                    else False
+                                ),
+                            )
+
+                            motor_current_dc = self._create_measurement_input(
+                                hint_text="A",
+                                size_hint_x=0.22,
+                            )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "ΡΕΥΜΑ ΚΙΝΗΤΗΡΑ DC (ΣΤΟ ΤΕΛΟΣ ΤΗΣ ΚΙΝΗΣΗΣ ΕΛΑΤΗΡΙΟΥ) [A]:",
+                                motor_current_dc,
+                                label_size_hint_x=0.62,
+                            )
+
+                            spring_charge_time = self._create_measurement_input(
+                                hint_text="sec",
+                                size_hint_x=0.22,
+                            )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "ΧΡΟΝΟΣ ΤΑΝΥΣΗΣ ΕΛΑΤΗΡΙΟΥ [sec]:",
+                                spring_charge_time,
+                                label_size_hint_x=0.62,
+                            )
+
+                            heater_resistance_check = self._create_measurement_input(
+                                hint_text="Έλεγχος λειτουργίας θερμαντικής αντίστασης",
+                                size_hint_x=0.5,
+                                multiline=True,
+                            )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Έλεγχος λειτουργίας θερμαντικής αντίστασης:",
+                                heater_resistance_check,
+                                label_size_hint_x=0.52,
+                            )
+
                             measurements.update(
                                 {
                                     "ops_count": ops_count_input,
-                                    "sf6": sf6_widgets,
                                     "sf6_leakage": sf6_leakage_input,
                                     "sf6_leak_methodology": sf6_methodology_input,
+                                    "sf6_lubrication": lubrication_cb_sf6,
+                                    "sf6_leak_check": leak_check,
+                                    "sf6_refill": refill_cb,
+                                    "sync_timing": sync_timing,
+                                    "wash_insulators": wash_insulators_sf6,
+                                    "corrosion_check": corrosion_check,
+                                    "resistance_raid": raid_inputs_sf6["measure"],
+                                    "sf6_pressure_gauge_value": pressure_gauge_value,
+                                    "sf6_pressure_gauge_unit": pressure_gauge_unit,
+                                    "sf6_alarm_appearance_value": alarm_appearance_value,
+                                    "sf6_alarm_appearance_unit": alarm_appearance_unit,
+                                    "sf6_block_appearance_value": block_appearance_value,
+                                    "sf6_block_appearance_unit": block_appearance_unit,
+                                    "sf6_alarm_disappearance_value": alarm_disappearance_value,
+                                    "sf6_alarm_disappearance_unit": alarm_disappearance_unit,
+                                    "sf6_block_disappearance_value": block_disappearance_value,
+                                    "sf6_block_disappearance_unit": block_disappearance_unit,
+                                    "post_sf6_quality": post_sf6_quality,
+                                    "motor_current_dc": motor_current_dc,
+                                    "spring_charge_time": spring_charge_time,
+                                    "heater_resistance_check": heater_resistance_check,
                                 }
                             )
 
@@ -16459,29 +16835,26 @@ class SubstationApp(App):
                                 sf6_methodology_input = Spinner(
                                     text="Πλήρωση",
                                     values=("Πλήρωση", "Αντικατάσταση"),
-                                    size_hint_x=0.55,
+                                    size_hint_x=0.2,
                                 )
                                 leak_layout = BoxLayout(
-                                    size_hint_y=None, height=30, spacing=3
+                                    size_hint_y=None, height=34, spacing=6
                                 )
                                 leak_layout.add_widget(
-                                    Label(text="Διαρροή SF6 (kg):", size_hint_x=0.45)
-                                )
-                                leak_layout.add_widget(sf6_leakage_input)
-                                leak_layout.add_widget(Label(text="", size_hint_x=0.3))
-                                details_container.add_widget(leak_layout)
-
-                                method_layout = BoxLayout(
-                                    size_hint_y=None, height=30, spacing=3
-                                )
-                                method_layout.add_widget(
-                                    Label(
-                                        text="Πλήρωση/Αντικατάσταση (Μεθοδολογία):",
-                                        size_hint_x=0.45,
+                                    self._create_measurement_label(
+                                        "Διαρροή SF6 (kg):",
+                                        size_hint_x=0.22,
                                     )
                                 )
-                                method_layout.add_widget(sf6_methodology_input)
-                                details_container.add_widget(method_layout)
+                                leak_layout.add_widget(sf6_leakage_input)
+                                leak_layout.add_widget(
+                                    self._create_measurement_label(
+                                        text="Πλήρωση/Αντικατάσταση (Μεθοδολογία):",
+                                        size_hint_x=0.42,
+                                    )
+                                )
+                                leak_layout.add_widget(sf6_methodology_input)
+                                details_container.add_widget(leak_layout)
 
                                 details_container.add_widget(
                                     Label(
@@ -17352,6 +17725,7 @@ class SubstationApp(App):
                         element_widgets[eid]["details_container"] = details_container
                         element_widgets[eid]["comments"] = elem_comments
                         element_widgets[eid]["measurements"] = measurements
+                        element_widgets[eid]["ops_count_input"] = ops_count_input
                         element_widgets[eid]["measurements_toggle"] = (
                             measurements_toggle
                         )
@@ -17434,6 +17808,9 @@ class SubstationApp(App):
                             "comments": element_widgets[elem_id].get("comments"),
                             "measurements": element_widgets[elem_id].get(
                                 "measurements"
+                            ),
+                            "ops_count_input": element_widgets[elem_id].get(
+                                "ops_count_input"
                             ),
                             "measurements_toggle": element_widgets[elem_id].get(
                                 "measurements_toggle"
@@ -17526,7 +17903,9 @@ class SubstationApp(App):
                         if data.get("cont_fc") is not None and w:
                             w.text = str(data.get("cont_fc"))
 
-                        w = measurements.get("ops_count")
+                        w = widgets.get("ops_count_input") or measurements.get(
+                            "ops_count"
+                        )
                         if data.get("ops_count") is not None and w:
                             w.text = str(data.get("ops_count"))
 
@@ -17559,6 +17938,13 @@ class SubstationApp(App):
                                     and data["vidar"].get(key) is not None
                                 ):
                                     widget.text = str(data["vidar"].get(key))
+
+                        extra_measurements = data.get("extra_measurements") or {}
+                        if extra_measurements:
+                            self._apply_serialized_measurement_value(
+                                measurements,
+                                extra_measurements,
+                            )
 
                         measurement_toggle = widgets.get("measurements_toggle")
                         if measurement_toggle:
@@ -17598,6 +17984,12 @@ class SubstationApp(App):
                                 or any(
                                     self._has_meaningful_measurement_value(v)
                                     for v in vidar_dict.values()
+                                )
+                            )
+                            has_existing_measurements = (
+                                has_existing_measurements
+                                or self._has_meaningful_measurement_value(
+                                    extra_measurements
                                 )
                             )
                             # Explicitly set the toggle state so it is deselected
@@ -18109,19 +18501,47 @@ class SubstationApp(App):
                         except Exception:
                             return None
 
+                    def parse_int(val):
+                        text = "" if val is None else str(val).strip()
+                        if not text:
+                            return None
+
+                        compact_text = re.sub(r"\s+", "", text)
+                        if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", compact_text):
+                            compact_text = compact_text.replace(".", "").replace(
+                                ",", ""
+                            )
+
+                        try:
+                            return int(compact_text)
+                        except Exception:
+                            pass
+
+                        normalized_val = self._normalize_decimal_numeric_text(
+                            compact_text
+                        ).strip()
+                        if not normalized_val:
+                            return None
+
+                        try:
+                            float_val = float(normalized_val)
+                        except Exception:
+                            return None
+
+                        return int(float_val) if float_val.is_integer() else None
+
                     # Parse operations count (guard widget presence)
                     ops_count = None
                     try:
-                        ops_w = measurements.get("ops_count")
+                        ops_w = widgets.get("ops_count_input") or measurements.get(
+                            "ops_count"
+                        )
                         if (
                             ops_w
                             and getattr(ops_w, "text", None)
                             and ops_w.text.strip()
                         ):
-                            try:
-                                ops_count = int(ops_w.text)
-                            except Exception:
-                                ops_count = None
+                            ops_count = parse_int(ops_w.text)
                     except Exception:
                         ops_count = None
 
@@ -18187,55 +18607,11 @@ class SubstationApp(App):
                     if measurement_toggle is not None:
                         measurements_enabled = bool(measurement_toggle.active)
 
-                    # Build extra JSON for arbitrary/new form fields (transformer, etc.)
-                    extra = {}
-                    try:
-                        if measurements_enabled and measurements.get("power_mva"):
-                            t = measurements["power_mva"].text.strip()
-                            if t:
-                                extra["power_mva"] = t
-                    except Exception:
-                        pass
-                    try:
-                        if measurements_enabled and measurements.get("satyf_counter"):
-                            extra["satyf_counter"] = measurements[
-                                "satyf_counter"
-                            ].text.strip()
-                    except Exception:
-                        pass
-                    try:
-                        if measurements_enabled and measurements.get("silica"):
-                            extra["silica"] = measurements["silica"].text
-                    except Exception:
-                        pass
-                    try:
-                        if measurements_enabled and measurements.get("temp_fan"):
-                            extra["temp_fan"] = [
-                                w.text.strip() for w in measurements["temp_fan"]
-                            ]
-                    except Exception:
-                        pass
-                    try:
-                        if measurements_enabled and measurements.get("temp_alarm"):
-                            extra["temp_alarm"] = [
-                                w.text.strip() for w in measurements["temp_alarm"]
-                            ]
-                    except Exception:
-                        pass
-                    try:
-                        if measurements_enabled and measurements.get("temp_trip"):
-                            extra["temp_trip"] = [
-                                w.text.strip() for w in measurements["temp_trip"]
-                            ]
-                    except Exception:
-                        pass
-                    try:
-                        if measurements_enabled and measurements.get("diverter_res"):
-                            extra["diverter_res"] = [
-                                w.text.strip() for w in measurements["diverter_res"]
-                            ]
-                    except Exception:
-                        pass
+                    extra = (
+                        self._serialize_measurements_for_storage(measurements)
+                        if measurements_enabled
+                        else {}
+                    )
 
                     data_json = json.dumps(extra, ensure_ascii=False) if extra else None
 
@@ -18358,15 +18734,7 @@ class SubstationApp(App):
                     except Exception:
                         pass
                 else:  # Other element types without measurements
-                    # Still allow storing extra JSON if present
-                    extra = {}
-                    try:
-                        if measurements and measurements.get("power_mva"):
-                            t = measurements["power_mva"].text.strip()
-                            if t:
-                                extra["power_mva"] = t
-                    except Exception:
-                        pass
+                    extra = self._serialize_measurements_for_storage(measurements)
                     data_json = json.dumps(extra, ensure_ascii=False) if extra else None
                     c.execute(
                         "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments, data_json) VALUES (?, ?, ?, ?)",
@@ -18919,6 +19287,153 @@ class SubstationApp(App):
         )
         return header, row, ops_count_input
 
+    def _create_measurement_label(
+        self, text, *, size_hint_x=0.4, bold=False, halign="left"
+    ):
+        label = Label(
+            text=text,
+            size_hint_x=size_hint_x,
+            size_hint_y=None,
+            height=34,
+            bold=bold,
+            halign=halign,
+            valign="middle",
+        )
+        label.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+        return label
+
+    def _enable_expandable_text_input(
+        self, text_input, *, min_height=52, max_height=150
+    ):
+        def _resize(*_args):
+            text = getattr(text_input, "text", "") or ""
+            lines = max(1, text.count("\n") + 1)
+            line_height = max(18, int(getattr(text_input, "line_height", 18) or 18))
+            text_input.height = min(
+                max_height,
+                max(min_height, lines * line_height + 16),
+            )
+
+        text_input.bind(text=_resize)
+        _resize()
+        return text_input
+
+    def _create_measurement_input(
+        self,
+        *,
+        hint_text="",
+        text="",
+        size_hint_x=0.2,
+        multiline=False,
+        min_height=None,
+    ):
+        text_input = TextInput(
+            text=text,
+            hint_text=hint_text,
+            size_hint_x=size_hint_x,
+            size_hint_y=None,
+            height=min_height or (52 if multiline else 34),
+            multiline=multiline,
+            write_tab=False,
+        )
+        if multiline:
+            self._enable_expandable_text_input(
+                text_input,
+                min_height=min_height or 52,
+            )
+        return text_input
+
+    def _add_labeled_measurement_row(
+        self,
+        container,
+        label_text,
+        *widgets,
+        label_size_hint_x=0.46,
+        height=34,
+    ):
+        if len(str(label_text or "")) > 40:
+            height = max(height, 52)
+        row = BoxLayout(size_hint_y=None, height=height, spacing=6)
+        row.add_widget(
+            self._create_measurement_label(
+                label_text,
+                size_hint_x=label_size_hint_x,
+            )
+        )
+        for widget in widgets:
+            row.add_widget(widget)
+        row.add_widget(Widget())
+        container.add_widget(row)
+        return row
+
+    def _add_measurement_table(
+        self,
+        container,
+        title,
+        row_defs,
+        column_defs,
+        *,
+        hint_text="0.0",
+        row_label_size_hint_x=0.28,
+    ):
+        container.add_widget(
+            Label(
+                text=title,
+                size_hint_y=None,
+                height=25,
+                bold=True,
+            )
+        )
+        header = BoxLayout(size_hint_y=None, height=28, spacing=4)
+        header.add_widget(
+            self._create_measurement_label("", size_hint_x=row_label_size_hint_x)
+        )
+        column_size_hint_x = (1.0 - row_label_size_hint_x) / max(1, len(column_defs))
+        for _column_key, column_text in column_defs:
+            header.add_widget(
+                self._create_measurement_label(
+                    column_text,
+                    size_hint_x=column_size_hint_x,
+                    bold=True,
+                    halign="center",
+                )
+            )
+        container.add_widget(header)
+
+        inputs = {}
+        for row_key, row_text in row_defs:
+            row = BoxLayout(size_hint_y=None, height=34, spacing=4)
+            row.add_widget(
+                self._create_measurement_label(
+                    row_text,
+                    size_hint_x=row_label_size_hint_x,
+                )
+            )
+            row_inputs = []
+            for _column_key, _column_text in column_defs:
+                text_input = self._create_measurement_input(
+                    hint_text=hint_text,
+                    size_hint_x=column_size_hint_x,
+                )
+                row.add_widget(text_input)
+                row_inputs.append(text_input)
+            container.add_widget(row)
+            inputs[row_key] = tuple(row_inputs)
+        return inputs
+
+    def _bind_measurement_alert_color(self, text_input, predicate):
+        default_color = self.theme.get("text", (0.12, 0.12, 0.12, 1))
+
+        def _on_text(inst, value):
+            try:
+                is_alert = bool(predicate(value))
+            except Exception:
+                is_alert = False
+            inst.foreground_color = (0.85, 0.0, 0.0, 1.0) if is_alert else default_color
+
+        text_input.bind(text=_on_text)
+        _on_text(text_input, text_input.text)
+
     def _collect_measurement_widgets(
         self,
         details_container,
@@ -18934,9 +19449,93 @@ class SubstationApp(App):
             if widget not in preserved_widgets
         ]
 
+    def _serialize_measurement_widget_value(self, widget):
+        if widget is None:
+            return None
+
+        if isinstance(widget, dict):
+            result = {}
+            for key, value in widget.items():
+                serialized_value = self._serialize_measurement_widget_value(value)
+                if self._has_meaningful_measurement_value(serialized_value):
+                    result[key] = serialized_value
+            return result or None
+
+        if isinstance(widget, (list, tuple)):
+            serialized_items = [
+                self._serialize_measurement_widget_value(item) for item in widget
+            ]
+            if not any(
+                self._has_meaningful_measurement_value(item)
+                for item in serialized_items
+            ):
+                return None
+            return serialized_items
+
+        if hasattr(widget, "active"):
+            return bool(getattr(widget, "active", False))
+
+        text = getattr(widget, "text", None)
+        if text is None:
+            return None
+
+        if isinstance(text, str):
+            text = text.strip()
+        else:
+            text = str(text).strip()
+
+        return text or None
+
+    def _serialize_measurements_for_storage(self, measurements):
+        serialized = {}
+        for key, widget in (measurements or {}).items():
+            serialized_value = self._serialize_measurement_widget_value(widget)
+            if self._has_meaningful_measurement_value(serialized_value):
+                serialized[key] = serialized_value
+        return serialized
+
+    def _apply_serialized_measurement_value(self, widget, value):
+        if widget is None or value is None:
+            return
+
+        if isinstance(widget, dict):
+            if not isinstance(value, dict):
+                return
+            for key, child_widget in widget.items():
+                self._apply_serialized_measurement_value(child_widget, value.get(key))
+            return
+
+        if isinstance(widget, (list, tuple)):
+            if not isinstance(value, (list, tuple)):
+                return
+            for child_widget, child_value in zip(widget, value):
+                self._apply_serialized_measurement_value(child_widget, child_value)
+            return
+
+        if hasattr(widget, "active"):
+            try:
+                widget.active = bool(value)
+            except Exception:
+                pass
+            return
+
+        if hasattr(widget, "text"):
+            try:
+                widget.text = str(value)
+            except Exception:
+                pass
+
     def _has_meaningful_measurement_value(self, value):
         if value is None:
             return False
+        if isinstance(value, dict):
+            return any(
+                self._has_meaningful_measurement_value(item) for item in value.values()
+            )
+        if isinstance(value, (list, tuple)):
+            return any(self._has_meaningful_measurement_value(item) for item in value)
+        if isinstance(value, bool):
+            return value
         return str(value).strip() != ""
 
     def _gate_has_transformer_elements(self, gate_elements):
@@ -19567,6 +20166,7 @@ class SubstationApp(App):
     ):
         """Show maintenance history for a specific substation with element filter."""
         font_kwargs = self._get_ui_font_kwargs()
+        refresh_parent_popup = parent_display_popup
         # Warn if any elements map to an unknown gate (ΠΥΛΗ Άγνωστη)
         try:
             from onedrive_hybrid_storage import _bucket_for_gate
@@ -19816,11 +20416,10 @@ class SubstationApp(App):
         )
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
 
-        # Add Maintenance button at the top
+        action_bar = BoxLayout(size_hint_y=None, height=40, spacing=8)
         add_maint_btn = Button(
             text=S["BUTTONS"].get("ADD_MAINTENANCE", "+ Προσθήκη Νέας Συντήρησης"),
-            size_hint_y=None,
-            height=40,
+            size_hint_x=0.5,
         )
         add_maint_btn.bind(
             on_press=lambda x: self.show_maintenance_menu_for_substation(
@@ -19831,7 +20430,40 @@ class SubstationApp(App):
                 preselected_element_name=current_element_filter.get("name"),
             )
         )
-        main_layout.add_widget(add_maint_btn)
+        action_bar.add_widget(add_maint_btn)
+
+        link_existing_btn = Button(
+            text=S["MESSAGES"].get(
+                "LINK_EXISTING_MAINTENANCE_BUTTON",
+                "Σύνδεση με υπάρχουσα συντήρηση",
+            ),
+            size_hint_x=0.5,
+            disabled=(current_element_filter.get("id") is None),
+        )
+
+        def _open_link_existing_popup(_instance=None):
+            selected_element_id = current_element_filter.get("id")
+            selected_element_name = current_element_filter.get("name") or ""
+            if selected_element_id is None:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get(
+                        "SELECT_ELEMENT_FIRST", "Επιλέξτε πρώτα στοιχείο."
+                    ),
+                )
+                return
+            self._show_element_maintenance_link_popup(
+                substation_id=substation_id,
+                substation_name=substation_name,
+                element_id=selected_element_id,
+                element_name=selected_element_name,
+                history_popup=popup,
+                parent_display_popup=refresh_parent_popup,
+            )
+
+        link_existing_btn.bind(on_press=_open_link_existing_popup)
+        action_bar.add_widget(link_existing_btn)
+        main_layout.add_widget(action_bar)
 
         export_bar = BoxLayout(size_hint_y=None, height=38, spacing=8)
         export_bar.add_widget(Label(text="", size_hint_x=0.55))
@@ -20649,6 +21281,7 @@ class SubstationApp(App):
                 current_element_filter["id"] = None
                 current_element_filter["name"] = None
                 elem_filter_input.text = "(Όλα)"
+                link_existing_btn.disabled = True
                 render_cards()
 
             all_btn.bind(on_press=_select_all)
@@ -20662,6 +21295,7 @@ class SubstationApp(App):
                     current_element_filter["id"] = _eid
                     current_element_filter["name"] = _ename
                     elem_filter_input.text = _ename
+                    link_existing_btn.disabled = False
                     render_cards()
 
                 btn.bind(on_press=_select_elem)
@@ -20731,6 +21365,7 @@ class SubstationApp(App):
             elem_filter_input.text = (
                 current_element_filter.get("name") or "(Επιλεγμένο)"
             )
+            link_existing_btn.disabled = False
 
         _refresh_month_spinner_options()
 

@@ -32,11 +32,13 @@ def test_show_element_history_ignores_orphan_links(monkeypatch):
 
     captured = {}
 
-    def fake_show_message_popup(title, message, callback=None):
-        captured["title"] = title
-        captured["message"] = message
+    def fake_show_no_history_popup(app, **kwargs):
+        captured["app"] = app
+        captured.update(kwargs)
 
-    monkeypatch.setattr("popups.show_message_popup", fake_show_message_popup)
+    monkeypatch.setattr(
+        mod, "_show_no_history_maintenance_options", fake_show_no_history_popup
+    )
 
     app = types.SimpleNamespace(
         conn=conn,
@@ -48,6 +50,9 @@ def test_show_element_history_ignores_orphan_links(monkeypatch):
     mod.show_element_maintenance_history(app, 707, "Ρ-370", None)
 
     assert captured.get("history_called") is None
-    assert "Δεν υπάρχει ιστορικό συντηρήσεων" in captured["message"]
+    assert captured["element_id"] == 707
+    assert captured["element_name"] == "Ρ-370"
+    assert captured["substation_id"] == 1
+    assert captured["substation_name"] == "S1"
 
     conn.close()
