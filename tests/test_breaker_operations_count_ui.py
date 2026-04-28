@@ -394,3 +394,123 @@ def test_show_maintenance_element_details_hv_breaker_hides_insulation_sections(
     assert "Καταχωρημένα δεδομένα φόρμας" not in texts
     assert "[b]Αντίσταση Διαβάσεως (uOhm)[/b]" in texts
     assert "Κατάσταση λαδιού: Καλή" in texts
+
+
+def test_show_maintenance_full_report_includes_element_form_data(monkeypatch):
+    captured = {}
+
+    class FakeCursor:
+        def __init__(self):
+            self._last_query = ""
+
+        def execute(self, query, _params=None):
+            self._last_query = query
+            return self
+
+        def fetchone(self):
+            if "SELECT m.id, m.name, m.date_time" in self._last_query:
+                return (
+                    2973,
+                    "M1",
+                    "2026-11-11 12:49:00",
+                    "",
+                    "Επαναληπτική συντήρηση",
+                    "",
+                    38,
+                    "ΣΕΡΡΕΣ",
+                    "Loc",
+                    "ΤΜΘ",
+                    None,
+                )
+            return None
+
+        def fetchall(self):
+            if "FROM maintenance_elements me" in self._last_query:
+                return [
+                    (
+                        1321,
+                        DBrun.SubstationApp.ELEM_BREAKER_YT,
+                        "Ρ-35",
+                        "8383305",
+                        "",
+                        "SF6",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        116,
+                        None,
+                        "Πλήρωση",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        json.dumps(
+                            {
+                                "sync_timing": {
+                                    "open": ["24.5", "23.5", "24.5"],
+                                    "close": ["33.7", "31.7", "31.7"],
+                                },
+                                "resistance_raid": ["36", "36", "30"],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                ]
+            return []
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePopup:
+        def __init__(self, *args, **kwargs):
+            captured["popup"] = self
+            self.content = None
+
+        def open(self):
+            captured["opened"] = True
+
+        def dismiss(self):
+            return None
+
+    monkeypatch.setattr(DBrun, "Popup", FakePopup)
+    monkeypatch.setattr(DBrun, "BoxLayout", BoxLayout)
+    monkeypatch.setattr(DBrun, "GridLayout", GridLayout)
+    monkeypatch.setattr(DBrun, "Label", Label)
+    monkeypatch.setattr(DBrun, "Button", Button)
+    monkeypatch.setattr(DBrun, "ScrollView", ScrollView)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = FakeConnection()
+    app._get_ui_font_kwargs = lambda: {}
+    app._get_maintenance_people = lambda _maintenance_id: (None, [])
+    app.BREAKER_CATEGORIES_ALL = ["SF6", "Vacuum", "Κενού", "Ελαίου"]
+
+    app.show_maintenance_full_report(2973)
+
+    assert captured.get("opened") is True
+    texts = _collect_texts(captured["popup"].content)
+    joined_text = "\n".join(texts)
+    assert "Αριθμός Χειρισμών: 116" in joined_text
+    assert "Έλεγχος ταυτοχρονισμού:" in joined_text
+    assert "Μέτρηση Αντίστασης Διαβάσεως:" in joined_text

@@ -19121,6 +19121,175 @@ class SubstationApp(App):
 
         return str(payload)
 
+    def _build_maintenance_element_measurement_summary(
+        self,
+        *,
+        elem_type=None,
+        breaker_category=None,
+        ins_closed_fa=None,
+        ins_closed_fa_unit=None,
+        ins_closed_fb=None,
+        ins_closed_fb_unit=None,
+        ins_closed_fc=None,
+        ins_closed_fc_unit=None,
+        ins_open_fa=None,
+        ins_open_fa_unit=None,
+        ins_open_fb=None,
+        ins_open_fb_unit=None,
+        ins_open_fc=None,
+        ins_open_fc_unit=None,
+        cont_fa=None,
+        cont_fb=None,
+        cont_fc=None,
+        ops_count=None,
+        sf6_leakage_kg=None,
+        sf6_leak_methodology=None,
+        sf6_n2_fa=None,
+        h2o_fa=None,
+        so2_fa=None,
+        sf6_n2_fb=None,
+        h2o_fb=None,
+        so2_fb=None,
+        sf6_n2_fc=None,
+        h2o_fc=None,
+        so2_fc=None,
+        vidar_fa=None,
+        vidar_fb=None,
+        vidar_fc=None,
+        extra_measurements_json=None,
+    ):
+        def fmt(val, unit=None):
+            if val is None or val == "":
+                return "-"
+            return f"{val} {unit}" if unit else f"{val}"
+
+        def add_triplet(lines, title, labels_and_values):
+            visible_items = [
+                f"{label}: {value}"
+                for label, value in labels_and_values
+                if value != "-"
+            ]
+            if visible_items:
+                lines.append(f"{title}: {', '.join(visible_items)}")
+
+        extra_measurements = {}
+        if extra_measurements_json:
+            try:
+                decoded_data = json.loads(extra_measurements_json)
+                if isinstance(decoded_data, dict):
+                    extra_measurements = decoded_data
+            except Exception:
+                extra_measurements = {}
+
+        detail_payload = self._prepare_measurement_details_payload(
+            extra_measurements,
+            exclude_keys=self._maintenance_detail_legacy_measurement_keys(),
+        )
+
+        lines = []
+        is_hv_breaker = elem_type == self.ELEM_BREAKER_YT
+
+        if not is_hv_breaker:
+            add_triplet(
+                lines,
+                S["MESSAGES"].get(
+                    "INSULATION_RESISTANCE_CLOSED_TITLE",
+                    "Αντίσταση Μόνωσης - Διακόπτης Κλειστός (Γη)",
+                ),
+                [
+                    (
+                        S["MESSAGES"].get("INSULATION_LABEL_FA_GND", "ΦΑ-ΓΗ"),
+                        fmt(ins_closed_fa, ins_closed_fa_unit),
+                    ),
+                    (
+                        S["MESSAGES"].get("INSULATION_LABEL_FB_GND", "ΦΒ-ΓΗ"),
+                        fmt(ins_closed_fb, ins_closed_fb_unit),
+                    ),
+                    (
+                        S["MESSAGES"].get("INSULATION_LABEL_FC_GND", "ΦΓ-ΓΗ"),
+                        fmt(ins_closed_fc, ins_closed_fc_unit),
+                    ),
+                ],
+            )
+            add_triplet(
+                lines,
+                S["MESSAGES"].get(
+                    "INSULATION_RESISTANCE_OPEN_TITLE",
+                    "Αντίσταση Μόνωσης - Διακόπτης Ανοικτός (Φάση-Φάση)",
+                ),
+                [
+                    (
+                        S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"),
+                        fmt(ins_open_fa, ins_open_fa_unit),
+                    ),
+                    (
+                        S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ"),
+                        fmt(ins_open_fb, ins_open_fb_unit),
+                    ),
+                    (
+                        S["MESSAGES"].get("INSULATION_LABEL_FC", "ΦΓ-ΦΓ"),
+                        fmt(ins_open_fc, ins_open_fc_unit),
+                    ),
+                ],
+            )
+
+        add_triplet(
+            lines,
+            S["MESSAGES"].get("INSULATION_PASSAGE_TITLE", "Αντίσταση Διαβάσεως (μΩ)"),
+            [
+                (S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(cont_fa)),
+                (S["MESSAGES"].get("INSULATION_LABEL_FB", "ΦΒ-ΦΒ"), fmt(cont_fb)),
+                (S["MESSAGES"].get("INSULATION_LABEL_FC", "ΦΓ-ΦΓ"), fmt(cont_fc)),
+            ],
+        )
+
+        if self._has_meaningful_measurement_value(ops_count):
+            lines.append(
+                f"{S['MESSAGES'].get('OPERATIONS_COUNT_LABEL', 'Αριθμός Χειρισμών:')} {fmt(ops_count)}"
+            )
+
+        if breaker_category == "SF6":
+            sf6_items = []
+            if self._has_meaningful_measurement_value(sf6_leakage_kg):
+                sf6_items.append(f"Διαρροή SF6 (kg): {fmt(sf6_leakage_kg)}")
+            if self._has_meaningful_measurement_value(sf6_leak_methodology):
+                sf6_items.append(f"Πλήρωση/Αντικατάσταση: {fmt(sf6_leak_methodology)}")
+            for phase_label, n2_value, h2o_value, so2_value in (
+                ("ΦΑ", sf6_n2_fa, h2o_fa, so2_fa),
+                ("ΦΒ", sf6_n2_fb, h2o_fb, so2_fb),
+                ("ΦΓ", sf6_n2_fc, h2o_fc, so2_fc),
+            ):
+                phase_parts = []
+                if self._has_meaningful_measurement_value(n2_value):
+                    phase_parts.append(f"SF6/N2 {fmt(n2_value)}")
+                if self._has_meaningful_measurement_value(h2o_value):
+                    phase_parts.append(f"H2O {fmt(h2o_value)}")
+                if self._has_meaningful_measurement_value(so2_value):
+                    phase_parts.append(f"SO2 {fmt(so2_value)}")
+                if phase_parts:
+                    sf6_items.append(f"{phase_label}: {' | '.join(phase_parts)}")
+            if sf6_items:
+                lines.append(f"Ποιότητα Αερίου SF6: {'; '.join(sf6_items)}")
+
+        if (
+            breaker_category in ["Vacuum", "Κενού"]
+            and elem_type == self.ELEM_BREAKER_MT
+        ):
+            add_triplet(
+                lines,
+                S["MESSAGES"].get("VIDAR_SECTION_TITLE", "Έλεγχος Κενού (VIDAR)"),
+                [
+                    (S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(vidar_fa)),
+                    (S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ"), fmt(vidar_fb)),
+                    (S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ"), fmt(vidar_fc)),
+                ],
+            )
+
+        if self._has_meaningful_measurement_value(detail_payload):
+            lines.append(self._format_measurement_details_payload(detail_payload))
+
+        return "\n".join(line for line in lines if str(line or "").strip())
+
     def _gate_has_transformer_elements(self, gate_elements):
         return any(self._is_transformer(elem[1]) for elem in gate_elements)
 
@@ -21115,7 +21284,22 @@ class SubstationApp(App):
 
         c.execute(
             """
-            SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments, e.breaker_category
+            SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments,
+                   e.breaker_category,
+                   me.insulation_closed_fa_ground, me.insulation_closed_fa_unit,
+                   me.insulation_closed_fb_ground, me.insulation_closed_fb_unit,
+                   me.insulation_closed_fc_ground, me.insulation_closed_fc_unit,
+                   me.insulation_open_fa_fa, me.insulation_open_fa_unit,
+                   me.insulation_open_fb_fb, me.insulation_open_fb_unit,
+                   me.insulation_open_fc_fc, me.insulation_open_fc_unit,
+                   me.contact_resistance_fa_fa, me.contact_resistance_fb_fb,
+                   me.contact_resistance_fc_fc, me.operations_count,
+                   me.sf6_leakage_kg, me.sf6_leak_methodology,
+                   me.sf6_n2_fa, me.h2o_fa, me.so2_fa,
+                   me.sf6_n2_fb, me.h2o_fb, me.so2_fb,
+                   me.sf6_n2_fc, me.h2o_fc, me.so2_fc,
+                   me.vidar_fa, me.vidar_fb, me.vidar_fc,
+                   me.data_json
             FROM maintenance_elements me
             JOIN elements e ON e.id = me.element_id
             WHERE me.maintenance_id = ?
@@ -21139,6 +21323,37 @@ class SubstationApp(App):
                 serial_num,
                 elem_comments,
                 breaker_category,
+                ins_closed_fa,
+                ins_closed_fa_unit,
+                ins_closed_fb,
+                ins_closed_fb_unit,
+                ins_closed_fc,
+                ins_closed_fc_unit,
+                ins_open_fa,
+                ins_open_fa_unit,
+                ins_open_fb,
+                ins_open_fb_unit,
+                ins_open_fc,
+                ins_open_fc_unit,
+                cont_fa,
+                cont_fb,
+                cont_fc,
+                ops_count,
+                sf6_leakage_kg,
+                sf6_leak_methodology,
+                sf6_n2_fa,
+                h2o_fa,
+                so2_fa,
+                sf6_n2_fb,
+                h2o_fb,
+                so2_fb,
+                sf6_n2_fc,
+                h2o_fc,
+                so2_fc,
+                vidar_fa,
+                vidar_fb,
+                vidar_fc,
+                extra_measurements_json,
             ) in elements:
                 elem_row = BoxLayout(size_hint_y=None, height=42, spacing=6)
                 elem_row.bind(minimum_height=elem_row.setter("height"))
@@ -21148,6 +21363,46 @@ class SubstationApp(App):
                     elem_text += "\n  " + S["MESSAGES"].get(
                         "COMMENTS_LABEL", "Σχόλια: {text}"
                     ).format(text=elem_comments)
+
+                measurement_summary = (
+                    self._build_maintenance_element_measurement_summary(
+                        elem_type=elem_type,
+                        breaker_category=breaker_category,
+                        ins_closed_fa=ins_closed_fa,
+                        ins_closed_fa_unit=ins_closed_fa_unit,
+                        ins_closed_fb=ins_closed_fb,
+                        ins_closed_fb_unit=ins_closed_fb_unit,
+                        ins_closed_fc=ins_closed_fc,
+                        ins_closed_fc_unit=ins_closed_fc_unit,
+                        ins_open_fa=ins_open_fa,
+                        ins_open_fa_unit=ins_open_fa_unit,
+                        ins_open_fb=ins_open_fb,
+                        ins_open_fb_unit=ins_open_fb_unit,
+                        ins_open_fc=ins_open_fc,
+                        ins_open_fc_unit=ins_open_fc_unit,
+                        cont_fa=cont_fa,
+                        cont_fb=cont_fb,
+                        cont_fc=cont_fc,
+                        ops_count=ops_count,
+                        sf6_leakage_kg=sf6_leakage_kg,
+                        sf6_leak_methodology=sf6_leak_methodology,
+                        sf6_n2_fa=sf6_n2_fa,
+                        h2o_fa=h2o_fa,
+                        so2_fa=so2_fa,
+                        sf6_n2_fb=sf6_n2_fb,
+                        h2o_fb=h2o_fb,
+                        so2_fb=so2_fb,
+                        sf6_n2_fc=sf6_n2_fc,
+                        h2o_fc=h2o_fc,
+                        so2_fc=so2_fc,
+                        vidar_fa=vidar_fa,
+                        vidar_fb=vidar_fb,
+                        vidar_fc=vidar_fc,
+                        extra_measurements_json=extra_measurements_json,
+                    )
+                )
+                if measurement_summary:
+                    elem_text += "\n  " + measurement_summary.replace("\n", "\n  ")
 
                 elem_label = Label(
                     text=elem_text,
