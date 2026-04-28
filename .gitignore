@@ -88,3 +88,7 @@ tests/results.xml
 # Workspace copies of OneDrive PDFs
 # Added by automation: exclude copied Μονογραμμικά ΥΣ folder
 Μονογραμμικά ΥΣ/
+
+# Access import/export backups (local only)
+backups/access_imports/
+backups/access_export/
