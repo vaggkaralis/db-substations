@@ -682,16 +682,23 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
     subject = payload.get("subject", "")
     body = payload.get("body", "")
     sender_name = payload.get("sender_name", "")
+    sender_email = payload.get("sender_email", "")
     received_at = payload.get("received_at", "")
     attachment_paths = payload.get("attachment_paths", []) or []
 
     try:
         from maintenance_email_importer import (
+            _find_elements_in_body,
+            _find_people_in_body,
+            _match_person_by_sender,
             find_matching_isolation_request_id,
             infer_maintenance_type_from_subject,
             infer_substation_from_email,
         )
     except Exception:
+        _find_elements_in_body = None
+        _find_people_in_body = None
+        _match_person_by_sender = None
         infer_maintenance_type_from_subject = None
         infer_substation_from_email = None
         find_matching_isolation_request_id = None
@@ -757,10 +764,24 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         )
         return
 
-    responsible_id = app._match_person_by_sender(sender_name, people)
-    crew_ids = app._find_people_in_body(
-        body, people, exclude_ids={responsible_id} if responsible_id else set()
-    )
+    responsible_id = None
+    if callable(_match_person_by_sender):
+        person = _match_person_by_sender(app.conn, sender_email, sender_name)
+        responsible_id = person["id"] if person else None
+    if responsible_id is None:
+        responsible_id = app._match_person_by_sender(sender_name, people)
+
+    crew_ids = set()
+    if callable(_find_people_in_body):
+        crew_ids = _find_people_in_body(
+            app.conn,
+            body,
+            exclude_ids={responsible_id} if responsible_id else set(),
+        )
+    else:
+        crew_ids = app._find_people_in_body(
+            body, people, exclude_ids={responsible_id} if responsible_id else set()
+        )
 
     people_name_by_id = {pid: name for pid, name, _role in people}
     log_import_diagnostic(
@@ -776,7 +797,10 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         detected_crew_names=[people_name_by_id.get(pid) for pid in sorted(crew_ids)],
     )
 
-    element_ids = app._find_elements_in_body(body, substation_id)
+    if callable(_find_elements_in_body):
+        element_ids = _find_elements_in_body(app.conn, body, substation_id)
+    else:
+        element_ids = app._find_elements_in_body(body, substation_id)
     incomplete_elements = set(element_ids)
 
     default_maintenance_type = S.get("MESSAGES", {}).get(

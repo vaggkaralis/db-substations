@@ -72,6 +72,25 @@ def test_people_matched_on_initial_plus_surname():
     assert found == {20}
 
 
+def test_people_matched_on_surname_only_in_present_context():
+    conn = _make_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO people (id, name, active) VALUES (30, ?, 1)",
+        ("Γιαννούλας Νικόλαος",),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, active) VALUES (31, ?, 1)",
+        ("Μουτσέλος Ιωάννης",),
+    )
+    conn.commit()
+
+    body = "Παρόντες στο συνεργείο: Γιαννούλας, Μουτσέλος."
+
+    found = mei._find_people_in_body(conn, body)
+    assert found == {30, 31}
+
+
 def _make_element_conn():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -160,6 +179,30 @@ def test_element_matching_uses_real_email_formats_without_matching_generic_ms_te
 Η ηλεκτριση έγινε καλώς.
 
 Το συνεργείο έχει 1 ώρα υπερεργασίας."""
+
+    found = mei._find_elements_in_body(conn, body, 1)
+    assert found == {2}
+
+
+def test_element_matching_keeps_transformer_when_breaker_reference_is_only_operational():
+    conn = _make_element_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, name, element_type) "
+        "VALUES (1, 1, ?, ?)",
+        ("Ρ-260", "Διακόπτης ΥΤ"),
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, name, element_type) "
+        "VALUES (2, 1, ?, ?)",
+        ("ΜΣ1", "Μετασχηματιστής 150/20KV"),
+    )
+    conn.commit()
+
+    body = (
+        "Σήμερα πραγματοποιήθηκαν εργασίες συντήρησης στον ΜΣ1. "
+        "Για την επαναφορά του υποσταθμού έγινε χειρισμός του Ρ-260."
+    )
 
     found = mei._find_elements_in_body(conn, body, 1)
     assert found == {2}

@@ -172,6 +172,72 @@ def test_open_maintenance_from_email_payload_prefills_matching_isolation_id():
     assert prefill["linked_isolation_request_id"] == 7
 
 
+def test_open_maintenance_from_email_payload_uses_shared_matching_helpers():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.executemany(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        [
+            (5, "Tester", "technician", 1, "tester@example.com"),
+            (6, "Μουτσέλος Ιωάννης", "technician", 1, None),
+        ],
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    payload = {
+        "subject": "Συντήρηση 27.04.2026",
+        "body": "Συντήρηση στον ΜΣ1. Παρόντες στο συνεργείο: Μουτσέλος.",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-04-27T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    prefill = captured["kwargs"]["prefill_data"]
+    assert prefill["responsible_id"] == 5
+    assert prefill["crew_ids"] == {6}
+    assert prefill["element_ids"] == {10}
+
+
 def test_find_matching_isolation_request_id_prefers_exact_overlap():
     conn = init_db(":memory:")
     conn.row_factory = sqlite3.Row

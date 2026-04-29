@@ -713,7 +713,10 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
             start = max(0, m.start() - 120)
             end = min(len(normalized_body), m.end() + 120)
             window = normalized_body[start:end]
-            if re.search(r"\b(εργαζομεν|συνεργει|υπερωρι|ομαδα|επικεφαλησ)\w*", window):
+            if re.search(
+                r"\b(εργαζομεν|συνεργει|υπερωρι|ομαδα|επικεφαλησ|παροντ|συμμετειχ|τεχνικ|προσωπικ)\w*",
+                window,
+            ):
                 return True
         return False
 
@@ -839,7 +842,7 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
         digits = "".join(ch for ch in compact if ch.isdigit())
         elem_type_norm = _normalize_text(elem_type)
         is_transformer = (
-            "μετασχηματιστης" in elem_type_norm
+            "μετασχηματιστησ" in elem_type_norm
             or compact.startswith("μσ")
             or compact.startswith("ms")
         )
@@ -848,7 +851,7 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
         if digits:
             if is_transformer:
                 variants.add(f"μσ{digits}")
-                variants.add(f"μετασχηματιστης{digits}")
+                variants.add(f"μετασχηματιστησ{digits}")
             if is_r_breaker:
                 variants.add(f"ρ{digits}")
 
@@ -1003,6 +1006,22 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
         )
         return weak is not None
 
+    def _is_weak_breaker_context(breaker_digits: str) -> bool:
+        token_pat = rf"ρ\s*[-/ ]?{re.escape(breaker_digits)}\b"
+
+        strong = re.search(
+            rf"(?:\b(συντηρ|εργασ|μετρησ|δοκιμ|επισκευ|αντικαταστ|καθαρισ|λιπανσ)\w*\b[^\n.,;:()]{{0,30}}{token_pat}|{token_pat}[^\n.,;:()]{{0,30}}\b(συντηρ|εργασ|μετρησ|δοκιμ|επισκευ|αντικαταστ|καθαρισ|λιπανσ)\w*\b)",
+            normalized_body,
+        )
+        if strong:
+            return False
+
+        weak = re.search(
+            rf"(?:\b(χειρισμ|επαναφορ|ηλεκτρισ|ρευματοδοτ|γείωσ|γειωσ|απομονωσ|ανοιγ|κλεισ|τάσ|ταση)\w*\b[^\n.,;:()]{{0,35}}{token_pat}|{token_pat}[^\n.,;:()]{{0,35}}\b(χειρισμ|επαναφορ|ηλεκτρισ|ρευματοδοτ|γείωσ|γειωσ|απομονωσ|ανοιγ|κλεισ|τάσ|ταση)\w*\b)",
+            normalized_body,
+        )
+        return weak is not None
+
     for elem_id, elem_name, _elem_type in elements:
         base = _normalize_text(elem_name).lower()
         compact = re.sub(r"[^0-9a-zα-ω]+", "", base)
@@ -1011,10 +1030,32 @@ def _find_elements_in_body(conn, body_text: str, substation_id: int):
             continue
         if elem_id in matched and _is_weak_transformer_context(ms_match.group(1)):
             matched.discard(elem_id)
+            continue
+
+    transformer_matches = set()
+    for elem_id, elem_name, _elem_type in elements:
+        if elem_id not in exact_breaker_matches:
+            base = _normalize_text(elem_name).lower()
+            compact = re.sub(r"[^0-9a-zα-ω]+", "", base)
+            elem_type_norm = _normalize_text(_elem_type)
+            is_transformer = (
+                "μετασχηματιστησ" in elem_type_norm
+                or compact.startswith("μσ")
+                or compact.startswith("ms")
+            )
+            if elem_id in matched and is_transformer:
+                transformer_matches.add(elem_id)
+            continue
+
+        base = _normalize_text(elem_name).lower()
+        compact = re.sub(r"[^0-9a-zα-ω]+", "", base)
+        digits = "".join(ch for ch in compact if ch.isdigit())
+        if digits and _is_weak_breaker_context(digits):
+            matched.discard(elem_id)
 
     # Exact breaker designators are the highest-confidence matches in email text.
     # When present, avoid preselecting additional elements from the same mail.
-    if exact_breaker_matches:
+    if exact_breaker_matches and not transformer_matches:
         return exact_breaker_matches
 
     return matched
