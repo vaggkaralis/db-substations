@@ -452,6 +452,31 @@ def handle_inspection_menu(app, instance=None):
             except Exception:
                 pass
             if hasattr(app, "show_inspection_entry_popup"):
+                try:
+                    conn = getattr(app, "conn", None)
+                    chooser = getattr(
+                        app, "_show_substation_selection_window_with_callback", None
+                    )
+                    if conn is not None and callable(chooser):
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT id, name FROM substations ORDER BY name")
+                        substations = cursor.fetchall()
+                        if substations:
+                            return chooser(
+                                None,
+                                substations,
+                                lambda selected_name: getattr(
+                                    app, "show_inspection_entry_popup"
+                                )(
+                                    None,
+                                    preselected_substation_name=selected_name,
+                                ),
+                                title=S.get("MESSAGES", {}).get(
+                                    "SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"
+                                ),
+                            )
+                except Exception:
+                    pass
                 return getattr(app, "show_inspection_entry_popup")(None)
 
         def on_history(_):

@@ -59,11 +59,15 @@ def test_open_maintenance_from_email_payload_keeps_attachment_paths(monkeypatch)
         "received_at": "2026-04-27T10:00:00",
         "attachment_paths": [r"C:\temp\photo1.jpg", r"C:\temp\video1.mp4"],
     }
+    after_save_callback = object()
 
-    maintenance.open_maintenance_from_email_payload(FakeApp(), {}, payload)
+    maintenance.open_maintenance_from_email_payload(
+        FakeApp(), {}, payload, after_save_callback=after_save_callback
+    )
 
     prefill = captured["kwargs"]["prefill_data"]
     assert prefill["attachment_paths"] == payload["attachment_paths"]
+    assert captured["kwargs"]["after_save_callback"] is after_save_callback
 
 
 def test_create_maintenance_from_email_forwards_attachment_paths_to_folder_creation(

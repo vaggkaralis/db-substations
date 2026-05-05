@@ -311,10 +311,12 @@ def verify_maintenance_overview_report_synchronization(
                     ),
                 )
 
-                if tracked_path and repair_pdf_access(tracked_path):
+                if tracked_path and repair_pdf_access(
+                    tracked_path, normalize_existing=False
+                ):
                     existing += 1
                     continue
-                if repair_pdf_access(canonical_path):
+                if repair_pdf_access(canonical_path, normalize_existing=False):
                     existing += 1
                     if tracked_path and tracked_path != canonical_path:
                         stale_tracked += 1
@@ -621,7 +623,9 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
             maintenance_id = row["maintenance_id"]
             element_id = row["element_id"]
             tracked_path = row["tracked_path"]
-            tracked_exists = bool(tracked_path) and repair_pdf_access(tracked_path)
+            tracked_exists = bool(tracked_path) and repair_pdf_access(
+                tracked_path, normalize_existing=False
+            )
 
             if tracked_exists:
                 existing += 1
@@ -652,7 +656,7 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
                         parent_dir=subfolder,
                     ),
                 )
-                if repair_pdf_access(canonical_path):
+                if repair_pdf_access(canonical_path, normalize_existing=False):
                     canonical_exists = True
                     break
 
@@ -663,7 +667,7 @@ def verify_report_synchronization(conn, *, db_path: str | None = None) -> dict:
                 ).hexdigest()[:8]
                 tight_name = f"M{maintenance_id}_E{element_id}_{sub_elem_hash}.pdf"
                 tight_path = os.path.join(subfolder, tight_name)
-                if repair_pdf_access(tight_path):
+                if repair_pdf_access(tight_path, normalize_existing=False):
                     canonical_exists = True
                     canonical_path = tight_path
                     break
@@ -761,7 +765,7 @@ def export_missing_reports(
         gate_value = row[2] if isinstance(row, (tuple, list)) else row["gate"]
         tracked_path = row[3] if isinstance(row, (tuple, list)) else row["report_path"]
 
-        if tracked_path and repair_pdf_access(tracked_path):
+        if tracked_path and repair_pdf_access(tracked_path, normalize_existing=False):
             skipped += 1
             touched_maintenance_ids.add(maintenance_id)
             continue

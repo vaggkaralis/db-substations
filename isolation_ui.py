@@ -45,7 +45,12 @@ def _group_elements_by_gate(elements):
 
 
 def _prefill_imported_isolation(
-    app, parent_popup, raw_text, status, attachment_paths=None
+    app,
+    parent_popup,
+    raw_text,
+    status,
+    attachment_paths=None,
+    after_save_callback=None,
 ):
     parsed = parse_isolation_request_text(raw_text)
     substations = _get_substations(app)
@@ -73,21 +78,39 @@ def _prefill_imported_isolation(
             )
         prefill["element_ids"] = matched_element_ids
 
-    show_add_isolation_request(app, parent_popup, prefill_data=prefill)
+    show_add_isolation_request(
+        app,
+        parent_popup,
+        prefill_data=prefill,
+        after_save_callback=after_save_callback,
+    )
 
 
 def import_isolation_request_from_payload(
-    app, payload, parent_popup=None, status=_DEFAULT_IMPORTED_STATUS
+    app,
+    payload,
+    parent_popup=None,
+    status=_DEFAULT_IMPORTED_STATUS,
+    after_save_callback=None,
 ):
     raw_text = payload.get("body") or ""
     attachment_paths = payload.get("attachment_paths") or []
     _prefill_imported_isolation(
-        app, parent_popup, raw_text, status, attachment_paths=attachment_paths
+        app,
+        parent_popup,
+        raw_text,
+        status,
+        attachment_paths=attachment_paths,
+        after_save_callback=after_save_callback,
     )
 
 
 def import_isolation_request_from_eml(
-    app, file_path, parent_popup=None, status=_DEFAULT_IMPORTED_STATUS
+    app,
+    file_path,
+    parent_popup=None,
+    status=_DEFAULT_IMPORTED_STATUS,
+    after_save_callback=None,
 ):
     try:
         payload = parse_eml_file(file_path)
@@ -98,7 +121,11 @@ def import_isolation_request_from_eml(
         return
 
     import_isolation_request_from_payload(
-        app, payload, parent_popup=parent_popup, status=status
+        app,
+        payload,
+        parent_popup=parent_popup,
+        status=status,
+        after_save_callback=after_save_callback,
     )
 
 
@@ -482,7 +509,13 @@ def show_isolation_requests(app, instance=None):
     popup.open()
 
 
-def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_data=None):
+def _show_isolation_request_form(
+    app,
+    parent_popup,
+    request_id=None,
+    prefill_data=None,
+    after_save_callback=None,
+):
     from datetime import datetime, timedelta
     from kivy.uix.anchorlayout import AnchorLayout
     from kivy.uix.boxlayout import BoxLayout
@@ -1187,7 +1220,11 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
         show_message_popup(
             S["TITLES"].get("SUCCESS", "Επιτυχία"),
             message,
-            callback=lambda: show_isolation_requests(app, None),
+            callback=(
+                after_save_callback
+                if callable(after_save_callback)
+                else lambda: show_isolation_requests(app, None)
+            ),
         )
 
     save_btn = Button(
@@ -1259,9 +1296,15 @@ def _show_isolation_request_form(app, parent_popup, request_id=None, prefill_dat
     popup.open()
 
 
-def show_add_isolation_request(app, parent_popup, prefill_data=None):
+def show_add_isolation_request(
+    app, parent_popup, prefill_data=None, after_save_callback=None
+):
     _show_isolation_request_form(
-        app, parent_popup, request_id=None, prefill_data=prefill_data
+        app,
+        parent_popup,
+        request_id=None,
+        prefill_data=prefill_data,
+        after_save_callback=after_save_callback,
     )
 
 

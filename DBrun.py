@@ -2390,6 +2390,10 @@ class SubstationApp(App):
         APP_LOGGER.info("Starting startup sync cycle")
         self._run_startup_sync_cycle()
         try:
+            Clock.schedule_once(self._prompt_startup_report_review_if_needed, 0.75)
+        except Exception:
+            logging.exception("Failed to schedule startup report review")
+        try:
             interval_minutes = int(get_app_setting("sync_auto_cycle_minutes", 15))
         except Exception:
             interval_minutes = 15
@@ -2965,7 +2969,12 @@ class SubstationApp(App):
 
         return _m(self, substation_id, date_time_value)
 
-    def _open_maintenance_from_email_payload(self, payload, forced_substation=None):
+    def _open_maintenance_from_email_payload(
+        self,
+        payload,
+        forced_substation=None,
+        after_save_callback=None,
+    ):
         from maintenance import open_maintenance_from_email_payload as _m
 
         ui = {
@@ -2980,7 +2989,28 @@ class SubstationApp(App):
             "show_message_popup": show_message_popup,
             "parse_eml_file": parse_eml_file,
         }
-        return _m(self, ui, payload, forced_substation)
+        return _m(
+            self,
+            ui,
+            payload,
+            forced_substation,
+            after_save_callback=after_save_callback,
+        )
+
+    def _open_isolation_from_email_payload(
+        self,
+        payload,
+        status="Requested",
+        after_save_callback=None,
+    ):
+        from isolation_ui import import_isolation_request_from_payload as _f
+
+        return _f(
+            self,
+            payload,
+            status=status,
+            after_save_callback=after_save_callback,
+        )
 
     def _normalize_dropped_file_path(self, file_path):
         if isinstance(file_path, bytes):
@@ -3063,10 +3093,17 @@ class SubstationApp(App):
         )
         return True
 
-    def _import_isolation_from_email_file(self, file_path, status="Requested"):
+    def _import_isolation_from_email_file(
+        self, file_path, status="Requested", after_save_callback=None
+    ):
         from isolation_ui import import_isolation_request_from_eml as _f
 
-        return _f(self, file_path, status=status)
+        return _f(
+            self,
+            file_path,
+            status=status,
+            after_save_callback=after_save_callback,
+        )
 
     def _prompt_substation_selection(self, substations, payload):
         popup = Popup(
@@ -7208,7 +7245,391 @@ class SubstationApp(App):
         except Exception:
             pass
 
+    @staticmethod
+    def _list_pending_startup_report_eml_files(reports_dir):
+        if not reports_dir or not os.path.isdir(reports_dir):
+            return []
+
+        pending_files = []
+        for name in sorted(os.listdir(reports_dir), key=lambda value: value.lower()):
+            path = os.path.join(reports_dir, name)
+            if os.path.isfile(path) and name.lower().endswith(".eml"):
+                pending_files.append(os.path.abspath(path))
+        return pending_files
+
+    @staticmethod
+    def _cleanup_startup_report_payload(payload):
+        attachment_paths = []
+        if isinstance(payload, dict):
+            attachment_paths = list(payload.get("attachment_paths") or [])
+
+        parent_dirs = set()
+        for attachment_path in attachment_paths:
+            normalized_path = str(attachment_path or "").strip()
+            if not normalized_path:
+                continue
+            try:
+                if os.path.exists(normalized_path):
+                    os.remove(normalized_path)
+            except Exception:
+                pass
+
+            parent_dir = os.path.dirname(normalized_path)
+            if parent_dir:
+                parent_dirs.add(parent_dir)
+
+        for parent_dir in sorted(parent_dirs, key=len, reverse=True):
+            try:
+                if (
+                    os.path.isdir(parent_dir)
+                    and os.path.basename(parent_dir).startswith("eml_media_")
+                    and not os.listdir(parent_dir)
+                ):
+                    os.rmdir(parent_dir)
+            except Exception:
+                pass
+
+    def _delete_startup_report_source_file(self, file_path, payload=None):
+        removed = False
+        normalized_path = os.path.abspath(str(file_path or "").strip())
+        if normalized_path:
+            try:
+                if os.path.exists(normalized_path):
+                    os.remove(normalized_path)
+                    removed = True
+            except Exception:
+                removed = False
+
+        self._cleanup_startup_report_payload(payload)
+        return removed
+
+    def _get_pending_startup_report_files(self):
+        try:
+            from sync_service import resolve_sync_root
+
+            sync_root = resolve_sync_root(self.db_path)
+        except Exception:
+            logging.exception("Failed to resolve sync_root for startup report review")
+            return []
+
+        reports_dir = os.path.join(sync_root, "reports")
+        return self._list_pending_startup_report_eml_files(reports_dir)
+
+    def _get_pending_startup_isolation_files(self):
+        try:
+            from sync_service import resolve_sync_root
+
+            sync_root = resolve_sync_root(self.db_path)
+        except Exception:
+            logging.exception(
+                "Failed to resolve sync_root for startup isolation review"
+            )
+            return []
+
+        isolations_dir = os.path.join(sync_root, "isolations")
+        return self._list_pending_startup_report_eml_files(isolations_dir)
+
+    def _get_pending_startup_review_items(self):
+        items = []
+        for file_path in self._get_pending_startup_report_files():
+            items.append(
+                {
+                    "kind": "maintenance",
+                    "source_folder": "reports",
+                    "file_path": file_path,
+                }
+            )
+        for file_path in self._get_pending_startup_isolation_files():
+            items.append(
+                {
+                    "kind": "isolation",
+                    "source_folder": "isolations",
+                    "file_path": file_path,
+                }
+            )
+        return items
+
+    @staticmethod
+    def _normalize_startup_review_items(pending_items):
+        normalized_items = []
+        for item in pending_items or []:
+            if isinstance(item, str):
+                candidate = {
+                    "kind": "maintenance",
+                    "source_folder": "reports",
+                    "file_path": item,
+                }
+            elif isinstance(item, dict):
+                candidate = dict(item)
+            else:
+                continue
+
+            file_path = os.path.abspath(str(candidate.get("file_path") or "").strip())
+            if not file_path or not os.path.isfile(file_path):
+                continue
+
+            candidate["file_path"] = file_path
+            candidate.setdefault("kind", "maintenance")
+            candidate.setdefault(
+                "source_folder",
+                "reports" if candidate["kind"] == "maintenance" else "isolations",
+            )
+            normalized_items.append(candidate)
+        return normalized_items
+
+    def _prompt_startup_report_review_if_needed(self, *_args):
+        existing_popup = getattr(self, "_startup_report_review_popup", None)
+        if existing_popup is not None and getattr(existing_popup, "_window", None):
+            return True
+
+        blocking_popups = [
+            getattr(self, "_startup_sync_prompt_popup", None),
+            getattr(self, "_startup_progress_popup", None),
+        ]
+        if any(
+            popup is not None and getattr(popup, "_window", None)
+            for popup in blocking_popups
+        ):
+            Clock.schedule_once(self._prompt_startup_report_review_if_needed, 0.75)
+            return False
+
+        pending_items = self._get_pending_startup_review_items()
+        if not pending_items:
+            return False
+
+        self._show_startup_report_review_popup(pending_items, index=0)
+        return True
+
+    def _show_startup_report_review_popup(self, pending_files, index=0):
+        from popups import show_message_popup
+
+        remaining_items = self._normalize_startup_review_items(pending_files)
+        if not remaining_items or index >= len(remaining_items):
+            setattr(self, "_startup_report_review_popup", None)
+            return False
+
+        review_item = remaining_items[index]
+        file_path = review_item["file_path"]
+        file_name = os.path.basename(file_path)
+        review_kind = str(review_item.get("kind") or "maintenance").strip().lower()
+        source_folder = review_item.get("source_folder") or (
+            "isolations" if review_kind == "isolation" else "reports"
+        )
+        item_label = S["MESSAGES"].get(
+            "STARTUP_EMAIL_KIND_ISOLATION"
+            if review_kind == "isolation"
+            else "STARTUP_EMAIL_KIND_MAINTENANCE",
+            "isolation e-mail"
+            if review_kind == "isolation"
+            else "maintenance e-mail report",
+        )
+        entry_label = S["MESSAGES"].get(
+            "STARTUP_EMAIL_ENTRY_ISOLATION"
+            if review_kind == "isolation"
+            else "STARTUP_EMAIL_ENTRY_MAINTENANCE",
+            "isolation request" if review_kind == "isolation" else "maintenance",
+        )
+        payload = None
+        parse_error = None
+        try:
+            payload = parse_eml_file(file_path)
+        except Exception as exc:
+            parse_error = str(exc)
+
+        if payload:
+            sender_value = (
+                payload.get("sender_name") or payload.get("sender_email") or "-"
+            )
+            message_text = (
+                S["MESSAGES"]
+                .get(
+                    "STARTUP_EMAIL_REVIEW_MESSAGE_FMT",
+                    "A pending {item_label} was found in sync_root/{source_folder}.\n\n"
+                    "File: {file_name}\n"
+                    "Subject: {subject}\n"
+                    "Sender: {sender}\n"
+                    "Received: {received_at}\n"
+                    "Attachments: {attachment_count}\n\n"
+                    "Choose an action for item {index}/{total}.",
+                )
+                .format(
+                    item_label=item_label,
+                    source_folder=source_folder,
+                    file_name=file_name,
+                    subject=payload.get("subject") or "-",
+                    sender=sender_value,
+                    received_at=payload.get("received_at") or "-",
+                    attachment_count=len(payload.get("attachment_paths") or []),
+                    index=index + 1,
+                    total=len(remaining_items),
+                )
+            )
+        else:
+            message_text = (
+                S["MESSAGES"]
+                .get(
+                    "STARTUP_EMAIL_PARSE_FAILED_FMT",
+                    "The file could not be parsed as .eml.\n\n"
+                    "File: {file_name}\n"
+                    "Error: {error}\n\n"
+                    "You can skip it or delete it.",
+                )
+                .format(file_name=file_name, error=parse_error or "-")
+            )
+
+        popup = Popup(
+            title=S["MESSAGES"].get(
+                "STARTUP_EMAIL_REVIEW_TITLE", "Review Pending E-mail"
+            ),
+            size_hint=(0.82, 0.62),
+            auto_dismiss=False,
+        )
+        self._startup_report_review_popup = popup
+        popup.bind(
+            on_dismiss=lambda *_args: setattr(
+                self, "_startup_report_review_popup", None
+            )
+        )
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=10)
+        message_label = Label(
+            text=message_text,
+            size_hint_y=None,
+            halign="left",
+            valign="top",
+        )
+        message_label.bind(
+            width=lambda inst, _val: setattr(
+                inst, "text_size", (max(10, inst.width - 12), None)
+            ),
+            texture_size=lambda inst, val: setattr(
+                inst, "height", max(120, val[1] + 8)
+            ),
+        )
+        scroll.add_widget(message_label)
+        layout.add_widget(scroll)
+
+        button_row = BoxLayout(size_hint_y=None, height=46, spacing=8)
+        review_btn = Button(text=S["BUTTONS"].get("VIEW", "Review"))
+        skip_btn = Button(text=S["BUTTONS"].get("SKIP", "Skip"))
+        discard_btn = Button(text=S["BUTTONS"].get("DELETE", "Delete"))
+        later_btn = Button(text=S["MESSAGES"].get("LATER_BUTTON", "Later"))
+
+        def _open_next_review():
+            Clock.schedule_once(
+                lambda _dt: self._show_startup_report_review_popup(
+                    remaining_items, index=index + 1
+                ),
+                0,
+            )
+
+        def _skip_current(_instance=None):
+            self._cleanup_startup_report_payload(payload)
+            popup.dismiss()
+            _open_next_review()
+
+        def _close_remaining(_instance=None):
+            self._cleanup_startup_report_payload(payload)
+            popup.dismiss()
+
+        def _discard_current(_instance=None):
+            confirm_popup = Popup(
+                title=S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                size_hint=(0.6, 0.3),
+                auto_dismiss=False,
+            )
+            confirm_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+            confirm_layout.add_widget(
+                Label(
+                    text=S["MESSAGES"]
+                    .get(
+                        "STARTUP_EMAIL_DISCARD_CONFIRM_FMT",
+                        "Delete this e-mail file permanently?\n\n{file_name}",
+                    )
+                    .format(file_name=file_name)
+                )
+            )
+            confirm_buttons = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+            def _confirm_discard(_btn=None):
+                confirm_popup.dismiss()
+                popup.dismiss()
+                self._delete_startup_report_source_file(file_path, payload=payload)
+                _open_next_review()
+
+            cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Cancel"))
+            cancel_btn.bind(on_press=confirm_popup.dismiss)
+            confirm_btn = Button(text=S["BUTTONS"].get("DELETE", "Delete"))
+            confirm_btn.bind(on_press=_confirm_discard)
+            confirm_buttons.add_widget(cancel_btn)
+            confirm_buttons.add_widget(confirm_btn)
+            confirm_layout.add_widget(confirm_buttons)
+            confirm_popup.content = confirm_layout
+            confirm_popup.open()
+
+        def _review_current(_instance=None):
+            if not payload:
+                return
+
+            def _after_save():
+                delete_error = None
+                deleted = False
+                try:
+                    deleted = self._delete_startup_report_source_file(
+                        file_path, payload=payload
+                    )
+                except Exception as exc:
+                    delete_error = str(exc)
+                    logging.exception(
+                        "Failed to finalize startup report import for %s", file_path
+                    )
+
+                if not deleted:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        S["MESSAGES"]
+                        .get(
+                            "STARTUP_EMAIL_DELETE_FAILED_FMT",
+                            "The {entry_label} was saved, but the source e-mail file could not be deleted.\n\nFile: {file_name}\nError: {error}",
+                        )
+                        .format(
+                            entry_label=entry_label,
+                            file_name=file_name,
+                            error=delete_error
+                            or "Το αρχείο παραμένει διαθέσιμο για επανέλεγχο.",
+                        ),
+                    )
+                _open_next_review()
+
+            popup.dismiss()
+            if review_kind == "isolation":
+                self._open_isolation_from_email_payload(
+                    payload,
+                    status="Requested",
+                    after_save_callback=_after_save,
+                )
+            else:
+                self._open_maintenance_from_email_payload(
+                    payload,
+                    after_save_callback=_after_save,
+                )
+
+        review_btn.disabled = payload is None
+        review_btn.bind(on_press=_review_current)
+        skip_btn.bind(on_press=_skip_current)
+        discard_btn.bind(on_press=_discard_current)
+        later_btn.bind(on_press=_close_remaining)
+
+        button_row.add_widget(review_btn)
+        button_row.add_widget(skip_btn)
+        button_row.add_widget(discard_btn)
+        button_row.add_widget(later_btn)
+        layout.add_widget(button_row)
+
+        popup.content = layout
         popup.open()
+        return True
 
     def _display_substations(
         self,
@@ -9453,6 +9874,10 @@ class SubstationApp(App):
             # Show progress popup FIRST on UI thread so it can render
             progress_ui = self._show_startup_progress_popup()
             progress_popup = progress_ui["popup"]
+            self._startup_progress_popup = progress_popup
+            progress_popup.bind(
+                on_dismiss=lambda *_args: setattr(self, "_startup_progress_popup", None)
+            )
             progress_popup.open()
 
             # Variables to hold results - shared with worker thread

@@ -4061,7 +4061,7 @@ def regenerate_maintenance_reports(
             )
             output_path = os.path.join(subfolder, canonical_name)
 
-            if repair_pdf_access(output_path):
+            if repair_pdf_access(output_path, normalize_existing=False):
                 upsert_maintenance_report_path(
                     conn,
                     maintenance_id=maintenance_id,

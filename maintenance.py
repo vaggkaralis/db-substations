@@ -677,7 +677,13 @@ def _get_previous_maintenance_defaults(app, substation_id: int, date_time_value:
     }
 
 
-def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None):
+def open_maintenance_from_email_payload(
+    app,
+    ui,
+    payload,
+    forced_substation=None,
+    after_save_callback=None,
+):
     # this mirrors the logic previously on SubstationApp but keeps UI/API via app
     subject = payload.get("subject", "")
     body = payload.get("body", "")
@@ -859,6 +865,6 @@ def open_maintenance_from_email_payload(app, ui, payload, forced_substation=None
         preselected_substation_name=substation_name,
         parent_popup=None,
         maintenance_id=None,
-        after_save_callback=None,
+        after_save_callback=after_save_callback,
         prefill_data=prefill,
     )

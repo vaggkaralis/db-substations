@@ -4,11 +4,14 @@ from database import init_db
 from onedrive_hybrid_storage import (
     get_maintenance_overview_report_path,
     get_maintenance_report_path,
+    regenerate_maintenance_reports,
     upsert_maintenance_report_path,
 )
 from report_sync import (
     ensure_maintenance_overview_reports,
     export_missing_reports,
+    verify_maintenance_overview_report_synchronization,
+    verify_report_synchronization,
 )
 
 
@@ -279,7 +282,10 @@ def test_export_missing_reports_backfills_overview_when_element_pdf_already_exis
     monkeypatch.setattr(
         "report_sync.ensure_maintenance_overview_reports", fake_ensure_overview_reports
     )
-    monkeypatch.setattr("report_sync.repair_pdf_access", lambda path: True)
+    monkeypatch.setattr(
+        "report_sync.repair_pdf_access",
+        lambda path, **kwargs: True,
+    )
 
     result = export_missing_reports(conn, db_path=str(tmp_path / "test.db"))
 
@@ -336,7 +342,10 @@ def test_ensure_maintenance_overview_reports_regenerates_invalid_existing_pdf(
     monkeypatch.setattr(
         "pdf_reports.generate_maintenance_overview_report", fake_generate
     )
-    monkeypatch.setattr("report_sync.repair_pdf_access", lambda path: False)
+    monkeypatch.setattr(
+        "report_sync.repair_pdf_access",
+        lambda path, **kwargs: False,
+    )
 
     result = ensure_maintenance_overview_reports(
         conn, maintenance_id=100, db_path=str(tmp_path / "test.db")
@@ -344,3 +353,245 @@ def test_ensure_maintenance_overview_reports_regenerates_invalid_existing_pdf(
 
     assert result["errors"] == []
     assert result["updated"] == 1
+
+
+def test_verify_report_synchronization_uses_non_mutating_pdf_probe(
+    tmp_path, monkeypatch
+):
+    conn = init_db(str(tmp_path / "test.db"))
+    _seed_sample_data(conn)
+
+    reports_root = tmp_path / "gate1" / "reports"
+    tracked_pdf = reports_root / "existing.pdf"
+    tracked_pdf.parent.mkdir(parents=True, exist_ok=True)
+    tracked_pdf.write_bytes(
+        b"%PDF-1.4\n%fake\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n" + b"0" * 1200
+    )
+
+    conn.execute(
+        """
+        INSERT INTO maintenance_storage_paths
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            100,
+            "gate:1",
+            str(tmp_path / "gate1"),
+            str(tmp_path / "gate1" / "inst"),
+            str(tmp_path / "gate1" / "media"),
+            str(reports_root),
+            "now",
+        ),
+    )
+    conn.execute(
+        (
+            "INSERT INTO maintenance_report_paths "
+            "(maintenance_id, element_id, report_type, report_path, "
+            "created_at, updated_at) VALUES (?, ?, 'pdf', ?, 'now', 'now')"
+        ),
+        (100, 10, str(tracked_pdf)),
+    )
+    conn.commit()
+
+    calls = []
+
+    def fake_repair(path, *, normalize_existing=True):
+        calls.append((path, normalize_existing))
+        return True
+
+    monkeypatch.setattr("report_sync.repair_pdf_access", fake_repair)
+
+    result = verify_report_synchronization(conn, db_path=str(tmp_path / "test.db"))
+
+    assert result["missing_files"] == 0
+    assert calls
+    assert all(normalize_existing is False for _path, normalize_existing in calls)
+
+
+def test_export_missing_reports_uses_non_mutating_pdf_probe_for_existing_files(
+    tmp_path, monkeypatch
+):
+    conn = init_db(str(tmp_path / "test.db"))
+    _seed_sample_data(conn)
+
+    reports_root = tmp_path / "gate1" / "reports"
+    tracked_pdf = reports_root / "existing.pdf"
+    tracked_pdf.parent.mkdir(parents=True, exist_ok=True)
+    tracked_pdf.write_bytes(
+        b"%PDF-1.4\n%fake\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n" + b"0" * 1200
+    )
+
+    conn.execute(
+        """
+        INSERT INTO maintenance_storage_paths
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            100,
+            "gate:1",
+            str(tmp_path / "gate1"),
+            str(tmp_path / "gate1" / "inst"),
+            str(tmp_path / "gate1" / "media"),
+            str(reports_root),
+            "now",
+        ),
+    )
+    conn.execute(
+        (
+            "INSERT INTO maintenance_report_paths "
+            "(maintenance_id, element_id, report_type, report_path, "
+            "created_at, updated_at) VALUES (?, ?, 'pdf', ?, 'now', 'now')"
+        ),
+        (100, 10, str(tracked_pdf)),
+    )
+    conn.commit()
+
+    calls = []
+
+    def fake_repair(path, *, normalize_existing=True):
+        calls.append((path, normalize_existing))
+        return True
+
+    monkeypatch.setattr("report_sync.repair_pdf_access", fake_repair)
+    monkeypatch.setattr(
+        "report_sync.ensure_maintenance_overview_reports",
+        lambda *args, **kwargs: {
+            "generated": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": [],
+        },
+    )
+
+    result = export_missing_reports(conn, db_path=str(tmp_path / "test.db"))
+
+    assert result["generated"] == 0
+    assert calls
+    assert all(normalize_existing is False for _path, normalize_existing in calls)
+
+
+def test_regenerate_maintenance_reports_uses_non_mutating_pdf_probe(
+    tmp_path, monkeypatch
+):
+    conn = init_db(str(tmp_path / "test.db"))
+    _seed_sample_data(conn)
+
+    reports_root = tmp_path / "gate1" / "reports"
+    tracked_pdf = reports_root / "existing.pdf"
+    tracked_pdf.parent.mkdir(parents=True, exist_ok=True)
+    tracked_pdf.write_bytes(
+        b"%PDF-1.4\n%fake\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n" + b"0" * 1200
+    )
+
+    conn.execute(
+        """
+        INSERT INTO maintenance_storage_paths
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            100,
+            "gate:1",
+            str(tmp_path / "gate1"),
+            str(tmp_path / "gate1" / "inst"),
+            str(tmp_path / "gate1" / "media"),
+            str(reports_root),
+            "now",
+        ),
+    )
+    conn.commit()
+
+    calls = []
+
+    def fake_repair(path, *, normalize_existing=True):
+        calls.append((path, normalize_existing))
+        return True
+
+    monkeypatch.setattr("pdf_reports.repair_pdf_access", fake_repair)
+    monkeypatch.setattr(
+        "report_sync.ensure_maintenance_overview_reports",
+        lambda *args, **kwargs: {
+            "generated": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": [],
+        },
+    )
+
+    result = regenerate_maintenance_reports(conn, db_path=str(tmp_path / "test.db"))
+
+    assert result["generated"] == 0
+    assert result["skipped"] == 1
+    assert calls
+    assert all(normalize_existing is False for _path, normalize_existing in calls)
+
+
+def test_verify_overview_report_synchronization_uses_non_mutating_pdf_probe(
+    tmp_path, monkeypatch
+):
+    conn = init_db(str(tmp_path / "test.db"))
+    _seed_sample_data(conn)
+
+    reports_root = tmp_path / "gate1" / "reports"
+    reports_root.mkdir(parents=True, exist_ok=True)
+    overview_pdf = reports_root / "overview.pdf"
+    overview_pdf.write_bytes(
+        b"%PDF-1.4\n%fake overview\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+        + b"0" * 1200
+    )
+
+    conn.execute(
+        """
+        INSERT INTO maintenance_storage_paths
+        (
+            maintenance_id, gate_key, gate_folder, instance_folder,
+            media_folder, reports_folder, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            100,
+            "gate:1",
+            str(tmp_path / "gate1"),
+            str(tmp_path / "gate1" / "inst"),
+            str(tmp_path / "gate1" / "media"),
+            str(reports_root),
+            "now",
+        ),
+    )
+    conn.execute(
+        (
+            "INSERT INTO maintenance_overview_report_paths "
+            "(maintenance_id, gate_key, report_type, report_path, "
+            "created_at, updated_at) VALUES (?, ?, 'pdf_overview', ?, 'now', 'now')"
+        ),
+        (100, "gate:1", str(overview_pdf)),
+    )
+    conn.commit()
+
+    calls = []
+
+    def fake_repair(path, *, normalize_existing=True):
+        calls.append((path, normalize_existing))
+        return True
+
+    monkeypatch.setattr("report_sync.repair_pdf_access", fake_repair)
+
+    result = verify_maintenance_overview_report_synchronization(
+        conn, db_path=str(tmp_path / "test.db")
+    )
+
+    assert result["missing_files"] == 0
+    assert calls
+    assert all(normalize_existing is False for _path, normalize_existing in calls)
