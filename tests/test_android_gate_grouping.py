@@ -36,6 +36,87 @@ def test_group_elements_by_gate_uses_desktop_order():
     ]
 
 
+def test_group_elements_by_gate_sorts_gate_members_like_desktop():
+    app = android_app.SubstationAndroidApp()
+    hv_breaker = android_app.S.get("MESSAGES", {}).get(
+        "ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"
+    )
+    mv_breaker = android_app.S.get("MESSAGES", {}).get(
+        "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
+    )
+
+    grouped = app._group_elements_by_gate(
+        [
+            {
+                "id": 1,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": mv_breaker,
+                "name": "Line Breaker",
+                "is_main_switch": 0,
+            },
+            {
+                "id": 2,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": hv_breaker,
+                "name": "HV Central Breaker",
+            },
+            {
+                "id": 3,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": "Μετασχηματιστής 150/20KV",
+                "name": "Transformer",
+            },
+            {
+                "id": 4,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": mv_breaker,
+                "name": "MV Central Breaker",
+                "is_main_switch": 1,
+            },
+            {
+                "id": 5,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": mv_breaker,
+                "name": "Capacitor Breaker",
+                "is_main_switch": 3,
+            },
+            {
+                "id": 6,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": "Motor Drive",
+                "name": "Drive",
+            },
+            {
+                "id": 7,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": mv_breaker,
+                "name": "Interconnection Breaker",
+                "is_main_switch": 2,
+            },
+            {
+                "id": 8,
+                "gate": "ΠΥΛΗ 1",
+                "element_type": "Other Device",
+                "name": "Other",
+            },
+        ]
+    )
+
+    gate_name, gate_elements = grouped[0]
+
+    assert gate_name == "ΠΥΛΗ 1"
+    assert [elem["name"] for elem in gate_elements] == [
+        "HV Central Breaker",
+        "Transformer",
+        "Drive",
+        "MV Central Breaker",
+        "Interconnection Breaker",
+        "Line Breaker",
+        "Capacitor Breaker",
+        "Other",
+    ]
+
+
 def test_load_substation_elements_renders_gate_headers(monkeypatch):
     app = android_app.SubstationAndroidApp()
     grid = android_app.GridLayout(cols=1)

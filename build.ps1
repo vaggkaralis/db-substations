@@ -67,7 +67,21 @@ foreach ($FileName in $DataFiles) {
     }
 }
 
-& $VenvPython -m PyInstaller --onedir --windowed --noconfirm --name=SubstationManager @AddDataArgs DBrun.py
+$PyInstallerArgs = @(
+    "--onedir",
+    "--windowed",
+    "--noconfirm",
+    "--log-level=WARN",
+    "--name=SubstationManager",
+    "--exclude-module=pytest",
+    "--exclude-module=_pytest",
+    "--exclude-module=tests",
+    "--exclude-module=kivy.tests",
+    "--exclude-module=pandas.tests",
+    "--exclude-module=numpy._pytesttester"
+)
+
+& $VenvPython -m PyInstaller @PyInstallerArgs @AddDataArgs DBrun.py
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
