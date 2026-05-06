@@ -14,6 +14,7 @@ env/
 *.db-journal
 substations.db-wal
 substations.db-shm
+*.laccdb
 
 # Runtime folders (auto-generated)
 backups_auto/
@@ -42,6 +43,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+SubstationManager.spec
 downloads/
 eggs/
 .eggs/

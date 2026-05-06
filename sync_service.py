@@ -43,6 +43,11 @@ def _save_processed_tracker(tracker_path: str, tracker: dict) -> None:
         json.dump(tracker, fh, ensure_ascii=False, indent=2)
 
 
+_IDEMPOTENT_COMPARISON_IGNORED_FIELDS = {
+    "elements": {"maintenance_date"},
+}
+
+
 def _record_exists_with_data(cur, table: str, record_id, expected_data: dict) -> str:
     """Check if record exists. Returns: 'none', 'identical', or 'different'."""
     if not record_id:
@@ -57,11 +62,20 @@ def _record_exists_with_data(cur, table: str, record_id, expected_data: dict) ->
         # Get column names
         cols = [col[0] for col in cur.description]
         existing_data = dict(zip(cols, row))
+        ignored_fields = _IDEMPOTENT_COMPARISON_IGNORED_FIELDS.get(table, set())
 
         # Compare only the keys present in expected_data
         for key in expected_data:
+            if key in ignored_fields:
+                continue
             if key in existing_data:
-                if str(existing_data[key]) != str(expected_data[key]):
+                existing_value = (
+                    "" if existing_data[key] is None else existing_data[key]
+                )
+                expected_value = (
+                    "" if expected_data[key] is None else expected_data[key]
+                )
+                if str(existing_value) != str(expected_value):
                     return "different"
 
         return "identical"

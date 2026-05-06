@@ -1,7 +1,10 @@
 from maintenance_workflow import (
+    build_pending_tasks_history_text,
     dedupe_attachment_paths,
     get_stage_key_from_label,
     normalize_workflow_state,
+    normalize_pending_tasks_text,
+    summarize_pending_tasks,
     summarize_workflow,
 )
 
@@ -65,3 +68,22 @@ def test_dedupe_attachment_paths_preserves_order():
         r"C:\temp\alpha.pdf",
         r"C:\temp\beta.pdf",
     ]
+
+
+def test_pending_tasks_helpers_normalize_and_format_multiline_text():
+    raw_text = "  Task A\r\n\r\n  Task B  \n\n- Task C  "
+
+    assert normalize_pending_tasks_text(raw_text) == "Task A\nTask B\n- Task C"
+    assert build_pending_tasks_history_text(raw_text) == (
+        "Εργασίες που απομένουν:\nTask A\nTask B\n- Task C"
+    )
+
+
+def test_summarize_pending_tasks_compacts_and_truncates():
+    summary = summarize_pending_tasks(
+        "Task A\nTask B\nTask C",
+        max_length=18,
+    )
+
+    assert summary.endswith("...")
+    assert "Task A" in summary

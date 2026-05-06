@@ -229,3 +229,56 @@ def test_apply_change_log_to_db_updates_isolation_request_elements(tmp_path):
     ).fetchall()
     assert linked == [(elem2_id,)]
     conn.close()
+
+
+def test_apply_change_log_to_db_ignores_derived_element_maintenance_date(tmp_path):
+    db_path = tmp_path / "main.db"
+    conn = init_db(str(db_path))
+    cur = conn.cursor()
+
+    cur.execute("INSERT INTO substations (name, location) VALUES (?, ?)", ("S1", "L1"))
+    sub_id = cur.lastrowid
+    cur.execute(
+        """
+        INSERT INTO elements (
+            id,
+            substation_id,
+            element_type,
+            name,
+            breaker_category,
+            maintenance_date
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (1594, sub_id, "Διακόπτης ΜΤ", "E1", "SF6", "2025-12-05"),
+    )
+    conn.commit()
+
+    change_path = tmp_path / "element_insert.jsonl"
+    change_payload = {
+        "operation": "insert",
+        "table": "elements",
+        "data": {
+            "id": 1594,
+            "substation_id": sub_id,
+            "element_type": "Διακόπτης ΜΤ",
+            "name": "E1",
+            "breaker_category": "SF6",
+            "maintenance_date": "",
+        },
+    }
+    change_path.write_text(
+        json.dumps(change_payload, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    accepted, already_applied, conflicts = _apply_change_log_to_db(
+        conn, str(change_path), {}, change_path.name
+    )
+
+    assert (accepted, already_applied, conflicts) == (0, 1, 0)
+    row = cur.execute(
+        "SELECT maintenance_date FROM elements WHERE id=?",
+        (1594,),
+    ).fetchone()
+    assert row == ("2025-12-05",)
+    conn.close()

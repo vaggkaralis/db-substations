@@ -17,6 +17,31 @@ if (-Not (Test-Path $VenvPython)) {
     exit 1
 }
 
+$StaleBuildProcesses = Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='python.exe'" |
+    Where-Object {
+        $_.ProcessId -ne $PID -and
+        $_.CommandLine -and
+        $_.CommandLine -like "*$ProjectDir*" -and
+        (
+            $_.CommandLine -like '*build.ps1*' -or
+            $_.CommandLine -like '*PyInstaller*' -or
+            $_.CommandLine -like '*PyInstaller\\isolated\\_child.py*'
+        )
+    }
+
+if ($StaleBuildProcesses) {
+    Write-Host "[0/5] Τερματισμός παλαιών διεργασιών build..." -ForegroundColor Yellow
+    foreach ($Process in $StaleBuildProcesses) {
+        try {
+            Stop-Process -Id $Process.ProcessId -Force -ErrorAction Stop
+            Write-Host "      ✓ Τερματίστηκε PID $($Process.ProcessId)" -ForegroundColor Green
+        } catch {
+            Write-Host "      ΠΡΟΕΙΔΟΠΟΙΗΣΗ: Αποτυχία τερματισμού PID $($Process.ProcessId)" -ForegroundColor Yellow
+        }
+    }
+    Write-Host ""
+}
+
 Write-Host "[1/5] Καθαρισμός παλαιών αρχείων build..." -ForegroundColor Yellow
 if (Test-Path $DistDir) {
     Remove-Item -Path $DistDir -Recurse -Force
@@ -81,11 +106,14 @@ $PyInstallerArgs = @(
     "--exclude-module=numpy._pytesttester"
 )
 
+$null = $LASTEXITCODE
 & $VenvPython -m PyInstaller @PyInstallerArgs @AddDataArgs DBrun.py
+$PyInstallerExitCode = $LASTEXITCODE
 
-if ($LASTEXITCODE -ne 0) {
+if ($PyInstallerExitCode -ne 0) {
     Write-Host ""
     Write-Host "ΣΦΑΛΜΑ: Το build απέτυχε!" -ForegroundColor Red
+    Write-Host "      Exit code: $PyInstallerExitCode" -ForegroundColor Yellow
     exit 1
 }
 

@@ -21,6 +21,8 @@ import threading
 import traceback
 from datetime import datetime
 
+from maintenance_workflow import build_pending_tasks_history_text
+
 
 def _configure_kivy_environment():
     """Point Kivy state to a writable app-private directory on Android."""
@@ -8296,10 +8298,19 @@ class SubstationAndroidApp(App):
                 (element_id,),
             )
             maintenance_records = c.fetchall()
+            # Also fetch the element's stored substation name (use element's
+            # substation as the authoritative context for element history)
+            c.execute(
+                "SELECT s.name FROM elements e JOIN substations s ON e.substation_id = s.id WHERE e.id = ? LIMIT 1",
+                (element_id,),
+            )
+            er = c.fetchone()
+            element_substation_name = er[0] if er and er[0] else None
             conn.close()
 
             # Bulk-prefetch people (responsible + crew) for the maintenance records
             people_by_maint = {}
+            pending_tasks_by_maint = {}
             if maintenance_records:
                 maint_ids = [r[0] for r in maintenance_records]
                 placeholders = ",".join(["?"] * len(maint_ids))
@@ -8339,6 +8350,13 @@ class SubstationAndroidApp(App):
                             people_by_maint.setdefault(
                                 m_id, {"responsible": None, "crew": []}
                             )["responsible"] = r[0]
+
+                c2.execute(
+                    f"SELECT maintenance_id, tasks_text FROM maintenance_pending_tasks WHERE maintenance_id IN ({placeholders})",
+                    maint_ids,
+                )
+                for m_id, tasks_text in c2.fetchall():
+                    pending_tasks_by_maint[m_id] = tasks_text or ""
                 conn2.close()
 
             # Create popup
@@ -8376,14 +8394,21 @@ class SubstationAndroidApp(App):
                     operations_count,
                     onedrive_media_link,
                 ) in maintenance_records:
+                    pending_tasks_display = build_pending_tasks_history_text(
+                        pending_tasks_by_maint.get(maint_id, "")
+                    )
                     # Container for this maintenance record - auto-size based on content
                     maint_layout = BoxLayout(
                         size_hint_y=None, orientation="vertical", spacing=5, padding=10
                     )
                     maint_layout.bind(minimum_height=maint_layout.setter("height"))
 
-                    # Header with date and type
-                    header_text = f"[b]{date_time}[/b] - {substation_name}"
+                    # Header with date and type. Use the element's substation name
+                    # as the authoritative label so the element history popup is
+                    # consistent even if maintenance records have a different
+                    # substation_id (data may have been moved/merged previously).
+                    header_substation = element_substation_name or substation_name
+                    header_text = f"[b]{date_time}[/b] - {header_substation}"
                     if maint_type:
                         header_text += f" ({maint_type})"
                     header_label = Label(
@@ -8427,6 +8452,29 @@ class SubstationAndroidApp(App):
 
                     _bind_people_size(people_label)
                     maint_layout.add_widget(people_label)
+
+                    if pending_tasks_display:
+                        pending_tasks_label = Label(
+                            text=pending_tasks_display,
+                            size_hint_y=None,
+                            halign="left",
+                            valign="top",
+                            color=(0.78, 0.18, 0.18, 1),
+                        )
+
+                        def _bind_pending_size(inst):
+                            inst.text_size = (inst.width, None)
+                            inst.bind(
+                                width=lambda i, w: setattr(i, "text_size", (w, None))
+                            )
+                            inst.bind(
+                                texture_size=lambda i, s: setattr(
+                                    i, "height", s[1] + 10
+                                )
+                            )
+
+                        _bind_pending_size(pending_tasks_label)
+                        maint_layout.add_widget(pending_tasks_label)
 
                     # OneDrive Media Link removed for Android: mobile app should
                     # not expose or open shared OneDrive folders. (Button omitted.)

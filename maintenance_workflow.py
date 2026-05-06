@@ -66,6 +66,33 @@ def dedupe_attachment_paths(paths):
     return ordered
 
 
+def normalize_pending_tasks_text(tasks_text):
+    text = str(tasks_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    return "\n".join(lines)
+
+
+def build_pending_tasks_history_text(
+    tasks_text,
+    *,
+    title="Εργασίες που απομένουν",
+):
+    normalized = normalize_pending_tasks_text(tasks_text)
+    if not normalized:
+        return ""
+    return f"{title}:\n{normalized}"
+
+
+def summarize_pending_tasks(tasks_text, *, max_length=160):
+    normalized = normalize_pending_tasks_text(tasks_text)
+    if not normalized:
+        return ""
+    compact = " • ".join(normalized.splitlines())
+    if len(compact) <= max_length:
+        return compact
+    return f"{compact[: max_length - 3].rstrip()}..."
+
+
 def get_stage_values():
     return [label for _key, label in WORKFLOW_STAGES]
 

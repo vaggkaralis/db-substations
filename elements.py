@@ -7,6 +7,7 @@ while allowing incremental extraction.
 import sqlite3
 import unicodedata
 
+from breaker_model_utils import infer_breaker_model_values
 from maintenance_type_utils import (
     is_recurring_maintenance_type as _is_recurring_maintenance_type,
 )
@@ -44,6 +45,76 @@ def _normalize_element_name(value):
     text = unicodedata.normalize("NFKC", str(value or ""))
     text = text.replace("\u00a0", " ")
     return " ".join(text.split())
+
+
+def _coerce_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(str(value).replace(",", ".").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_power_mva(value):
+    numeric_value = _coerce_float(value)
+    if numeric_value is None:
+        return ""
+    return f"{numeric_value:.3f}".rstrip("0").rstrip(".")
+
+
+def _resolve_selected_model_power_mva(
+    element_type, selected_model, fallback_power_mva=None
+):
+    if not selected_model:
+        return _coerce_float(fallback_power_mva)
+
+    rated_current_a = _coerce_float(selected_model.get("rated_normal_current_a"))
+    _effective_current, inferred_power = infer_breaker_model_values(
+        element_type,
+        selected_model.get("model_name") or "",
+        rated_current_a,
+    )
+    if inferred_power is not None:
+        return inferred_power
+
+    model_power = _coerce_float(selected_model.get("power_mva"))
+    if model_power is not None:
+        return model_power
+
+    return _coerce_float(fallback_power_mva)
+
+
+def _apply_selected_model_to_element_fields(
+    *,
+    field_inputs,
+    rated_power_input=None,
+    element_type,
+    selected_model,
+    fallback_power_mva=None,
+):
+    if not selected_model:
+        return
+
+    manufacturer_input = field_inputs.get("manufacturer")
+    if manufacturer_input is not None:
+        manufacturer_input.text = selected_model.get("manufacturer") or ""
+
+    maintenance_cycle_input = field_inputs.get("maintenance_cycle")
+    if maintenance_cycle_input is not None:
+        maintenance_cycle_input.text = str(selected_model.get("maintenance_cycle") or 0)
+
+    installation_space_input = field_inputs.get("installation_space")
+    if installation_space_input is not None:
+        installation_space_input.text = selected_model.get("installation_space") or ""
+
+    resolved_power = _resolve_selected_model_power_mva(
+        element_type,
+        selected_model,
+        fallback_power_mva=fallback_power_mva,
+    )
+    if resolved_power is not None and rated_power_input is not None:
+        rated_power_input.text = _format_power_mva(resolved_power)
 
 
 def _table_has_column(conn, table_name, column_name):
@@ -810,10 +881,15 @@ def show_add_subelement_popup(
         model = models_data.get(text)
         if not model:
             return
-        manufacturer_input.text = model.get("manufacturer") or ""
-        maintenance_cycle_input.text = str(model.get("maintenance_cycle") or 0)
-        installation_space_spinner.text = (
-            model.get("installation_space") or app.INSTALLATION_SPACE[0]
+        _apply_selected_model_to_element_fields(
+            field_inputs={
+                "manufacturer": manufacturer_input,
+                "maintenance_cycle": maintenance_cycle_input,
+                "installation_space": installation_space_spinner,
+            },
+            element_type=type_spinner.text,
+            selected_model=model,
+            fallback_power_mva=None,
         )
 
     def _on_type_changed(_spinner, text):
@@ -1326,11 +1402,16 @@ def show_add_element_popup(app, instance):
             layout.add_widget(ti)
 
     def on_model_selected(spinner, text):
-        if text in models_data:
-            model = models_data[text]
-            field_inputs["manufacturer"].text = model["manufacturer"]
-            field_inputs["maintenance_cycle"].text = str(model["maintenance_cycle"])
-            field_inputs["installation_space"].text = model["installation_space"]
+        model = models_data.get(text)
+        if not model:
+            return
+        _apply_selected_model_to_element_fields(
+            field_inputs=field_inputs,
+            rated_power_input=rated_power_input,
+            element_type=element_spinner.text,
+            selected_model=model,
+            fallback_power_mva=rated_power_input.text,
+        )
 
     model_spinner.bind(text=on_model_selected)
 
@@ -1444,16 +1525,15 @@ def show_add_element_popup(app, instance):
 
             model_id = None
             stored_model_name = ""
+            selected_model = models_data.get(model_spinner.text)
             if model_spinner.text in models_data:
-                selected_model = models_data[model_spinner.text]
                 model_id = selected_model["id"]
                 stored_model_name = selected_model.get("model_name") or ""
-
-            rated_power_val = ""
-            try:
-                rated_power_val = rated_power_input.text.strip()
-            except Exception:
-                rated_power_val = ""
+            power_val_to_set = _resolve_selected_model_power_mva(
+                element_type,
+                selected_model,
+                fallback_power_mva=rated_power_input.text,
+            )
 
             maintenance_cycle = values.get("maintenance_cycle", "0")
             try:
@@ -1511,15 +1591,7 @@ def show_add_element_popup(app, instance):
                         hemizygos_value,
                         is_main_switch,
                         breaker_category_value,
-                        (
-                            (
-                                None
-                                if rated_power_val == ""
-                                else float(rated_power_val.replace(",", "."))
-                            )
-                            if rated_power_val
-                            else None
-                        ),
+                        power_val_to_set,
                         vector_group_input.text.strip(),
                     ),
                 )
@@ -1557,15 +1629,7 @@ def show_add_element_popup(app, instance):
                 "is_main_switch": is_main_switch,
                 "breaker_category": breaker_category_value,
                 "vector_group": vector_group_input.text.strip(),
-                "power_mva": (
-                    (
-                        None
-                        if rated_power_val == ""
-                        else float(rated_power_val.replace(",", "."))
-                    )
-                    if rated_power_val
-                    else None
-                ),
+                "power_mva": power_val_to_set,
             }
             app._append_change_log("insert", "elements", element_data)
 
@@ -1590,22 +1654,6 @@ def show_add_element_popup(app, instance):
                 return
 
             app.conn.commit()
-
-            try:
-                if model_id and rated_power_val:
-                    rp_val = (
-                        None
-                        if rated_power_val == ""
-                        else float(rated_power_val.replace(",", "."))
-                    )
-                    if rp_val is not None:
-                        c.execute(
-                            "UPDATE element_models SET power_mva=? WHERE id=?",
-                            (rp_val, model_id),
-                        )
-                        app.conn.commit()
-            except Exception:
-                pass
 
             add_state["completed"] = True
             _dismiss_popup_safely(popup)
@@ -2316,23 +2364,8 @@ def show_edit_element_popup(
     layout.add_widget(
         Label(text="Ονομαστική Ισχύς (MVA):", size_hint_y=None, height=30)
     )
-    # Prefer model-rated power if the element is linked to a model
-    model_power_val = None
-    try:
-        if model_id:
-            c.execute("SELECT power_mva FROM element_models WHERE id=?", (model_id,))
-            mr = c.fetchone()
-            if mr and mr[0] is not None:
-                model_power_val = mr[0]
-    except Exception:
-        model_power_val = None
-
     rated_power_input = TextInput(
-        text=(
-            str(model_power_val)
-            if model_power_val is not None
-            else (str(power_mva) if power_mva is not None else "")
-        ),
+        text=_format_power_mva(power_mva),
         size_hint_y=None,
         height=40,
         multiline=False,
@@ -2411,6 +2444,18 @@ def show_edit_element_popup(
             selected_display_name
             if selected_display_name and selected_display_name in model_spinner.values
             else model_spinner.values[0]
+        )
+
+    def on_model_selected(_spinner, text):
+        selected_model = models_data.get(text)
+        if not selected_model:
+            return
+        _apply_selected_model_to_element_fields(
+            field_inputs=field_inputs,
+            rated_power_input=rated_power_input,
+            element_type=elem_type,
+            selected_model=selected_model,
+            fallback_power_mva=power_mva,
         )
 
     if elem_type in app.BREAKER_ELEMENT_TYPES:
@@ -2556,6 +2601,10 @@ def show_edit_element_popup(
             )
             field_inputs[field["key"]] = ti
             layout.add_widget(ti)
+
+    model_spinner.bind(text=on_model_selected)
+    if model_spinner.text in models_data:
+        on_model_selected(model_spinner, model_spinner.text)
 
     scroll.add_widget(layout)
     main_layout.add_widget(scroll)
@@ -2744,13 +2793,11 @@ def show_edit_element_popup(
             except Exception:
                 pass
 
-            try:
-                rp_txt = rated_power_input.text.strip()
-                power_val_to_set = (
-                    None if rp_txt == "" else float(rp_txt.replace(",", "."))
-                )
-            except Exception:
-                power_val_to_set = None
+            power_val_to_set = _resolve_selected_model_power_mva(
+                elem_type,
+                selected_model,
+                fallback_power_mva=rated_power_input.text,
+            )
 
             target_element_id = canonical_element_id or element_id
 
@@ -2841,20 +2888,6 @@ def show_edit_element_popup(
                 return
 
             app.conn.commit()
-            try:
-                if new_model_id and power_val_to_set is not None:
-                    c.execute(
-                        "UPDATE element_models SET power_mva=? WHERE id=?",
-                        (power_val_to_set, new_model_id),
-                    )
-                    app.conn.commit()
-                    app._append_change_log(
-                        "update",
-                        "element_models",
-                        {"id": new_model_id, "power_mva": power_val_to_set},
-                    )
-            except Exception:
-                pass
 
             save_state["completed"] = True
             _dismiss_popup_safely(popup)
@@ -3226,14 +3259,16 @@ def show_add_element_popup_for_substation(
     on_element_type_change(element_spinner, element_spinner.text)
 
     def on_model_selected(spinner, text):
-        if text in models_data:
-            model = models_data[text]
-            if "manufacturer" in field_inputs:
-                field_inputs["manufacturer"].text = model["manufacturer"]
-            if "maintenance_cycle" in field_inputs:
-                field_inputs["maintenance_cycle"].text = str(model["maintenance_cycle"])
-            if "installation_space" in field_inputs:
-                field_inputs["installation_space"].text = model["installation_space"]
+        model = models_data.get(text)
+        if not model:
+            return
+        _apply_selected_model_to_element_fields(
+            field_inputs=field_inputs,
+            rated_power_input=rated_power_input,
+            element_type=element_spinner.text,
+            selected_model=model,
+            fallback_power_mva=rated_power_input.text,
+        )
 
     model_spinner.bind(text=on_model_selected)
 
@@ -3378,10 +3413,15 @@ def show_add_element_popup_for_substation(
 
         model_id = None
         stored_model_name = ""
+        selected_model = models_data.get(model_spinner.text)
         if model_spinner.text in models_data:
-            selected_model = models_data[model_spinner.text]
             model_id = selected_model["id"]
             stored_model_name = selected_model.get("model_name") or ""
+        power_val_to_set = _resolve_selected_model_power_mva(
+            element_type,
+            selected_model,
+            fallback_power_mva=rated_power_input.text,
+        )
 
         voltage_level_value = (
             voltage_level_spinner.text
@@ -3412,11 +3452,7 @@ def show_add_element_popup_for_substation(
                     hemizygos_value,
                     is_main_switch,
                     breaker_category_value,
-                    (
-                        None
-                        if rated_power_input.text.strip() == ""
-                        else float(rated_power_input.text.strip().replace(",", "."))
-                    ),
+                    power_val_to_set,
                     vector_group_input.text.strip(),
                 ),
             )
@@ -3452,11 +3488,7 @@ def show_add_element_popup_for_substation(
             "is_main_switch": is_main_switch,
             "breaker_category": breaker_category_value,
             "vector_group": vector_group_input.text.strip(),
-            "power_mva": (
-                None
-                if rated_power_input.text.strip() == ""
-                else float(rated_power_input.text.strip().replace(",", "."))
-            ),
+            "power_mva": power_val_to_set,
         }
         app._append_change_log("insert", "elements", element_data)
 
@@ -3486,18 +3518,6 @@ def show_add_element_popup_for_substation(
             return
 
         app.conn.commit()
-
-        try:
-            rp_text = rated_power_input.text.strip()
-            rp_val = None if rp_text == "" else float(rp_text.replace(",", "."))
-            if model_id and rp_val is not None:
-                c.execute(
-                    "UPDATE element_models SET power_mva=? WHERE id=?",
-                    (rp_val, model_id),
-                )
-                app.conn.commit()
-        except Exception:
-            pass
 
         add_state["completed"] = True
         _dismiss_popup_safely(popup)

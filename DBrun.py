@@ -88,10 +88,12 @@ from maintenance_checklists import (
     normalize_state,
 )
 from maintenance_workflow import (
+    build_pending_tasks_history_text,
     dedupe_attachment_paths,
     dump_workflow_to_data_json,
     load_workflow_from_data_json,
     normalize_workflow_state,
+    summarize_pending_tasks,
     summarize_workflow,
 )
 from onedrive_hybrid_storage import (
@@ -11508,7 +11510,7 @@ class SubstationApp(App):
         """
         c = self.conn.cursor()
         c.execute(
-            "SELECT id, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category FROM element_models WHERE element_category=? ORDER BY model_name",
+            "SELECT id, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, power_mva, rated_normal_current_a FROM element_models WHERE element_category=? ORDER BY model_name",
             (element_category,),
         )
         models = c.fetchall()
@@ -11541,6 +11543,8 @@ class SubstationApp(App):
                 "maintenance_cycle": m[3] or 0,
                 "installation_space": m[4] or "",
                 "breaker_category": m[5] or "",
+                "power_mva": m[6],
+                "rated_normal_current_a": m[7],
             }
             if m[0] == selected_model_id:
                 selected_display_name = display_name
@@ -21090,7 +21094,12 @@ class SubstationApp(App):
                 maintenance_data_json,
             ) in records_to_show:
                 elements = elements_by_maint.get(maint_id, [])
-                is_incomplete = bool(pending_tasks_by_maint.get(maint_id))
+                pending_tasks_text = pending_tasks_by_maint.get(maint_id, "")
+                is_incomplete = bool(pending_tasks_text)
+                pending_tasks_summary = summarize_pending_tasks(pending_tasks_text)
+                pending_tasks_display = build_pending_tasks_history_text(
+                    pending_tasks_text
+                )
                 card = BoxLayout(
                     orientation="vertical", size_hint_y=None, padding=8, spacing=6
                 )
@@ -21162,7 +21171,7 @@ class SubstationApp(App):
                 from ui.shared import IconOnlyButton
 
                 try:
-                    info_tasks = pending_tasks_by_maint.get(maint_id)
+                    info_tasks = pending_tasks_display or pending_tasks_text
                     if info_tasks:
                         info_btn = IconOnlyButton(
                             icon_type="info",
@@ -21344,6 +21353,8 @@ class SubstationApp(App):
                     summary_parts.append(f"Υπεύθυνος: {responsible}")
                 if crew:
                     summary_parts.append(f"Ομάδα: {', '.join(crew)}")
+                if pending_tasks_summary:
+                    summary_parts.append(f"Εκκρεμότητες: {pending_tasks_summary}")
                 if overall_comments:
                     compact_comments = " ".join(str(overall_comments).split())
                     if len(compact_comments) > 120:
@@ -21423,6 +21434,24 @@ class SubstationApp(App):
                     texture_size=lambda inst, val: setattr(inst, "height", val[1] + 6),
                 )
                 card.add_widget(workflow_label)
+
+                if pending_tasks_display:
+                    pending_tasks_label = Label(
+                        text=pending_tasks_display,
+                        size_hint_y=None,
+                        halign="left",
+                        valign="top",
+                        color=(0.78, 0.18, 0.18, 1),
+                    )
+                    pending_tasks_label.bind(
+                        width=lambda inst, _val: setattr(
+                            inst, "text_size", (inst.width, None)
+                        ),
+                        texture_size=lambda inst, val: setattr(
+                            inst, "height", val[1] + 10
+                        ),
+                    )
+                    card.add_widget(pending_tasks_label)
 
                 # Overall comments
                 if overall_comments:
