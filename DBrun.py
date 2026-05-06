@@ -4364,7 +4364,7 @@ class SubstationApp(App):
         normalized_title = " ".join(str(title_text or "").split())
         if not normalized_title:
             return base_name
-        return f"{base_name} | {normalized_title}"
+        return normalized_title
 
     def _extract_maintenance_title_text(
         self, substation_name, date_time_str, stored_name=None, workflow_state=None
@@ -4372,12 +4372,13 @@ class SubstationApp(App):
         base_name = self._build_maintenance_name(substation_name, date_time_str)
         stored_text = str(stored_name or "").strip()
         if stored_text:
-            prefix = f"{base_name} | "
-            if stored_text.startswith(prefix):
-                return stored_text[len(prefix) :].strip()
-            if stored_text != base_name:
-                return stored_text
-        return str((workflow_state or {}).get("daily_progress") or "").strip()
+            return stored_text
+        legacy_progress = str(
+            (workflow_state or {}).get("daily_progress") or ""
+        ).strip()
+        if legacy_progress:
+            return legacy_progress
+        return base_name
 
     def _derive_voltage_level(self, element_type: str) -> str:
         if self._is_transformer(element_type):
@@ -14632,21 +14633,32 @@ class SubstationApp(App):
         )
         content_layout.add_widget(workflow_next_action_label)
 
+        # Date/Time (auto-filled with current)
+        from datetime import datetime
+
+        datetime_default = (
+            maintenance_record[2]
+            if maintenance_record and maintenance_record[2]
+            else datetime.now().strftime("%Y-%m-%d %H:%M")
+        )
+        if not maintenance_id and prefill_data.get("date_time"):
+            datetime_default = prefill_data.get("date_time")
+
         maintenance_title_label = Label(
             text="Τίτλος συντήρησης:", size_hint_y=None, height=35
         )
         content_layout.add_widget(maintenance_title_label)
         _register_wizard_widget(2, maintenance_title_label)
         title_default = self._extract_maintenance_title_text(
-            substation_input.text,
-            maintenance_record[2] if maintenance_record else "",
+            initial_substation,
+            datetime_default,
             maintenance_record[1] if maintenance_record else "",
             workflow_state,
         )
         if not maintenance_id and prefill_data.get("maintenance_name"):
             title_default = str(prefill_data.get("maintenance_name") or "").strip()
         maintenance_title_input = TextInput(
-            hint_text="Σύντομος τίτλος ή θέμα της συντήρησης...",
+            hint_text="Τίτλος συντήρησης...",
             text=title_default,
             size_hint_y=None,
             height=40,
@@ -14655,9 +14667,6 @@ class SubstationApp(App):
         content_layout.add_widget(maintenance_title_input)
         _register_wizard_widget(2, maintenance_title_input)
 
-        # Date/Time (auto-filled with current)
-        from datetime import datetime
-
         date_time_label = Label(
             text=S["MESSAGES"].get("DATE_TIME_LABEL", "Ημερομηνία & Ώρα:"),
             size_hint_y=None,
@@ -14665,13 +14674,6 @@ class SubstationApp(App):
         )
         content_layout.add_widget(date_time_label)
         _register_wizard_widget(2, date_time_label)
-        datetime_default = (
-            maintenance_record[2]
-            if maintenance_record and maintenance_record[2]
-            else datetime.now().strftime("%Y-%m-%d %H:%M")
-        )
-        if not maintenance_id and prefill_data.get("date_time"):
-            datetime_default = prefill_data.get("date_time")
         datetime_input = TextInput(
             text=datetime_default,
             hint_text="YYYY-MM-DD HH:MM",
@@ -14686,12 +14688,40 @@ class SubstationApp(App):
             except Exception:
                 return ""
 
+        generated_title_sync_state = {
+            "updating": False,
+            "last_generated": self._build_maintenance_name(
+                initial_substation,
+                datetime_default,
+            ),
+        }
+
+        def _sync_generated_maintenance_title(*_args):
+            if generated_title_sync_state["updating"]:
+                return
+            generated_title = self._build_maintenance_name(
+                substation_input.text,
+                _get_maintenance_datetime_value(),
+            )
+            current_title = (maintenance_title_input.text or "").strip()
+            if (not current_title) or (
+                current_title == generated_title_sync_state["last_generated"]
+            ):
+                generated_title_sync_state["updating"] = True
+                try:
+                    maintenance_title_input.text = generated_title
+                finally:
+                    generated_title_sync_state["updating"] = False
+            generated_title_sync_state["last_generated"] = generated_title
+
         def _refresh_isolation_link_for_datetime_change(_inst, _value):
             if maintenance_id or linked_isolation_request_id is not None:
                 return
             refresh_isolation_links(substation_input.text)
 
+        datetime_input.bind(text=_sync_generated_maintenance_title)
         datetime_input.bind(text=_refresh_isolation_link_for_datetime_change)
+        substation_input.bind(text=_sync_generated_maintenance_title)
         content_layout.add_widget(datetime_input)
         _register_wizard_widget(2, datetime_input)
 

@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from breaker_model_utils import (
+from breaker_model_utils import (  # noqa: E402
     infer_breaker_model_values,
     ELEM_BREAKER_MT,
     ELEM_BREAKER_YT,
