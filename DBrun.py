@@ -4357,6 +4357,28 @@ class SubstationApp(App):
             .format(substation_name=substation_name, date=formatted_date)
         )
 
+    def _compose_maintenance_name(
+        self, substation_name, date_time_str, title_text=None
+    ):
+        base_name = self._build_maintenance_name(substation_name, date_time_str)
+        normalized_title = " ".join(str(title_text or "").split())
+        if not normalized_title:
+            return base_name
+        return f"{base_name} | {normalized_title}"
+
+    def _extract_maintenance_title_text(
+        self, substation_name, date_time_str, stored_name=None, workflow_state=None
+    ):
+        base_name = self._build_maintenance_name(substation_name, date_time_str)
+        stored_text = str(stored_name or "").strip()
+        if stored_text:
+            prefix = f"{base_name} | "
+            if stored_text.startswith(prefix):
+                return stored_text[len(prefix) :].strip()
+            if stored_text != base_name:
+                return stored_text
+        return str((workflow_state or {}).get("daily_progress") or "").strip()
+
     def _derive_voltage_level(self, element_type: str) -> str:
         if self._is_transformer(element_type):
             return "150/20KV"
@@ -14610,20 +14632,28 @@ class SubstationApp(App):
         )
         content_layout.add_widget(workflow_next_action_label)
 
-        workflow_progress_label = Label(
-            text="Ημερήσια πρόοδος / ημερολόγιο:", size_hint_y=None, height=35
+        maintenance_title_label = Label(
+            text="Τίτλος συντήρησης:", size_hint_y=None, height=35
         )
-        content_layout.add_widget(workflow_progress_label)
-        _register_wizard_widget(2, workflow_progress_label)
-        workflow_progress_input = TextInput(
-            hint_text="Τι ολοκληρώθηκε σήμερα, τι απομένει για την επόμενη ημέρα...",
-            text=workflow_state.get("daily_progress") or "",
+        content_layout.add_widget(maintenance_title_label)
+        _register_wizard_widget(2, maintenance_title_label)
+        title_default = self._extract_maintenance_title_text(
+            substation_input.text,
+            maintenance_record[2] if maintenance_record else "",
+            maintenance_record[1] if maintenance_record else "",
+            workflow_state,
+        )
+        if not maintenance_id and prefill_data.get("maintenance_name"):
+            title_default = str(prefill_data.get("maintenance_name") or "").strip()
+        maintenance_title_input = TextInput(
+            hint_text="Σύντομος τίτλος ή θέμα της συντήρησης...",
+            text=title_default,
             size_hint_y=None,
-            height=90,
-            multiline=True,
+            height=40,
+            multiline=False,
         )
-        content_layout.add_widget(workflow_progress_input)
-        _register_wizard_widget(2, workflow_progress_input)
+        content_layout.add_widget(maintenance_title_input)
+        _register_wizard_widget(2, maintenance_title_input)
 
         # Date/Time (auto-filled with current)
         from datetime import datetime
@@ -15383,9 +15413,15 @@ class SubstationApp(App):
 
         def refresh_workflow_summary(*_args):
             stage_key, stage_title = wizard_steps[current_wizard_step["index"]]
+            try:
+                daily_progress_val = maintenance_title_input.text.strip()
+            except Exception:
+                daily_progress_val = str(
+                    (workflow_state or {}).get("daily_progress") or ""
+                ).strip()
             workflow_snapshot = {
                 "current_stage": stage_key,
-                "daily_progress": workflow_progress_input.text.strip(),
+                "daily_progress": daily_progress_val,
             }
             workflow_summary = self._summarize_maintenance_workflow(
                 workflow_snapshot,
@@ -17473,7 +17509,6 @@ class SubstationApp(App):
         refresh_attachment_summary()
         refresh_substation_context()
 
-        workflow_progress_input.bind(text=lambda *_args: refresh_workflow_summary())
         tasks_input.bind(text=lambda *_args: refresh_workflow_summary())
         maintenance_type_spinner.bind(text=lambda *_args: refresh_workflow_summary())
         refresh_wizard_view()
@@ -17805,8 +17840,10 @@ class SubstationApp(App):
                     (maintenance_id,),
                 )
                 _previous_element_ids = [row[0] for row in (c.fetchall() or [])]
-            maintenance_name = self._build_maintenance_name(
-                substation_input.text, maintenance_date
+            maintenance_name = self._compose_maintenance_name(
+                substation_input.text,
+                maintenance_date,
+                maintenance_title_input.text,
             )
             responsible_id = people_map.get(responsible_spinner.text)
             linked_isolation_id_to_save = isolation_options_by_label.get(
@@ -17822,7 +17859,7 @@ class SubstationApp(App):
             workflow_state_to_save = normalize_workflow_state(
                 {
                     "current_stage": wizard_steps[current_wizard_step["index"]][0],
-                    "daily_progress": workflow_progress_input.text.strip(),
+                    "daily_progress": "",
                 }
             )
             maintenance_data_json = self._dump_maintenance_workflow_state(

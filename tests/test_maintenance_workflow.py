@@ -87,3 +87,25 @@ def test_summarize_pending_tasks_compacts_and_truncates():
 
     assert summary.endswith("...")
     assert "Task A" in summary
+
+
+def test_normalize_workflow_state_discards_missing_daily_progress_text():
+    state = normalize_workflow_state({"current_stage": "elements"})
+
+    assert state == {"current_stage": "elements", "daily_progress": ""}
+
+
+def test_summarize_workflow_guidance_no_longer_mentions_daily_progress():
+    summary = summarize_workflow(
+        {"current_stage": "attachments", "daily_progress": ""},
+        linked_isolation_request_id=5,
+        checklist_has_content=True,
+        checklist_summary_text="ok",
+        selected_elements_count=2,
+        completed=False,
+        pending_tasks_text="",
+        attachment_count=0,
+        onedrive_link="",
+    )
+
+    assert "ημερήσια πρόοδο" not in summary["next_action"]
