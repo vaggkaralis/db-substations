@@ -21,8 +21,6 @@ import threading
 import traceback
 from datetime import datetime
 
-from maintenance_workflow import build_pending_tasks_history_text
-
 
 def _configure_kivy_environment():
     """Point Kivy state to a writable app-private directory on Android."""
@@ -159,6 +157,20 @@ except Exception:
 _STRINGS_PROXY_LOAD_ERROR = ""
 _STATIC_STRINGS_LOAD_ERROR = ""
 _LANGUAGE_LOAD_ERROR = ""
+
+
+def _normalize_pending_tasks_text(tasks_text):
+    text = str(tasks_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    return "\n".join(lines)
+
+
+def build_pending_tasks_history_text(tasks_text, *, title="Εργασίες που απομένουν"):
+    normalized = _normalize_pending_tasks_text(tasks_text)
+    if not normalized:
+        return ""
+    return f"{title}:\n{normalized}"
+
 
 _LOCAL_INSPECTION_MESSAGES = {
     "el": {
