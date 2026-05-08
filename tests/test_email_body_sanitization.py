@@ -130,3 +130,39 @@ def test_parse_eml_file_keeps_7z_attachment(tmp_path: Path):
 
     assert len(parsed["attachment_paths"]) == 1
     assert parsed["attachment_paths"][0].lower().endswith("reports.7z")
+
+
+def test_parse_eml_file_keeps_document_attachment_paths(tmp_path: Path):
+    msg = EmailMessage()
+    msg["Subject"] = "Isolation"
+    msg["From"] = "Sender <sender@example.com>"
+    msg["To"] = "Recipient <recipient@example.com>"
+    msg.set_content("Επισυνάπτω δύο αιτήσεις απομόνωσης.")
+    msg.add_attachment(
+        b"fake pdf",
+        maintype="application",
+        subtype="pdf",
+        filename="request-a.pdf",
+    )
+    msg.add_attachment(
+        b"a,b\n1,2\n",
+        maintype="text",
+        subtype="csv",
+        filename="request-b.csv",
+    )
+
+    eml_path = tmp_path / "docs.eml"
+    eml_path.write_bytes(msg.as_bytes())
+
+    parsed = parse_eml_file(str(eml_path))
+
+    assert len(parsed["document_attachment_paths"]) == 2
+    assert len(parsed["all_attachment_paths"]) == 2
+    assert any(
+        path.lower().endswith("request-a.pdf")
+        for path in parsed["all_attachment_paths"]
+    )
+    assert any(
+        path.lower().endswith("request-b.csv")
+        for path in parsed["all_attachment_paths"]
+    )

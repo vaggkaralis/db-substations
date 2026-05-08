@@ -696,3 +696,111 @@ def test_isolation_payload_import_forwards_after_save_callback(monkeypatch):
     assert captured["status"] == "Requested"
     assert captured["attachment_paths"] == ["req.xlsx"]
     assert captured["after_save_callback"] is callback
+
+
+def test_startup_review_popup_splits_isolation_email_into_multiple_instances(
+    monkeypatch, tmp_path
+):
+    captured = {}
+
+    class DummyWidget:
+        def __init__(self, *args, **kwargs):
+            self.children = []
+            self.text = kwargs.get("text", "")
+            self._callbacks = {}
+
+        def add_widget(self, widget):
+            self.children.append(widget)
+
+        def bind(self, **kwargs):
+            self._callbacks.update(kwargs)
+
+        def setter(self, attr_name):
+            return lambda _instance, value: setattr(self, attr_name, value)
+
+        def remove_widget(self, widget):
+            if widget in self.children:
+                self.children.remove(widget)
+
+    class DummyLabel(DummyWidget):
+        width = 100
+
+    class DummyButton(DummyWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.disabled = False
+
+    class DummyPopup(DummyWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.title = kwargs.get("title")
+            self.size_hint = kwargs.get("size_hint")
+            self.auto_dismiss = kwargs.get("auto_dismiss", True)
+            self.content = None
+            captured["popup"] = self
+
+        def open(self):
+            captured["opened_popup"] = self
+
+        def dismiss(self):
+            callback = self._callbacks.get("on_dismiss")
+            if callback:
+                callback(self)
+
+    request_a = tmp_path / "iasmos-1.txt"
+    request_a.write_text(
+        "Αίτηση απομόνωσης του Υ/Σ ΙΑΣΜΟΥ για 11/5 και ώρα 09.00 έως 11.00",
+        encoding="utf-8",
+    )
+    request_b = tmp_path / "iasmos-2.txt"
+    request_b.write_text(
+        "Αίτηση απομόνωσης του Υ/Σ ΙΑΣΜΟΥ για 12/5 και ώρα 12.00 έως 14.00",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(DBrun, "BoxLayout", DummyWidget)
+    monkeypatch.setattr(DBrun, "GridLayout", DummyWidget)
+    monkeypatch.setattr(DBrun, "ScrollView", DummyWidget)
+    monkeypatch.setattr(DBrun, "Label", DummyLabel)
+    monkeypatch.setattr(DBrun, "Button", DummyButton)
+    monkeypatch.setattr(DBrun, "Popup", DummyPopup)
+    monkeypatch.setattr(DBrun, "Widget", DummyWidget)
+    monkeypatch.setattr(
+        DBrun,
+        "parse_eml_file",
+        lambda _path: {
+            "subject": "Isolation request",
+            "sender_name": "Operator",
+            "received_at": "2026-05-05T09:00:00+00:00",
+            "body": "Επισυνάπτονται δύο αιτήσεις απομόνωσης για τον Υ/Σ ΙΑΣΜΟΥ.",
+            "document_attachment_paths": [str(request_a), str(request_b)],
+            "all_attachment_paths": [str(request_a), str(request_b)],
+            "attachment_paths": [],
+        },
+    )
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = _DummyConn([(23, "ΙΑΣΜΟΣ")])
+    app._startup_review_deferred_paths = set()
+    app._find_substation_in_text = lambda _text, substations: substations[0]
+    app._open_isolation_from_email_payload = lambda *args, **kwargs: None
+    app._open_maintenance_from_email_payload = lambda *args, **kwargs: None
+
+    isolation_file = tmp_path / "iasmos.eml"
+    isolation_file.write_text("eml", encoding="utf-8")
+
+    shown = app._show_startup_report_review_popup(
+        [
+            {
+                "kind": "isolation",
+                "source_folder": "isolations",
+                "file_path": str(isolation_file),
+            }
+        ]
+    )
+
+    assert shown is True
+    texts = _collect_texts(captured["opened_popup"].content)
+    assert sum("e-mail αίτημα απομόνωσης: ΙΑΣΜΟΣ" in text for text in texts) == 2
+    assert any("iasmos-1.txt" in text for text in texts)
+    assert any("iasmos-2.txt" in text for text in texts)

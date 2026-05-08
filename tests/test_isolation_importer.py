@@ -7,6 +7,7 @@ from isolation_importer import (
     match_element_ids_from_text,
     match_substation,
     parse_isolation_request_text,
+    split_isolation_email_payload,
 )
 
 
@@ -231,3 +232,57 @@ def test_match_substation_from_recovered_html_eml_body(tmp_path):
     )
 
     assert matched == (77, "ΛΗΤΗ")
+
+
+def test_split_isolation_email_payload_creates_one_payload_per_request_attachment(
+    tmp_path,
+):
+    first_request = tmp_path / "request-a.txt"
+    first_request.write_text(
+        "Αίτηση απομόνωσης του Υ/Σ ΙΑΣΜΟΥ για 11/5 και ώρα 09.00 έως 11.00",
+        encoding="utf-8",
+    )
+    second_request = tmp_path / "request-b.txt"
+    second_request.write_text(
+        "Αίτηση απομόνωσης του Υ/Σ ΙΑΣΜΟΥ για 12/5 και ώρα 12.00 έως 14.00",
+        encoding="utf-8",
+    )
+
+    payloads = split_isolation_email_payload(
+        {
+            "subject": "Isolation request",
+            "body": "Επισυνάπτονται δύο αιτήσεις.",
+            "document_attachment_paths": [str(first_request), str(second_request)],
+            "all_attachment_paths": [str(first_request), str(second_request)],
+        }
+    )
+
+    assert len(payloads) == 2
+    assert payloads[0]["attachment_paths"] == [str(first_request)]
+    assert payloads[1]["attachment_paths"] == [str(second_request)]
+    assert "11/5" in payloads[0]["body"]
+    assert "12/5" in payloads[1]["body"]
+    assert payloads[0]["_isolation_split_total"] == 2
+    assert payloads[1]["_isolation_split_total"] == 2
+
+
+def test_split_isolation_email_payload_splits_inline_requests_without_attachments():
+    payloads = split_isolation_email_payload(
+        {
+            "body": (
+                "Παρακαλούμε για χειρισμούς στον Υ/Σ Ιάσμου.\n"
+                "Την απομόνωση του Μ/Σ Νο2 του Υ/Σ Ιάσμου, την Δευτέρα 11/05/2026 και ώρα 08:00 και\n"
+                "Την επανάζευξη του Μ/Σ Νο2 του Υ/Σ Ιάσμου, την Τετάρτη 13/05/2026 και ώρα 08:00.\n"
+                "Την απομόνωση του Μ/Σ Νο1 του Υ/Σ Ιάσμου, την Τετάρτη 13/05/2026 και ώρα 09:00 και\n"
+                "Την επανάζευξη του Μ/Σ Νο1 του Υ/Σ Ιάσμου, την Παρασκευή 15/05/2026 και ώρα 14:00\n"
+                "Ευχαριστούμε πολύ εκ των προτέρων"
+            )
+        }
+    )
+
+    assert len(payloads) == 2
+    assert "Μ/Σ Νο2" in payloads[0]["body"]
+    assert "Μ/Σ Νο1" not in payloads[0]["body"]
+    assert "Μ/Σ Νο1" in payloads[1]["body"]
+    assert payloads[0]["_isolation_split_key"] == "email-body:1"
+    assert payloads[1]["_isolation_split_key"] == "email-body:2"

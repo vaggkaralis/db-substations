@@ -66,6 +66,7 @@ STRINGS_EL = {
         "ANDROID_FILECHOOSER_FALLBACK": "Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.",
         "APP_INFO_BODY": "HEDNO Substations DEDD/KSMTH/TEI\nVersion: {version}\nDB Version: {db_version}\nCompatibility: {compat_status}\n\nApplication features:\n• View and manage substation database\n• Add/edit/delete substations and elements\n• Circuit breaker categories (SF6/Oil/Low Oil)\n• Manage element types (models/manufacturers/cycles)\n• Maintenance records\n• Import maintenance from e-mail (.eml)\n• Maintenance history (all/by substation)\n• Breaker measurements (insulation/passage/operations)\n• SF6 gas quality & leaks (kg)\n• SF6 management (leakage report by year)\n• Export SF6 Excel reports (summary & per substation)\n• Print maintenance PDF reports\n• Inspections (entry/view/history)\n• Isolation requests\n• Import substations/elements from CSV/Excel\n• PDF & Excel reports\n\nApp folder: {app_dir}",
         "APP_INFO_SHORT": "Πληρ. Εφαρμ.",
+        "STARTUP_EMAIL_REVIEW_BUTTON": "Έλεγχος για αναφορές/απομονώσεις",
         "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
         "APP_TITLE": "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ",
         "BREAKER_CATEGORIES_ALL": [
@@ -860,6 +861,7 @@ STRINGS_EN = {
     "MESSAGES": {
         "APP_TITLE": "HEDNO Substations DEDD/KSMTH/TEI",
         "APP_INFO_SHORT": "App Info",
+        "STARTUP_EMAIL_REVIEW_BUTTON": "Check reports/isolations",
         "APP_INFO_TITLE": "Application Information",
         "APP_INFO_BODY": (
             "HEDNO Substations DEDD/KSMTH/TEI\n"

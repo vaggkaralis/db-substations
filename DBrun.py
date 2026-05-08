@@ -2274,50 +2274,70 @@ class SubstationApp(App):
         self.settings_btn.bind(on_press=self.show_settings_popup)
         top_bar.add_widget(self.settings_btn)
         top_bar.add_widget(Widget())
-        self.startup_email_review_btn = StatusButton(
-            text=S["MESSAGES"].get("STARTUP_EMAIL_REVIEW_BUTTON", "Εισαγωγή e-mail"),
+        action_buttons = BoxLayout(
+            orientation="horizontal",
             size_hint=(None, None),
-            height=34,
-            width=170,
-            font_size="12sp",
+            height=36,
+            spacing=10,
+        )
+        action_buttons.bind(
+            minimum_width=lambda inst, value: setattr(inst, "width", value)
+        )
+        common_button_height = 36
+        common_button_font_size = "12sp"
+
+        self.startup_email_review_btn = StatusButton(
+            text=S["MESSAGES"].get(
+                "STARTUP_EMAIL_REVIEW_BUTTON",
+                "Έλεγχος για αναφορές/απομονώσεις",
+            ),
+            size_hint=(None, None),
+            height=common_button_height,
+            width=280,
+            font_size=common_button_font_size,
             text_color=(1, 1, 1, 1),
+            bg_color=(0.47, 0.24, 0.67, 1),
+            bg_color_down=(0.37, 0.18, 0.53, 1),
         )
         try:
-            autosize_button_text(self.startup_email_review_btn, max_sp=18, min_sp=10)
+            autosize_button_text(self.startup_email_review_btn, max_sp=16, min_sp=9)
         except Exception:
             pass
         self.startup_email_review_btn.bind(
             on_press=self.review_startup_pending_emails_now
         )
-        top_bar.add_widget(self.startup_email_review_btn)
-        top_bar.add_widget(Widget(size_hint=(None, None), width=12, height=1))
+        action_buttons.add_widget(self.startup_email_review_btn)
         self.sync_onedrive_btn = StatusButton(
             text=S["MESSAGES"].get("SYNC_ONEDRIVE_BUTTON", "Συγχρονισμός OneDrive"),
             size_hint=(None, None),
-            height=34,
-            width=210,
-            font_size="12sp",
+            height=common_button_height,
+            width=220,
+            font_size=common_button_font_size,
             text_color=(1, 1, 1, 1),
         )
         try:
-            autosize_button_text(self.sync_onedrive_btn, max_sp=18, min_sp=10)
+            autosize_button_text(self.sync_onedrive_btn, max_sp=16, min_sp=9)
         except Exception:
             pass
         self.sync_onedrive_btn.bind(on_press=self.sync_onedrive_now)
-        top_bar.add_widget(self.sync_onedrive_btn)
-        self.app_info_btn = Button(
+        action_buttons.add_widget(self.sync_onedrive_btn)
+        self.app_info_btn = StatusButton(
             text=S["MESSAGES"].get("APP_INFO_SHORT", "Πληρ. Εφαρμ."),
             size_hint=(None, None),
-            height=30,
-            width=130,
-            font_size="12sp",
+            height=common_button_height,
+            width=150,
+            font_size=common_button_font_size,
+            text_color=(1, 1, 1, 1),
+            bg_color=(0.19, 0.35, 0.55, 1),
+            bg_color_down=(0.14, 0.27, 0.43, 1),
         )
         try:
-            autosize_button_text(self.app_info_btn, max_sp=16, min_sp=10)
+            autosize_button_text(self.app_info_btn, max_sp=16, min_sp=9)
         except Exception:
             pass
         self.app_info_btn.bind(on_press=self.show_app_info_popup)
-        top_bar.add_widget(self.app_info_btn)
+        action_buttons.add_widget(self.app_info_btn)
+        top_bar.add_widget(action_buttons)
         # drag-drop handler bound (no visual debug indicator)
         layout.add_widget(top_bar)
         try:
@@ -7354,6 +7374,42 @@ class SubstationApp(App):
         self._cleanup_startup_report_payload(payload)
         return removed
 
+    @staticmethod
+    def _get_startup_review_item_identity(item):
+        file_path = os.path.abspath(str((item or {}).get("file_path") or "").strip())
+        instance_key = str((item or {}).get("instance_key") or "").strip()
+        if file_path and instance_key:
+            return f"{file_path}::{instance_key}"
+        return file_path
+
+    def _get_startup_review_completed_instances(self):
+        stored = get_app_setting("startup_review_completed_instances", {})
+        return stored if isinstance(stored, dict) else {}
+
+    def _mark_startup_review_instance_completed(self, file_path, instance_key):
+        normalized_path = os.path.abspath(str(file_path or "").strip())
+        normalized_key = str(instance_key or "").strip()
+        if not normalized_path or not normalized_key:
+            return False
+        stored = self._get_startup_review_completed_instances()
+        existing_keys = set(stored.get(normalized_path) or [])
+        if normalized_key in existing_keys:
+            return True
+        existing_keys.add(normalized_key)
+        stored[normalized_path] = sorted(existing_keys)
+        return set_app_setting("startup_review_completed_instances", stored)
+
+    def _clear_startup_review_instance_state(self, file_path):
+        normalized_path = os.path.abspath(str(file_path or "").strip())
+        if not normalized_path:
+            return False
+        stored = self._get_startup_review_completed_instances()
+        if normalized_path in stored:
+            del stored[normalized_path]
+        if stored:
+            return set_app_setting("startup_review_completed_instances", stored)
+        return clear_app_setting("startup_review_completed_instances")
+
     def _get_pending_startup_report_files(self):
         try:
             from sync_service import resolve_sync_root
@@ -7491,9 +7547,11 @@ class SubstationApp(App):
         try:
             from isolation_importer import (
                 match_substation as match_isolation_substation,
+                split_isolation_email_payload,
             )
         except Exception:
             match_isolation_substation = None
+            split_isolation_email_payload = None
 
         remaining_items = self._normalize_startup_review_items(pending_files)
         if not remaining_items:
@@ -7654,6 +7712,7 @@ class SubstationApp(App):
             return latest_payload
 
         prepared_items = []
+        completed_instances = self._get_startup_review_completed_instances()
         for item in remaining_items:
             file_path = item["file_path"]
             payload = None
@@ -7684,40 +7743,95 @@ class SubstationApp(App):
             sender_value = "-"
             subject_value = "-"
             received_value = "-"
-            attachment_count = 0
             if payload:
                 sender_value = (
                     payload.get("sender_name") or payload.get("sender_email") or "-"
                 )
                 subject_value = payload.get("subject") or "-"
                 received_value = payload.get("received_at") or "-"
-                attachment_count = len(payload.get("attachment_paths") or [])
 
-            email_import_metadata = _extract_email_import_metadata(payload or {})
-            substation_match = _resolve_substation_for_payload(payload, review_kind)
-            date_label = _format_email_comment_date_label(received_value)
+            payloads_to_prepare = [payload]
+            if review_kind == "isolation" and payload and split_isolation_email_payload:
+                try:
+                    payloads_to_prepare = split_isolation_email_payload(payload)
+                except Exception:
+                    payloads_to_prepare = [payload]
 
-            prepared_items.append(
-                {
-                    **item,
-                    "payload": payload,
-                    "parse_error": parse_error,
-                    "review_kind": review_kind,
-                    "source_folder": source_folder,
-                    "item_label": item_label,
-                    "entry_label": entry_label,
-                    "sender_value": sender_value,
-                    "subject_value": subject_value,
-                    "received_value": received_value,
-                    "attachment_count": attachment_count,
-                    "email_import_metadata": email_import_metadata,
-                    "substation_match": substation_match,
-                    "date_label": date_label,
-                }
-            )
+            all_instance_keys = [
+                str((candidate or {}).get("_isolation_split_key") or "").strip()
+                for candidate in payloads_to_prepare
+                if str((candidate or {}).get("_isolation_split_key") or "").strip()
+            ]
+            completed_keys_for_file = set(completed_instances.get(file_path) or [])
+
+            for split_payload in payloads_to_prepare:
+                current_payload = split_payload or payload
+                current_attachment_paths = (
+                    (current_payload or {}).get("all_attachment_paths")
+                    or (current_payload or {}).get("document_attachment_paths")
+                    or (current_payload or {}).get("attachment_paths")
+                    or []
+                )
+                current_attachment_count = len(current_attachment_paths)
+                current_received_value = (current_payload or {}).get(
+                    "received_at"
+                ) or received_value
+                current_email_import_metadata = _extract_email_import_metadata(
+                    current_payload or {}
+                )
+                current_substation_match = _resolve_substation_for_payload(
+                    current_payload,
+                    review_kind,
+                )
+                current_date_label = _format_email_comment_date_label(
+                    current_received_value
+                )
+                instance_key = str(
+                    (current_payload or {}).get("_isolation_split_key") or ""
+                ).strip()
+                if instance_key and instance_key in completed_keys_for_file:
+                    continue
+
+                prepared_items.append(
+                    {
+                        **item,
+                        "payload": current_payload,
+                        "source_payload": payload,
+                        "parse_error": parse_error,
+                        "review_kind": review_kind,
+                        "source_folder": source_folder,
+                        "item_label": item_label,
+                        "entry_label": entry_label,
+                        "sender_value": sender_value,
+                        "subject_value": (current_payload or {}).get("subject")
+                        or subject_value,
+                        "received_value": current_received_value,
+                        "attachment_count": current_attachment_count,
+                        "email_import_metadata": current_email_import_metadata,
+                        "substation_match": current_substation_match,
+                        "date_label": current_date_label,
+                        "instance_key": instance_key,
+                        "split_index": (current_payload or {}).get(
+                            "_isolation_split_index"
+                        ),
+                        "split_total": (current_payload or {}).get(
+                            "_isolation_split_total"
+                        ),
+                        "split_label": (current_payload or {}).get(
+                            "_isolation_split_label"
+                        )
+                        or "",
+                        "source_instance_keys": list(all_instance_keys),
+                    }
+                )
 
         grouped_instances = []
+        deferred_paths = set(
+            getattr(self, "_startup_review_deferred_paths", set()) or set()
+        )
         for item in sorted(prepared_items, key=_startup_item_sort_key):
+            if self._get_startup_review_item_identity(item) in deferred_paths:
+                continue
             if item.get("review_kind") != "maintenance" or not item.get("payload"):
                 grouped_instances.append(
                     {
@@ -7805,9 +7919,16 @@ class SubstationApp(App):
                 1
             ] or "-"
             count_text = f"{len(items)} e-mail" if len(items) != 1 else "1 e-mail"
-            return (
-                f"{first_item.get('item_label', '-')}: {substation_name} | {count_text}"
-            )
+            split_total = int(first_item.get("split_total") or 1)
+            split_index = int(first_item.get("split_index") or 1)
+            split_label = str(first_item.get("split_label") or "").strip()
+            if instance.get("review_kind") == "isolation" and split_total > 1:
+                label_suffix = f" | {split_index}/{split_total}" + (
+                    f" | {split_label}" if split_label else ""
+                )
+            else:
+                label_suffix = ""
+            return f"{first_item.get('item_label', '-')}: {substation_name} | {count_text}{label_suffix}"
 
         def _instance_details(instance):
             items = instance.get("items") or []
@@ -7819,6 +7940,15 @@ class SubstationApp(App):
                         item.get("date_label") or item.get("received_value") or "-"
                         for item in items
                     )
+                )
+            first_item = items[0] if items else {}
+            split_label = str(first_item.get("split_label") or "").strip()
+            split_total = int(first_item.get("split_total") or 1)
+            if instance.get("review_kind") == "isolation" and split_total > 1:
+                if split_label:
+                    lines.append(f"Αρχείο αίτησης: {split_label}")
+                lines.append(
+                    f"Επιμέρους αίτημα: {int(first_item.get('split_index') or 1)}/{split_total}"
                 )
             for item in items:
                 lines.append(
@@ -7875,6 +8005,8 @@ class SubstationApp(App):
             def _confirm_discard(_btn=None):
                 confirm_popup.dismiss()
                 for item in items:
+                    self._clear_startup_review_instance_state(item.get("file_path"))
+                for item in items:
                     self._delete_startup_report_source_file(
                         item.get("file_path"), payload=item.get("payload")
                     )
@@ -7900,10 +8032,43 @@ class SubstationApp(App):
             def _after_save():
                 delete_error = None
                 try:
-                    for item in items:
-                        self._delete_startup_report_source_file(
-                            item.get("file_path"), payload=item.get("payload")
+                    if instance["review_kind"] == "isolation":
+                        primary_item = items[0] if items else {}
+                        file_path = primary_item.get("file_path")
+                        instance_key = primary_item.get("instance_key")
+                        if instance_key:
+                            self._mark_startup_review_instance_completed(
+                                file_path,
+                                instance_key,
+                            )
+                        self._cleanup_startup_report_payload(
+                            primary_item.get("source_payload")
+                            or primary_item.get("payload")
                         )
+                        source_instance_keys = set(
+                            primary_item.get("source_instance_keys") or []
+                        )
+                        completed_keys = set(
+                            self._get_startup_review_completed_instances().get(
+                                os.path.abspath(str(file_path or "").strip()),
+                                [],
+                            )
+                        )
+                        if (
+                            source_instance_keys
+                            and source_instance_keys <= completed_keys
+                        ):
+                            self._clear_startup_review_instance_state(file_path)
+                            self._delete_startup_report_source_file(
+                                file_path,
+                                payload=primary_item.get("source_payload")
+                                or primary_item.get("payload"),
+                            )
+                    else:
+                        for item in items:
+                            self._delete_startup_report_source_file(
+                                item.get("file_path"), payload=item.get("payload")
+                            )
                 except Exception as exc:
                     delete_error = str(exc)
                     logging.exception(
@@ -7952,9 +8117,7 @@ class SubstationApp(App):
                 getattr(self, "_startup_review_deferred_paths", set()) or set()
             )
             for item in instance.get("items") or []:
-                deferred_paths.add(
-                    os.path.abspath(str(item.get("file_path") or "").strip())
-                )
+                deferred_paths.add(self._get_startup_review_item_identity(item))
             self._startup_review_deferred_paths = deferred_paths
             _remove_instance(instance)
 

@@ -56,12 +56,37 @@ _MEDIA_EXTENSIONS = {
     ".rar",
 }
 
+_DOCUMENT_EXTENSIONS = {
+    ".pdf",
+    ".txt",
+    ".csv",
+    ".xls",
+    ".xlsx",
+    ".xlsm",
+    ".doc",
+    ".docx",
+    ".eml",
+}
+
 _ATTACHMENT_CONTENT_TYPES = {
     "application/x-7z-compressed",
     "application/zip",
     "application/x-zip-compressed",
     "application/x-rar-compressed",
     "application/vnd.rar",
+}
+
+_DOCUMENT_ATTACHMENT_CONTENT_TYPES = {
+    "application/pdf",
+    "text/plain",
+    "text/csv",
+    "application/csv",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel.sheet.macroenabled.12",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "message/rfc822",
 }
 
 
@@ -440,6 +465,78 @@ def _extract_media_attachment_paths(message):
     return paths
 
 
+def _extract_document_attachment_paths(message):
+    paths = []
+    temp_dir = Path(tempfile.mkdtemp(prefix="eml_docs_"))
+    counter = 1
+
+    try:
+        parts = list(message.iter_attachments())
+    except Exception:
+        parts = []
+
+    for part in parts:
+        filename = (part.get_filename() or "").strip()
+        if not filename:
+            ctype = (part.get_content_type() or "").lower()
+            if ctype == "application/pdf":
+                filename = f"attachment_{counter}.pdf"
+            elif ctype in {
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel.sheet.macroenabled.12",
+            }:
+                filename = f"attachment_{counter}.xlsx"
+            elif ctype == "application/msword":
+                filename = f"attachment_{counter}.doc"
+            elif (
+                ctype
+                == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ):
+                filename = f"attachment_{counter}.docx"
+            elif ctype == "message/rfc822":
+                filename = f"attachment_{counter}.eml"
+            elif ctype in {"text/plain", "text/csv", "application/csv"}:
+                filename = f"attachment_{counter}.txt"
+            else:
+                counter += 1
+                continue
+
+        safe_name = re.sub(r"[\\/:*?\"<>|]", "_", filename)
+        ext = Path(safe_name).suffix.lower()
+        ctype = (part.get_content_type() or "").lower()
+        if (
+            ext not in _DOCUMENT_EXTENSIONS
+            and ctype not in _DOCUMENT_ATTACHMENT_CONTENT_TYPES
+        ):
+            counter += 1
+            continue
+
+        try:
+            payload = part.get_payload(decode=True)
+        except Exception:
+            payload = None
+        if not payload:
+            counter += 1
+            continue
+
+        dest = temp_dir / safe_name
+        idx = 1
+        while dest.exists():
+            dest = temp_dir / f"{dest.stem}_{idx}{dest.suffix}"
+            idx += 1
+
+        try:
+            dest.write_bytes(payload)
+            paths.append(str(dest))
+        except Exception:
+            pass
+
+        counter += 1
+
+    return paths
+
+
 def parse_eml_file(path: str):
     with open(path, "rb") as f:
         msg = BytesParser(policy=policy.default).parse(f)
@@ -458,6 +555,7 @@ def parse_eml_file(path: str):
 
     body = _extract_body(msg)
     attachment_paths = _extract_media_attachment_paths(msg)
+    document_attachment_paths = _extract_document_attachment_paths(msg)
 
     headers = {
         "subject": subject,
@@ -478,4 +576,6 @@ def parse_eml_file(path: str):
         "sender_email": sender_email,
         "received_at": received_at,
         "attachment_paths": attachment_paths,
+        "document_attachment_paths": document_attachment_paths,
+        "all_attachment_paths": attachment_paths + document_attachment_paths,
     }

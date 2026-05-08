@@ -5,6 +5,7 @@ from isolation_importer import (
     match_element_ids_from_text,
     match_substation,
     parse_isolation_request_text,
+    split_isolation_email_payload,
 )
 from onedrive_hybrid_storage import ensure_isolation_request_storage
 from popups import ask_open_file, show_message_popup
@@ -93,16 +94,52 @@ def import_isolation_request_from_payload(
     status=_DEFAULT_IMPORTED_STATUS,
     after_save_callback=None,
 ):
-    raw_text = payload.get("body") or ""
-    attachment_paths = payload.get("attachment_paths") or []
-    _prefill_imported_isolation(
-        app,
-        parent_popup,
-        raw_text,
-        status,
-        attachment_paths=attachment_paths,
-        after_save_callback=after_save_callback,
-    )
+    split_payloads = split_isolation_email_payload(payload)
+
+    if len(split_payloads) == 1:
+        current_payload = split_payloads[0]
+        _prefill_imported_isolation(
+            app,
+            parent_popup,
+            current_payload.get("body") or "",
+            status,
+            attachment_paths=(
+                current_payload.get("document_attachment_paths")
+                or current_payload.get("all_attachment_paths")
+                or current_payload.get("attachment_paths")
+                or []
+            ),
+            after_save_callback=after_save_callback,
+        )
+        return
+
+    def _open_split_payload(index):
+        current_payload = split_payloads[index]
+        raw_text = current_payload.get("body") or ""
+        attachment_paths = (
+            current_payload.get("document_attachment_paths")
+            or current_payload.get("all_attachment_paths")
+            or current_payload.get("attachment_paths")
+            or []
+        )
+
+        def _after_save_current():
+            if index + 1 < len(split_payloads):
+                _open_split_payload(index + 1)
+                return
+            if after_save_callback:
+                after_save_callback()
+
+        _prefill_imported_isolation(
+            app,
+            parent_popup,
+            raw_text,
+            status,
+            attachment_paths=attachment_paths,
+            after_save_callback=_after_save_current,
+        )
+
+    _open_split_payload(0)
 
 
 def import_isolation_request_from_eml(
