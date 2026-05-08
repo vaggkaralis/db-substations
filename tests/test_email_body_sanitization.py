@@ -82,3 +82,51 @@ def test_parse_eml_file_uses_same_sanitization(tmp_path: Path):
     assert "Παπαδοπούλου" not in body
     assert "\n1. Πρώτο βήμα." in body
     assert "\n2. Δεύτερο βήμα." in body
+
+
+def test_parse_eml_file_strips_html_markup_from_text_plain_part(tmp_path: Path):
+    html_body = (
+        "<html><body>"
+        "<p>Καλημέρα σας.</p>"
+        "<p>Αίτηση απομόνωσης του Υ/Σ ΙΑΣΜΟΥ για 11/5 και ώρα 09.00 έως 13.00.</p>"
+        "<p>Θεσσαλονίκη 54632</p>"
+        "</body></html>"
+    )
+
+    msg = EmailMessage()
+    msg["Subject"] = "Isolation"
+    msg["From"] = "Sender <sender@example.com>"
+    msg["To"] = "Recipient <recipient@example.com>"
+    msg.set_content(html_body, charset="utf-8")
+
+    eml_path = tmp_path / "html_in_plain_part.eml"
+    eml_path.write_bytes(msg.as_bytes())
+
+    parsed = parse_eml_file(str(eml_path))
+
+    assert "<html" not in parsed["body"].lower()
+    assert "11/5" in parsed["body"]
+    assert "09.00" in parsed["body"]
+    assert "54632" in parsed["body"]
+
+
+def test_parse_eml_file_keeps_7z_attachment(tmp_path: Path):
+    msg = EmailMessage()
+    msg["Subject"] = "Archive"
+    msg["From"] = "Sender <sender@example.com>"
+    msg["To"] = "Recipient <recipient@example.com>"
+    msg.set_content("Δες το συνημμένο αρχείο.")
+    msg.add_attachment(
+        b"7z-bytes",
+        maintype="application",
+        subtype="x-7z-compressed",
+        filename="reports.7z",
+    )
+
+    eml_path = tmp_path / "archive.eml"
+    eml_path.write_bytes(msg.as_bytes())
+
+    parsed = parse_eml_file(str(eml_path))
+
+    assert len(parsed["attachment_paths"]) == 1
+    assert parsed["attachment_paths"][0].lower().endswith("reports.7z")

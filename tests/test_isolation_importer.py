@@ -1,6 +1,7 @@
 from datetime import datetime
 import sqlite3
 
+from email_eml_parser import parse_eml_file
 from email_text_utils import iter_substation_name_candidates
 from isolation_importer import (
     match_element_ids_from_text,
@@ -63,6 +64,34 @@ def test_match_element_ids_from_text_matches_transformer_designator():
 
     assert matched_ids == [346]
     assert matched_phrases[346] == ["ΜΣ3"]
+
+
+def test_match_element_ids_from_text_prefers_exact_transformer_designator_over_variants():
+    matched_ids, matched_phrases = match_element_ids_from_text(
+        "Απομόνωση των Μ/Σ Νο2 και Μ/Σ Νο1 του Υ/Σ ΙΑΣΜΟΥ",
+        [
+            (486, "ΜΣ1", "101136", "Μετασχηματιστής 150/20KV", "ΠΥΛΗ 1"),
+            (487, "ΜΣ2", "113600", "Μετασχηματιστής 150/20KV", "ΠΥΛΗ 2"),
+            (
+                488,
+                "ΜΣ2 (ΛΑΘΟΣ ΤΥΠΟΣ)",
+                "113600",
+                "Μετασχηματιστής 150/20KV",
+                "ΠΥΛΗ 2",
+            ),
+            (
+                489,
+                "ΜΣ2 (ΠΑΛΙΟΣ)",
+                "90881",
+                "Μετασχηματιστής 150/20KV",
+                "ΠΥΛΗ 2",
+            ),
+        ],
+    )
+
+    assert matched_ids == [486, 487]
+    assert matched_phrases[486] == ["ΜΣ1"]
+    assert matched_phrases[487] == ["ΜΣ2"]
 
 
 def test_match_element_ids_from_text_matches_r_breaker_without_hyphen():
@@ -163,3 +192,42 @@ def test_match_substation_handles_tuple_rows_from_shared_matcher():
     )
 
     assert matched == (21, "ΣΤΑΓΕΙΡΑ")
+
+
+def test_match_substation_from_recovered_html_eml_body(tmp_path):
+    html_body = (
+        "<html><head>"
+        '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
+        "</head><body>"
+        "<p>Καλημέρα σας.</p>"
+        "<p>Επισυνάπτω αίτηση άδειας εργασίας για την απομόνωση του Μ/Σ Νο2 "
+        "του Υ/Σ ΛΗΤΗΣ για 11/5 και ώρα 09.00 έως 13.00.</p>"
+        "</body></html>"
+    )
+    raw_eml = (
+        b"Subject: Isolation request\r\n"
+        b"From: Sender <sender@example.com>\r\n"
+        b"To: Receiver <receiver@example.com>\r\n"
+        b"MIME-Version: 1.0\r\n"
+        b"Content-Type: text/html; charset=utf-8\r\n"
+        b"Content-Transfer-Encoding: 8bit\r\n\r\n" + html_body.encode("cp1253")
+    )
+    eml_path = tmp_path / "isolation_html.eml"
+    eml_path.write_bytes(raw_eml)
+
+    parsed = parse_eml_file(str(eml_path))
+
+    assert "<html" not in parsed["body"].lower()
+    assert "ΛΗΤΗΣ" in parsed["body"]
+
+    class AppStub:
+        def _find_substation_in_text(self, _text, _substations):
+            return None
+
+    matched = match_substation(
+        AppStub(),
+        parsed["body"],
+        [(77, "ΛΗΤΗ")],
+    )
+
+    assert matched == (77, "ΛΗΤΗ")

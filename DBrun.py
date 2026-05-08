@@ -168,6 +168,13 @@ def _unique_non_null_values(values):
     return unique_values
 
 
+def _calculate_expanding_text_input_height(
+    text, container_height, line_height=24, padding=20
+):
+    lines = str(text or "").count("\n") + 1
+    return max(container_height, line_height * lines + padding)
+
+
 def _refresh_stored_maintenance_dates(cursor, *, element_ids=None, substation_ids=None):
     maintenance_columns = _get_table_columns(cursor, "maintenance")
     element_columns = _get_table_columns(cursor, "elements")
@@ -2267,6 +2274,23 @@ class SubstationApp(App):
         self.settings_btn.bind(on_press=self.show_settings_popup)
         top_bar.add_widget(self.settings_btn)
         top_bar.add_widget(Widget())
+        self.startup_email_review_btn = StatusButton(
+            text=S["MESSAGES"].get("STARTUP_EMAIL_REVIEW_BUTTON", "Εισαγωγή e-mail"),
+            size_hint=(None, None),
+            height=34,
+            width=170,
+            font_size="12sp",
+            text_color=(1, 1, 1, 1),
+        )
+        try:
+            autosize_button_text(self.startup_email_review_btn, max_sp=18, min_sp=10)
+        except Exception:
+            pass
+        self.startup_email_review_btn.bind(
+            on_press=self.review_startup_pending_emails_now
+        )
+        top_bar.add_widget(self.startup_email_review_btn)
+        top_bar.add_widget(Widget(size_hint=(None, None), width=12, height=1))
         self.sync_onedrive_btn = StatusButton(
             text=S["MESSAGES"].get("SYNC_ONEDRIVE_BUTTON", "Συγχρονισμός OneDrive"),
             size_hint=(None, None),
@@ -2976,6 +3000,7 @@ class SubstationApp(App):
         payload,
         forced_substation=None,
         after_save_callback=None,
+        after_cancel_callback=None,
     ):
         from maintenance import open_maintenance_from_email_payload as _m
 
@@ -2997,6 +3022,7 @@ class SubstationApp(App):
             payload,
             forced_substation,
             after_save_callback=after_save_callback,
+            after_cancel_callback=after_cancel_callback,
         )
 
     def _open_isolation_from_email_payload(
@@ -3293,7 +3319,7 @@ class SubstationApp(App):
 
         layout.add_widget(
             Label(
-                text=S["MESSAGES"]["SELECT_MAINT_RESPONSIBLE"],
+                text=S["MESSAGES"].get("SELECT_MAINT_RESPONSIBLE", "Επιλέξτε υπεύθυνο"),
                 size_hint_y=None,
                 height=40,
             )
@@ -7418,95 +7444,67 @@ class SubstationApp(App):
             Clock.schedule_once(self._prompt_startup_report_review_if_needed, 0.75)
             return False
 
-        pending_items = self._get_pending_startup_review_items()
+        deferred_paths = set(
+            getattr(self, "_startup_review_deferred_paths", set()) or set()
+        )
+        pending_items = [
+            item
+            for item in self._get_pending_startup_review_items()
+            if os.path.abspath(str((item or {}).get("file_path") or "").strip())
+            not in deferred_paths
+        ]
         if not pending_items:
             return False
 
-        self._show_startup_report_review_popup(pending_items, index=0)
+        self._show_startup_report_review_popup(pending_items)
         return True
 
-    def _show_startup_report_review_popup(self, pending_files, index=0):
-        from popups import show_message_popup
+    def review_startup_pending_emails_now(self, *_args):
+        self._startup_review_deferred_paths = set()
+        shown = self._prompt_startup_report_review_if_needed()
+        if shown:
+            return True
 
-        remaining_items = self._normalize_startup_review_items(pending_files)
-        if not remaining_items or index >= len(remaining_items):
-            setattr(self, "_startup_report_review_popup", None)
+        if self._get_pending_startup_review_items():
             return False
 
-        review_item = remaining_items[index]
-        file_path = review_item["file_path"]
-        file_name = os.path.basename(file_path)
-        review_kind = str(review_item.get("kind") or "maintenance").strip().lower()
-        source_folder = review_item.get("source_folder") or (
-            "isolations" if review_kind == "isolation" else "reports"
+        show_message_popup(
+            S["TITLES"].get("INFO", "Πληροφορία"),
+            S["MESSAGES"].get(
+                "STARTUP_EMAIL_REVIEW_EMPTY",
+                "Δεν υπάρχουν εκκρεμή e-mail για εισαγωγή.",
+            ),
         )
-        item_label = S["MESSAGES"].get(
-            "STARTUP_EMAIL_KIND_ISOLATION"
-            if review_kind == "isolation"
-            else "STARTUP_EMAIL_KIND_MAINTENANCE",
-            "isolation e-mail"
-            if review_kind == "isolation"
-            else "maintenance e-mail report",
-        )
-        entry_label = S["MESSAGES"].get(
-            "STARTUP_EMAIL_ENTRY_ISOLATION"
-            if review_kind == "isolation"
-            else "STARTUP_EMAIL_ENTRY_MAINTENANCE",
-            "isolation request" if review_kind == "isolation" else "maintenance",
-        )
-        payload = None
-        parse_error = None
-        try:
-            payload = parse_eml_file(file_path)
-        except Exception as exc:
-            parse_error = str(exc)
+        return False
 
-        if payload:
-            sender_value = (
-                payload.get("sender_name") or payload.get("sender_email") or "-"
+    def _show_startup_report_review_popup(self, pending_files):
+        from popups import show_message_popup
+        from maintenance import (
+            _extract_email_import_metadata,
+            _format_email_comment_date_label,
+        )
+
+        try:
+            from maintenance_email_importer import infer_substation_from_email
+        except Exception:
+            infer_substation_from_email = None
+        try:
+            from isolation_importer import (
+                match_substation as match_isolation_substation,
             )
-            message_text = (
-                S["MESSAGES"]
-                .get(
-                    "STARTUP_EMAIL_REVIEW_MESSAGE_FMT",
-                    "A pending {item_label} was found in sync_root/{source_folder}.\n\n"
-                    "File: {file_name}\n"
-                    "Subject: {subject}\n"
-                    "Sender: {sender}\n"
-                    "Received: {received_at}\n"
-                    "Attachments: {attachment_count}\n\n"
-                    "Choose an action for item {index}/{total}.",
-                )
-                .format(
-                    item_label=item_label,
-                    source_folder=source_folder,
-                    file_name=file_name,
-                    subject=payload.get("subject") or "-",
-                    sender=sender_value,
-                    received_at=payload.get("received_at") or "-",
-                    attachment_count=len(payload.get("attachment_paths") or []),
-                    index=index + 1,
-                    total=len(remaining_items),
-                )
-            )
-        else:
-            message_text = (
-                S["MESSAGES"]
-                .get(
-                    "STARTUP_EMAIL_PARSE_FAILED_FMT",
-                    "The file could not be parsed as .eml.\n\n"
-                    "File: {file_name}\n"
-                    "Error: {error}\n\n"
-                    "You can skip it or delete it.",
-                )
-                .format(file_name=file_name, error=parse_error or "-")
-            )
+        except Exception:
+            match_isolation_substation = None
+
+        remaining_items = self._normalize_startup_review_items(pending_files)
+        if not remaining_items:
+            setattr(self, "_startup_report_review_popup", None)
+            return False
 
         popup = Popup(
             title=S["MESSAGES"].get(
                 "STARTUP_EMAIL_REVIEW_TITLE", "Review Pending E-mail"
             ),
-            size_hint=(0.82, 0.62),
+            size_hint=(0.9, 0.8),
             auto_dismiss=False,
         )
         self._startup_report_review_popup = popup
@@ -7516,49 +7514,346 @@ class SubstationApp(App):
             )
         )
 
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=10)
-        message_label = Label(
-            text=message_text,
-            size_hint_y=None,
-            halign="left",
-            valign="top",
-        )
-        message_label.bind(
-            width=lambda inst, _val: setattr(
-                inst, "text_size", (max(10, inst.width - 12), None)
-            ),
-            texture_size=lambda inst, val: setattr(
-                inst, "height", max(120, val[1] + 8)
-            ),
-        )
-        scroll.add_widget(message_label)
-        layout.add_widget(scroll)
+        c = self.conn.cursor()
+        c.execute("SELECT id, name FROM substations ORDER BY name")
+        substations = c.fetchall() or []
 
-        button_row = BoxLayout(size_hint_y=None, height=46, spacing=8)
-        review_btn = Button(text=S["BUTTONS"].get("VIEW", "Review"))
-        skip_btn = Button(text=S["BUTTONS"].get("SKIP", "Skip"))
-        discard_btn = Button(text=S["BUTTONS"].get("DELETE", "Delete"))
-        later_btn = Button(text=S["MESSAGES"].get("LATER_BUTTON", "Later"))
+        def _resolve_substation_for_payload(payload, review_kind="maintenance"):
+            if not payload:
+                return None
+            subject = payload.get("subject") or ""
+            body = payload.get("body") or ""
+            received_at = payload.get("received_at") or ""
+            if review_kind == "isolation" and match_isolation_substation:
+                try:
+                    isolation_match = match_isolation_substation(
+                        self,
+                        "\n".join(part for part in (subject, body) if part).strip(),
+                        substations,
+                    )
+                except Exception:
+                    isolation_match = None
+                if isolation_match:
+                    return isolation_match
+            date_time_value = ""
+            if received_at:
+                try:
+                    date_time_value = datetime.fromisoformat(
+                        str(received_at).replace("Z", "+00:00")
+                    ).strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    date_time_value = ""
+            if infer_substation_from_email:
+                try:
+                    inferred = infer_substation_from_email(
+                        self.conn,
+                        subject=subject,
+                        body=body,
+                        date_time_value=date_time_value,
+                        received_at=received_at,
+                    )
+                except Exception:
+                    inferred = None
+                if inferred:
+                    return inferred.get("id"), inferred.get("name")
+            matched = self._find_substation_in_text(subject, substations)
+            if matched:
+                return matched
+            return self._find_substation_in_text(body, substations)
 
-        def _open_next_review():
-            Clock.schedule_once(
-                lambda _dt: self._show_startup_report_review_popup(
-                    remaining_items, index=index + 1
-                ),
-                0,
+        def _merge_instance_email_metadata(existing_metadata, incoming_metadata):
+            existing = existing_metadata if isinstance(existing_metadata, dict) else {}
+            incoming = incoming_metadata if isinstance(incoming_metadata, dict) else {}
+            merged = {}
+            for key in (
+                "message_ids",
+                "reference_ids",
+                "received_at_values",
+                "received_dates",
+                "subject_roots",
+                "thread_topics",
+            ):
+                merged[key] = sorted(
+                    set(existing.get(key) or []) | set(incoming.get(key) or [])
+                )
+            return merged
+
+        def _same_maintenance_thread(left_metadata, right_metadata):
+            left = left_metadata if isinstance(left_metadata, dict) else {}
+            right = right_metadata if isinstance(right_metadata, dict) else {}
+            left_message_ids = set(left.get("message_ids") or [])
+            left_reference_ids = set(left.get("reference_ids") or [])
+            right_message_ids = set(right.get("message_ids") or [])
+            right_reference_ids = set(right.get("reference_ids") or [])
+            left_subjects = set(left.get("subject_roots") or [])
+            right_subjects = set(right.get("subject_roots") or [])
+            left_topics = set(left.get("thread_topics") or [])
+            right_topics = set(right.get("thread_topics") or [])
+            return bool(
+                (left_message_ids and left_message_ids & right_reference_ids)
+                or (left_reference_ids and left_reference_ids & right_message_ids)
+                or (left_reference_ids and left_reference_ids & right_reference_ids)
+                or (left_subjects and left_subjects & right_subjects)
+                or (left_topics and left_topics & right_topics)
+                or (left_subjects and left_subjects & right_topics)
+                or (left_topics and left_topics & right_subjects)
             )
 
-        def _skip_current(_instance=None):
-            self._cleanup_startup_report_payload(payload)
-            popup.dismiss()
-            _open_next_review()
+        def _startup_item_sort_key(item):
+            payload = item.get("payload") or {}
+            received_at = str(
+                payload.get("received_at") or item.get("received_value") or ""
+            )
+            return (received_at, str(item.get("file_path") or ""))
 
-        def _close_remaining(_instance=None):
-            self._cleanup_startup_report_payload(payload)
-            popup.dismiss()
+        def _build_grouped_payload(instance):
+            if instance.get("review_kind") != "maintenance":
+                member = instance["items"][0]
+                return member.get("payload")
 
-        def _discard_current(_instance=None):
+            ordered_members = sorted(
+                instance.get("items") or [], key=_startup_item_sort_key
+            )
+            if not ordered_members:
+                return None
+
+            if len(ordered_members) == 1:
+                payload = dict(ordered_members[0].get("payload") or {})
+                payload["email_import_metadata"] = (
+                    instance.get("email_import_metadata") or {}
+                )
+                return payload
+
+            latest_payload = dict(ordered_members[-1].get("payload") or {})
+            sections = []
+            attachment_paths = []
+            for member in ordered_members:
+                member_payload = member.get("payload") or {}
+                body_text = str(member_payload.get("body") or "").strip()
+                label_text = member.get(
+                    "date_label"
+                ) or _format_email_comment_date_label(
+                    member_payload.get("received_at") or ""
+                )
+                if body_text:
+                    sections.append(
+                        f"{label_text}\n{body_text}" if label_text else body_text
+                    )
+                attachment_paths.extend(member_payload.get("attachment_paths") or [])
+
+            latest_payload["body"] = "\n\n".join(
+                section for section in sections if section
+            ).strip()
+            latest_payload["attachment_paths"] = dedupe_attachment_paths(
+                attachment_paths
+            )
+            latest_payload["email_import_metadata"] = (
+                instance.get("email_import_metadata") or {}
+            )
+            latest_payload["_email_comment_preformatted"] = True
+            return latest_payload
+
+        prepared_items = []
+        for item in remaining_items:
+            file_path = item["file_path"]
+            payload = None
+            parse_error = None
+            try:
+                payload = parse_eml_file(file_path)
+            except Exception as exc:
+                parse_error = str(exc)
+
+            review_kind = str(item.get("kind") or "maintenance").strip().lower()
+            source_folder = item.get("source_folder") or (
+                "isolations" if review_kind == "isolation" else "reports"
+            )
+            item_label = S["MESSAGES"].get(
+                "STARTUP_EMAIL_KIND_ISOLATION"
+                if review_kind == "isolation"
+                else "STARTUP_EMAIL_KIND_MAINTENANCE",
+                "isolation e-mail"
+                if review_kind == "isolation"
+                else "maintenance e-mail report",
+            )
+            entry_label = S["MESSAGES"].get(
+                "STARTUP_EMAIL_ENTRY_ISOLATION"
+                if review_kind == "isolation"
+                else "STARTUP_EMAIL_ENTRY_MAINTENANCE",
+                "isolation request" if review_kind == "isolation" else "maintenance",
+            )
+            sender_value = "-"
+            subject_value = "-"
+            received_value = "-"
+            attachment_count = 0
+            if payload:
+                sender_value = (
+                    payload.get("sender_name") or payload.get("sender_email") or "-"
+                )
+                subject_value = payload.get("subject") or "-"
+                received_value = payload.get("received_at") or "-"
+                attachment_count = len(payload.get("attachment_paths") or [])
+
+            email_import_metadata = _extract_email_import_metadata(payload or {})
+            substation_match = _resolve_substation_for_payload(payload, review_kind)
+            date_label = _format_email_comment_date_label(received_value)
+
+            prepared_items.append(
+                {
+                    **item,
+                    "payload": payload,
+                    "parse_error": parse_error,
+                    "review_kind": review_kind,
+                    "source_folder": source_folder,
+                    "item_label": item_label,
+                    "entry_label": entry_label,
+                    "sender_value": sender_value,
+                    "subject_value": subject_value,
+                    "received_value": received_value,
+                    "attachment_count": attachment_count,
+                    "email_import_metadata": email_import_metadata,
+                    "substation_match": substation_match,
+                    "date_label": date_label,
+                }
+            )
+
+        grouped_instances = []
+        for item in sorted(prepared_items, key=_startup_item_sort_key):
+            if item.get("review_kind") != "maintenance" or not item.get("payload"):
+                grouped_instances.append(
+                    {
+                        "review_kind": item.get("review_kind"),
+                        "items": [item],
+                        "payload": item.get("payload"),
+                        "item_label": item.get("item_label"),
+                        "entry_label": item.get("entry_label"),
+                        "source_folder": item.get("source_folder"),
+                        "substation_match": item.get("substation_match"),
+                        "email_import_metadata": item.get("email_import_metadata")
+                        or {},
+                    }
+                )
+                continue
+
+            matched_instance = None
+            for instance in grouped_instances:
+                if instance.get("review_kind") != "maintenance":
+                    continue
+                if instance.get("substation_match") != item.get("substation_match"):
+                    continue
+                if _same_maintenance_thread(
+                    instance.get("email_import_metadata"),
+                    item.get("email_import_metadata"),
+                ):
+                    matched_instance = instance
+                    break
+
+            if matched_instance is None:
+                grouped_instances.append(
+                    {
+                        "review_kind": "maintenance",
+                        "items": [item],
+                        "payload": item.get("payload"),
+                        "item_label": item.get("item_label"),
+                        "entry_label": item.get("entry_label"),
+                        "source_folder": item.get("source_folder"),
+                        "substation_match": item.get("substation_match"),
+                        "email_import_metadata": item.get("email_import_metadata")
+                        or {},
+                    }
+                )
+            else:
+                matched_instance["items"].append(item)
+                matched_instance["email_import_metadata"] = (
+                    _merge_instance_email_metadata(
+                        matched_instance.get("email_import_metadata"),
+                        item.get("email_import_metadata"),
+                    )
+                )
+
+        for instance in grouped_instances:
+            instance["payload"] = _build_grouped_payload(instance)
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        summary_label = Label(
+            text=(
+                f"Βρέθηκαν {len(grouped_instances)} εκκρεμείς εγγραφές για εισαγωγή. "
+                "Κάθε εγγραφή μπορεί να περιλαμβάνει ένα ή περισσότερα σχετικά e-mail."
+            ),
+            size_hint_y=None,
+            height=36,
+            halign="left",
+            valign="middle",
+        )
+        summary_label.bind(
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None))
+        )
+        layout.add_widget(summary_label)
+
+        body_scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=10)
+        body_grid = GridLayout(cols=1, spacing=8, size_hint_y=None, padding=4)
+        body_grid.bind(minimum_height=body_grid.setter("height"))
+        body_scroll.add_widget(body_grid)
+        layout.add_widget(body_scroll)
+
+        visible_instances = list(grouped_instances)
+        instance_rows = []
+
+        def _instance_title(instance):
+            items = instance.get("items") or []
+            first_item = items[0] if items else {}
+            substation_name = (instance.get("substation_match") or (None, "-"))[
+                1
+            ] or "-"
+            count_text = f"{len(items)} e-mail" if len(items) != 1 else "1 e-mail"
+            return (
+                f"{first_item.get('item_label', '-')}: {substation_name} | {count_text}"
+            )
+
+        def _instance_details(instance):
+            items = instance.get("items") or []
+            lines = [f"Πηγή: sync_root/{instance.get('source_folder') or '-'}"]
+            if len(items) > 1:
+                lines.append(
+                    "Ημερομηνίες: "
+                    + ", ".join(
+                        item.get("date_label") or item.get("received_value") or "-"
+                        for item in items
+                    )
+                )
+            for item in items:
+                lines.append(
+                    f"- {os.path.basename(item.get('file_path') or '-')} | {item.get('date_label') or item.get('received_value') or '-'}"
+                )
+            return "\n".join(lines)
+
+        def _remove_instance(instance):
+            if instance in visible_instances:
+                idx = visible_instances.index(instance)
+                visible_instances.pop(idx)
+                row = instance_rows.pop(idx)
+                body_grid.remove_widget(row)
+            if not visible_instances:
+                popup.dismiss()
+
+        def _reopen_remaining(_dt=None):
+            refreshed_items = [
+                item
+                for item in self._get_pending_startup_review_items()
+                if os.path.abspath(str((item or {}).get("file_path") or "").strip())
+                not in set(
+                    getattr(self, "_startup_review_deferred_paths", set()) or set()
+                )
+            ]
+            if refreshed_items:
+                self._show_startup_report_review_popup(refreshed_items)
+
+        def _discard_instance(instance, _instance=None):
+            items = instance.get("items") or []
+            if not items:
+                return
+            file_names = "\n".join(
+                os.path.basename(item.get("file_path") or "-") for item in items
+            )
             confirm_popup = Popup(
                 title=S["TITLES"].get("WARNING", "Προειδοποίηση"),
                 size_hint=(0.6, 0.3),
@@ -7572,16 +7867,18 @@ class SubstationApp(App):
                         "STARTUP_EMAIL_DISCARD_CONFIRM_FMT",
                         "Delete this e-mail file permanently?\n\n{file_name}",
                     )
-                    .format(file_name=file_name)
+                    .format(file_name=file_names)
                 )
             )
             confirm_buttons = BoxLayout(size_hint_y=None, height=44, spacing=8)
 
             def _confirm_discard(_btn=None):
                 confirm_popup.dismiss()
-                popup.dismiss()
-                self._delete_startup_report_source_file(file_path, payload=payload)
-                _open_next_review()
+                for item in items:
+                    self._delete_startup_report_source_file(
+                        item.get("file_path"), payload=item.get("payload")
+                    )
+                _remove_instance(instance)
 
             cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Cancel"))
             cancel_btn.bind(on_press=confirm_popup.dismiss)
@@ -7593,24 +7890,27 @@ class SubstationApp(App):
             confirm_popup.content = confirm_layout
             confirm_popup.open()
 
-        def _review_current(_instance=None):
+        def _review_instance(instance, _instance=None):
+            payload = instance.get("payload")
             if not payload:
                 return
+            items = instance.get("items") or []
+            entry_label = instance.get("entry_label")
 
             def _after_save():
                 delete_error = None
-                deleted = False
                 try:
-                    deleted = self._delete_startup_report_source_file(
-                        file_path, payload=payload
-                    )
+                    for item in items:
+                        self._delete_startup_report_source_file(
+                            item.get("file_path"), payload=item.get("payload")
+                        )
                 except Exception as exc:
                     delete_error = str(exc)
                     logging.exception(
-                        "Failed to finalize startup report import for %s", file_path
+                        "Failed to finalize grouped startup report import"
                     )
 
-                if not deleted:
+                if delete_error:
                     show_message_popup(
                         S["TITLES"].get("ERROR", "Σφάλμα"),
                         S["MESSAGES"]
@@ -7620,15 +7920,21 @@ class SubstationApp(App):
                         )
                         .format(
                             entry_label=entry_label,
-                            file_name=file_name,
+                            file_name=", ".join(
+                                os.path.basename(item.get("file_path") or "-")
+                                for item in items
+                            ),
                             error=delete_error
                             or "Το αρχείο παραμένει διαθέσιμο για επανέλεγχο.",
                         ),
                     )
-                _open_next_review()
+                Clock.schedule_once(_reopen_remaining, 0)
+
+            def _after_cancel():
+                Clock.schedule_once(_reopen_remaining, 0)
 
             popup.dismiss()
-            if review_kind == "isolation":
+            if instance["review_kind"] == "isolation":
                 self._open_isolation_from_email_payload(
                     payload,
                     status="Requested",
@@ -7638,19 +7944,84 @@ class SubstationApp(App):
                 self._open_maintenance_from_email_payload(
                     payload,
                     after_save_callback=_after_save,
+                    after_cancel_callback=_after_cancel,
                 )
 
-        review_btn.disabled = payload is None
-        review_btn.bind(on_press=_review_current)
-        skip_btn.bind(on_press=_skip_current)
-        discard_btn.bind(on_press=_discard_current)
-        later_btn.bind(on_press=_close_remaining)
+        def _defer_instance(instance, _instance=None):
+            deferred_paths = set(
+                getattr(self, "_startup_review_deferred_paths", set()) or set()
+            )
+            for item in instance.get("items") or []:
+                deferred_paths.add(
+                    os.path.abspath(str(item.get("file_path") or "").strip())
+                )
+            self._startup_review_deferred_paths = deferred_paths
+            _remove_instance(instance)
 
-        button_row.add_widget(review_btn)
-        button_row.add_widget(skip_btn)
-        button_row.add_widget(discard_btn)
-        button_row.add_widget(later_btn)
-        layout.add_widget(button_row)
+        for instance in visible_instances:
+            card = BoxLayout(
+                orientation="vertical", spacing=6, size_hint_y=None, padding=8
+            )
+            card.bind(minimum_height=card.setter("height"))
+            title_label = Label(
+                text=_instance_title(instance),
+                size_hint_y=None,
+                bold=True,
+                halign="left",
+                valign="middle",
+            )
+            title_label.bind(
+                width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+                texture_size=lambda inst, val: setattr(
+                    inst, "height", max(24, val[1] + 4)
+                ),
+            )
+            card.add_widget(title_label)
+
+            details_label = Label(
+                text=_instance_details(instance),
+                size_hint_y=None,
+                halign="left",
+                valign="top",
+            )
+            details_label.bind(
+                width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+                texture_size=lambda inst, val: setattr(
+                    inst, "height", max(52, val[1] + 6)
+                ),
+            )
+            card.add_widget(details_label)
+
+            actions = BoxLayout(size_hint_y=None, height=42, spacing=8)
+            view_btn = Button(text=S["BUTTONS"].get("VIEW", "Review"))
+            delete_btn = Button(text=S["BUTTONS"].get("DELETE", "Delete"))
+            later_btn = Button(text=S["MESSAGES"].get("LATER_BUTTON", "Later"))
+            view_btn.disabled = instance.get("payload") is None
+            view_btn.bind(
+                on_press=lambda _btn, current=instance: _review_instance(current)
+            )
+            delete_btn.bind(
+                on_press=lambda _btn, current=instance: _discard_instance(current)
+            )
+            later_btn.bind(
+                on_press=lambda _btn, current=instance: _defer_instance(current)
+            )
+            actions.add_widget(view_btn)
+            actions.add_widget(delete_btn)
+            actions.add_widget(later_btn)
+            card.add_widget(actions)
+
+            body_grid.add_widget(card)
+            instance_rows.append(card)
+
+        close_btn_row = BoxLayout(size_hint_y=None, height=46, spacing=8)
+        close_btn_row.add_widget(Widget())
+        close_btn = Button(
+            text=S["MESSAGES"].get("LATER_BUTTON", "Later"), size_hint_x=0.32
+        )
+        close_btn.bind(on_press=popup.dismiss)
+        close_btn_row.add_widget(close_btn)
+        layout.add_widget(close_btn_row)
 
         popup.content = layout
         popup.open()
@@ -13722,6 +14093,7 @@ class SubstationApp(App):
         parent_popup=None,
         maintenance_id=None,
         after_save_callback=None,
+        after_cancel_callback=None,
         prefill_data=None,
     ):
         """Show maintenance recording dialog
@@ -13747,6 +14119,72 @@ class SubstationApp(App):
             )
             return
 
+        def _merge_prefill_text(
+            existing_text,
+            incoming_text,
+            incoming_label="",
+            incoming_preformatted=False,
+        ):
+            existing = str(existing_text or "").strip()
+            incoming = str(incoming_text or "").strip()
+            if not incoming:
+                return existing
+            formatted_incoming = incoming
+            if incoming_label and not incoming_preformatted:
+                formatted_incoming = f"{incoming_label}\n{incoming}"
+            if not existing:
+                return formatted_incoming
+            if formatted_incoming in existing or incoming in existing:
+                return existing
+            return f"{existing}\n\n{formatted_incoming}"
+
+        def _merge_email_import_metadata(
+            existing_metadata, incoming_metadata, fallback_date
+        ):
+            existing = existing_metadata if isinstance(existing_metadata, dict) else {}
+            incoming = incoming_metadata if isinstance(incoming_metadata, dict) else {}
+
+            def _merge_text_list(*values):
+                merged = []
+                seen = set()
+                for value in values:
+                    items = value if isinstance(value, (list, tuple, set)) else [value]
+                    for item in items:
+                        text = str(item or "").strip()
+                        if not text:
+                            continue
+                        key = text.lower()
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        merged.append(text)
+                return merged
+
+            merged = {
+                "message_ids": _merge_text_list(
+                    existing.get("message_ids"), incoming.get("message_ids")
+                ),
+                "reference_ids": _merge_text_list(
+                    existing.get("reference_ids"), incoming.get("reference_ids")
+                ),
+                "received_at_values": _merge_text_list(
+                    existing.get("received_at_values"),
+                    incoming.get("received_at_values"),
+                ),
+                "received_dates": _merge_text_list(
+                    existing.get("received_dates"),
+                    incoming.get("received_dates"),
+                    fallback_date,
+                ),
+                "subject_roots": _merge_text_list(
+                    existing.get("subject_roots"), incoming.get("subject_roots")
+                ),
+                "thread_topics": _merge_text_list(
+                    existing.get("thread_topics"), incoming.get("thread_topics")
+                ),
+            }
+            return {key: value for key, value in merged.items() if value}
+
         maintenance_record = None
         maintenance_people = []
         existing_elements_data = {}
@@ -13762,6 +14200,11 @@ class SubstationApp(App):
         maintenance_extra_payload = {}
         workflow_state = normalize_workflow_state(prefill_data.get("workflow_state"))
         existing_primary_media_folder = None
+        incoming_email_import_metadata = (
+            prefill_data.get("email_import_metadata")
+            if isinstance(prefill_data, dict)
+            else None
+        )
 
         if maintenance_id:
             c.execute(
@@ -14796,6 +15239,12 @@ class SubstationApp(App):
         # Override with prefill data if provided
         if not maintenance_id and prefill_data.get("responsible_id"):
             responsible_person_id = prefill_data.get("responsible_id")
+        elif (
+            maintenance_id
+            and not responsible_person_id
+            and prefill_data.get("responsible_id")
+        ):
+            responsible_person_id = prefill_data.get("responsible_id")
 
         # Override with existing maintenance responsible if editing
         if responsible_person_id:
@@ -14842,6 +15291,8 @@ class SubstationApp(App):
         crew_checks = {}
         if not maintenance_id and prefill_data.get("crew_ids"):
             crew_ids = set(prefill_data.get("crew_ids"))
+        elif maintenance_id and prefill_data.get("crew_ids"):
+            crew_ids = set(crew_ids) | set(prefill_data.get("crew_ids") or [])
         # Ensure responsible person appears in crew list (preselected & not editable)
         responsible_pid = None
         try:
@@ -15013,22 +15464,41 @@ class SubstationApp(App):
         )
         if not maintenance_id and prefill_data.get("overall_comments"):
             comments_default = prefill_data.get("overall_comments")
+        elif maintenance_id and prefill_data.get("overall_comments"):
+            comments_default = _merge_prefill_text(
+                comments_default,
+                prefill_data.get("overall_comments"),
+                incoming_label=prefill_data.get("_email_comment_label") or "",
+                incoming_preformatted=bool(
+                    prefill_data.get("_email_comment_preformatted")
+                ),
+            )
+        comments_scroll = ScrollView(
+            do_scroll_x=False,
+            do_scroll_y=True,
+            size_hint_y=None,
+            height=180,
+            bar_width=10,
+        )
         overall_comments = TextInput(
             hint_text="Γενικά σχόλια για την συντήρηση...",
             text=comments_default,
             size_hint_y=None,
-            height=60,
+            height=180,
             multiline=True,
         )
 
         def _resize_comments(_instance=None, _value=None):
-            lines = overall_comments.text.count("\n") + 1
-            overall_comments.height = max(60, min(320, 24 * lines + 20))
+            overall_comments.height = _calculate_expanding_text_input_height(
+                overall_comments.text,
+                comments_scroll.height,
+            )
 
         overall_comments.bind(text=_resize_comments)
         _resize_comments()
-        content_layout.add_widget(overall_comments)
-        _register_wizard_widget(2, overall_comments)
+        comments_scroll.add_widget(overall_comments)
+        content_layout.add_widget(comments_scroll)
+        _register_wizard_widget(2, comments_scroll)
 
         # Completed / Incomplete marker (toggle button) + tasks left input
         # Default: incomplete (Δεν ολοκηρώθηκε) — user can toggle to completed
@@ -15317,14 +15787,9 @@ class SubstationApp(App):
 
             if staged_attachment_paths:
                 preview_names = [
-                    os.path.basename(path) or path
-                    for path in staged_attachment_paths[:5]
+                    os.path.basename(path) or path for path in staged_attachment_paths
                 ]
-                attachment_files_label.text = "\n".join(preview_names)
-                if len(staged_attachment_paths) > 5:
-                    attachment_files_label.text += (
-                        f"\n... και {len(staged_attachment_paths) - 5} ακόμη"
-                    )
+                attachment_files_label.text = ", ".join(preview_names)
             else:
                 attachment_files_label.text = "Δεν έχουν επιλεγεί αρχεία ακόμη."
 
@@ -17354,6 +17819,20 @@ class SubstationApp(App):
                             "label"
                         ].text = f"[color=ff3333]{widgets['display']}[/color]"
 
+            if maintenance_id and prefill_data.get("element_ids"):
+                prefill_elements = set(prefill_data.get("element_ids") or [])
+                incomplete_elements = set(prefill_data.get("incomplete_elements") or [])
+                for elem_id in prefill_elements:
+                    if elem_id not in element_widgets:
+                        continue
+                    widgets = element_widgets[elem_id]
+                    widgets["checkbox"].active = True
+                    widgets["ensure_details"]()
+                    if elem_id in incomplete_elements:
+                        widgets[
+                            "label"
+                        ].text = f"[color=ff3333]{widgets['display']}[/color]"
+
             if maintenance_id and existing_elements_data:
                 for elem_id, data in existing_elements_data.items():
                     if elem_id not in element_widgets:
@@ -17892,6 +18371,13 @@ class SubstationApp(App):
                     "daily_progress": "",
                 }
             )
+            merged_email_import_metadata = _merge_email_import_metadata(
+                maintenance_extra_payload.get("email_import"),
+                incoming_email_import_metadata,
+                maintenance_date[:10] if maintenance_date else "",
+            )
+            if merged_email_import_metadata:
+                maintenance_extra_payload["email_import"] = merged_email_import_metadata
             maintenance_data_json = self._dump_maintenance_workflow_state(
                 maintenance_extra_payload,
                 workflow_state_to_save,
@@ -18403,7 +18889,16 @@ class SubstationApp(App):
         buttons_layout.add_widget(save_btn)
 
         cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"), size_hint_x=0.5)
-        cancel_btn.bind(on_press=popup.dismiss)
+
+        def _cancel_maintenance_editor(_instance=None):
+            popup.dismiss()
+            if callable(after_cancel_callback):
+                try:
+                    after_cancel_callback()
+                except Exception:
+                    logging.exception("Failed to run maintenance cancel callback")
+
+        cancel_btn.bind(on_press=_cancel_maintenance_editor)
         buttons_layout.add_widget(cancel_btn)
 
         try:

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 from database import init_db
@@ -236,6 +237,216 @@ def test_open_maintenance_from_email_payload_uses_shared_matching_helpers():
     assert prefill["responsible_id"] == 5
     assert prefill["crew_ids"] == {6}
     assert prefill["element_ids"] == {10}
+
+
+def test_open_maintenance_from_email_payload_reuses_unfinished_workflow_without_pending_row():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "workflow": {"current_stage": "elements", "daily_progress": ""},
+                    "email_import": {
+                        "received_dates": ["2026-05-06"],
+                        "subject_roots": ["συντήρηση μσ1 υ_σ νάουσας"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    payload = {
+        "subject": "Re: Συντήρηση ΜΣ1 Υ/Σ Νάουσας 07.05.2026",
+        "body": "συνέχεια εργασιών",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    assert captured["kwargs"]["maintenance_id"] == 42
+    assert captured["kwargs"]["prefill_data"]["_wizard_stage"] == "elements"
+
+
+def test_open_maintenance_from_email_payload_reuses_recent_unknown_state_without_pending_row():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, overall_comments, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (42, 1, "Existing maintenance", "2026-05-06 11:27", "existing text", None),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    payload = {
+        "subject": "Re: Συντήρηση ΜΣ1 Υ/Σ Νάουσας 07.05.2026",
+        "body": "συνέχεια εργασιών",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    assert captured["kwargs"]["maintenance_id"] == 42
+    assert captured["kwargs"]["prefill_data"]["_wizard_stage"] == "elements"
+
+
+def test_open_maintenance_from_email_payload_reuses_open_maintenance_within_ten_days():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, overall_comments, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (42, 1, "Existing maintenance", "2026-04-28 11:27", "existing text", None),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    payload = {
+        "subject": "Re: Συντήρηση ΜΣ1 Υ/Σ Νάουσας 07.05.2026",
+        "body": "συνέχεια εργασιών",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    assert captured["kwargs"]["maintenance_id"] == 42
+    assert captured["kwargs"]["prefill_data"]["_wizard_stage"] == "elements"
 
 
 def test_find_matching_isolation_request_id_prefers_exact_overlap():

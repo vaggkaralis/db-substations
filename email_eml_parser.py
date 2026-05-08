@@ -4,6 +4,7 @@ Parse .eml files and return normalized email fields.
 
 import re
 import tempfile
+from html.parser import HTMLParser
 from pathlib import Path
 from email import policy
 from email.parser import BytesParser
@@ -50,7 +51,184 @@ _MEDIA_EXTENSIONS = {
     ".mkv",
     ".wmv",
     ".m4v",
+    ".7z",
+    ".zip",
+    ".rar",
 }
+
+_ATTACHMENT_CONTENT_TYPES = {
+    "application/x-7z-compressed",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/x-rar-compressed",
+    "application/vnd.rar",
+}
+
+
+class _HTMLTextExtractor(HTMLParser):
+    _BLOCK_TAGS = {
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "br",
+        "div",
+        "footer",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "hr",
+        "li",
+        "p",
+        "section",
+        "table",
+        "td",
+        "th",
+        "tr",
+        "ul",
+        "ol",
+    }
+    _SKIP_TAGS = {"head", "script", "style", "title"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._parts = []
+        self._skip_depth = 0
+
+    def _append_newline(self):
+        if not self._parts:
+            return
+        if self._parts[-1] != "\n":
+            self._parts.append("\n")
+
+    def handle_starttag(self, tag, attrs):
+        tag = (tag or "").lower()
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if tag in self._BLOCK_TAGS:
+            self._append_newline()
+
+    def handle_endtag(self, tag):
+        tag = (tag or "").lower()
+        if tag in self._SKIP_TAGS:
+            if self._skip_depth:
+                self._skip_depth -= 1
+            return
+        if self._skip_depth:
+            return
+        if tag in self._BLOCK_TAGS:
+            self._append_newline()
+
+    def handle_data(self, data):
+        if self._skip_depth or not data:
+            return
+        self._parts.append(data)
+
+    def handle_startendtag(self, tag, attrs):
+        tag = (tag or "").lower()
+        if self._skip_depth:
+            return
+        if tag in self._BLOCK_TAGS:
+            self._append_newline()
+
+    def get_text(self) -> str:
+        text = "".join(self._parts)
+        text = text.replace("\xa0", " ")
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+
+def _decoded_text_score(value: str) -> tuple[int, int, int]:
+    replacement_count = value.count("\ufffd")
+    greek_count = sum(
+        1
+        for ch in value
+        if ("\u0370" <= ch <= "\u03ff") or ("\u1f00" <= ch <= "\u1fff")
+    )
+    control_count = sum(
+        1 for ch in value if ord(ch) < 32 and ch not in {"\n", "\r", "\t"}
+    )
+    return (-replacement_count, greek_count, -control_count)
+
+
+def _decode_part_content(body_part):
+    raw_payload = None
+    try:
+        raw_payload = body_part.get_payload(decode=True)
+    except Exception:
+        raw_payload = None
+
+    candidates = []
+
+    try:
+        default_content = body_part.get_content()
+    except Exception:
+        default_content = None
+
+    if isinstance(default_content, str) and default_content:
+        candidates.append(default_content)
+
+    if raw_payload:
+        encodings = []
+        declared_charset = (body_part.get_content_charset() or "").strip()
+        for encoding in (
+            declared_charset,
+            "utf-8",
+            "cp1253",
+            "iso-8859-7",
+            "windows-1252",
+            "latin-1",
+        ):
+            if encoding and encoding.lower() not in {enc.lower() for enc in encodings}:
+                encodings.append(encoding)
+
+        for encoding in encodings:
+            try:
+                candidates.append(raw_payload.decode(encoding, errors="replace"))
+            except Exception:
+                continue
+
+    if not candidates:
+        return ""
+
+    return max(candidates, key=_decoded_text_score)
+
+
+def _html_to_text(content: str) -> str:
+    parser = _HTMLTextExtractor()
+    try:
+        parser.feed(content or "")
+        parser.close()
+        return parser.get_text()
+    except Exception:
+        # Fall back to the old regex-based stripping if the HTML is malformed.
+        fallback = re.sub(r"<\s*br\s*/?\s*>", "\n", content or "", flags=re.IGNORECASE)
+        fallback = re.sub(
+            r"<\s*/\s*(p|div|li|tr|h[1-6])\s*>", "\n", fallback, flags=re.IGNORECASE
+        )
+        fallback = re.sub(r"<[^>]+>", " ", fallback)
+        fallback = re.sub(r"[ \t]+", " ", fallback)
+        fallback = re.sub(r"\n{3,}", "\n\n", fallback)
+        return fallback.strip()
+
+
+def _looks_like_html(content: str) -> bool:
+    text = (content or "").lstrip()
+    if not text:
+        return False
+    if text.startswith("<!DOCTYPE") or text.startswith("<html"):
+        return True
+    return bool(
+        re.search(r"<\s*(html|head|body|div|p|span|table|br)\b", text, re.IGNORECASE)
+    )
 
 
 def _trim_first_message(text: str) -> str:
@@ -195,22 +373,10 @@ def _extract_body(message):
     if body_part is None:
         return ""
 
-    try:
-        content = body_part.get_content()
-    except Exception:
-        try:
-            content = body_part.get_payload(decode=True).decode(errors="ignore")
-        except Exception:
-            content = ""
+    content = _decode_part_content(body_part)
 
-    if body_part.get_content_type() == "text/html":
-        content = re.sub(r"<\s*br\s*/?\s*>", "\n", content, flags=re.IGNORECASE)
-        content = re.sub(
-            r"<\s*/\s*(p|div|li|tr|h[1-6])\s*>", "\n", content, flags=re.IGNORECASE
-        )
-        content = re.sub(r"<[^>]+>", " ", content)
-        content = re.sub(r"[ \t]+", " ", content)
-        content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    if body_part.get_content_type() == "text/html" or _looks_like_html(content):
+        content = _html_to_text(content)
 
     # Trim BEFORE cleaning to preserve line breaks needed for pattern matching.
     return sanitize_email_body_for_import(content or "")
@@ -241,7 +407,11 @@ def _extract_media_attachment_paths(message):
         ext = Path(safe_name).suffix.lower()
         ctype = (part.get_content_type() or "").lower()
         is_media_type = ctype.startswith("image/") or ctype.startswith("video/")
-        if ext not in _MEDIA_EXTENSIONS and not is_media_type:
+        if (
+            ext not in _MEDIA_EXTENSIONS
+            and not is_media_type
+            and ctype not in _ATTACHMENT_CONTENT_TYPES
+        ):
             counter += 1
             continue
 
@@ -294,6 +464,10 @@ def parse_eml_file(path: str):
         "from": sender_raw,
         "date": date_header or "",
         "to": (msg.get("to") or "").strip(),
+        "message_id": (msg.get("message-id") or "").strip(),
+        "in_reply_to": (msg.get("in-reply-to") or "").strip(),
+        "references": " ".join(msg.get_all("references", []) or []).strip(),
+        "thread_topic": (msg.get("thread-topic") or "").strip(),
     }
 
     return {

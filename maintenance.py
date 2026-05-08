@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import threading
 from datetime import datetime
 
@@ -677,12 +679,350 @@ def _get_previous_maintenance_defaults(app, substation_id: int, date_time_value:
     }
 
 
+def _extract_calendar_date(date_time_value: str) -> str:
+    text = str(date_time_value or "").strip()
+    if not text:
+        return ""
+    for fmt in (
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y",
+    ):
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            continue
+    return text[:10] if len(text) >= 10 else ""
+
+
+def _format_email_comment_date_label(
+    received_at: str, fallback_date_time: str = ""
+) -> str:
+    for candidate in (received_at, fallback_date_time):
+        text = str(candidate or "").strip()
+        if not text:
+            continue
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return f"{dt.day}/{dt.month}/{dt.year}"
+        except Exception:
+            pass
+        date_only = _extract_calendar_date(text)
+        if date_only:
+            try:
+                dt = datetime.strptime(date_only, "%Y-%m-%d")
+                return f"{dt.day}/{dt.month}/{dt.year}"
+            except Exception:
+                continue
+    return ""
+
+
+def _date_diff_days(start_date: str, end_date: str):
+    if not start_date or not end_date:
+        return None
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    except Exception:
+        return None
+    return (end_dt.date() - start_dt.date()).days
+
+
+def _normalize_email_reference_tokens(value) -> set[str]:
+    tokens = set()
+    values = value if isinstance(value, (list, tuple, set)) else [value]
+    for raw_value in values:
+        text = str(raw_value or "").strip()
+        if not text:
+            continue
+        angle_tokens = re.findall(r"<[^>]+>", text)
+        if angle_tokens:
+            tokens.update(
+                token.strip().lower() for token in angle_tokens if token.strip()
+            )
+            continue
+        for token in re.split(r"[\s,;]+", text):
+            normalized = token.strip().strip("<>").lower()
+            if normalized:
+                tokens.add(f"<{normalized}>")
+    return tokens
+
+
+def _normalize_email_thread_text(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"^\s*(?:re|fw|fwd)\s*:\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b", " ", text)
+    text = re.sub(r"\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b", " ", text)
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _extract_email_import_metadata(payload):
+    payload = payload or {}
+    headers = payload.get("headers") or {}
+    received_at = str(payload.get("received_at") or "").strip()
+    received_dates = []
+    calendar_date = _extract_calendar_date(received_at)
+    if calendar_date:
+        received_dates.append(calendar_date)
+    subject_root = _normalize_email_thread_text(payload.get("subject") or "")
+    thread_topic = _normalize_email_thread_text(headers.get("thread_topic") or "")
+    metadata = {
+        "message_ids": sorted(
+            _normalize_email_reference_tokens(
+                [headers.get("message_id"), payload.get("message_id")]
+            )
+        ),
+        "reference_ids": sorted(
+            _normalize_email_reference_tokens(
+                [
+                    headers.get("references"),
+                    headers.get("in_reply_to"),
+                    payload.get("references"),
+                    payload.get("in_reply_to"),
+                ]
+            )
+        ),
+        "received_at_values": [received_at] if received_at else [],
+        "received_dates": received_dates,
+        "subject_roots": [subject_root] if subject_root else [],
+        "thread_topics": [thread_topic] if thread_topic else [],
+    }
+    provided_metadata = payload.get("email_import_metadata") or {}
+    if isinstance(provided_metadata, dict):
+        metadata["message_ids"] = sorted(
+            _normalize_email_reference_tokens(
+                metadata.get("message_ids")
+                + list(provided_metadata.get("message_ids") or [])
+            )
+        )
+        metadata["reference_ids"] = sorted(
+            _normalize_email_reference_tokens(
+                metadata.get("reference_ids")
+                + list(provided_metadata.get("reference_ids") or [])
+            )
+        )
+        metadata["received_at_values"] = sorted(
+            {
+                str(value or "").strip()
+                for value in (metadata.get("received_at_values") or [])
+                + list(provided_metadata.get("received_at_values") or [])
+                if str(value or "").strip()
+            }
+        )
+        metadata["received_dates"] = sorted(
+            {
+                str(value or "").strip()
+                for value in (metadata.get("received_dates") or [])
+                + list(provided_metadata.get("received_dates") or [])
+                if str(value or "").strip()
+            }
+        )
+        metadata["subject_roots"] = sorted(
+            {
+                _normalize_email_thread_text(value)
+                for value in (metadata.get("subject_roots") or [])
+                + list(provided_metadata.get("subject_roots") or [])
+                if _normalize_email_thread_text(value)
+            }
+        )
+        metadata["thread_topics"] = sorted(
+            {
+                _normalize_email_thread_text(value)
+                for value in (metadata.get("thread_topics") or [])
+                + list(provided_metadata.get("thread_topics") or [])
+                if _normalize_email_thread_text(value)
+            }
+        )
+    return metadata
+
+
+def _normalize_stored_email_import_metadata(metadata, fallback_date_time=""):
+    metadata = metadata if isinstance(metadata, dict) else {}
+    normalized = {
+        "message_ids": sorted(
+            _normalize_email_reference_tokens(metadata.get("message_ids") or [])
+        ),
+        "reference_ids": sorted(
+            _normalize_email_reference_tokens(metadata.get("reference_ids") or [])
+        ),
+        "received_at_values": sorted(
+            {
+                str(value or "").strip()
+                for value in (metadata.get("received_at_values") or [])
+                if str(value or "").strip()
+            }
+        ),
+        "received_dates": sorted(
+            {
+                str(value or "").strip()
+                for value in (metadata.get("received_dates") or [])
+                if str(value or "").strip()
+            }
+        ),
+        "subject_roots": sorted(
+            {
+                _normalize_email_thread_text(value)
+                for value in (metadata.get("subject_roots") or [])
+                if _normalize_email_thread_text(value)
+            }
+        ),
+        "thread_topics": sorted(
+            {
+                _normalize_email_thread_text(value)
+                for value in (metadata.get("thread_topics") or [])
+                if _normalize_email_thread_text(value)
+            }
+        ),
+    }
+    fallback_date = _extract_calendar_date(fallback_date_time)
+    if fallback_date and fallback_date not in normalized["received_dates"]:
+        normalized["received_dates"].append(fallback_date)
+    return normalized
+
+
+def _load_stored_email_import_metadata(raw_data_json, fallback_date_time=""):
+    if not raw_data_json:
+        return _normalize_stored_email_import_metadata({}, fallback_date_time)
+    try:
+        payload = json.loads(raw_data_json)
+    except Exception:
+        payload = {}
+    metadata = payload.get("email_import") if isinstance(payload, dict) else {}
+    return _normalize_stored_email_import_metadata(metadata, fallback_date_time)
+
+
+def _get_maintenance_completion_state(raw_data_json, has_pending_tasks_row: bool):
+    if has_pending_tasks_row:
+        return False
+    if not raw_data_json:
+        return None
+    try:
+        payload = json.loads(raw_data_json)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    workflow = (
+        payload.get("workflow") if isinstance(payload.get("workflow"), dict) else {}
+    )
+    stage_key = str(workflow.get("current_stage") or "").strip().lower()
+    if not stage_key:
+        return None
+    return stage_key == "completed"
+
+
+def _score_open_maintenance_match(
+    incoming_metadata,
+    candidate_metadata,
+    incoming_date,
+    candidate_date,
+):
+    incoming_message_ids = set(incoming_metadata.get("message_ids") or [])
+    incoming_reference_ids = set(incoming_metadata.get("reference_ids") or [])
+    candidate_message_ids = set(candidate_metadata.get("message_ids") or [])
+    candidate_reference_ids = set(candidate_metadata.get("reference_ids") or [])
+    incoming_subjects = set(incoming_metadata.get("subject_roots") or [])
+    candidate_subjects = set(candidate_metadata.get("subject_roots") or [])
+    incoming_topics = set(incoming_metadata.get("thread_topics") or [])
+    candidate_topics = set(candidate_metadata.get("thread_topics") or [])
+
+    same_thread = bool(
+        (incoming_message_ids and incoming_message_ids & candidate_reference_ids)
+        or (incoming_reference_ids and incoming_reference_ids & candidate_message_ids)
+        or (incoming_reference_ids and incoming_reference_ids & candidate_reference_ids)
+        or (incoming_subjects and incoming_subjects & candidate_subjects)
+        or (incoming_topics and incoming_topics & candidate_topics)
+        or (incoming_subjects and incoming_subjects & candidate_topics)
+        or (incoming_topics and incoming_topics & candidate_subjects)
+    )
+
+    candidate_anchor_date = max(
+        candidate_metadata.get("received_dates") or [candidate_date or ""]
+    )
+    effective_gap = _date_diff_days(
+        candidate_anchor_date or candidate_date, incoming_date
+    )
+    within_ongoing_window = effective_gap is not None and 0 <= effective_gap <= 10
+
+    if same_thread:
+        return 100 - min(max(effective_gap or 0, 0), 20)
+    if within_ongoing_window:
+        return 50 - max(effective_gap or 0, 0)
+    return None
+
+
+def _find_matching_open_maintenance_id(
+    app, substation_id: int, date_time_value: str, payload=None
+):
+    incoming_date = _extract_calendar_date(date_time_value)
+    if not substation_id or not incoming_date:
+        return None
+
+    incoming_metadata = _extract_email_import_metadata(payload or {})
+
+    c = app.conn.cursor()
+    c.execute(
+        """
+        SELECT m.id, m.date_time, m.data_json, t.maintenance_id IS NOT NULL
+        FROM maintenance m
+        LEFT JOIN maintenance_pending_tasks t ON t.maintenance_id = m.id
+        WHERE m.substation_id = ?
+        ORDER BY m.date_time DESC, m.id DESC
+        """,
+        (substation_id,),
+    )
+
+    best_open_id = None
+    best_open_score = None
+    best_unknown_id = None
+    best_unknown_score = None
+    for (
+        maintenance_id,
+        maintenance_date_time,
+        raw_data_json,
+        has_pending_tasks_row,
+    ) in c.fetchall() or []:
+        is_completed = _get_maintenance_completion_state(
+            raw_data_json, bool(has_pending_tasks_row)
+        )
+        if is_completed is True:
+            continue
+        candidate_date = _extract_calendar_date(maintenance_date_time)
+        candidate_metadata = _load_stored_email_import_metadata(
+            raw_data_json, maintenance_date_time
+        )
+        score = _score_open_maintenance_match(
+            incoming_metadata,
+            candidate_metadata,
+            incoming_date,
+            candidate_date,
+        )
+        if score is None:
+            continue
+        if is_completed is False:
+            if best_open_score is None or score > best_open_score:
+                best_open_score = score
+                best_open_id = maintenance_id
+        else:
+            fallback_score = score - 5
+            if best_unknown_score is None or fallback_score > best_unknown_score:
+                best_unknown_score = fallback_score
+                best_unknown_id = maintenance_id
+
+    return best_open_id or best_unknown_id
+
+
 def open_maintenance_from_email_payload(
     app,
     ui,
     payload,
     forced_substation=None,
     after_save_callback=None,
+    after_cancel_callback=None,
 ):
     # this mirrors the logic previously on SubstationApp but keeps UI/API via app
     subject = payload.get("subject", "")
@@ -840,6 +1180,11 @@ def open_maintenance_from_email_payload(
         "_diag_detected_crew_ids": sorted(crew_ids),
         "_diag_sender_name": sender_name or "",
         "_diag_subject": subject or "",
+        "_email_comment_label": _format_email_comment_date_label(
+            received_at,
+            date_time_value,
+        ),
+        "_email_comment_preformatted": bool(payload.get("_email_comment_preformatted")),
     }
 
     prev = _get_previous_maintenance_defaults(app, substation_id, date_time_value)
@@ -857,6 +1202,25 @@ def open_maintenance_from_email_payload(
         if not prefill["overall_comments"] and prev.get("overall_comments"):
             prefill["overall_comments"] = prev.get("overall_comments")
 
+    email_import_metadata = _extract_email_import_metadata(payload)
+
+    open_maintenance_id = _find_matching_open_maintenance_id(
+        app, substation_id, date_time_value, payload=payload
+    )
+
+    if open_maintenance_id:
+        prefill["_wizard_stage"] = "elements"
+        prefill["email_import_metadata"] = email_import_metadata
+        app.show_maintenance_menu(
+            preselected_substation_name=substation_name,
+            parent_popup=None,
+            maintenance_id=open_maintenance_id,
+            after_save_callback=after_save_callback,
+            after_cancel_callback=after_cancel_callback,
+            prefill_data=prefill,
+        )
+        return
+
     if not prefill["responsible_id"]:
         app._prompt_responsible_selection(people, prefill)
         return
@@ -866,5 +1230,9 @@ def open_maintenance_from_email_payload(
         parent_popup=None,
         maintenance_id=None,
         after_save_callback=after_save_callback,
-        prefill_data=prefill,
+        after_cancel_callback=after_cancel_callback,
+        prefill_data={
+            **prefill,
+            "email_import_metadata": email_import_metadata,
+        },
     )

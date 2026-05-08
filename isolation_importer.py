@@ -288,9 +288,13 @@ def match_element_ids_from_text(
         normalized_text,
     ):
         transformer_numbers.add(digits)
+    exact_transformer_designators = {
+        designator
+        for designator in exact_designators
+        if re.fullmatch(r"(?:μσ|ms)\d+", designator)
+    }
 
-    matched_ids = []
-    matched_phrases = {}
+    matched_entries = []
     for row in element_rows or []:
         if len(row) < 3:
             continue
@@ -348,7 +352,47 @@ def match_element_ids_from_text(
                     supporting.append(phrase)
 
         if matched:
-            matched_ids.append(element_id)
-            matched_phrases[element_id] = list(dict.fromkeys(supporting))
+            matched_entries.append(
+                {
+                    "element_id": element_id,
+                    "supporting": list(dict.fromkeys(supporting)),
+                    "is_transformer": is_transformer,
+                    "digits": digits,
+                    "compact_name": compact_name,
+                    "normalized_name": normalized_name,
+                    "name": name,
+                }
+            )
+
+    selected_entries = []
+    best_transformer_entries = {}
+    for entry in matched_entries:
+        transformer_key = None
+        if entry["is_transformer"] and entry["digits"] in transformer_numbers:
+            transformer_key = entry["digits"]
+
+        if not transformer_key:
+            selected_entries.append(entry)
+            continue
+
+        score = (
+            1 if entry["compact_name"] in exact_transformer_designators else 0,
+            1 if entry["compact_name"] in exact_designators else 0,
+            1 if "(" not in entry["name"] else 0,
+            -len(entry["normalized_name"]),
+        )
+        current = best_transformer_entries.get(transformer_key)
+        if current is None or score > current[0]:
+            best_transformer_entries[transformer_key] = (score, entry)
+
+    selected_entries.extend(
+        entry for _score, entry in best_transformer_entries.values()
+    )
+    selected_entries.sort(key=lambda entry: entry["element_id"])
+
+    matched_ids = [entry["element_id"] for entry in selected_entries]
+    matched_phrases = {
+        entry["element_id"]: entry["supporting"] for entry in selected_entries
+    }
 
     return matched_ids, matched_phrases
