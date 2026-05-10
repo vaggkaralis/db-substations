@@ -71,6 +71,7 @@ Thumbs.db
 
 # Generated / temporary files
 reports/
+.pytest_current_run.txt
 *.bak
 *.py.broken.*
 *.log
