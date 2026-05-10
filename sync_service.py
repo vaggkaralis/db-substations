@@ -3,13 +3,21 @@ import os
 import shutil
 import sqlite3
 import tempfile
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from config_manager import get_app_setting
 from settings import DB_PATH
+
+
+BACKUP_TIER_ORDER = ("hot", "daily", "weekly", "monthly")
+BACKUP_TIER_KEEP_DEFAULTS = {
+    "hot": 3,
+    "daily": 2,
+    "weekly": 2,
+    "monthly": 2,
+}
 
 
 def _utc_now_iso() -> str:
@@ -266,14 +274,17 @@ def resolve_sync_root(db_path: str | None = None) -> str:
 
 
 def resolve_backup_root(db_path: str | None = None) -> str:
-    # Backup root is fixed relative to the application executable directory
-    # (where the binary or Python interpreter is located).
-    app_dir = (
-        os.path.dirname(sys.executable)
-        if getattr(sys, "executable", None)
-        else os.getcwd()
-    )
-    return os.path.join(os.path.abspath(app_dir), "backups_auto")
+    configured = str(get_app_setting("backup_root_path", "") or "").strip()
+    effective_db = resolve_db_path(db_path)
+    base_dir = os.path.dirname(effective_db) if effective_db else os.getcwd()
+
+    if configured:
+        expanded = os.path.expandvars(os.path.expanduser(configured))
+        if os.path.isabs(expanded):
+            return os.path.abspath(expanded)
+        return os.path.abspath(os.path.join(base_dir, expanded))
+
+    return os.path.join(os.path.abspath(base_dir), "backups_auto")
 
 
 def ensure_sync_tree(sync_root: str) -> dict[str, str]:
@@ -911,6 +922,7 @@ def ensure_backup_tree(backup_root: str) -> dict[str, str]:
     paths = {
         "hot": os.path.join(backup_root, "hot"),
         "daily": os.path.join(backup_root, "daily"),
+        "weekly": os.path.join(backup_root, "weekly"),
         "monthly": os.path.join(backup_root, "monthly"),
         "logs": os.path.join(backup_root, "logs"),
     }
@@ -967,16 +979,21 @@ def create_snapshot(
     return out_path
 
 
-def prune_hot_backups(backup_root: str, keep: int = 3) -> list[str]:
+def _list_backup_files(backup_root: str, tier: str) -> list[str]:
     tree = ensure_backup_tree(backup_root)
-    hot_dir = tree["hot"]
+    tier_dir = tree.get(tier, tree["hot"])
     files = [
-        os.path.join(hot_dir, name)
-        for name in os.listdir(hot_dir)
+        os.path.join(tier_dir, name)
+        for name in os.listdir(tier_dir)
         if name.lower().endswith(".sqlite")
-        and os.path.isfile(os.path.join(hot_dir, name))
+        and os.path.isfile(os.path.join(tier_dir, name))
     ]
     files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    return files
+
+
+def prune_backup_tier(backup_root: str, tier: str, keep: int) -> list[str]:
+    files = _list_backup_files(backup_root, tier)
 
     removed = []
     for old_path in files[keep:]:
@@ -986,6 +1003,131 @@ def prune_hot_backups(backup_root: str, keep: int = 3) -> list[str]:
         except Exception:
             pass
     return removed
+
+
+def prune_hot_backups(backup_root: str, keep: int = 3) -> list[str]:
+    return prune_backup_tier(backup_root, "hot", keep)
+
+
+def _backup_slot_slug(tier: str, now: datetime | None = None) -> str:
+    current = now or datetime.now()
+    if tier == "daily":
+        return current.strftime("%Y%m%d")
+    if tier == "weekly":
+        iso_year, iso_week, _ = current.isocalendar()
+        return f"{iso_year}W{iso_week:02d}"
+    if tier == "monthly":
+        return current.strftime("%Y%m")
+    return _timestamp_slug()
+
+
+def _periodic_snapshot_name(db_path: str, tier: str, slot_slug: str) -> str:
+    db_name = Path(db_path).stem
+    return f"{db_name}_{tier}_{slot_slug}.sqlite"
+
+
+def _copy_snapshot(src_path: str, dst_path: str) -> None:
+    fd, tmp = tempfile.mkstemp(suffix=".sqlite", prefix="backup_copy_")
+    os.close(fd)
+    try:
+        shutil.copy2(src_path, tmp)
+        _safe_move(tmp, dst_path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def refresh_periodic_backup(
+    db_path: str,
+    source_snapshot_path: str,
+    backup_root: str,
+    tier: str,
+    reason: str = "scheduled",
+    now: datetime | None = None,
+) -> str | None:
+    if tier not in {"daily", "weekly", "monthly"}:
+        return None
+
+    tree = ensure_backup_tree(backup_root)
+    slot_slug = _backup_slot_slug(tier, now=now)
+    out_path = os.path.join(
+        tree[tier], _periodic_snapshot_name(db_path, tier, slot_slug)
+    )
+    _copy_snapshot(source_snapshot_path, out_path)
+    _append_jsonl(
+        os.path.join(tree["logs"], "backup_manifest.jsonl"),
+        {
+            "timestamp_utc": _utc_now_iso(),
+            "db_path": os.path.abspath(db_path),
+            "snapshot_path": os.path.abspath(out_path),
+            "tier": tier,
+            "reason": reason,
+        },
+    )
+    return out_path
+
+
+def maintain_backup_set(
+    db_path: str,
+    backup_root: str,
+    reason: str = "scheduled",
+    hot_keep: int = 3,
+    now: datetime | None = None,
+) -> dict:
+    hot_snapshot = create_snapshot(db_path, backup_root, reason=reason, tier="hot")
+
+    created = {"hot": hot_snapshot}
+    removed = {
+        "hot": prune_hot_backups(backup_root, keep=max(1, int(hot_keep))),
+    }
+
+    for tier in ("daily", "weekly", "monthly"):
+        created[tier] = refresh_periodic_backup(
+            db_path,
+            hot_snapshot,
+            backup_root,
+            tier=tier,
+            reason=reason,
+            now=now,
+        )
+        removed[tier] = prune_backup_tier(
+            backup_root,
+            tier,
+            keep=BACKUP_TIER_KEEP_DEFAULTS[tier],
+        )
+
+    return {
+        "created": created,
+        "removed": removed,
+        "backup_root": backup_root,
+    }
+
+
+def list_backups(
+    backup_root: str,
+    tiers: tuple[str, ...] | None = None,
+    limit_per_tier: int | None = None,
+) -> list[dict]:
+    tiers = tiers or BACKUP_TIER_ORDER
+    backups = []
+    for tier in tiers:
+        tier_files = _list_backup_files(backup_root, tier)
+        if limit_per_tier is not None:
+            tier_files = tier_files[:limit_per_tier]
+        for path in tier_files:
+            try:
+                backups.append(
+                    {
+                        "tier": tier,
+                        "name": os.path.basename(path),
+                        "path": path,
+                        "size": os.path.getsize(path),
+                        "mtime": os.path.getmtime(path),
+                    }
+                )
+            except Exception:
+                pass
+    return backups
 
 
 def run_sync_cycle(
@@ -1024,13 +1166,13 @@ def run_sync_cycle(
 
     snapshot_path = None
     if create_backup_on_change and sync_summary["accepted"] > 0:
-        snapshot_path = create_snapshot(
+        backup_summary = maintain_backup_set(
             effective_db,
             effective_backup_root,
             reason=f"sync_accepted:{sync_summary['accepted']}",
-            tier="hot",
+            hot_keep=max(1, int(hot_keep)),
         )
-        prune_hot_backups(effective_backup_root, keep=max(1, int(hot_keep)))
+        snapshot_path = backup_summary["created"]["hot"]
 
     return {
         "sync": sync_summary,

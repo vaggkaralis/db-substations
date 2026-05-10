@@ -362,6 +362,7 @@ STRINGS_EL = {
         "MAINTENANCE_NOT_FOUND": "Η συντήρηση δεν βρέθηκε.",
         "MAINTENANCE_SAVED_CHANGELOG": "Η συντήρηση καταγράφηκε στο αρχείο αλλαγών.",
         "MAINTENANCE_TYPES": [
+            "Παραλαβή",
             "Επαναληπτική συντήρηση",
             "Βλάβη",
         ],
@@ -1062,6 +1063,7 @@ STRINGS_EN = {
         "DATE_PREFIX": "Date:",
         "MAINT_TYPE_LABEL": "Maintenance Type:",
         "MAINTENANCE_TYPES": [
+            "Receipt",
             "Recurring maintenance",
             "Fault",
         ],

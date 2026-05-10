@@ -303,6 +303,7 @@ def ensure_android_backup_tree(backup_root: str) -> dict[str, str]:
     paths = {
         "hot": os.path.join(backup_root, "hot"),
         "daily": os.path.join(backup_root, "daily"),
+        "weekly": os.path.join(backup_root, "weekly"),
         "monthly": os.path.join(backup_root, "monthly"),
         "logs": os.path.join(backup_root, "logs"),
     }

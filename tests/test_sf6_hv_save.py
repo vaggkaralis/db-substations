@@ -111,3 +111,37 @@ def test_sf6_report_data_groups_by_substation_and_keeps_ids(tmp_path):
     assert data["leakage_bands"]["max"] == 1.10
 
     conn.close()
+
+
+def test_sf6_report_excludes_methodology_only_rows(tmp_path):
+    db_path = tmp_path / "test_sf6_methodology_only.db"
+    conn = init_db(str(db_path))
+    cur = conn.cursor()
+
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "ΥΣ Α"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category, operating_status) VALUES (?, ?, ?, ?, ?, ?)",
+        (10, 1, "Διακόπτης ΜΤ", "Q1", "SF6", "Ενεργή"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time) VALUES (?, ?, ?, ?)",
+        (100, 1, "SF6 Method", "2026-04-20"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, sf6_leak_methodology) VALUES (?, ?, ?)",
+        (100, 10, "Πλήρωση"),
+    )
+    conn.commit()
+
+    class DummyApp:
+        def __init__(self, connection):
+            self.conn = connection
+
+        def _format_maintenance_date(self, value):
+            return value
+
+    data = _get_sf6_report_data(DummyApp(conn), "2026")
+
+    assert data["rows"] == []
+
+    conn.close()

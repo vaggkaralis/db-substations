@@ -2464,11 +2464,26 @@ class SubstationApp(App):
         self._cleanup_before_exit()
 
     def _cleanup_before_exit(self):
+        if getattr(self, "_cleanup_completed", False):
+            return
+        self._cleanup_completed = True
         try:
             # Export pending changes before closing
             self._export_pending_changes(show_popup=True)
         except Exception:
             pass
+        try:
+            from sync_service import maintain_backup_set, resolve_backup_root
+
+            if getattr(self, "db_path", None) and os.path.exists(self.db_path):
+                maintain_backup_set(
+                    self.db_path,
+                    resolve_backup_root(self.db_path),
+                    reason="shutdown",
+                    hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+                )
+        except Exception:
+            logging.exception("Failed to create shutdown backup")
         try:
             if getattr(self, "conn", None):
                 self.conn.close()
@@ -3816,6 +3831,7 @@ class SubstationApp(App):
         def _apply_settings(*_args):
             selected_label = lang_spinner.text
             selected_code = None
+            restart_required_message = None
             for code, label in language_options:
                 if label == selected_label:
                     selected_code = code
@@ -3889,8 +3905,10 @@ class SubstationApp(App):
                     return
                 if db_path_text != current_db_path:
                     if set_db_path(db_path_text):
-                        # Will restart at the end of this function
-                        pass
+                        restart_required_message = S["MESSAGES"].get(
+                            "DB_PATH_SAVED_RESTART",
+                            "Η διαδρομή της βάσης δεδομένων αποθηκεύτηκε. Η εφαρμογή θα επανεκκινήσει τώρα.",
+                        )
 
             sync_root_text = (sync_root_input.text or "").strip()
 
@@ -3950,20 +3968,20 @@ class SubstationApp(App):
 
             # Only show language restart message if language actually changed
             current_lang = get_current_language()
-            language_changed = False
             if selected_code != current_lang:
                 if set_current_language(selected_code):
-                    language_changed = True
+                    if restart_required_message is None:
+                        restart_required_message = S["MESSAGES"].get(
+                            "LANGUAGE_SAVED_RESTART",
+                            "Η γλώσσα αποθηκεύτηκε. Η εφαρμογή θα επανεκκινήσει τώρα.",
+                        )
 
             popup.dismiss()
 
-            if language_changed:
+            if restart_required_message:
                 show_message_popup(
                     S["TITLES"].get("INFO", "Πληροφορία"),
-                    S["MESSAGES"].get(
-                        "LANGUAGE_SAVED_RESTART",
-                        "Η γλώσσα αποθηκεύτηκε. Η εφαρμογή θα επανεκκινήσει τώρα.",
-                    ),
+                    restart_required_message,
                     callback=lambda: self._restart_app(),
                 )
             else:
@@ -4005,7 +4023,11 @@ class SubstationApp(App):
     def _show_backup_management(self):
         """Show backup management popup - list recent backups and restore options."""
         try:
-            from sync_service import resolve_backup_root
+            from sync_service import (
+                list_backups,
+                maintain_backup_set,
+                resolve_backup_root,
+            )
             from kivy.uix.popup import Popup
             from kivy.uix.boxlayout import BoxLayout
             from kivy.uix.gridlayout import GridLayout
@@ -4014,30 +4036,11 @@ class SubstationApp(App):
             from kivy.uix.scrollview import ScrollView
 
             backup_root = resolve_backup_root(self.db_path)
-            hot_backup_dir = os.path.join(backup_root, "hot")
-
-            # Get list of backup files
-            backups = []
-            if os.path.exists(hot_backup_dir):
-                for filename in sorted(os.listdir(hot_backup_dir), reverse=True):
-                    filepath = os.path.join(hot_backup_dir, filename)
-                    if os.path.isfile(filepath) and filename.endswith(".sqlite"):
-                        try:
-                            size = os.path.getsize(filepath)
-                            mtime = os.path.getmtime(filepath)
-                            backups.append(
-                                {
-                                    "name": filename,
-                                    "path": filepath,
-                                    "size": size,
-                                    "mtime": mtime,
-                                }
-                            )
-                        except Exception:
-                            pass
-
-            # Keep only last 5
-            backups = backups[:5]
+            backups = list_backups(
+                backup_root,
+                tiers=("hot", "daily", "weekly", "monthly"),
+                limit_per_tier=3,
+            )
 
             # Create popup
             popup = Popup(
@@ -4047,6 +4050,18 @@ class SubstationApp(App):
                 size_hint=(0.9, 0.8),
             )
             layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+            layout.add_widget(
+                Label(
+                    text=(
+                        "Αυτόματα τηρούνται: 3 hot, 2 daily, 2 weekly, 2 monthly.\n"
+                        "Τα hot δημιουργούνται σε sync με αλλαγές, σε χειροκίνητο backup και στο κλείσιμο της εφαρμογής."
+                    ),
+                    size_hint_y=None,
+                    height=55,
+                    halign="left",
+                    valign="middle",
+                )
+            )
 
             # Manual backup button
             manual_backup_btn = Button(
@@ -4058,14 +4073,12 @@ class SubstationApp(App):
 
             def _create_manual_backup(*_args):
                 try:
-                    import shutil
-                    from datetime import datetime
-
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"substations_{timestamp}_manual.sqlite"
-                    dest_path = os.path.join(hot_backup_dir, filename)
-                    os.makedirs(hot_backup_dir, exist_ok=True)
-                    shutil.copy(self.db_path, dest_path)
+                    maintain_backup_set(
+                        self.db_path,
+                        backup_root,
+                        reason="manual",
+                        hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+                    )
                     show_message_popup(
                         S["TITLES"].get("SUCCESS", "Επιτυχία"),
                         S["MESSAGES"].get(
@@ -4100,7 +4113,10 @@ class SubstationApp(App):
                     )
 
                     # Backup info
-                    info_text = f"{backup['name']}\n{dt.strftime('%d/%m/%Y %H:%M')} ({size_mb:.1f} MB)"
+                    info_text = (
+                        f"[{backup['tier']}] {backup['name']}\n"
+                        f"{dt.strftime('%d/%m/%Y %H:%M')} ({size_mb:.1f} MB)"
+                    )
                     backup_row.add_widget(
                         Label(
                             text=info_text,
@@ -4125,8 +4141,11 @@ class SubstationApp(App):
 
                                 safety_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                                 safety_backup = os.path.join(
-                                    hot_backup_dir,
+                                    os.path.join(backup_root, "hot"),
                                     f"substations_{safety_ts}_before_restore.sqlite",
+                                )
+                                os.makedirs(
+                                    os.path.dirname(safety_backup), exist_ok=True
                                 )
                                 shutil.copy(self.db_path, safety_backup)
                                 # Restore
@@ -16911,8 +16930,8 @@ class SubstationApp(App):
                                 )
                             )
                             sf6_methodology_input = Spinner(
-                                text="Πλήρωση",
-                                values=("Πλήρωση", "Αντικατάσταση"),
+                                text="",
+                                values=("", "Πλήρωση", "Αντικατάσταση"),
                                 size_hint_x=0.2,
                             )
                             sf6_leakage_layout.add_widget(sf6_methodology_input)
@@ -17535,8 +17554,8 @@ class SubstationApp(App):
                                     )
                                 )
                                 sf6_methodology_input = Spinner(
-                                    text="Πλήρωση",
-                                    values=("Πλήρωση", "Αντικατάσταση"),
+                                    text="",
+                                    values=("", "Πλήρωση", "Αντικατάσταση"),
                                     size_hint_x=0.2,
                                 )
                                 leak_layout = BoxLayout(
@@ -18123,16 +18142,9 @@ class SubstationApp(App):
                             )
                             has_existing_measurements = (
                                 has_existing_measurements
-                                or self._has_meaningful_measurement_value(
-                                    data.get("sf6_leak_methodology")
-                                )
-                            )
-                            sf6_dict = data.get("sf6") or {}
-                            has_existing_measurements = (
-                                has_existing_measurements
                                 or any(
                                     self._has_meaningful_measurement_value(v)
-                                    for v in sf6_dict.values()
+                                    for v in (data.get("sf6") or {}).values()
                                 )
                             )
                             vidar_dict = data.get("vidar") or {}

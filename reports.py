@@ -930,9 +930,10 @@ def _get_sf6_report_data(app, year: str):
     """Return SF6 report data dictionary for `year` using `app.conn`."""
     c = app.conn.cursor()
     year_prefix = f"{year}%"
+    sf6_filter = "me.sf6_leakage_kg IS NOT NULL"
 
     c.execute(
-        """
+        f"""
              SELECT m.id, m.date_time, s.id, s.name, e.id, e.name, e.element_type, me.sf6_leakage_kg,
                  me.sf6_leak_methodology, p.name
         FROM maintenance_elements me
@@ -942,10 +943,9 @@ def _get_sf6_report_data(app, year: str):
         LEFT JOIN people p ON m.responsible_id = p.id
         WHERE e.breaker_category = 'SF6'
           AND m.date_time LIKE ?
-          AND me.sf6_leakage_kg IS NOT NULL
-          AND me.sf6_leakage_kg > 0
+                    AND {sf6_filter}
         ORDER BY m.date_time ASC
-        """,
+                """,
         (year_prefix,),
     )
     leak_rows = c.fetchall()
@@ -964,7 +964,7 @@ def _get_sf6_report_data(app, year: str):
         methodology,
         responsible_name,
     ) in leak_rows:
-        total_leakage += leakage
+        total_leakage += leakage or 0.0
         rows.append(
             {
                 "maintenance_id": maintenance_id,

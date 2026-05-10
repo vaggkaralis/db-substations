@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a rolling hot backup snapshot for the configured DB.
+"""Create a tiered backup snapshot set for the configured DB.
 
 Usage:
     python scripts/auto_backup.py
@@ -13,15 +13,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sync_service import (
-    create_snapshot,
-    prune_hot_backups,
+    maintain_backup_set,
     resolve_backup_root,
     resolve_db_path,
 )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create rolling DB backup snapshot")
+    parser = argparse.ArgumentParser(description="Create tiered DB backup snapshots")
     parser.add_argument("--db", dest="db_path", default=None, help="Path to SQLite DB")
     parser.add_argument(
         "--backup-root", dest="backup_root", default=None, help="Backup root directory"
@@ -41,14 +40,26 @@ def main() -> int:
     db_path = resolve_db_path(args.db_path)
     backup_root = args.backup_root or resolve_backup_root(db_path)
 
-    snapshot = create_snapshot(db_path, backup_root, reason=args.reason, tier="hot")
-    removed = prune_hot_backups(backup_root, keep=max(1, args.keep))
+    summary = maintain_backup_set(
+        db_path,
+        backup_root,
+        reason=args.reason,
+        hot_keep=max(1, args.keep),
+    )
 
     print("Backup completed")
     print(f"- DB: {db_path}")
-    print(f"- Snapshot: {snapshot}")
+    print(f"- Hot snapshot: {summary['created']['hot']}")
     print(f"- Backup root: {backup_root}")
-    print(f"- Removed old snapshots: {len(removed)}")
+    print(
+        "- Tier snapshots: "
+        f"daily={summary['created']['daily']} weekly={summary['created']['weekly']} monthly={summary['created']['monthly']}"
+    )
+    print(
+        "- Removed old snapshots: "
+        f"hot={len(summary['removed']['hot'])} daily={len(summary['removed']['daily'])} "
+        f"weekly={len(summary['removed']['weekly'])} monthly={len(summary['removed']['monthly'])}"
+    )
     return 0
 
 

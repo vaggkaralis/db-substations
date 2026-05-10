@@ -18,6 +18,7 @@ DB_METADATA_PATH = os.environ.get(
 DB_COMPATIBILITY = {
     "0.5.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "0.5.1": {"min_db": "1.0.0", "max_db": "1.0.0"},
+    "0.6.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "2.0.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "2.1.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "3.0.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
@@ -63,7 +64,7 @@ def get_app_version_string() -> str:
     Returns:
         Version string (e.g., '0.4.0')
     """
-    return os.environ.get("APP_VERSION", "0.5.1")
+    return os.environ.get("APP_VERSION", "0.6.0")
 
 
 def get_db_version_string() -> str:

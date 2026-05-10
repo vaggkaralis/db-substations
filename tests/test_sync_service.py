@@ -1,13 +1,17 @@
 import json
 import sqlite3
 import time
+from datetime import datetime
 
 from database import init_db
 from sync_service import (
     _apply_change_log_to_db,
     create_snapshot,
+    list_backups,
+    maintain_backup_set,
     prune_hot_backups,
     process_sync_inbox,
+    resolve_backup_root,
 )
 
 
@@ -104,6 +108,85 @@ def test_create_snapshot_and_prune_hot(tmp_path):
     assert manifest.exists()
     lines = manifest.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 4
+
+
+def test_maintain_backup_set_creates_tiered_retention(tmp_path):
+    db_path = tmp_path / "main.db"
+    conn = init_db(str(db_path))
+    _seed_db(conn)
+    conn.close()
+
+    backup_root = tmp_path / "backups_auto"
+
+    summary_1 = maintain_backup_set(
+        str(db_path),
+        str(backup_root),
+        reason="pytest",
+        hot_keep=3,
+        now=datetime(2026, 5, 9, 9, 0, 0),
+    )
+    summary_2 = maintain_backup_set(
+        str(db_path),
+        str(backup_root),
+        reason="pytest",
+        hot_keep=3,
+        now=datetime(2026, 5, 9, 18, 30, 0),
+    )
+    maintain_backup_set(
+        str(db_path),
+        str(backup_root),
+        reason="pytest",
+        hot_keep=3,
+        now=datetime(2026, 5, 10, 8, 0, 0),
+    )
+    maintain_backup_set(
+        str(db_path),
+        str(backup_root),
+        reason="pytest",
+        hot_keep=3,
+        now=datetime(2026, 5, 18, 8, 0, 0),
+    )
+    summary_5 = maintain_backup_set(
+        str(db_path),
+        str(backup_root),
+        reason="pytest",
+        hot_keep=3,
+        now=datetime(2026, 6, 1, 8, 0, 0),
+    )
+
+    assert summary_1["created"]["daily"].endswith("main_daily_20260509.sqlite")
+    assert summary_2["created"]["daily"].endswith("main_daily_20260509.sqlite")
+    assert summary_5["created"]["monthly"].endswith("main_monthly_202606.sqlite")
+
+    hot_files = list((backup_root / "hot").glob("*.sqlite"))
+    daily_files = list((backup_root / "daily").glob("*.sqlite"))
+    weekly_files = list((backup_root / "weekly").glob("*.sqlite"))
+    monthly_files = list((backup_root / "monthly").glob("*.sqlite"))
+
+    assert len(hot_files) == 3
+    assert len(daily_files) == 2
+    assert len(weekly_files) == 2
+    assert len(monthly_files) == 2
+
+    listed = list_backups(str(backup_root), limit_per_tier=5)
+    assert {item["tier"] for item in listed} == {"hot", "daily", "weekly", "monthly"}
+    assert any(item["name"].endswith("main_daily_20260518.sqlite") for item in listed)
+    assert any(item["name"].endswith("main_daily_20260601.sqlite") for item in listed)
+
+
+def test_resolve_backup_root_uses_db_relative_configured_path(tmp_path, monkeypatch):
+    db_path = tmp_path / "nested" / "main.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "sync_service.get_app_setting",
+        lambda key, default=None: (
+            "backups_auto" if key == "backup_root_path" else default
+        ),
+    )
+
+    assert resolve_backup_root(str(db_path)) == str(db_path.parent / "backups_auto")
 
 
 def test_apply_change_log_to_db_updates_and_deletes_people(tmp_path):

@@ -2,7 +2,9 @@ from strings_proxy import STRINGS as S
 
 
 _RECURRING_MAINTENANCE_TYPE_NORMALIZED = {
+    "παραλαβή",
     "επαναληπτική συντήρηση",
+    "receipt",
     "recurring maintenance",
 }
 _LEGACY_RECURRING_MAINTENANCE_TYPE_NORMALIZED = {
