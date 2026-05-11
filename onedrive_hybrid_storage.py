@@ -1254,49 +1254,19 @@ def _distribute_attachments_and_register(
     maintenance_id: int,
     element_ids: Iterable[int],
 ):
-    """Copy attachments to media or reports folders and register report paths.
+    """Copy imported maintenance attachments once into the primary instance folder.
 
-    - Media files (images/videos) are copied to each `media_folder` in `created_rows`.
-    - Report files (pdf/doc/xls) are copied into per-element report subfolders
-      and persisted via `upsert_maintenance_report_path` for each element in
-      `element_ids` that belongs to the same gate bucket.
+    Imported files belong to the maintenance instance itself, not to generated
+    report subfolders. App-generated reports continue to be tracked separately
+    via report generation flows.
 
     Returns: (copied_media_count, copied_reports_count)
     """
     copied_media = 0
     copied_reports = 0
-
-    # Normalize created_rows by gate_key for quick lookup
-    rows_by_gate = {r["gate_key"]: r for r in (created_rows or [])}
-
-    # Map element_id -> (gate_key, element_type)
-    elem_map = {}
-    try:
-        if element_ids:
-            placeholders = ",".join(["?"] * len(element_ids))
-            cur = conn.cursor()
-            cur.execute(
-                (
-                    "SELECT id, gate, element_type, breaker_category "
-                    f"FROM elements WHERE id IN ({placeholders})"
-                ),
-                tuple(element_ids),
-            )
-            for row in cur.fetchall() or []:
-                eid = row[0]
-                gate = row[1] or ""
-                etype = row[2] or ""
-                bcat = row[3] or None
-                bucket = _bucket_for_gate(gate)
-                gate_key = f"{bucket[0]}:{bucket[1]}"
-                elem_map[eid] = (gate_key, etype, bcat)
-    except Exception:
-        elem_map = {}
-
-    # Targets for media copying
-    media_targets = [
-        r["media_folder"] for r in (created_rows or []) if r.get("media_folder")
-    ]
+    primary_instance_folder = None
+    if created_rows:
+        primary_instance_folder = created_rows[0].get("instance_folder")
 
     for src in source_paths or []:
         if not src:
@@ -1305,79 +1275,18 @@ def _distribute_attachments_and_register(
             src_path = Path(src)
             if not src_path.exists() or not src_path.is_file():
                 continue
-
-            suffix = src_path.suffix.lower()
-            if suffix in _REPORT_EXTENSIONS:
-                # Copy into per-element report subfolders when possible
-                if elem_map:
-                    for eid, (gate_key, etype, bcat) in elem_map.items():
-                        target_row = rows_by_gate.get(gate_key) or (
-                            created_rows[0] if created_rows else None
-                        )
-                        if not target_row:
-                            continue
-                        reports_root = target_row.get("reports_folder")
-                        subname = _report_subfolder_name_for_element(etype, bcat)
-                        subfolder = os.path.join(reports_root, subname)
-                        os.makedirs(_win_path(subfolder), exist_ok=True)
-                        dest = Path(subfolder) / src_path.name
-                        base = dest.stem
-                        ext = dest.suffix
-                        idx = 1
-                        while dest.exists():
-                            dest = Path(subfolder) / f"{base}_{idx}{ext}"
-                            idx += 1
-                        shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
-                        copied_reports += 1
-                        try:
-                            upsert_maintenance_report_path(
-                                conn,
-                                maintenance_id=maintenance_id,
-                                element_id=int(eid),
-                                report_path=str(dest),
-                                report_type=ext.lstrip(".") or "pdf",
-                            )
-                        except Exception:
-                            pass
-                else:
-                    # No element mapping: copy into a generic reports_other
-                    # of the first row
-                    # NOTE: by design we DO NOT register a DB row for generic reports
-                    # (element_id=0) to avoid creating placeholder entries without
-                    # a proper element mapping. Files are still copied for manual
-                    # inspection in the shared folder.
-                    if created_rows:
-                        target_row = created_rows[0]
-                        reports_root = target_row.get("reports_folder")
-                        subfolder = os.path.join(
-                            reports_root, _report_prefixed_name(_DIR_REPORTS_OTHER)
-                        )
-                        os.makedirs(_win_path(subfolder), exist_ok=True)
-                        dest = Path(subfolder) / src_path.name
-                        base = dest.stem
-                        ext = dest.suffix
-                        idx = 1
-                        while dest.exists():
-                            dest = Path(subfolder) / f"{base}_{idx}{ext}"
-                            idx += 1
-                        shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
-                        copied_reports += 1
-            else:
-                # Media file — copy to all media targets
-                for target in media_targets:
-                    try:
-                        os.makedirs(_win_path(target), exist_ok=True)
-                        dest = Path(target) / src_path.name
-                        base = dest.stem
-                        ext = dest.suffix
-                        idx = 1
-                        while dest.exists():
-                            dest = Path(target) / f"{base}_{idx}{ext}"
-                            idx += 1
-                        shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
-                        copied_media += 1
-                    except Exception:
-                        continue
+            if not primary_instance_folder:
+                continue
+            os.makedirs(_win_path(primary_instance_folder), exist_ok=True)
+            dest = Path(primary_instance_folder) / src_path.name
+            base = dest.stem
+            ext = dest.suffix
+            idx = 1
+            while dest.exists():
+                dest = Path(primary_instance_folder) / f"{base}_{idx}{ext}"
+                idx += 1
+            shutil.copy2(_win_path(str(src_path)), _win_path(str(dest)))
+            copied_media += 1
         except Exception:
             continue
 
@@ -2280,7 +2189,7 @@ def ensure_maintenance_folders(
                 ),
             )
 
-        primary_media = created_rows[0]["media_folder"] if created_rows else None
+        primary_media = created_rows[0]["instance_folder"] if created_rows else None
     return {
         "primary_media_folder": primary_media,
         "folders": created_rows,

@@ -1552,9 +1552,11 @@ class SubstationApp(App):
             checkbox_by_maintenance[maintenance_id] = checkbox
             row.add_widget(checkbox)
 
-            display_name = maint_name or self._build_maintenance_name(
+            display_name = self._format_maintenance_display_name(
+                maintenance_id,
                 substation_name,
                 date_time,
+                maint_name,
             )
             maint_type_display = maintenance_type or S["MESSAGES"].get(
                 "MAINT_TYPE_DEFAULT",
@@ -4422,6 +4424,24 @@ class SubstationApp(App):
             .format(substation_name=substation_name, date=formatted_date)
         )
 
+    def _format_maintenance_display_name(
+        self,
+        maintenance_id,
+        substation_name,
+        date_time_str,
+        stored_name=None,
+    ):
+        display_name = stored_name or self._build_maintenance_name(
+            substation_name, date_time_str
+        )
+        maintenance_id_text = str(maintenance_id or "").strip()
+        if not maintenance_id_text:
+            return display_name
+        id_prefix = f"ID {maintenance_id_text} | "
+        if display_name.startswith(id_prefix):
+            return display_name
+        return f"{id_prefix}{display_name}"
+
     def _compose_maintenance_name(
         self, substation_name, date_time_str, title_text=None
     ):
@@ -4761,8 +4781,11 @@ class SubstationApp(App):
             return
 
         maint_name, date_time, substation_name = maint_row
-        display_name = maint_name or self._build_maintenance_name(
-            substation_name, date_time
+        display_name = self._format_maintenance_display_name(
+            maintenance_id,
+            substation_name,
+            date_time,
+            maint_name,
         )
 
         c.execute(
@@ -14444,7 +14467,7 @@ class SubstationApp(App):
 
             c.execute(
                 """
-                SELECT media_folder, reports_folder
+                SELECT instance_folder, reports_folder
                 FROM maintenance_storage_paths
                 WHERE maintenance_id=?
                 ORDER BY id
@@ -21250,7 +21273,18 @@ class SubstationApp(App):
             placeholders = ",".join(["?"] * len(include_maintenance_ids))
             c.execute(
                 f"""
-                SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type,
+                SELECT m.id, m.name, m.date_time, m.overall_comments,
+                     COALESCE(
+                         (
+                             SELECT instance_folder
+                             FROM maintenance_storage_paths msp
+                             WHERE msp.maintenance_id = m.id
+                             ORDER BY msp.id
+                             LIMIT 1
+                         ),
+                         m.onedrive_media_folder_link
+                     ) AS folder_link,
+                     m.maintenance_type,
                      m.preparation_checklist_json, m.data_json
                 FROM maintenance m
                 WHERE m.substation_id = ? OR m.id IN ({placeholders})
@@ -21261,7 +21295,18 @@ class SubstationApp(App):
         else:
             c.execute(
                 """
-                SELECT m.id, m.name, m.date_time, m.overall_comments, m.onedrive_media_folder_link, m.maintenance_type,
+                SELECT m.id, m.name, m.date_time, m.overall_comments,
+                     COALESCE(
+                         (
+                             SELECT instance_folder
+                             FROM maintenance_storage_paths msp
+                             WHERE msp.maintenance_id = m.id
+                             ORDER BY msp.id
+                             LIMIT 1
+                         ),
+                         m.onedrive_media_folder_link
+                     ) AS folder_link,
+                     m.maintenance_type,
                      m.preparation_checklist_json, m.data_json
                 FROM maintenance m
                 WHERE m.substation_id = ?
@@ -21876,6 +21921,12 @@ class SubstationApp(App):
                     display_name = self._build_maintenance_name(
                         substation_name, date_time
                     )
+                display_name = self._format_maintenance_display_name(
+                    maint_id,
+                    substation_name,
+                    date_time,
+                    display_name,
+                )
                 maint_type_display = maintenance_type or S["MESSAGES"].get(
                     "MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση"
                 )
@@ -22491,7 +22542,17 @@ class SubstationApp(App):
         c.execute(
             """
             SELECT m.id, m.name, m.date_time, m.overall_comments, m.maintenance_type, m.user_name,
-                   s.id, s.name, s.location, s.division, m.onedrive_media_folder_link
+                   s.id, s.name, s.location, s.division,
+                   COALESCE(
+                       (
+                           SELECT instance_folder
+                           FROM maintenance_storage_paths msp
+                           WHERE msp.maintenance_id = m.id
+                           ORDER BY msp.id
+                           LIMIT 1
+                       ),
+                       m.onedrive_media_folder_link
+                   )
             FROM maintenance m
             JOIN substations s ON s.id = m.substation_id
             WHERE m.id = ?
@@ -22522,8 +22583,11 @@ class SubstationApp(App):
             onedrive_media_folder_link,
         ) = maintenance_row
 
-        display_name = maint_name or self._build_maintenance_name(
-            substation_name, date_time
+        display_name = self._format_maintenance_display_name(
+            maint_id,
+            substation_name,
+            date_time,
+            maint_name,
         )
         maint_type_display = maintenance_type or S["MESSAGES"].get(
             "MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση"

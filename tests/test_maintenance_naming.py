@@ -62,3 +62,16 @@ def test_extract_maintenance_title_text_falls_back_to_generated_title_when_empty
     )
 
     assert title_text == "Υ/Σ ΚΑΣΣΑΝΔΡΕΙΑ - 06/05/2026"
+
+
+def test_format_maintenance_display_name_prefixes_unique_id():
+    app = SubstationApp()
+
+    display_name = app._format_maintenance_display_name(
+        123,
+        "ΚΑΣΣΑΝΔΡΕΙΑ",
+        "2026-05-06 08:00",
+        "Έλεγχος κυψέλης ΜΣ1",
+    )
+
+    assert display_name == "ID 123 | Έλεγχος κυψέλης ΜΣ1"
