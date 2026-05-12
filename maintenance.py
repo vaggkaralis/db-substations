@@ -949,14 +949,46 @@ def _score_open_maintenance_match(
     within_ongoing_window = effective_gap is not None and 0 <= effective_gap <= 10
 
     if same_thread:
-        return 100 - min(max(effective_gap or 0, 0), 20)
+        return {
+            "score": 100 - min(max(effective_gap or 0, 0), 20),
+            "same_thread": True,
+            "within_ongoing_window": within_ongoing_window,
+            "effective_gap": effective_gap,
+        }
     if within_ongoing_window:
-        return 50 - max(effective_gap or 0, 0)
+        return {
+            "score": 50 - max(effective_gap or 0, 0),
+            "same_thread": False,
+            "within_ongoing_window": True,
+            "effective_gap": effective_gap,
+        }
     return None
 
 
-def _find_matching_open_maintenance_id(
-    app, substation_id: int, date_time_value: str, payload=None
+def _resolve_candidate_isolation_request_id(
+    app,
+    substation_id: int,
+    maintenance_date_time: str,
+    stored_isolation_request_id=None,
+    isolation_matcher=None,
+):
+    if stored_isolation_request_id:
+        return stored_isolation_request_id
+    if not callable(isolation_matcher):
+        return None
+    try:
+        return isolation_matcher(app.conn, substation_id, maintenance_date_time)
+    except Exception:
+        return None
+
+
+def _find_matching_open_maintenance_candidate(
+    app,
+    substation_id: int,
+    date_time_value: str,
+    payload=None,
+    incoming_isolation_request_id=None,
+    isolation_matcher=None,
 ):
     incoming_date = _extract_calendar_date(date_time_value)
     if not substation_id or not incoming_date:
@@ -967,7 +999,12 @@ def _find_matching_open_maintenance_id(
     c = app.conn.cursor()
     c.execute(
         """
-        SELECT m.id, m.date_time, m.data_json, t.maintenance_id IS NOT NULL
+        SELECT
+            m.id,
+            m.date_time,
+            m.data_json,
+            t.maintenance_id IS NOT NULL,
+            m.isolation_request_id
         FROM maintenance m
         LEFT JOIN maintenance_pending_tasks t ON t.maintenance_id = m.id
         WHERE m.substation_id = ?
@@ -976,15 +1013,16 @@ def _find_matching_open_maintenance_id(
         (substation_id,),
     )
 
-    best_open_id = None
-    best_open_score = None
-    best_unknown_id = None
-    best_unknown_score = None
+    best_reuse_candidate = None
+    best_reuse_score = None
+    best_prompt_candidate = None
+    best_prompt_score = None
     for (
         maintenance_id,
         maintenance_date_time,
         raw_data_json,
         has_pending_tasks_row,
+        stored_isolation_request_id,
     ) in c.fetchall() or []:
         is_completed = _get_maintenance_completion_state(
             raw_data_json, bool(has_pending_tasks_row)
@@ -995,25 +1033,117 @@ def _find_matching_open_maintenance_id(
         candidate_metadata = _load_stored_email_import_metadata(
             raw_data_json, maintenance_date_time
         )
-        score = _score_open_maintenance_match(
+        match_info = _score_open_maintenance_match(
             incoming_metadata,
             candidate_metadata,
             incoming_date,
             candidate_date,
         )
-        if score is None:
+        if match_info is None:
             continue
-        if is_completed is False:
-            if best_open_score is None or score > best_open_score:
-                best_open_score = score
-                best_open_id = maintenance_id
-        else:
-            fallback_score = score - 5
-            if best_unknown_score is None or fallback_score > best_unknown_score:
-                best_unknown_score = fallback_score
-                best_unknown_id = maintenance_id
 
-    return best_open_id or best_unknown_id
+        candidate_isolation_request_id = _resolve_candidate_isolation_request_id(
+            app,
+            substation_id,
+            maintenance_date_time,
+            stored_isolation_request_id=stored_isolation_request_id,
+            isolation_matcher=isolation_matcher,
+        )
+        if (
+            incoming_isolation_request_id
+            and candidate_isolation_request_id
+            and candidate_isolation_request_id != incoming_isolation_request_id
+        ):
+            continue
+
+        adjusted_score = match_info["score"]
+        if is_completed is not False:
+            adjusted_score -= 5
+
+        candidate = {
+            "maintenance_id": maintenance_id,
+            "maintenance_date_time": maintenance_date_time,
+            "candidate_isolation_request_id": candidate_isolation_request_id,
+            "incoming_isolation_request_id": incoming_isolation_request_id,
+            "same_thread": bool(match_info.get("same_thread")),
+            "within_ongoing_window": bool(match_info.get("within_ongoing_window")),
+            "effective_gap": match_info.get("effective_gap"),
+            "decision": "reuse"
+            if match_info.get("same_thread")
+            or (
+                incoming_isolation_request_id
+                and candidate_isolation_request_id == incoming_isolation_request_id
+            )
+            else "prompt",
+        }
+
+        if candidate["decision"] == "reuse":
+            if best_reuse_score is None or adjusted_score > best_reuse_score:
+                best_reuse_score = adjusted_score
+                best_reuse_candidate = candidate
+            continue
+
+        if best_prompt_score is None or adjusted_score > best_prompt_score:
+            best_prompt_score = adjusted_score
+            best_prompt_candidate = candidate
+
+    return best_reuse_candidate or best_prompt_candidate
+
+
+def _show_existing_maintenance_import_choice_popup(
+    ui,
+    *,
+    substation_name: str,
+    match_candidate,
+    on_link_existing,
+    on_create_new,
+):
+    ui = _make_ui_dict(ui)
+    Popup = ui.get("Popup")
+    BoxLayout = ui.get("BoxLayout")
+    Label = ui.get("Label")
+    Button = ui.get("Button")
+    if not Popup or not BoxLayout or not Label or not Button:
+        return False
+
+    maintenance_date = str(match_candidate.get("maintenance_date_time") or "").strip()
+    gap_days = match_candidate.get("effective_gap")
+    gap_label = f"Απόσταση: {gap_days} ημέρες." if isinstance(gap_days, int) else ""
+    message = (
+        "Βρέθηκε πρόσφατη ανοιχτή συντήρηση για τον ίδιο υποσταθμό.\n\n"
+        f"Υποσταθμός: {substation_name}\n"
+        f"Υπάρχουσα συντήρηση: {maintenance_date or '-'}\n"
+        f"{gap_label}\n\n"
+        "Αν πρόκειται για συνέχεια της ίδιας εργασίας, συνδέστε το e-mail στην υπάρχουσα συντήρηση. "
+        "Αν πρόκειται για νέα περίπτωση, δημιουργήστε νέα συντήρηση."
+    ).strip()
+
+    popup = Popup(title="Επιλογή Συντήρησης", size_hint=(0.78, 0.42))
+    layout = BoxLayout(orientation="vertical", padding=12, spacing=10)
+    layout.add_widget(Label(text=message))
+
+    buttons = BoxLayout(size_hint_y=None, height=48, spacing=8)
+    existing_btn = Button(text="Σύνδεση σε υπάρχουσα")
+    new_btn = Button(text="Νέα συντήρηση")
+    cancel_btn = Button(text="Ακύρωση")
+    buttons.add_widget(existing_btn)
+    buttons.add_widget(new_btn)
+    buttons.add_widget(cancel_btn)
+    layout.add_widget(buttons)
+    popup.content = layout
+
+    def _run_and_close(callback):
+        def _inner(_instance=None):
+            popup.dismiss()
+            callback()
+
+        return _inner
+
+    existing_btn.bind(on_press=_run_and_close(on_link_existing))
+    new_btn.bind(on_press=_run_and_close(on_create_new))
+    cancel_btn.bind(on_press=lambda _instance=None: popup.dismiss())
+    popup.open()
+    return True
 
 
 def open_maintenance_from_email_payload(
@@ -1185,6 +1315,7 @@ def open_maintenance_from_email_payload(
             date_time_value,
         ),
         "_email_comment_preformatted": bool(payload.get("_email_comment_preformatted")),
+        "pending_tasks_text": "Ανοιχτή Συντήρηση",
     }
 
     prev = _get_previous_maintenance_defaults(app, substation_id, date_time_value)
@@ -1204,21 +1335,71 @@ def open_maintenance_from_email_payload(
 
     email_import_metadata = _extract_email_import_metadata(payload)
 
-    open_maintenance_id = _find_matching_open_maintenance_id(
-        app, substation_id, date_time_value, payload=payload
+    open_maintenance_match = _find_matching_open_maintenance_candidate(
+        app,
+        substation_id,
+        date_time_value,
+        payload=payload,
+        incoming_isolation_request_id=linked_isolation_request_id,
+        isolation_matcher=find_matching_isolation_request_id,
     )
 
-    if open_maintenance_id:
-        prefill["_wizard_stage"] = "elements"
-        prefill["email_import_metadata"] = email_import_metadata
+    def _open_existing_maintenance():
+        existing_prefill = dict(prefill)
+        existing_prefill["_wizard_stage"] = "elements"
+        existing_prefill["email_import_metadata"] = email_import_metadata
         app.show_maintenance_menu(
             preselected_substation_name=substation_name,
             parent_popup=None,
-            maintenance_id=open_maintenance_id,
+            maintenance_id=open_maintenance_match["maintenance_id"],
             after_save_callback=after_save_callback,
             after_cancel_callback=after_cancel_callback,
-            prefill_data=prefill,
+            prefill_data=existing_prefill,
         )
+
+    def _open_new_maintenance():
+        new_prefill = {
+            **prefill,
+            "email_import_metadata": email_import_metadata,
+        }
+        if not new_prefill["responsible_id"]:
+            app._prompt_responsible_selection(people, new_prefill)
+            return
+
+        app.show_maintenance_menu(
+            preselected_substation_name=substation_name,
+            parent_popup=None,
+            maintenance_id=None,
+            after_save_callback=after_save_callback,
+            after_cancel_callback=after_cancel_callback,
+            prefill_data=new_prefill,
+        )
+
+    if open_maintenance_match:
+        if open_maintenance_match["decision"] == "reuse":
+            _open_existing_maintenance()
+            return
+
+        prompt_choice = getattr(app, "_prompt_existing_maintenance_import_choice", None)
+        if callable(prompt_choice):
+            prompt_choice(
+                match_candidate=open_maintenance_match,
+                prefill_data=dict(prefill),
+                open_existing=_open_existing_maintenance,
+                open_new=_open_new_maintenance,
+            )
+            return
+
+        if _show_existing_maintenance_import_choice_popup(
+            ui,
+            substation_name=substation_name,
+            match_candidate=open_maintenance_match,
+            on_link_existing=_open_existing_maintenance,
+            on_create_new=_open_new_maintenance,
+        ):
+            return
+
+        _open_existing_maintenance()
         return
 
     if not prefill["responsible_id"]:

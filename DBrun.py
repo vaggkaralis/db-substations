@@ -15717,6 +15717,8 @@ class SubstationApp(App):
             tasks_default_text = pending_tasks_text_default
         except Exception:
             tasks_default_text = ""
+        if not tasks_default_text and not maintenance_id:
+            tasks_default_text = str(prefill_data.get("pending_tasks_text") or "")
 
         # Completion state maintained in this boolean (False => incomplete)
         completed_state = False if not (maintenance_record and False) else False
