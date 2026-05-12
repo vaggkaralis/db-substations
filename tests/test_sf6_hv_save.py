@@ -1,3 +1,4 @@
+import DBrun
 from database import init_db
 
 from reports import _get_sf6_report_data, normalize_decimal_numeric_text
@@ -145,3 +146,116 @@ def test_sf6_report_excludes_methodology_only_rows(tmp_path):
     assert data["rows"] == []
 
     conn.close()
+
+
+def test_normalize_sf6_leakage_fields_clears_methodology_without_value():
+    app = DBrun.SubstationApp()
+
+    leakage, methodology = app._normalize_sf6_leakage_fields(None, "Πλήρωση")
+
+    assert leakage is None
+    assert methodology is None
+
+
+def test_normalize_sf6_leakage_fields_keeps_methodology_with_value():
+    app = DBrun.SubstationApp()
+
+    leakage, methodology = app._normalize_sf6_leakage_fields(0.5, " Πλήρωση ")
+
+    assert leakage == 0.5
+    assert methodology == "Πλήρωση"
+
+
+def test_preserve_existing_measurement_payload_keeps_sf6_values_on_blank_resave():
+    app = DBrun.SubstationApp()
+
+    existing_data = {
+        "sf6_leakage_kg": 0.9,
+        "sf6_leak_methodology": "Πλήρωση",
+        "sf6": {
+            "sf6_n2_fa": None,
+            "h2o_fa": None,
+            "so2_fa": None,
+            "sf6_n2_fb": None,
+            "h2o_fb": None,
+            "so2_fb": None,
+            "sf6_n2_fc": None,
+            "h2o_fc": None,
+            "so2_fc": None,
+        },
+        "vidar": {},
+        "extra_measurements": {},
+    }
+    current_payload = {
+        "ins_closed_fa": None,
+        "ins_closed_fa_unit": "GΩ",
+        "ins_closed_fb": None,
+        "ins_closed_fb_unit": "GΩ",
+        "ins_closed_fc": None,
+        "ins_closed_fc_unit": "GΩ",
+        "ins_open_fa": None,
+        "ins_open_fa_unit": "GΩ",
+        "ins_open_fb": None,
+        "ins_open_fb_unit": "GΩ",
+        "ins_open_fc": None,
+        "ins_open_fc_unit": "GΩ",
+        "cont_fa": None,
+        "cont_fb": None,
+        "cont_fc": None,
+        "ops_count": None,
+        "sf6_leakage_kg": None,
+        "sf6_leak_methodology": None,
+        "sf6": {},
+        "vidar": {},
+        "extra_measurements": {},
+    }
+
+    merged = app._preserve_existing_measurement_payload(
+        existing_data,
+        current_payload,
+        measurements_enabled=True,
+    )
+
+    assert merged["sf6_leakage_kg"] == 0.9
+    assert merged["sf6_leak_methodology"] == "Πλήρωση"
+
+
+def test_preserve_existing_measurement_payload_keeps_new_values_when_present():
+    app = DBrun.SubstationApp()
+
+    existing_data = {
+        "sf6_leakage_kg": 0.9,
+        "sf6_leak_methodology": "Πλήρωση",
+    }
+    current_payload = {
+        "ins_closed_fa": None,
+        "ins_closed_fa_unit": "GΩ",
+        "ins_closed_fb": None,
+        "ins_closed_fb_unit": "GΩ",
+        "ins_closed_fc": None,
+        "ins_closed_fc_unit": "GΩ",
+        "ins_open_fa": None,
+        "ins_open_fa_unit": "GΩ",
+        "ins_open_fb": None,
+        "ins_open_fb_unit": "GΩ",
+        "ins_open_fc": None,
+        "ins_open_fc_unit": "GΩ",
+        "cont_fa": None,
+        "cont_fb": None,
+        "cont_fc": None,
+        "ops_count": None,
+        "sf6_leakage_kg": 0.4,
+        "sf6_leak_methodology": "Αντικατάσταση",
+        "sf6": {},
+        "vidar": {},
+        "extra_measurements": {},
+    }
+
+    merged = app._preserve_existing_measurement_payload(
+        existing_data,
+        current_payload,
+        measurements_enabled=True,
+    )
+
+    assert merged["sf6_leakage_kg"] == 0.4
+    assert merged["sf6_leak_methodology"] == "Αντικατάσταση"

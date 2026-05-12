@@ -18773,6 +18773,13 @@ class SubstationApp(App):
                             measurements["sf6_leak_methodology"].text.strip() or None
                         )
 
+                    sf6_leakage_val, sf6_leak_methodology_val = (
+                        self._normalize_sf6_leakage_fields(
+                            sf6_leakage_val,
+                            sf6_leak_methodology_val,
+                        )
+                    )
+
                     if (
                         sf6_leakage_val is not None
                         and not sf6_leak_methodology_val
@@ -18814,8 +18821,6 @@ class SubstationApp(App):
                         if measurements_enabled
                         else {}
                     )
-
-                    data_json = json.dumps(extra, ensure_ascii=False) if extra else None
 
                     # Safely extract measurement values to avoid KeyError when widgets are absent
                     def _m_text(k):
@@ -18860,6 +18865,59 @@ class SubstationApp(App):
                         sf6_leak_methodology_val = None
                         sf6_vals = {key: None for key in sf6_vals}
                         vidar_vals = {key: None for key in vidar_vals}
+
+                    measurement_payload = self._preserve_existing_measurement_payload(
+                        existing_elements_data.get(elem_id),
+                        {
+                            "ins_closed_fa": ins_closed_fa_val,
+                            "ins_closed_fa_unit": ins_closed_fa_unit,
+                            "ins_closed_fb": ins_closed_fb_val,
+                            "ins_closed_fb_unit": ins_closed_fb_unit,
+                            "ins_closed_fc": ins_closed_fc_val,
+                            "ins_closed_fc_unit": ins_closed_fc_unit,
+                            "ins_open_fa": ins_open_fa_val,
+                            "ins_open_fa_unit": ins_open_fa_unit,
+                            "ins_open_fb": ins_open_fb_val,
+                            "ins_open_fb_unit": ins_open_fb_unit,
+                            "ins_open_fc": ins_open_fc_val,
+                            "ins_open_fc_unit": ins_open_fc_unit,
+                            "cont_fa": cont_fa_val,
+                            "cont_fb": cont_fb_val,
+                            "cont_fc": cont_fc_val,
+                            "ops_count": ops_count,
+                            "sf6_leakage_kg": sf6_leakage_val,
+                            "sf6_leak_methodology": sf6_leak_methodology_val,
+                            "sf6": sf6_vals,
+                            "vidar": vidar_vals,
+                            "extra_measurements": extra,
+                        },
+                        measurements_enabled=measurements_enabled,
+                    )
+
+                    ins_closed_fa_val = measurement_payload.get("ins_closed_fa")
+                    ins_closed_fa_unit = measurement_payload.get("ins_closed_fa_unit")
+                    ins_closed_fb_val = measurement_payload.get("ins_closed_fb")
+                    ins_closed_fb_unit = measurement_payload.get("ins_closed_fb_unit")
+                    ins_closed_fc_val = measurement_payload.get("ins_closed_fc")
+                    ins_closed_fc_unit = measurement_payload.get("ins_closed_fc_unit")
+                    ins_open_fa_val = measurement_payload.get("ins_open_fa")
+                    ins_open_fa_unit = measurement_payload.get("ins_open_fa_unit")
+                    ins_open_fb_val = measurement_payload.get("ins_open_fb")
+                    ins_open_fb_unit = measurement_payload.get("ins_open_fb_unit")
+                    ins_open_fc_val = measurement_payload.get("ins_open_fc")
+                    ins_open_fc_unit = measurement_payload.get("ins_open_fc_unit")
+                    cont_fa_val = measurement_payload.get("cont_fa")
+                    cont_fb_val = measurement_payload.get("cont_fb")
+                    cont_fc_val = measurement_payload.get("cont_fc")
+                    ops_count = measurement_payload.get("ops_count")
+                    sf6_leakage_val = measurement_payload.get("sf6_leakage_kg")
+                    sf6_leak_methodology_val = measurement_payload.get(
+                        "sf6_leak_methodology"
+                    )
+                    sf6_vals = measurement_payload.get("sf6") or {}
+                    vidar_vals = measurement_payload.get("vidar") or {}
+                    extra = measurement_payload.get("extra_measurements") or {}
+                    data_json = json.dumps(extra, ensure_ascii=False) if extra else None
 
                     c.execute(
                         """INSERT INTO maintenance_elements 
@@ -20061,6 +20119,75 @@ class SubstationApp(App):
         if isinstance(value, bool):
             return value
         return str(value).strip() != ""
+
+    def _normalize_sf6_leakage_fields(self, leakage_value, methodology_value):
+        methodology_text = (methodology_value or "").strip() or None
+        if leakage_value is None:
+            return None, None
+        return leakage_value, methodology_text
+
+    def _preserve_existing_measurement_payload(
+        self,
+        existing_data,
+        current_payload,
+        *,
+        measurements_enabled=True,
+    ):
+        if not existing_data or not measurements_enabled:
+            return current_payload
+
+        signal_keys = (
+            "ins_closed_fa",
+            "ins_closed_fb",
+            "ins_closed_fc",
+            "ins_open_fa",
+            "ins_open_fb",
+            "ins_open_fc",
+            "cont_fa",
+            "cont_fb",
+            "cont_fc",
+            "ops_count",
+            "sf6_leakage_kg",
+            "sf6_leak_methodology",
+            "sf6",
+            "vidar",
+            "extra_measurements",
+        )
+        if any(
+            self._has_meaningful_measurement_value(current_payload.get(key))
+            for key in signal_keys
+        ):
+            return current_payload
+
+        preserved = dict(current_payload)
+        for key in (
+            "ins_closed_fa",
+            "ins_closed_fa_unit",
+            "ins_closed_fb",
+            "ins_closed_fb_unit",
+            "ins_closed_fc",
+            "ins_closed_fc_unit",
+            "ins_open_fa",
+            "ins_open_fa_unit",
+            "ins_open_fb",
+            "ins_open_fb_unit",
+            "ins_open_fc",
+            "ins_open_fc_unit",
+            "cont_fa",
+            "cont_fb",
+            "cont_fc",
+            "ops_count",
+            "sf6_leakage_kg",
+            "sf6_leak_methodology",
+            "sf6",
+            "vidar",
+            "extra_measurements",
+        ):
+            existing_value = existing_data.get(key)
+            if self._has_meaningful_measurement_value(existing_value):
+                preserved[key] = existing_value
+
+        return preserved
 
     def _maintenance_detail_legacy_measurement_keys(self):
         return {
