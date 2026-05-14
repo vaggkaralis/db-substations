@@ -4,10 +4,11 @@ import shutil
 import sqlite3
 import tempfile
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config_manager import get_app_setting
+from config_manager import APP_DATA_DIR, get_app_setting, set_app_setting
 from settings import DB_PATH
 
 
@@ -49,6 +50,94 @@ def _save_processed_tracker(tracker_path: str, tracker: dict) -> None:
     os.makedirs(os.path.dirname(tracker_path), exist_ok=True)
     with open(tracker_path, "w", encoding="utf-8") as fh:
         json.dump(tracker, fh, ensure_ascii=False, indent=2)
+
+
+def get_sync_device_id() -> str:
+    """Return a stable per-installation device id for sync payloads."""
+    device_id = str(get_app_setting("sync_device_id", "") or "").strip()
+    if device_id:
+        return device_id
+
+    device_id = uuid.uuid4().hex
+    set_app_setting("sync_device_id", device_id)
+    return device_id
+
+
+def resolve_local_sync_tracker_path(sync_root: str) -> str:
+    """Store per-device sync tracker state outside the shared sync root."""
+    root_slug = uuid.uuid5(uuid.NAMESPACE_URL, os.path.abspath(sync_root)).hex
+    return os.path.join(APP_DATA_DIR, "sync_state", f"processed_{root_slug}.json")
+
+
+def _get_file_fingerprint(file_path: str) -> dict:
+    try:
+        stat = os.stat(file_path)
+    except OSError:
+        return {"size": None, "mtime_ns": None}
+    return {
+        "size": int(stat.st_size),
+        "mtime_ns": int(
+            getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))
+        ),
+    }
+
+
+def _tracker_matches_fingerprint(entry: dict | None, fingerprint: dict) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    return entry.get("size") == fingerprint.get("size") and entry.get(
+        "mtime_ns"
+    ) == fingerprint.get("mtime_ns")
+
+
+def _archive_processed_file(src_path: str, dst_dir: str, original_name: str) -> str:
+    archived_name = f"{_timestamp_slug()}_{original_name}"
+    dst_path = os.path.join(dst_dir, archived_name)
+    _safe_move(src_path, dst_path)
+    return dst_path
+
+
+def _detect_self_origin_file(file_path: str, device_id: str) -> bool:
+    if not device_id:
+        return False
+
+    found_entry = False
+    try:
+        with open(file_path, "r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = (raw_line or "").strip()
+                if not line:
+                    continue
+                found_entry = True
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    return False
+                if str(obj.get("origin_device_id") or "").strip() != device_id:
+                    return False
+    except Exception:
+        return False
+
+    return found_entry
+
+
+def _archive_dir_for_shared_status(
+    tree: dict[str, str], status_info: dict | None
+) -> str | None:
+    status = str((status_info or {}).get("status") or "").strip().lower()
+    resolution = str((status_info or {}).get("resolution") or "").strip().lower()
+
+    if status in {"accepted", "already_applied"}:
+        return tree["accepted"]
+    if status == "rejected":
+        return tree["rejected"]
+    if status == "conflict":
+        return tree["conflicts"]
+    if status == "resolved":
+        if resolution == "keep_mine":
+            return tree["conflicts"]
+        return tree["accepted"]
+    return None
 
 
 _IDEMPOTENT_COMPARISON_IGNORED_FIELDS = {
@@ -668,21 +757,27 @@ def process_sync_inbox(
     sync_root: str,
     actor: str = "desktop",
     progress_callback=None,
+    local_tracker_path: str | None = None,
 ) -> dict:
     """
     Process all change files in the sync inbox (idempotent).
 
-    Files are kept in place after processing. Each file is processed every time
-    it's encountered, but record-level deduplication prevents duplicate insertions.
-    This allows multiple users to "import" the same change file without conflicts.
+    Pending files are archived after processing, while accepted files remain
+    available for other devices that have not imported them yet. A local per-device
+    tracker prevents reprocessing the same archived files on every sync run.
     """
     tree = ensure_sync_tree(sync_root)
     pending_dir = tree["inbox_pending"]
     accepted_dir = tree["accepted"]
     audit_path = os.path.join(tree["logs"], "sync_events.jsonl")
     tracker_path = os.path.join(tree["logs"], ".processed_files.json")
+    local_tracker_path = local_tracker_path or resolve_local_sync_tracker_path(
+        sync_root
+    )
+    local_tracker = _load_processed_tracker(local_tracker_path)
+    local_device_id = get_sync_device_id()
 
-    # Load existing tracker for reference (but we'll process files regardless)
+    # Shared tracker remains in the sync root for audit/conflict UI.
     tracker = _load_processed_tracker(tracker_path)
 
     files = []
@@ -716,6 +811,8 @@ def process_sync_inbox(
     already_applied = 0
     rejected = 0
     conflicts = 0
+    self_ignored = 0
+    skipped_local = 0
     file_summaries: list[dict] = []
 
     for idx, (original_name, src) in enumerate(files):
@@ -752,8 +849,72 @@ def process_sync_inbox(
             "source_file": original_name,
             "status": "pending",
         }
+        file_fingerprint = _get_file_fingerprint(src)
+        local_state = local_tracker.get(original_name)
+        shared_state = tracker.get(original_name) if isinstance(tracker, dict) else None
+
+        if _tracker_matches_fingerprint(local_state, file_fingerprint):
+            skipped_local += 1
+            continue
+
+        shared_archive_dir = None
+        if os.path.dirname(src) == os.path.abspath(pending_dir):
+            shared_archive_dir = _archive_dir_for_shared_status(tree, shared_state)
+        if shared_archive_dir:
+            archived_path = _archive_processed_file(
+                src, shared_archive_dir, original_name
+            )
+            local_tracker[original_name] = {
+                "status": str((shared_state or {}).get("status") or "archived"),
+                "processed_at": _utc_now_iso(),
+                "path": archived_path,
+                **file_fingerprint,
+            }
+            _append_jsonl(
+                audit_path,
+                {
+                    **event,
+                    "status": "archived_from_tracker",
+                    "tracker_status": str((shared_state or {}).get("status") or ""),
+                    "archived_to": archived_path,
+                },
+            )
+            skipped_local += 1
+            continue
 
         try:
+            if _detect_self_origin_file(src, local_device_id):
+                event["status"] = "self_ignored"
+                event["device_id"] = local_device_id
+                file_summary["status"] = "self_ignored"
+                file_summary["already_applied"] = int(
+                    file_summary.get("insert_entries", 0) or 0
+                )
+                self_ignored += 1
+
+                if os.path.dirname(src) == os.path.abspath(pending_dir):
+                    archived_path = _archive_processed_file(
+                        src, accepted_dir, original_name
+                    )
+                    event["archived_to"] = archived_path
+
+                tracker[original_name] = {
+                    "status": "accepted",
+                    "processed_at": _utc_now_iso(),
+                    "processed_by": actor,
+                    "self_ignored": True,
+                    "device_id": local_device_id,
+                }
+                local_tracker[original_name] = {
+                    "status": "self_ignored",
+                    "processed_at": _utc_now_iso(),
+                    "path": src,
+                    **file_fingerprint,
+                }
+                _append_jsonl(audit_path, event)
+                file_summaries.append(file_summary)
+                continue
+
             file_accepted, file_already_applied, file_conflicts = (
                 _apply_change_log_to_db(conn, src, tracker, original_name)
             )
@@ -776,6 +937,17 @@ def process_sync_inbox(
                     "processed_at": _utc_now_iso(),
                     "processed_by": actor,
                 }
+                if os.path.dirname(src) == os.path.abspath(pending_dir):
+                    archived_path = _archive_processed_file(
+                        src, tree["conflicts"], original_name
+                    )
+                    event["archived_to"] = archived_path
+                local_tracker[original_name] = {
+                    "status": "conflict",
+                    "processed_at": _utc_now_iso(),
+                    "path": src,
+                    **file_fingerprint,
+                }
             elif file_already_applied == 0 and file_accepted == 0:
                 # File had no applicable changes
                 event["status"] = "rejected"
@@ -791,6 +963,17 @@ def process_sync_inbox(
                     "processed_by": actor,
                     "reason": "No applicable changes",
                 }
+                if os.path.dirname(src) == os.path.abspath(pending_dir):
+                    archived_path = _archive_processed_file(
+                        src, tree["rejected"], original_name
+                    )
+                    event["archived_to"] = archived_path
+                local_tracker[original_name] = {
+                    "status": "rejected",
+                    "processed_at": _utc_now_iso(),
+                    "path": src,
+                    **file_fingerprint,
+                }
             elif file_already_applied > 0 and file_accepted == 0:
                 event["status"] = "already_applied"
                 event["count"] = file_already_applied
@@ -802,6 +985,17 @@ def process_sync_inbox(
                     "processed_at": _utc_now_iso(),
                     "processed_by": actor,
                     "count": file_already_applied,
+                }
+                if os.path.dirname(src) == os.path.abspath(pending_dir):
+                    archived_path = _archive_processed_file(
+                        src, accepted_dir, original_name
+                    )
+                    event["archived_to"] = archived_path
+                local_tracker[original_name] = {
+                    "status": "already_applied",
+                    "processed_at": _utc_now_iso(),
+                    "path": src,
+                    **file_fingerprint,
                 }
             else:
                 event["status"] = "accepted"
@@ -824,6 +1018,17 @@ def process_sync_inbox(
                         "conflicts": file_conflicts,
                     },
                 }
+                if os.path.dirname(src) == os.path.abspath(pending_dir):
+                    archived_path = _archive_processed_file(
+                        src, accepted_dir, original_name
+                    )
+                    event["archived_to"] = archived_path
+                local_tracker[original_name] = {
+                    "status": "accepted",
+                    "processed_at": _utc_now_iso(),
+                    "path": src,
+                    **file_fingerprint,
+                }
         except Exception as exc:
             event["status"] = "rejected"
             event["error"] = str(exc)
@@ -836,23 +1041,43 @@ def process_sync_inbox(
                 "processed_by": actor,
                 "error": str(exc),
             }
+            if os.path.exists(src) and os.path.dirname(src) == os.path.abspath(
+                pending_dir
+            ):
+                try:
+                    archived_path = _archive_processed_file(
+                        src, tree["rejected"], original_name
+                    )
+                    event["archived_to"] = archived_path
+                except Exception:
+                    pass
+            local_tracker[original_name] = {
+                "status": "rejected",
+                "processed_at": _utc_now_iso(),
+                "path": src,
+                **file_fingerprint,
+            }
 
         _append_jsonl(audit_path, event)
         file_summaries.append(file_summary)
 
     # Save updated tracker
     _save_processed_tracker(tracker_path, tracker)
+    _save_processed_tracker(local_tracker_path, local_tracker)
 
     return {
-        "processed": len(files),
+        "processed": len(file_summaries),
         "accepted": accepted,
         "already_applied": already_applied,
         "conflicts": conflicts,
         "rejected": rejected,
+        "self_ignored": self_ignored,
+        "skipped_local": skipped_local,
         "file_summaries": file_summaries,
         "sync_root": sync_root,
         "audit_log": audit_path,
         "tracker": tracker_path,
+        "local_tracker": local_tracker_path,
     }
 
 
@@ -1143,9 +1368,14 @@ def run_sync_cycle(
     effective_db = resolve_db_path(db_path)
     effective_sync_root = sync_root or resolve_sync_root(effective_db)
     effective_backup_root = backup_root or resolve_backup_root(effective_db)
+    local_tracker_path = resolve_local_sync_tracker_path(effective_sync_root)
 
     sync_summary = process_sync_inbox(
-        conn, effective_sync_root, actor=actor, progress_callback=progress_callback
+        conn,
+        effective_sync_root,
+        actor=actor,
+        progress_callback=progress_callback,
+        local_tracker_path=local_tracker_path,
     )
 
     retention_enabled = bool(get_app_setting("sync_retention_enabled", True))

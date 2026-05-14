@@ -11215,7 +11215,7 @@ class SubstationApp(App):
             if not hasattr(self, "_pending_changes") or not self._pending_changes:
                 return None
 
-            from sync_service import resolve_sync_root
+            from sync_service import get_sync_device_id, resolve_sync_root
             from datetime import datetime
             import json
 
@@ -11236,10 +11236,13 @@ class SubstationApp(App):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"desktop_{timestamp}_{username}.jsonl"
             filepath = os.path.join(inbox_pending, filename)
+            origin_device_id = get_sync_device_id()
 
             with open(filepath, "w", encoding="utf-8") as f:
                 for change in self._pending_changes:
-                    f.write(json.dumps(change, ensure_ascii=False) + "\n")
+                    payload = dict(change)
+                    payload["origin_device_id"] = origin_device_id
+                    f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
             change_count = len(self._pending_changes)
             self._pending_changes = []  # Clear after export

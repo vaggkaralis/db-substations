@@ -36,7 +36,9 @@ def test_process_sync_inbox_applies_pending_jsonl(tmp_path):
 
     sync_root = tmp_path / "sync_exchange"
     pending = sync_root / "inbox" / "pending"
+    accepted_dir = sync_root / "inbox" / "processed" / "accepted"
     pending.mkdir(parents=True, exist_ok=True)
+    local_tracker = tmp_path / "local_tracker.json"
 
     payload = {
         "operation": "insert",
@@ -53,7 +55,12 @@ def test_process_sync_inbox_applies_pending_jsonl(tmp_path):
         json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    summary = process_sync_inbox(conn, str(sync_root), actor="pytest")
+    summary = process_sync_inbox(
+        conn,
+        str(sync_root),
+        actor="pytest",
+        local_tracker_path=str(local_tracker),
+    )
 
     assert summary["processed"] == 1
     assert summary["accepted"] == 1
@@ -65,9 +72,10 @@ def test_process_sync_inbox_applies_pending_jsonl(tmp_path):
     assert maintenance is not None
     assert maintenance[0] == "From Android"
 
-    # Verify file stays in pending (idempotent behavior - files not moved)
     pending_files = list(pending.glob("*.jsonl"))
-    assert len(pending_files) == 1
+    archived_files = list(accepted_dir.glob("*.jsonl"))
+    assert pending_files == []
+    assert len(archived_files) == 1
 
     # Verify tracker exists with correct status
     tracker_path = sync_root / "logs" / ".processed_files.json"
@@ -79,6 +87,162 @@ def test_process_sync_inbox_applies_pending_jsonl(tmp_path):
 
     audit_log = sync_root / "logs" / "sync_events.jsonl"
     assert audit_log.exists()
+    conn.close()
+
+
+def test_process_sync_inbox_skips_self_origin_payload_and_archives_it(
+    tmp_path, monkeypatch
+):
+    db_path = tmp_path / "main.db"
+    conn = init_db(str(db_path))
+    sub_id, _elem_id = _seed_db(conn)
+
+    monkeypatch.setattr(
+        "sync_service.get_app_setting",
+        lambda key, default=None: "device-123" if key == "sync_device_id" else default,
+    )
+    monkeypatch.setattr("sync_service.set_app_setting", lambda key, value: True)
+
+    sync_root = tmp_path / "sync_exchange"
+    pending = sync_root / "inbox" / "pending"
+    accepted_dir = sync_root / "inbox" / "processed" / "accepted"
+    pending.mkdir(parents=True, exist_ok=True)
+    local_tracker = tmp_path / "local_tracker.json"
+
+    payload = {
+        "operation": "insert",
+        "table": "substations",
+        "data": {"id": sub_id, "name": "S1", "location": "L1"},
+        "origin_device_id": "device-123",
+    }
+    entry_path = pending / "self.jsonl"
+    entry_path.write_text(
+        json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    summary = process_sync_inbox(
+        conn,
+        str(sync_root),
+        actor="pytest",
+        local_tracker_path=str(local_tracker),
+    )
+
+    assert summary["processed"] == 1
+    assert summary["accepted"] == 0
+    assert summary["conflicts"] == 0
+    assert summary["self_ignored"] == 1
+    assert list(pending.glob("*.jsonl")) == []
+    assert len(list(accepted_dir.glob("*.jsonl"))) == 1
+    assert conn.execute("SELECT COUNT(*) FROM substations").fetchone()[0] == 1
+    conn.close()
+
+
+def test_process_sync_inbox_imports_archived_acceptance_once_per_device(tmp_path):
+    source_db = tmp_path / "source.db"
+    source_conn = init_db(str(source_db))
+    source_sub_id, source_elem_id = _seed_db(source_conn)
+
+    sync_root = tmp_path / "sync_exchange"
+    pending = sync_root / "inbox" / "pending"
+    pending.mkdir(parents=True, exist_ok=True)
+    source_tracker = tmp_path / "source_local_tracker.json"
+
+    payload = {
+        "operation": "insert",
+        "table": "maintenance",
+        "data": {
+            "substation_id": source_sub_id,
+            "date_time": "2026-03-06 10:00:00",
+            "overall_comments": "From Android",
+            "elements": [{"element_id": source_elem_id, "element_comments": "ok"}],
+        },
+    }
+    entry_path = pending / "entry.jsonl"
+    entry_path.write_text(
+        json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    source_summary = process_sync_inbox(
+        source_conn,
+        str(sync_root),
+        actor="pytest-source",
+        local_tracker_path=str(source_tracker),
+    )
+    assert source_summary["accepted"] == 1
+    source_conn.close()
+
+    target_db = tmp_path / "target.db"
+    target_conn = init_db(str(target_db))
+    _seed_db(target_conn)
+    target_tracker = tmp_path / "target_local_tracker.json"
+
+    target_summary = process_sync_inbox(
+        target_conn,
+        str(sync_root),
+        actor="pytest-target",
+        local_tracker_path=str(target_tracker),
+    )
+    assert target_summary["processed"] == 1
+    assert target_summary["accepted"] == 1
+
+    second_summary = process_sync_inbox(
+        target_conn,
+        str(sync_root),
+        actor="pytest-target",
+        local_tracker_path=str(target_tracker),
+    )
+    assert second_summary["processed"] == 0
+    assert second_summary["accepted"] == 0
+    assert second_summary["skipped_local"] == 1
+    target_conn.close()
+
+
+def test_process_sync_inbox_fast_archives_pending_files_from_shared_tracker(tmp_path):
+    db_path = tmp_path / "main.db"
+    conn = init_db(str(db_path))
+    _seed_db(conn)
+
+    sync_root = tmp_path / "sync_exchange"
+    pending = sync_root / "inbox" / "pending"
+    accepted_dir = sync_root / "inbox" / "processed" / "accepted"
+    logs_dir = sync_root / "logs"
+    pending.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    local_tracker = tmp_path / "local_tracker.json"
+
+    entry_path = pending / "entry.jsonl"
+    entry_path.write_text(
+        json.dumps({"operation": "insert", "table": "substations", "data": {"id": 1}})
+        + "\n",
+        encoding="utf-8",
+    )
+    tracker_path = logs_dir / ".processed_files.json"
+    tracker_path.write_text(
+        json.dumps(
+            {
+                "entry.jsonl": {
+                    "status": "accepted",
+                    "processed_at": "2026-05-13T08:00:00Z",
+                    "processed_by": "pytest",
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    summary = process_sync_inbox(
+        conn,
+        str(sync_root),
+        actor="pytest",
+        local_tracker_path=str(local_tracker),
+    )
+
+    assert summary["processed"] == 0
+    assert summary["skipped_local"] == 1
+    assert list(pending.glob("*.jsonl")) == []
+    assert len(list(accepted_dir.glob("*.jsonl"))) == 1
     conn.close()
 
 
