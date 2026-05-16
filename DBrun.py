@@ -633,6 +633,47 @@ def format_hemizygos_tag_text(label):
     return value
 
 
+def build_maintenance_element_status_filter(
+    substation_id,
+    maintenance_id=None,
+    existing_elements_data=None,
+):
+    """Return the element visibility SQL filter and additional params for the form.
+
+    New maintenance records should only show active elements. When editing an
+    existing maintenance record, keep already-linked inactive elements visible
+    so the historical selection can still be reviewed and edited. This also
+    keeps already-linked cross-substation rows visible, which prevents the
+    editor from silently hiding inconsistent historical links.
+    """
+    base_filter = "(e.operating_status IS NULL OR e.operating_status='Ενεργή')"
+    substation_filter = f"(e.substation_id={int(substation_id)} AND {base_filter})"
+    if not maintenance_id or not existing_elements_data:
+        return substation_filter, []
+
+    linked_ids = sorted(
+        int(elem_id) for elem_id in existing_elements_data.keys() if elem_id is not None
+    )
+    if not linked_ids:
+        return substation_filter, []
+
+    placeholders = ",".join(["?"] * len(linked_ids))
+    return f"({substation_filter} OR e.id IN ({placeholders}))", linked_ids
+
+
+def format_maintenance_element_name(element_name, operating_status):
+    name = str(element_name or "").strip()
+    if not name:
+        return ""
+    if str(operating_status or "").strip() != "Ανενεργή":
+        return name
+    suffix = S["MESSAGES"].get("INACTIVE_ELEMENT_SUFFIX", "(ΠΑΛΙΟ)")
+    suffix = str(suffix or "").strip()
+    if not suffix or name.endswith(f" {suffix}") or name.endswith(suffix):
+        return name
+    return f"{name} {suffix}"
+
+
 class GateTag(Widget):
     """Small vertical tag showing gate name rotated bottom->top with colored background."""
 
@@ -16340,6 +16381,7 @@ class SubstationApp(App):
                     operations_count,
                     model_manufacturer,
                     model_name,
+                    _operating_status,
                 ) = elem
 
                 # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
@@ -16385,6 +16427,7 @@ class SubstationApp(App):
                     operations_count,
                     model_manufacturer,
                     model_name,
+                    _operating_status,
                 ) = elem
 
                 gate_key = gate if gate else get_unreg()
@@ -16431,6 +16474,7 @@ class SubstationApp(App):
                             _operations_count,
                             _model_manufacturer,
                             _model_name,
+                            _operating_status,
                         ) in gate_rows:
                             widgets = element_widgets.get(gate_elem_id)
                             checkbox_widget = (
@@ -16562,13 +16606,17 @@ class SubstationApp(App):
                     operations_count,
                     model_manufacturer,
                     model_name,
+                    operating_status,
                 ) in gate_elements:
                     # Determine if this is a circuit breaker for showing measurement fields
                     is_breaker = elem_type in self.BREAKER_ELEMENT_TYPES
 
                     # Build element display text with breaker type, manufacturer, and model
                     display_type = self._format_elem_type(elem_type, is_main_switch)
-                    elem_display = f"[b]{elem_name}[/b] - {display_type}"
+                    display_name = format_maintenance_element_name(
+                        elem_name, operating_status
+                    )
+                    elem_display = f"[b]{display_name}[/b] - {display_type}"
                     if breaker_category:
                         elem_display += f" ({breaker_category})"
                     elem_display += f"\nS/N: {serial_number or '-'}"
@@ -16617,6 +16665,7 @@ class SubstationApp(App):
                     # Store metadata for this element so builders can use it reliably
                     element_widgets[elem_id]["meta"] = {
                         "elem_name": elem_name,
+                        "display_name": display_name,
                         "breaker_category": breaker_category,
                         "elem_type": elem_type,
                         "model_manufacturer": model_manufacturer,
@@ -22802,7 +22851,7 @@ class SubstationApp(App):
         c.execute(
             """
             SELECT e.id, e.element_type, e.name, e.serial_number, me.element_comments,
-                   e.breaker_category,
+                   e.breaker_category, e.operating_status,
                    me.insulation_closed_fa_ground, me.insulation_closed_fa_unit,
                    me.insulation_closed_fb_ground, me.insulation_closed_fb_unit,
                    me.insulation_closed_fc_ground, me.insulation_closed_fc_unit,
@@ -22840,6 +22889,7 @@ class SubstationApp(App):
                 serial_num,
                 elem_comments,
                 breaker_category,
+                operating_status,
                 ins_closed_fa,
                 ins_closed_fa_unit,
                 ins_closed_fb,
@@ -22875,7 +22925,10 @@ class SubstationApp(App):
                 elem_row = BoxLayout(size_hint_y=None, height=42, spacing=6)
                 elem_row.bind(minimum_height=elem_row.setter("height"))
 
-                elem_text = f"• {elem_type}: {elem_name} (S/N: {serial_num or '-'})"
+                display_name = format_maintenance_element_name(
+                    elem_name, operating_status
+                )
+                elem_text = f"• {elem_type}: {display_name} (S/N: {serial_num or '-'})"
                 if elem_comments:
                     elem_text += "\n  " + S["MESSAGES"].get(
                         "COMMENTS_LABEL", "Σχόλια: {text}"

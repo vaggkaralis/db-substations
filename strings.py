@@ -263,6 +263,7 @@ STRINGS_EL = {
         "IMPORT_INSPECTIONS_TITLE": "Εισαγωγή Επιθεωρήσεων",
         "IMPORT_SUCCESS": "Επιτυχής εισαγωγή!",
         "INACTIVE_ELEMENTS": "Ανενεργά στοιχεία ({count})",
+        "INACTIVE_ELEMENT_SUFFIX": "(ΠΑΛΙΟ)",
         "INFO": "Στοιχεία",
         "INSPECTION_BASE_FIELDS": [
             "Υποσταθμός",
@@ -1250,6 +1251,7 @@ STRINGS_EN = {
         "PLEASE_SELECT_BREAKER_CATEGORY": "Please select breaker category!",
         "PLEASE_SELECT_EML": "Please select a .eml file!",
         "INACTIVE_ELEMENTS": "Inactive Elements ({count})",
+        "INACTIVE_ELEMENT_SUFFIX": "(OLD)",
         "ELEMENT_MAINT_HISTORY_TITLE": "Maintenance History - {element_name}",
         "NO_MAINTENANCE_HISTORY": "No maintenance history found for this element",
         "VIEW_FULL_MAINTENANCE": "Full Report",

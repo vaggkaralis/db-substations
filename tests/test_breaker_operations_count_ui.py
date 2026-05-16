@@ -449,6 +449,7 @@ def test_show_maintenance_full_report_includes_element_form_data(monkeypatch):
                         None,
                         None,
                         None,
+                        None,
                         116,
                         None,
                         "Πλήρωση",
