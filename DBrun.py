@@ -16305,14 +16305,14 @@ class SubstationApp(App):
             c = self.conn.cursor()
             c.execute(
                 """
-                                    SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.hemizygos, e.is_main_switch,
-                       e.breaker_category, e.manufacturer, e.model, e.operations_count,
-                       em.manufacturer as model_manufacturer, em.model_name
-                FROM elements e
-                LEFT JOIN element_models em ON e.element_model_id = em.id
-                WHERE e.substation_id=?
-                  ORDER BY e.gate
-            """,
+                                                                        SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.hemizygos, e.is_main_switch,
+                                             e.breaker_category, e.manufacturer, e.model, e.operations_count,
+                                             em.manufacturer as model_manufacturer, em.model_name, e.operating_status
+                                FROM elements e
+                                LEFT JOIN element_models em ON e.element_model_id = em.id
+                                WHERE e.substation_id=?
+                                    ORDER BY e.gate
+                        """,
                 (substation_id,),
             )
             elements = c.fetchall()
