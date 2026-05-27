@@ -7,15 +7,78 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 $ProjectDir = $PSScriptRoot
-$VenvPython = Join-Path $ProjectDir ".venv\Scripts\python.exe"
 $DistDir = Join-Path $ProjectDir "dist"
 $BuildDir = Join-Path $ProjectDir "build"
 
+function Resolve-VenvPython {
+    param(
+        [string]$ProjectDir
+    )
+
+    $candidatePythons = @()
+
+    function Get-EnvValue {
+        param(
+            [string]$Name
+        )
+
+        $processValue = [Environment]::GetEnvironmentVariable($Name, "Process")
+        if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+            return $processValue.Trim()
+        }
+
+        $userValue = [Environment]::GetEnvironmentVariable($Name, "User")
+        if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+            return $userValue.Trim()
+        }
+
+        $machineValue = [Environment]::GetEnvironmentVariable($Name, "Machine")
+        if (-not [string]::IsNullOrWhiteSpace($machineValue)) {
+            return $machineValue.Trim()
+        }
+
+        return $null
+    }
+
+    $explicitPython = $null
+    $explicitPython = Get-EnvValue -Name "SUBSTATIONMANAGER_VENV_PYTHON"
+    if ($explicitPython) {
+        $candidatePythons += $explicitPython
+    }
+
+    $explicitVenvDir = $null
+    $explicitVenvDir = Get-EnvValue -Name "SUBSTATIONMANAGER_VENV_DIR"
+    if ($explicitVenvDir) {
+        $candidatePythons += (Join-Path $explicitVenvDir "Scripts\python.exe")
+    }
+
+    $activeVenvDir = $null
+    $activeVenvDir = Get-EnvValue -Name "VIRTUAL_ENV"
+    if ($activeVenvDir) {
+        $candidatePythons += (Join-Path $activeVenvDir "Scripts\python.exe")
+    }
+
+    $candidatePythons += (Join-Path $ProjectDir ".venv\Scripts\python.exe")
+
+    foreach ($candidate in $candidatePythons) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+
+    return $null
+}
+
+$VenvPython = Resolve-VenvPython -ProjectDir $ProjectDir
+
 if (-Not (Test-Path $VenvPython)) {
-    Write-Host "ΣΦΑΛΜΑ: Δεν βρέθηκε το virtual environment στο .venv" -ForegroundColor Red
-    Write-Host "Παρακαλώ εκτελέστε πρώτα: python -m venv .venv" -ForegroundColor Yellow
+    Write-Host "ΣΦΑΛΜΑ: Δεν βρέθηκε διαθέσιμο virtual environment Python" -ForegroundColor Red
+    Write-Host "Ορίστε SUBSTATIONMANAGER_VENV_DIR ή SUBSTATIONMANAGER_VENV_PYTHON για venv εκτός OneDrive," -ForegroundColor Yellow
+    Write-Host "ή ενεργοποιήστε ένα venv πριν το build. Fallback παραμένει το .venv του project." -ForegroundColor Yellow
     exit 1
 }
+
+Write-Host "Χρήση Python από: $VenvPython" -ForegroundColor Gray
 
 $StaleBuildProcesses = Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='python.exe'" |
     Where-Object {

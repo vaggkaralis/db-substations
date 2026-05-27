@@ -3,16 +3,20 @@
 # Allow module-level environment setup before imports (Kivy needs env vars)
 # flake8: noqa: E402
 
-# Ensure Kivy does not print verbose INFO logs to the console by setting
-# environment variables before any module importing Kivy runs.
+# Ensure Kivy logging is configured before any module importing Kivy runs.
+# `MIXED` keeps Kivy's own logger active, but avoids redirecting `sys.stderr`
+# or attaching Kivy handlers to the root logger, which can recurse once the
+# app installs its own logging handlers later in startup.
 import os as _env
 
 _env.environ.setdefault("KIVY_NO_CONSOLELOG", "0")
+_env.environ.setdefault("KIVY_LOG_MODE", "MIXED")
 _env.environ.setdefault("KIVY_LOG_LEVEL", "info")
 _env.environ.setdefault("KCFG_INPUT_MOUSE", "mouse,disable_multitouch")
 
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -672,6 +676,109 @@ def format_maintenance_element_name(element_name, operating_status):
     if not suffix or name.endswith(f" {suffix}") or name.endswith(suffix):
         return name
     return f"{name} {suffix}"
+
+
+DEFAULT_OIL_DRUM_VOLUME_L = 200.0
+DEFAULT_OIL_EXTRA_TOLERANCE_PCT = 10.0
+DEFAULT_TRANSFORMER_OIL_DENSITY_KG_PER_L = 0.89
+
+
+def is_oil_maintenance_element(element_type, breaker_category=None):
+    element_type_text = str(element_type or "").strip().casefold()
+    breaker_category_text = str(breaker_category or "").strip().casefold()
+    if "μετασχηματιστ" in element_type_text or "transformer" in element_type_text:
+        return True
+    return breaker_category_text in {
+        "ελαίου",
+        "πτωχού ελαίου",
+        "oil",
+        "low oil",
+    }
+
+
+def oil_weight_kg_to_liters(
+    oil_weight_kg,
+    density_kg_per_l=DEFAULT_TRANSFORMER_OIL_DENSITY_KG_PER_L,
+):
+    try:
+        oil_weight_val = float(oil_weight_kg)
+        density_val = float(density_kg_per_l)
+    except (TypeError, ValueError):
+        return None
+    if density_val <= 0:
+        return None
+    return oil_weight_val / density_val
+
+
+def summarize_oil_requirement(
+    total_liters,
+    barrel_volume_l=DEFAULT_OIL_DRUM_VOLUME_L,
+    tolerance_pct=DEFAULT_OIL_EXTRA_TOLERANCE_PCT,
+):
+    try:
+        base_liters = max(0.0, float(total_liters or 0.0))
+    except (TypeError, ValueError):
+        base_liters = 0.0
+    try:
+        barrel_volume_val = float(barrel_volume_l or 0.0)
+    except (TypeError, ValueError):
+        barrel_volume_val = 0.0
+    try:
+        tolerance_val = max(0.0, float(tolerance_pct or 0.0))
+    except (TypeError, ValueError):
+        tolerance_val = 0.0
+
+    adjusted_liters = round(base_liters * (1.0 + tolerance_val / 100.0), 6)
+    exact_barrels = (
+        round(adjusted_liters / barrel_volume_val, 6) if barrel_volume_val > 0 else 0.0
+    )
+    return {
+        "base_liters": base_liters,
+        "adjusted_liters": adjusted_liters,
+        "exact_barrels": exact_barrels,
+        "rounded_barrels": int(math.ceil(exact_barrels))
+        if adjusted_liters > 0 and barrel_volume_val > 0
+        else 0,
+    }
+
+
+def is_inactive_operating_status(operating_status):
+    return str(operating_status or "").strip() == "Ανενεργή"
+
+
+def should_show_maintenance_element(
+    operating_status,
+    show_inactive=False,
+    is_selected=False,
+):
+    if show_inactive or is_selected:
+        return True
+    return not is_inactive_operating_status(operating_status)
+
+
+def filter_maintenance_elements_for_form(
+    elements,
+    selected_element_ids=None,
+    show_inactive=False,
+):
+    selected_ids = {
+        int(elem_id) for elem_id in (selected_element_ids or []) if elem_id is not None
+    }
+    visible_elements = []
+    hidden_inactive_count = 0
+    for element in elements or []:
+        elem_id = element[0] if element else None
+        is_selected = elem_id in selected_ids
+        operating_status = element[-1] if element else None
+        if should_show_maintenance_element(
+            operating_status,
+            show_inactive=show_inactive,
+            is_selected=is_selected,
+        ):
+            visible_elements.append(element)
+        elif is_inactive_operating_status(operating_status):
+            hidden_inactive_count += 1
+    return visible_elements, hidden_inactive_count
 
 
 class GateTag(Widget):
@@ -9704,6 +9811,50 @@ class SubstationApp(App):
                 "overview_status": {"status": f"ERROR: {exc}"},
             }
 
+    def _collect_sync_touched_tables(self, changes=None):
+        touched_tables = set()
+        for change in changes or []:
+            if not isinstance(change, dict):
+                continue
+            table_name = str(change.get("table") or "").strip()
+            if table_name:
+                touched_tables.add(table_name)
+        return touched_tables
+
+    def _collect_sync_summary_tables(self, sync_summary=None):
+        touched_tables = set()
+        for item in (sync_summary or {}).get("file_summaries") or []:
+            table_counts = (item or {}).get("table_counts") or {}
+            if not isinstance(table_counts, dict):
+                continue
+            for table_name, count in table_counts.items():
+                try:
+                    if int(count or 0) <= 0:
+                        continue
+                except Exception:
+                    continue
+                table_name = str(table_name or "").strip()
+                if table_name:
+                    touched_tables.add(table_name)
+        return touched_tables
+
+    def _sync_requires_structure_refresh(self, touched_tables):
+        return bool({"elements", "substations"} & set(touched_tables or ()))
+
+    def _sync_requires_asset_repair_for_tables(self, touched_tables):
+        asset_tables = {
+            "elements",
+            "substations",
+            "maintenance",
+            "maintenance_elements",
+            "maintenance_people",
+            "maintenance_files",
+            "maintenance_report_paths",
+            "maintenance_overview_report_paths",
+            "dga_measurements",
+        }
+        return bool(asset_tables & set(touched_tables or ()))
+
     def process_sync_inbox_now(
         self, progress_callback=None, conn_override=None, show_report=True
     ):
@@ -9791,11 +9942,14 @@ class SubstationApp(App):
             "remaining": 0,
         }
         asset_health = {
-            "needs_repair": True,
+            "needs_repair": False,
             "report_status": {},
             "overview_status": {},
         }
         stage_errors = []
+        local_pending_tables = self._collect_sync_touched_tables(
+            getattr(self, "_pending_changes", []) or []
+        )
         try:
             exported_count = len(getattr(self, "_pending_changes", []) or [])
             if exported_count > 0:
@@ -9814,34 +9968,37 @@ class SubstationApp(App):
         hot_keep = int(get_app_setting("backup_hot_keep", 3) or 3)
         backup_on_change = bool(get_app_setting("sync_backup_on_change", True))
 
-        _notify_progress(
-            10,
-            S["MESSAGES"].get(
-                "STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."
-            ),
-            S["MESSAGES"].get(
-                "SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."
-            ),
-        )
-        try:
-            structure_progress = _stage_progress_callback(
+        if self._sync_requires_structure_refresh(local_pending_tables):
+            _notify_progress(
                 10,
-                24,
+                S["MESSAGES"].get(
+                    "STARTUP_SYNC_DATA_ONEDRIVE",
+                    "Συγχρονισμός δεδομένων με OneDrive...",
+                ),
                 S["MESSAGES"].get(
                     "SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."
                 ),
             )
-            structure_result = sync_all_substation_structures(
-                work_conn,
-                db_path=self.db_path,
-                quiet=True,
-                progress_callback=structure_progress,
-            )
-        except Exception as exc:
-            logging.exception(
-                "Failed to sync shared OneDrive folder structures during manual sync"
-            )
-            stage_errors.append(f"Συγχρονισμός δομής φακέλων: {exc}")
+            try:
+                structure_progress = _stage_progress_callback(
+                    10,
+                    24,
+                    S["MESSAGES"].get(
+                        "SYNC_PROGRESS_STRUCTURE",
+                        "Συγχρονισμός δομής φακέλων...",
+                    ),
+                )
+                structure_result = sync_all_substation_structures(
+                    work_conn,
+                    db_path=self.db_path,
+                    quiet=True,
+                    progress_callback=structure_progress,
+                )
+            except Exception as exc:
+                logging.exception(
+                    "Failed to sync shared OneDrive folder structures during manual sync"
+                )
+                stage_errors.append(f"Συγχρονισμός δομής φακέλων: {exc}")
 
         _notify_progress(
             26,
@@ -9861,9 +10018,14 @@ class SubstationApp(App):
         )
         retention = summary.get("retention") or {}
 
-        sync_changes = int(((summary.get("sync") or {}).get("accepted", 0) or 0))
-        needs_asset_repair = bool(exported_count > 0 or sync_changes > 0)
-        if not needs_asset_repair:
+        sync_touched_tables = set(local_pending_tables)
+        sync_touched_tables.update(
+            self._collect_sync_summary_tables(summary.get("sync") or {})
+        )
+        needs_asset_repair = self._sync_requires_asset_repair_for_tables(
+            sync_touched_tables
+        )
+        if not needs_asset_repair and not sync_touched_tables:
             try:
                 asset_health = self._sync_assets_need_repair(conn_override=work_conn)
                 needs_asset_repair = bool(asset_health.get("needs_repair"))
@@ -9933,36 +10095,35 @@ class SubstationApp(App):
                 )
                 stage_errors.append(f"Σύνδεση αρχείων και αναφορών: {exc}")
 
-            if sync_changes > 0:
-                _notify_progress(
+        if self._sync_requires_structure_refresh(sync_touched_tables):
+            _notify_progress(
+                90,
+                S["MESSAGES"].get(
+                    "STARTUP_SYNC_DATA_ONEDRIVE",
+                    "Συγχρονισμός δεδομένων με OneDrive...",
+                ),
+                S["MESSAGES"].get(
+                    "SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."
+                ),
+            )
+            try:
+                final_sync_progress = _stage_progress_callback(
                     90,
+                    97,
                     S["MESSAGES"].get(
-                        "STARTUP_SYNC_DATA_ONEDRIVE",
-                        "Συγχρονισμός δεδομένων με OneDrive...",
-                    ),
-                    S["MESSAGES"].get(
-                        "SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."
+                        "SYNC_PROGRESS_STRUCTURE",
+                        "Συγχρονισμός δομής φακέλων...",
                     ),
                 )
-                try:
-                    final_sync_progress = _stage_progress_callback(
-                        90,
-                        97,
-                        S["MESSAGES"].get(
-                            "SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."
-                        ),
-                    )
-                    sync_all_substation_structures(
-                        work_conn,
-                        db_path=self.db_path,
-                        quiet=True,
-                        progress_callback=final_sync_progress,
-                    )
-                except Exception as exc:
-                    logging.exception(
-                        "Failed to prune empty folders during manual sync"
-                    )
-                    stage_errors.append(f"Τελικός καθαρισμός φακέλων: {exc}")
+                sync_all_substation_structures(
+                    work_conn,
+                    db_path=self.db_path,
+                    quiet=True,
+                    progress_callback=final_sync_progress,
+                )
+            except Exception as exc:
+                logging.exception("Failed to prune empty folders during manual sync")
+                stage_errors.append(f"Τελικός καθαρισμός φακέλων: {exc}")
 
         # Retry queued hybrid jobs (folder creation retries).
         _notify_progress(
@@ -10591,6 +10752,11 @@ class SubstationApp(App):
                     "reports_already": 0,
                     "reports_missing": 0,
                 }
+                asset_health = {
+                    "needs_repair": False,
+                    "report_status": {},
+                    "overview_status": {},
+                }
                 startup_conn = None
 
                 try:
@@ -10624,40 +10790,43 @@ class SubstationApp(App):
                         ),
                     )
 
-                    # Ensure folder structure for all substations with elements
-                    try:
-                        _notify_startup_progress(
-                            10,
-                            S["MESSAGES"].get(
-                                "SYNC_PROGRESS_STRUCTURE",
-                                "Synchronizing folder structure...",
-                            ),
-                        )
-                        _sync_progress = _startup_stage_progress_callback(
-                            10,
-                            24,
-                            S["MESSAGES"].get(
-                                "SYNC_PROGRESS_STRUCTURE",
-                                "Synchronizing folder structure...",
-                            ),
-                        )
+                    local_pending_tables = self._collect_sync_touched_tables(
+                        getattr(self, "_pending_changes", []) or []
+                    )
+                    if self._sync_requires_structure_refresh(local_pending_tables):
+                        try:
+                            _notify_startup_progress(
+                                10,
+                                S["MESSAGES"].get(
+                                    "SYNC_PROGRESS_STRUCTURE",
+                                    "Synchronizing folder structure...",
+                                ),
+                            )
+                            _sync_progress = _startup_stage_progress_callback(
+                                10,
+                                24,
+                                S["MESSAGES"].get(
+                                    "SYNC_PROGRESS_STRUCTURE",
+                                    "Synchronizing folder structure...",
+                                ),
+                            )
 
-                        sync_result = sync_all_substation_structures(
-                            startup_conn,
-                            db_path=self.db_path,
-                            quiet=True,
-                            progress_callback=_sync_progress,
-                        )
-                        logging.info(
-                            "Substation folder sync: total=%s synced=%s failed=%s",
-                            sync_result.get("total", 0),
-                            sync_result.get("synced", 0),
-                            sync_result.get("failed", 0),
-                        )
-                    except Exception:
-                        logging.exception(
-                            "Failed to sync substation folder structures at startup"
-                        )
+                            sync_result = sync_all_substation_structures(
+                                startup_conn,
+                                db_path=self.db_path,
+                                quiet=True,
+                                progress_callback=_sync_progress,
+                            )
+                            logging.info(
+                                "Substation folder sync: total=%s synced=%s failed=%s",
+                                sync_result.get("total", 0),
+                                sync_result.get("synced", 0),
+                                sync_result.get("failed", 0),
+                            )
+                        except Exception:
+                            logging.exception(
+                                "Failed to sync substation folder structures at startup"
+                            )
 
                     # Store intermediate results for main thread access
                     results["sync_result"] = sync_result
@@ -10691,16 +10860,16 @@ class SubstationApp(App):
                     except Exception:
                         logging.exception("Failed to run sync cycle at startup")
 
-                    sync_changes = int(
-                        (
-                            ((results.get("run_result") or {}).get("sync") or {}).get(
-                                "accepted", 0
-                            )
-                            or 0
+                    sync_touched_tables = set(local_pending_tables)
+                    sync_touched_tables.update(
+                        self._collect_sync_summary_tables(
+                            (results.get("run_result") or {}).get("sync") or {}
                         )
                     )
-                    needs_asset_repair = bool(sync_changes > 0)
-                    if not needs_asset_repair:
+                    needs_asset_repair = self._sync_requires_asset_repair_for_tables(
+                        sync_touched_tables
+                    )
+                    if not needs_asset_repair and not sync_touched_tables:
                         try:
                             asset_health = self._sync_assets_need_repair(
                                 conn_override=startup_conn
@@ -10802,7 +10971,7 @@ class SubstationApp(App):
                         )
 
                     try:
-                        if needs_asset_repair and sync_changes > 0:
+                        if self._sync_requires_structure_refresh(sync_touched_tables):
                             _notify_startup_progress(
                                 90,
                                 S["MESSAGES"].get(
@@ -14481,6 +14650,7 @@ class SubstationApp(App):
                 return
 
             maint_substation_id = maintenance_record[0]
+            existing_primary_media_folder = maintenance_record[7] or None
             c.execute("SELECT name FROM substations WHERE id=?", (maint_substation_id,))
             sub_row = c.fetchone()
             if sub_row:
@@ -15940,34 +16110,6 @@ class SubstationApp(App):
         # later so the completion button appears as the last item in the
         # scrollable content.
 
-        # OneDrive Media Folder Link
-        onedrive_media_label = Label(
-            text=S["MESSAGES"].get(
-                "ONEDRIVE_MEDIA_LABEL",
-                "Σύνδεσμος Φάκελου Εικόνων/Video (OneDrive):",
-            ),
-            size_hint_y=None,
-            height=35,
-        )
-        content_layout.add_widget(onedrive_media_label)
-        _register_wizard_widget(2, onedrive_media_label)
-        onedrive_media_default = (
-            maintenance_record[7]
-            if maintenance_record and len(maintenance_record) > 7
-            else ""
-        )
-        if not maintenance_id and prefill_data.get("onedrive_media_folder_link"):
-            onedrive_media_default = prefill_data.get("onedrive_media_folder_link")
-        onedrive_media_link = TextInput(
-            hint_text="https://...",
-            text=onedrive_media_default or "",
-            size_hint_y=None,
-            height=40,
-            multiline=False,
-        )
-        content_layout.add_widget(onedrive_media_link)
-        _register_wizard_widget(2, onedrive_media_link)
-
         staged_attachment_paths = list(prefill_attachment_paths)
         session_attachment_added = {"value": bool(staged_attachment_paths)}
 
@@ -16024,7 +16166,7 @@ class SubstationApp(App):
         def _get_attachment_target():
             if existing_primary_media_folder:
                 return existing_primary_media_folder
-            return onedrive_media_link.text.strip()
+            return None
 
         def refresh_attachment_summary(*_args):
             target = _get_attachment_target()
@@ -16079,19 +16221,30 @@ class SubstationApp(App):
         open_attachment_folder_btn.bind(
             on_press=lambda _x: _open_folder_or_url(_get_attachment_target())
         )
-        onedrive_media_link.bind(text=lambda *_args: refresh_attachment_summary())
 
         # Elements selection area
+        elements_header_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
         elements_section_label = Label(
             text=S["MESSAGES"].get(
                 "ELEMENTS_SECTION_LABEL",
                 "Στοιχεία που συντηρήθηκαν (τουλάχιστον 1):",
             ),
-            size_hint_y=None,
-            height=40,
+            size_hint_x=0.72,
+            halign="left",
+            valign="middle",
         )
-        content_layout.add_widget(elements_section_label)
-        _register_wizard_widget(2, elements_section_label)
+        elements_section_label.bind(
+            size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+        )
+        inactive_elements_toggle_btn = Button(
+            text=S["MESSAGES"].get("SHOW_INACTIVE_ELEMENTS", "Εμφάνιση ανενεργών"),
+            size_hint_x=0.28,
+        )
+        elements_header_row.add_widget(elements_section_label)
+        elements_header_row.add_widget(Widget())
+        elements_header_row.add_widget(inactive_elements_toggle_btn)
+        content_layout.add_widget(elements_header_row)
+        _register_wizard_widget(2, elements_header_row)
 
         # Container for element checkboxes (no longer in a separate ScrollView)
         elements_container = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
@@ -16099,10 +16252,73 @@ class SubstationApp(App):
         content_layout.add_widget(elements_container)
         _register_wizard_widget(2, elements_container)
 
+        oil_planning_section = BoxLayout(
+            orientation="vertical", size_hint_y=None, spacing=6, padding=(5, 5)
+        )
+        oil_planning_section.bind(minimum_height=oil_planning_section.setter("height"))
+        oil_planning_title = Label(
+            text="Σχεδιασμός λαδιών συντήρησης (draft):",
+            size_hint_y=None,
+            height=32,
+            bold=True,
+            halign="left",
+            valign="middle",
+        )
+        oil_planning_title.bind(
+            size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+        )
+        oil_planning_note = Label(
+            text=(
+                "Χρησιμοποιείται τυπικό βαρέλι 200 L και επιπλέον ανοχή +10%. "
+                "Για μετασχηματιστές/διακόπτες ελαίου με τιμή μοντέλου, το πεδίο "
+                "προ-συμπληρώνεται από το βάρος ελαίου του μοντέλου (~0.89 kg/L)."
+            ),
+            size_hint_y=None,
+            halign="left",
+            valign="top",
+        )
+        oil_planning_note.bind(
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(42, val[1] + 6)),
+        )
+        oil_planning_summary = Label(
+            text="",
+            size_hint_y=None,
+            halign="left",
+            valign="top",
+        )
+        oil_planning_summary.bind(
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(48, val[1] + 6)),
+        )
+        oil_planning_rows = GridLayout(cols=1, spacing=6, size_hint_y=None, padding=0)
+        oil_planning_rows.bind(minimum_height=oil_planning_rows.setter("height"))
+        oil_planning_section.add_widget(oil_planning_title)
+        oil_planning_section.add_widget(oil_planning_note)
+        oil_planning_section.add_widget(oil_planning_summary)
+        oil_planning_section.add_widget(oil_planning_rows)
+        content_layout.add_widget(oil_planning_section)
+        _register_wizard_widget(2, oil_planning_section)
+
         # Dictionary to store element widgets
         element_widgets = {}
         bulk_element_selection = {"active": False}
         gate_sections = {}
+        gate_order = []
+        show_inactive_elements = {"value": False}
+        inactive_elements_state = {"hidden_count": 0, "total_count": 0}
+        no_visible_elements_label = Label(text="", size_hint_y=None, height=40)
+        oil_planning_row_widgets = {}
+        oil_planning_empty_label = Label(
+            text="Επιλέξτε μετασχηματιστές ή διακόπτες ελαίου για να εμφανιστεί ο υπολογισμός.",
+            size_hint_y=None,
+            height=36,
+            halign="left",
+            valign="middle",
+        )
+        oil_planning_empty_label.bind(
+            size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+        )
 
         def _get_selected_element_count():
             return sum(
@@ -16110,6 +16326,251 @@ class SubstationApp(App):
                 for widgets in element_widgets.values()
                 if getattr(widgets.get("checkbox"), "active", False)
             )
+
+        def _parse_local_decimal(value):
+            try:
+                raw_text = str(value or "").strip().replace(",", ".")
+                return float(raw_text) if raw_text else None
+            except Exception:
+                return None
+
+        def _format_local_decimal(value, digits=1):
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return "-"
+            if abs(value - round(value)) < 0.0001:
+                return str(int(round(value)))
+            return f"{value:.{digits}f}"
+
+        def _get_selected_oil_elements():
+            selected_rows = []
+            seen_ids = set()
+            for gate_name in gate_order:
+                for elem_id in gate_sections.get(gate_name, {}).get("element_ids", []):
+                    if elem_id in seen_ids:
+                        continue
+                    seen_ids.add(elem_id)
+                    widgets = element_widgets.get(elem_id) or {}
+                    if not getattr(widgets.get("checkbox"), "active", False):
+                        continue
+                    meta = widgets.get("meta") or {}
+                    if not is_oil_maintenance_element(
+                        meta.get("elem_type"), meta.get("breaker_category")
+                    ):
+                        continue
+                    selected_rows.append((elem_id, widgets))
+            return selected_rows
+
+        def _refresh_oil_planning_summary():
+            selected_rows = _get_selected_oil_elements()
+            entered_values = []
+            missing_count = 0
+            for elem_id, _widgets in selected_rows:
+                row_info = oil_planning_row_widgets.get(elem_id) or {}
+                liters_input = row_info.get("liters_input")
+                liters_val = _parse_local_decimal(
+                    getattr(liters_input, "text", "") if liters_input else ""
+                )
+                if liters_val is None:
+                    missing_count += 1
+                    continue
+                entered_values.append(max(0.0, liters_val))
+
+            summary = summarize_oil_requirement(sum(entered_values))
+            lines = [
+                f"Στοιχεία ελαίου: {len(selected_rows)} | Συμπληρωμένες ποσότητες: {len(entered_values)}/{len(selected_rows)}",
+                (
+                    f"Καθαρή ανάγκη: {_format_local_decimal(summary['base_liters'])} L | "
+                    f"Με +10%: {_format_local_decimal(summary['adjusted_liters'])} L | "
+                    f"Βαρέλια 200 L: {summary['exact_barrels']:.2f} -> {summary['rounded_barrels']}"
+                ),
+            ]
+            if missing_count:
+                lines.append(f"Λείπουν ποσότητες για {missing_count} στοιχείο/α.")
+            oil_planning_summary.text = "\n".join(lines)
+
+        def _render_oil_planning_rows():
+            selected_rows = _get_selected_oil_elements()
+            oil_planning_rows.clear_widgets()
+            if not selected_rows:
+                oil_planning_rows.add_widget(oil_planning_empty_label)
+                oil_planning_summary.text = (
+                    "Στοιχεία ελαίου: 0 | Συμπληρωμένες ποσότητες: 0/0\n"
+                    "Καθαρή ανάγκη: 0 L | Με +10%: 0 L | Βαρέλια 200 L: 0.00 -> 0"
+                )
+                return
+
+            for elem_id, widgets in selected_rows:
+                meta = widgets.get("meta") or {}
+                row_info = oil_planning_row_widgets.get(elem_id)
+                source_liters = oil_weight_kg_to_liters(meta.get("oil_weight_kg"))
+                source_weight = meta.get("oil_weight_kg")
+                source_text = (
+                    f"Μοντέλο: {_format_local_decimal(source_weight)} kg ~ {_format_local_decimal(source_liters)} L"
+                    if source_liters is not None
+                    else "Χωρίς τιμή μοντέλου - εισάγετε λίτρα"
+                )
+                if not row_info:
+                    row_box = BoxLayout(
+                        orientation="horizontal",
+                        size_hint_y=None,
+                        height=42,
+                        spacing=6,
+                    )
+                    title_label = Label(
+                        text=str(
+                            meta.get("planner_label")
+                            or meta.get("display_name")
+                            or widgets.get("display")
+                            or elem_id
+                        ),
+                        size_hint_x=0.52,
+                        halign="left",
+                        valign="middle",
+                    )
+                    title_label.bind(
+                        size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+                    )
+                    liters_input = TextInput(
+                        text=(
+                            _format_local_decimal(source_liters)
+                            if source_liters is not None
+                            else ""
+                        ),
+                        hint_text="λίτρα",
+                        multiline=False,
+                        size_hint_x=0.14,
+                    )
+                    liters_input.bind(
+                        text=lambda inst, val: (
+                            setattr(
+                                inst,
+                                "text",
+                                self._normalize_decimal_numeric_text(val),
+                            )
+                            if val and "," in val
+                            else None
+                        )
+                    )
+                    liters_input.bind(
+                        text=lambda *_args: _refresh_oil_planning_summary()
+                    )
+                    unit_label = Label(text="L", size_hint_x=0.05)
+                    source_label = Label(
+                        text=source_text,
+                        size_hint_x=0.29,
+                        halign="left",
+                        valign="middle",
+                    )
+                    source_label.bind(
+                        size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+                    )
+                    row_box.add_widget(title_label)
+                    row_box.add_widget(liters_input)
+                    row_box.add_widget(unit_label)
+                    row_box.add_widget(source_label)
+                    row_info = {
+                        "row_box": row_box,
+                        "title_label": title_label,
+                        "liters_input": liters_input,
+                        "source_label": source_label,
+                    }
+                    oil_planning_row_widgets[elem_id] = row_info
+                else:
+                    row_info["title_label"].text = str(
+                        meta.get("planner_label")
+                        or meta.get("display_name")
+                        or widgets.get("display")
+                        or elem_id
+                    )
+                    row_info["source_label"].text = source_text
+
+                oil_planning_rows.add_widget(row_info["row_box"])
+
+            _refresh_oil_planning_summary()
+
+        def _refresh_inactive_toggle_button():
+            total_count = inactive_elements_state["total_count"]
+            hidden_count = inactive_elements_state["hidden_count"]
+            if show_inactive_elements["value"]:
+                toggle_text = S["MESSAGES"].get(
+                    "HIDE_INACTIVE_ELEMENTS", "Απόκρυψη ανενεργών"
+                )
+                if total_count:
+                    toggle_text = f"{toggle_text} ({total_count})"
+            else:
+                toggle_text = S["MESSAGES"].get(
+                    "SHOW_INACTIVE_ELEMENTS", "Εμφάνιση ανενεργών"
+                )
+                if hidden_count:
+                    toggle_text = f"{toggle_text} ({hidden_count})"
+            inactive_elements_toggle_btn.text = toggle_text
+            inactive_elements_toggle_btn.disabled = total_count <= 0
+            inactive_elements_toggle_btn.opacity = 0.55 if total_count <= 0 else 1
+
+        def _refresh_elements_container_visibility():
+            hidden_inactive_count = 0
+            total_inactive_count = 0
+            elements_container.clear_widgets()
+            for gate_name in gate_order:
+                section = gate_sections.get(gate_name)
+                if not section:
+                    continue
+                gate_body = section.get("body")
+                gate_body.clear_widgets()
+                visible_count = 0
+                for elem_id in section.get("element_ids", []):
+                    widgets = element_widgets.get(elem_id) or {}
+                    operating_status = widgets.get("operating_status")
+                    checkbox_widget = widgets.get("checkbox")
+                    is_selected = getattr(checkbox_widget, "active", False)
+                    if is_inactive_operating_status(operating_status):
+                        total_inactive_count += 1
+                    if should_show_maintenance_element(
+                        operating_status,
+                        show_inactive=show_inactive_elements["value"],
+                        is_selected=is_selected,
+                    ):
+                        row_container = widgets.get("row_container")
+                        if row_container is not None:
+                            gate_body.add_widget(row_container)
+                            visible_count += 1
+                    elif is_inactive_operating_status(operating_status):
+                        hidden_inactive_count += 1
+
+                title_label = section.get("title_label")
+                if title_label is not None:
+                    title_label.text = f"{gate_name} ({visible_count} στοιχεία)"
+
+                if visible_count > 0:
+                    elements_container.add_widget(section["section_widget"])
+                    _sync_gate_expansion(
+                        gate_name,
+                        force=bool(section.get("expanded", False)),
+                    )
+
+            if not elements_container.children and gate_order:
+                no_visible_elements_label.text = S["MESSAGES"].get(
+                    "NO_VISIBLE_MAINTENANCE_ELEMENTS",
+                    "Δεν υπάρχουν ενεργά στοιχεία σε αυτόν τον υποσταθμό.",
+                )
+                elements_container.add_widget(no_visible_elements_label)
+
+            inactive_elements_state["hidden_count"] = hidden_inactive_count
+            inactive_elements_state["total_count"] = total_inactive_count
+            _refresh_inactive_toggle_button()
+            _render_oil_planning_rows()
+
+        def _toggle_inactive_elements(_instance=None):
+            show_inactive_elements["value"] = not show_inactive_elements["value"]
+            _refresh_elements_container_visibility()
+            refresh_workflow_summary()
+            _update_save_button_state()
+            _sync_dynamic_step_layout()
+
+        inactive_elements_toggle_btn.bind(on_press=_toggle_inactive_elements)
+        _refresh_inactive_toggle_button()
 
         def _set_gate_body_expanded(gate_name, expanded):
             section = gate_sections.get(gate_name)
@@ -16300,6 +16761,13 @@ class SubstationApp(App):
             """Load elements for selected substation"""
             elements_container.clear_widgets()
             element_widgets.clear()
+            gate_sections.clear()
+            gate_order[:] = []
+            show_inactive_elements["value"] = False
+            inactive_elements_state["hidden_count"] = 0
+            inactive_elements_state["total_count"] = 0
+            oil_planning_row_widgets.clear()
+            _refresh_inactive_toggle_button()
 
             substation_id = substation_map[substation_name]
             c = self.conn.cursor()
@@ -16307,7 +16775,7 @@ class SubstationApp(App):
                 """
                                                                         SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.hemizygos, e.is_main_switch,
                                              e.breaker_category, e.manufacturer, e.model, e.operations_count,
-                                             em.manufacturer as model_manufacturer, em.model_name, e.operating_status
+                                             em.manufacturer as model_manufacturer, em.model_name, e.operating_status, em.oil_weight_kg
                                 FROM elements e
                                 LEFT JOIN element_models em ON e.element_model_id = em.id
                                 WHERE e.substation_id=?
@@ -16382,6 +16850,7 @@ class SubstationApp(App):
                     model_manufacturer,
                     model_name,
                     _operating_status,
+                    _oil_weight_kg,
                 ) = elem
 
                 # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
@@ -16428,6 +16897,7 @@ class SubstationApp(App):
                     model_manufacturer,
                     model_name,
                     _operating_status,
+                    _oil_weight_kg,
                 ) = elem
 
                 gate_key = gate if gate else get_unreg()
@@ -16475,12 +16945,19 @@ class SubstationApp(App):
                             _model_manufacturer,
                             _model_name,
                             _operating_status,
+                            _oil_weight_kg,
                         ) in gate_rows:
                             widgets = element_widgets.get(gate_elem_id)
                             checkbox_widget = (
                                 widgets.get("checkbox") if widgets else None
                             )
                             if not checkbox_widget:
+                                continue
+                            if not should_show_maintenance_element(
+                                _operating_status,
+                                show_inactive=show_inactive_elements["value"],
+                                is_selected=bool(checkbox_widget.active),
+                            ):
                                 continue
                             if selection_mode == "clear":
                                 should_select = False
@@ -16503,11 +16980,9 @@ class SubstationApp(App):
                         gate_sections.get(gate_value, {}).get("element_ids")
                         or changed_element_ids,
                     )
-
-                    _sync_gate_expansion(
-                        gate_value,
-                        force=(selection_mode != "clear"),
-                    )
+                    if selection_mode != "clear":
+                        gate_sections.get(gate_value, {})["expanded"] = True
+                    _refresh_elements_container_visibility()
                     refresh_workflow_summary()
                     _update_save_button_state()
                     _sync_dynamic_step_layout()
@@ -16520,14 +16995,13 @@ class SubstationApp(App):
                 gate_header = BoxLayout(size_hint_y=None, height=38, spacing=6)
                 gate_toggle_btn = Button(text="+", size_hint_x=0.08)
                 gate_header.add_widget(gate_toggle_btn)
-                gate_header.add_widget(
-                    Label(
-                        text=f"{gate_name} ({element_count} στοιχεία)",
-                        size_hint_x=0.34,
-                        bold=True,
-                        color=(0.2, 0.6, 1, 1),
-                    )
+                gate_title_label = Label(
+                    text=f"{gate_name} ({element_count} στοιχεία)",
+                    size_hint_x=0.34,
+                    bold=True,
+                    color=(0.2, 0.6, 1, 1),
                 )
+                gate_header.add_widget(gate_title_label)
                 gate_all_btn = Button(text="Όλα", size_hint_x=0.14)
                 gate_mv_btn = Button(text="Ζυγοί ΜΤ", size_hint_x=0.18)
                 gate_clear_btn = Button(text="Καμία", size_hint_x=0.14)
@@ -16568,7 +17042,9 @@ class SubstationApp(App):
                     "element_ids": [],
                     "expanded": False,
                     "section_widget": gate_section,
+                    "title_label": gate_title_label,
                 }
+                gate_order.append(gate_name)
 
                 def _toggle_gate_body(_instance=None, gate_value=gate_name):
                     section = gate_sections.get(gate_value) or {}
@@ -16607,6 +17083,7 @@ class SubstationApp(App):
                     model_manufacturer,
                     model_name,
                     operating_status,
+                    oil_weight_kg,
                 ) in gate_elements:
                     # Determine if this is a circuit breaker for showing measurement fields
                     is_breaker = elem_type in self.BREAKER_ELEMENT_TYPES
@@ -16666,11 +17143,14 @@ class SubstationApp(App):
                     element_widgets[elem_id]["meta"] = {
                         "elem_name": elem_name,
                         "display_name": display_name,
+                        "planner_label": f"{display_name} | {display_type}",
                         "breaker_category": breaker_category,
                         "elem_type": elem_type,
                         "model_manufacturer": model_manufacturer,
                         "model_name": model_name,
                         "is_breaker": is_breaker,
+                        "is_transformer": self._is_transformer(elem_type),
+                        "oil_weight_kg": oil_weight_kg,
                         "operations_count": operations_count,
                         "last_operations_count": (
                             last_ops_map.get(elem_id)
@@ -18005,15 +18485,13 @@ class SubstationApp(App):
                     def _on_checkbox_active(instance, value, eid=elem_id):
                         if bulk_element_selection["active"]:
                             return
-                        _sync_gate_expansion(gate_name)
+                        _refresh_elements_container_visibility()
                         refresh_workflow_summary()
                         _update_save_button_state()
                         _sync_dynamic_step_layout()
                         return
 
                     checkbox.bind(active=_on_checkbox_active)
-
-                    gate_body.add_widget(elem_box)
 
                     # Add a visible separator line using Canvas
                     from kivy.uix.widget import Widget
@@ -18035,7 +18513,13 @@ class SubstationApp(App):
                                 Color(0.7, 0.7, 0.7, 1)
                                 Rectangle(pos=self.pos, size=(self.width, 2))
 
-                    gate_body.add_widget(SeparatorLine())
+                    row_container = BoxLayout(
+                        orientation="vertical", size_hint_y=None, spacing=0
+                    )
+                    row_container.bind(minimum_height=row_container.setter("height"))
+                    row_container.add_widget(elem_box)
+                    row_container.add_widget(SeparatorLine())
+                    gate_body.add_widget(row_container)
 
                     # Update existing element_widgets entry instead of overwriting
                     element_widgets.setdefault(elem_id, {})
@@ -18056,6 +18540,8 @@ class SubstationApp(App):
                             ),
                             "elem_type": elem_type,
                             "gate_name": gate_name,
+                            "operating_status": operating_status,
+                            "row_container": row_container,
                             "details_container": element_widgets[elem_id].get(
                                 "details_container"
                             ),
@@ -18242,8 +18728,7 @@ class SubstationApp(App):
                             # when there are no saved measurement values.
                             measurement_toggle.active = bool(has_existing_measurements)
 
-            for gate_name in gate_sections:
-                _sync_gate_expansion(gate_name)
+            _refresh_elements_container_visibility()
 
             refresh_workflow_summary()
             _sync_dynamic_step_layout()
@@ -18638,7 +19123,7 @@ class SubstationApp(App):
             if maintenance_id:
                 c.execute(
                     """UPDATE maintenance
-                       SET substation_id=?, name=?, date_time=?, overall_comments=?, maintenance_type=?, user_name=?, responsible_id=?, onedrive_media_folder_link=?, isolation_request_id=?, preparation_checklist_json=?
+                       SET substation_id=?, name=?, date_time=?, overall_comments=?, maintenance_type=?, user_name=?, responsible_id=?, isolation_request_id=?, preparation_checklist_json=?
                        WHERE id=?""",
                     (
                         substation_id,
@@ -18648,7 +19133,6 @@ class SubstationApp(App):
                         maintenance_type,
                         user_name,
                         responsible_id,
-                        onedrive_media_link.text.strip() or None,
                         linked_isolation_id_to_save,
                         checklist_json,
                         maintenance_id,
@@ -18677,7 +19161,7 @@ class SubstationApp(App):
                 )
             else:
                 c.execute(
-                    "INSERT INTO maintenance (substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id, onedrive_media_folder_link, isolation_request_id, preparation_checklist_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO maintenance (substation_id, name, date_time, overall_comments, maintenance_type, user_name, responsible_id, isolation_request_id, preparation_checklist_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         substation_id,
                         maintenance_name,
@@ -18686,7 +19170,6 @@ class SubstationApp(App):
                         maintenance_type,
                         user_name,
                         responsible_id,
-                        onedrive_media_link.text.strip() or None,
                         linked_isolation_id_to_save,
                         checklist_json,
                     ),

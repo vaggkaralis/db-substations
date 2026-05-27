@@ -1,7 +1,38 @@
 #!/bin/sh
 # Run pytest before committing; if tests fail, abort commit.
+
+resolve_python() {
+  if [ -n "$SUBSTATIONMANAGER_VENV_PYTHON" ] && [ -x "$SUBSTATIONMANAGER_VENV_PYTHON" ]; then
+    printf '%s\n' "$SUBSTATIONMANAGER_VENV_PYTHON"
+    return 0
+  fi
+
+  if [ -n "$SUBSTATIONMANAGER_VENV_DIR" ] && [ -x "$SUBSTATIONMANAGER_VENV_DIR/Scripts/python.exe" ]; then
+    printf '%s\n' "$SUBSTATIONMANAGER_VENV_DIR/Scripts/python.exe"
+    return 0
+  fi
+
+  if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/Scripts/python.exe" ]; then
+    printf '%s\n' "$VIRTUAL_ENV/Scripts/python.exe"
+    return 0
+  fi
+
+  if [ -x ".venv/Scripts/python.exe" ]; then
+    printf '%s\n' ".venv/Scripts/python.exe"
+    return 0
+  fi
+
+  return 1
+}
+
+PYTHON_EXE="$(resolve_python)"
+if [ -z "$PYTHON_EXE" ]; then
+  echo "No Python interpreter found for pre-commit hook. Configure SUBSTATIONMANAGER_VENV_DIR or activate a venv."
+  exit 1
+fi
+
 echo "Running test suite before commit..."
-.venv/Scripts/python.exe -m pytest -q
+"$PYTHON_EXE" -m pytest -q
 status=$?
 if [ $status -ne 0 ]; then
   echo "Tests failed (exit $status). Commit aborted. Fix tests or use --no-verify to bypass."
