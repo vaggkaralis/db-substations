@@ -9,6 +9,7 @@ from isolation_importer import (
     parse_isolation_request_text,
     split_isolation_email_payload,
 )
+from isolation_ui import _default_isolation_end_datetime
 
 
 def test_iter_substation_name_candidates_includes_base_name():
@@ -133,6 +134,18 @@ def test_parse_isolation_request_text_handles_weekday_range_and_substation():
     assert parsed["substation_candidates"] == ["ΣΤΑΓΕΙΡΩΝ"]
     assert parsed["start_datetime"] == f"{current_year}-04-17 09:00"
     assert parsed["end_datetime"] == f"{current_year}-04-17 14:00"
+
+
+def test_default_isolation_end_datetime_uses_start_date_when_import_lacks_end():
+    end_value = _default_isolation_end_datetime("2026-05-24 09:00", None)
+
+    assert end_value == "2026-05-24 14:00"
+
+
+def test_default_isolation_end_datetime_keeps_end_after_late_start():
+    end_value = _default_isolation_end_datetime("2026-05-24 18:30", None)
+
+    assert end_value == "2026-05-24 22:00"
 
 
 def test_match_substation_handles_candidate_with_trailing_schedule_words():

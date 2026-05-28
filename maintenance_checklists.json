@@ -4,13 +4,17 @@
       "key": "general",
       "label": "Γενικά",
       "items": [
-        { "key": "screwdrivers_wrenches", "label": "Κατσαβίδια, καστάνιες, ματσόλα, σπαθί" },
+        { "key": "screwdrivers_wrenches", "label": "Συλλογή, Κατσαβίδια, Καστάνιες, Ματσόλα, Σπαθί" },
         { "key": "flashlights", "label": "Φακοί" },
         { "key": "scrapers", "label": "Σπάτουλες για καθαρισμό επικαθίσεων" },
         { "key": "grounds_6x", "label": "Γειώσεις 6x (π.χ. Είτε 3x150KV + 1x20KV ή Είτε 6x150KV)" },
         { "key": "contact_grease", "label": "Γράσο επαφών" },
         { "key": "screws", "label": "Βίδες" },
-        { "key": "wooden_ladder", "label": "Ξύλινη σκάλα" }
+        { "key": "wooden_ladder", "label": "Ξύλινη σκάλα" },
+        { "key": "documents", "label": "Έντυπα Συντήρησης/Παραλαβής" },
+        { "key": "work_permission", "label": "Αδεια εργασίας εκτυπωμένη" },
+        { "key": "single_line_diagram", "label": "Μονογραμμικό εκτυπωμένο" },
+        { "key": "water_cooler", "label": "Ψύκτης για νερό" }
       ]
     },
     {
@@ -38,10 +42,11 @@
       "label": "Μετρήσεις",
       "items": [
         { "key": "blue_group_instruments", "label": "[Μπλε ομάδα] Schuetz, DV power Winding resistance, Doble tanδ" },
-        { "key": "red_group_instruments", "label": "[Κόκκινη ομάδα]" },
-        { "key": "green_group_instruments", "label": "[Πράσινη ομάδα]" },
+        { "key": "red_group_instruments", "label": "[Κόκκινη ομάδα] TRAX"  },
+        { "key": "green_group_instruments", "label": "[Πράσινη ομάδα] DV power TWA 500, DV power TRT 250, Doble tanδ" },
         { "key": "megger", "label": "Megger" },
         { "key": "ducter", "label": "Ducter" },
+        { "key": "CBA", "label": "CBA 1000/2000 Ταυτοχρονισμός" },
         { "key": "short_circuits", "label": "Βραχυκυκλώματα" },
         { "key": "laptop", "label": "Laptop" },
         { "key": "table_chairs", "label": "Τραπέζι/Καρέκλες" }

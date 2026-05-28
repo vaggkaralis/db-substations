@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 
 from email_eml_parser import parse_eml_file
 from isolation_importer import (
@@ -13,6 +14,25 @@ from strings_proxy import STRINGS as S
 
 _STATUS_VALUES = ["Requested", "Accepted", "Cancelled"]
 _DEFAULT_IMPORTED_STATUS = "Accepted"
+
+
+def _default_isolation_end_datetime(start_value, parsed_end_value=None):
+    end_value = str(parsed_end_value or "").strip()
+    if end_value:
+        return end_value
+
+    start_text = str(start_value or "").strip()
+    if start_text:
+        try:
+            start_dt = datetime.strptime(start_text, "%Y-%m-%d %H:%M")
+            candidate = start_dt.replace(hour=14, minute=0)
+            if candidate <= start_dt:
+                candidate = start_dt.replace(minute=0) + timedelta(hours=4)
+            return candidate.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+
+    return datetime.now().strftime("%Y-%m-%d 14:00")
 
 
 def _get_substations(app):
@@ -553,7 +573,6 @@ def _show_isolation_request_form(
     prefill_data=None,
     after_save_callback=None,
 ):
-    from datetime import datetime, timedelta
     from kivy.uix.anchorlayout import AnchorLayout
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
@@ -732,8 +751,10 @@ def _show_isolation_request_form(
     end_default = (
         request_record[4]
         if request_record
-        else prefill_data.get("end_datetime")
-        or datetime.now().strftime("%Y-%m-%d 14:00")
+        else _default_isolation_end_datetime(
+            start_default,
+            prefill_data.get("end_datetime"),
+        )
     )
     end_input = TextInput(
         text=end_default,

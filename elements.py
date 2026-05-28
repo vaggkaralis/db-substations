@@ -24,6 +24,40 @@ from ui.shared import IconOnlyButton
 unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
 
 
+def _get_allowed_gates_for_selection(
+    app, substation_id, element_type, *, breaker_type=None, is_main_switch=None
+):
+    is_interconnection = False
+    if element_type in app.BREAKER_ELEMENT_TYPES:
+        if breaker_type is not None:
+            is_interconnection = breaker_type == S["MESSAGES"].get(
+                "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
+            )
+        else:
+            is_interconnection = is_main_switch == 2
+    return list(app.get_available_gates(substation_id, is_interconnection))
+
+
+def _normalize_gate_spinner_text(gate_text, allowed_gates):
+    gate_text = str(gate_text or "").strip()
+    if not gate_text or gate_text == unreg:
+        return unreg
+    if gate_text in allowed_gates:
+        return gate_text
+    return unreg
+
+
+def _validate_registered_gate_selection(gate_text, allowed_gates):
+    gate_text = str(gate_text or "").strip()
+    if not gate_text or gate_text == unreg:
+        return True
+    if gate_text not in allowed_gates:
+        raise ValueError(
+            "Η επιλεγμένη πύλη δεν είναι καταχωρημένη για αυτόν τον υποσταθμό."
+        )
+    return True
+
+
 def _get_latest_recurring_maintenance_date(cursor, element_id):
     cursor.execute(
         """
@@ -1506,6 +1540,13 @@ def show_add_element_popup(app, instance):
             )
 
             try:
+                allowed_gates = _get_allowed_gates_for_selection(
+                    app,
+                    substation_id,
+                    element_type,
+                    breaker_type=breaker_type_spinner.text,
+                )
+                _validate_registered_gate_selection(gate_spinner.text, allowed_gates)
                 validate_gate_assignment(
                     element_type, breaker_type_spinner.text, gate_value
                 )
@@ -1698,6 +1739,14 @@ def _copy_common_delete_logic(
         elem_type, gate, is_main = row
         if elem_type in app.BREAKER_ELEMENT_TYPES and is_main == 1:
             gate_value = gate or ""
+            allowed_gates = _get_allowed_gates_for_selection(
+                app,
+                substation_id,
+                elem_type,
+                is_main_switch=is_main,
+            )
+            if not gate_value or gate_value not in allowed_gates:
+                return True
             c.execute(
                 "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
                 (substation_id, gate_value, elem_type, element_id),
@@ -2476,15 +2525,13 @@ def show_edit_element_popup(
             height=30,
         )
     )
-    is_interconnection = elem_type == app.ELEM_BREAKER_MT and is_main_switch == 2
-    available_gates = app.get_available_gates(substation_id, is_interconnection)
-    current_gate_text = (
-        gate
-        if gate
-        else S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+    available_gates = _get_allowed_gates_for_selection(
+        app,
+        substation_id,
+        elem_type,
+        is_main_switch=is_main_switch,
     )
-    if current_gate_text not in available_gates:
-        available_gates.append(current_gate_text)
+    current_gate_text = _normalize_gate_spinner_text(gate, available_gates)
     gate_spinner = Spinner(
         text=current_gate_text, values=available_gates, size_hint_y=None, height=40
     )
@@ -2766,6 +2813,13 @@ def show_edit_element_popup(
             )
 
             try:
+                allowed_gates = _get_allowed_gates_for_selection(
+                    app,
+                    substation_id,
+                    elem_type,
+                    breaker_type=breaker_type_spinner.text,
+                )
+                _validate_registered_gate_selection(gate_spinner.text, allowed_gates)
                 validate_gate_assignment(
                     elem_type, breaker_type_spinner.text, gate_value
                 )
@@ -2779,17 +2833,24 @@ def show_edit_element_popup(
                         new_is_main_switch != 1 or gate_value != (gate or "")
                     ):
                         old_gate = gate or ""
-                        c.execute(
-                            "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
-                            (substation_id, old_gate, elem_type, element_id),
+                        old_allowed_gates = _get_allowed_gates_for_selection(
+                            app,
+                            substation_id,
+                            elem_type,
+                            is_main_switch=is_main_switch,
                         )
-                        remaining = c.fetchone()[0]
-                        if remaining == 0:
-                            show_message_popup(
-                                S["TITLES"].get("ERROR", "Σφάλμα"),
-                                f"Η πύλη '{old_gate or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό {app.ELEM_BREAKER_YT if elem_type == app.ELEM_BREAKER_YT else app.ELEM_BREAKER_MT}.",
+                        if old_gate and old_gate in old_allowed_gates:
+                            c.execute(
+                                "SELECT COUNT(*) FROM elements WHERE substation_id=? AND gate=? AND element_type=? AND is_main_switch=1 AND id!=?",
+                                (substation_id, old_gate, elem_type, element_id),
                             )
-                            return
+                            remaining = c.fetchone()[0]
+                            if remaining == 0:
+                                show_message_popup(
+                                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                                    f"Η πύλη '{old_gate or S['MESSAGES'].get('UNREGISTERED_PLACEHOLDER', '(Μη καταχωρημένο)')}' πρέπει να έχει τουλάχιστον έναν κεντρικό {app.ELEM_BREAKER_YT if elem_type == app.ELEM_BREAKER_YT else app.ELEM_BREAKER_MT}.",
+                                )
+                                return
             except Exception:
                 pass
 
@@ -3431,6 +3492,16 @@ def show_add_element_popup_for_substation(
         )
 
         try:
+            allowed_gates = _get_allowed_gates_for_selection(
+                app,
+                selected_substation_id,
+                element_type,
+                breaker_type=breaker_type_spinner.text,
+            )
+            _validate_registered_gate_selection(gate_spinner.text, allowed_gates)
+            validate_gate_assignment(
+                element_type, breaker_type_spinner.text, gate_value
+            )
             c.execute(
                 "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -3456,6 +3527,10 @@ def show_add_element_popup_for_substation(
                     vector_group_input.text.strip(),
                 ),
             )
+        except ValueError as e:
+            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), str(e))
+            add_state["busy"] = False
+            return
         except sqlite3.IntegrityError:
             app.conn.rollback()
             show_message_popup(
