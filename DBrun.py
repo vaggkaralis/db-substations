@@ -8480,6 +8480,9 @@ class SubstationApp(App):
             reuse_popup if reuse_popup else Popup(title=title, size_hint=(0.95, 0.9))
         )
         popup.title = title
+        popup._dbs_filter_name = filter_name
+        popup._dbs_element_type_filter = element_type_filter if show_elements else None
+        popup._dbs_gate_filter = gate_filter if show_elements else None
 
         # Create main layout
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -8997,6 +9000,10 @@ class SubstationApp(App):
                 current_gate_filter = gate_filter or all_label
                 if current_gate_filter not in gate_values:
                     current_gate_filter = all_label
+
+                popup._dbs_filter_name = sub_name
+                popup._dbs_element_type_filter = current_type_filter
+                popup._dbs_gate_filter = current_gate_filter
 
                 filter_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
                 filter_layout.add_widget(
@@ -15914,6 +15921,7 @@ class SubstationApp(App):
             )
 
         overall_comments.bind(text=_resize_comments)
+        self._bind_parent_scroll_follow_for_text_input(overall_comments)
         _resize_comments()
         comments_scroll.add_widget(overall_comments)
         content_layout.add_widget(comments_scroll)
@@ -16259,13 +16267,13 @@ class SubstationApp(App):
         oil_planning_title = Label(
             text="Σχεδιασμός λαδιών συντήρησης (draft):",
             size_hint_y=None,
-            height=32,
             bold=True,
             halign="left",
             valign="middle",
         )
         oil_planning_title.bind(
-            size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(32, val[1] + 6)),
         )
         oil_planning_note = Label(
             text=(
@@ -16312,12 +16320,12 @@ class SubstationApp(App):
         oil_planning_empty_label = Label(
             text="Επιλέξτε μετασχηματιστές ή διακόπτες ελαίου για να εμφανιστεί ο υπολογισμός.",
             size_hint_y=None,
-            height=36,
             halign="left",
-            valign="middle",
+            valign="top",
         )
         oil_planning_empty_label.bind(
-            size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(36, val[1] + 6)),
         )
 
         def _get_selected_element_count():
@@ -16413,11 +16421,12 @@ class SubstationApp(App):
                 )
                 if not row_info:
                     row_box = BoxLayout(
-                        orientation="horizontal",
+                        orientation="vertical",
                         size_hint_y=None,
-                        height=42,
-                        spacing=6,
+                        spacing=4,
+                        padding=(0, 2),
                     )
+                    row_box.bind(minimum_height=row_box.setter("height"))
                     title_label = Label(
                         text=str(
                             meta.get("planner_label")
@@ -16425,12 +16434,23 @@ class SubstationApp(App):
                             or widgets.get("display")
                             or elem_id
                         ),
-                        size_hint_x=0.52,
+                        size_hint_y=None,
                         halign="left",
-                        valign="middle",
+                        valign="top",
                     )
                     title_label.bind(
-                        size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+                        width=lambda inst, _val: setattr(
+                            inst, "text_size", (inst.width, None)
+                        ),
+                        texture_size=lambda inst, val: setattr(
+                            inst, "height", max(22, val[1] + 4)
+                        ),
+                    )
+                    input_row = BoxLayout(
+                        orientation="horizontal",
+                        size_hint_y=None,
+                        height=36,
+                        spacing=6,
                     )
                     liters_input = TextInput(
                         text=(
@@ -16440,7 +16460,7 @@ class SubstationApp(App):
                         ),
                         hint_text="λίτρα",
                         multiline=False,
-                        size_hint_x=0.14,
+                        size_hint_x=0.16,
                     )
                     liters_input.bind(
                         text=lambda inst, val: (
@@ -16456,19 +16476,26 @@ class SubstationApp(App):
                     liters_input.bind(
                         text=lambda *_args: _refresh_oil_planning_summary()
                     )
-                    unit_label = Label(text="L", size_hint_x=0.05)
+                    unit_label = Label(text="L", size_hint_x=0.08)
                     source_label = Label(
                         text=source_text,
-                        size_hint_x=0.29,
+                        size_hint_y=None,
                         halign="left",
-                        valign="middle",
+                        valign="top",
                     )
                     source_label.bind(
-                        size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+                        width=lambda inst, _val: setattr(
+                            inst, "text_size", (inst.width, None)
+                        ),
+                        texture_size=lambda inst, val: setattr(
+                            inst, "height", max(20, val[1] + 4)
+                        ),
                     )
+                    input_row.add_widget(liters_input)
+                    input_row.add_widget(unit_label)
+                    input_row.add_widget(Widget())
                     row_box.add_widget(title_label)
-                    row_box.add_widget(liters_input)
-                    row_box.add_widget(unit_label)
+                    row_box.add_widget(input_row)
                     row_box.add_widget(source_label)
                     row_info = {
                         "row_box": row_box,
@@ -16992,19 +17019,29 @@ class SubstationApp(App):
                     orientation="vertical", size_hint_y=None, spacing=4
                 )
                 gate_section.bind(minimum_height=gate_section.setter("height"))
-                gate_header = BoxLayout(size_hint_y=None, height=38, spacing=6)
+                gate_header = BoxLayout(
+                    orientation="vertical", size_hint_y=None, spacing=4
+                )
+                gate_header.bind(minimum_height=gate_header.setter("height"))
+                gate_title_row = BoxLayout(size_hint_y=None, height=38, spacing=6)
                 gate_toggle_btn = Button(text="+", size_hint_x=0.08)
-                gate_header.add_widget(gate_toggle_btn)
+                gate_title_row.add_widget(gate_toggle_btn)
                 gate_title_label = Label(
                     text=f"{gate_name} ({element_count} στοιχεία)",
-                    size_hint_x=0.34,
+                    size_hint_x=0.92,
                     bold=True,
                     color=(0.2, 0.6, 1, 1),
+                    halign="left",
+                    valign="middle",
                 )
-                gate_header.add_widget(gate_title_label)
-                gate_all_btn = Button(text="Όλα", size_hint_x=0.14)
-                gate_mv_btn = Button(text="Ζυγοί ΜΤ", size_hint_x=0.18)
-                gate_clear_btn = Button(text="Καμία", size_hint_x=0.14)
+                gate_title_label.bind(
+                    size=lambda inst, _val: setattr(inst, "text_size", inst.size)
+                )
+                gate_title_row.add_widget(gate_title_label)
+                gate_actions_row = BoxLayout(size_hint_y=None, height=38, spacing=6)
+                gate_all_btn = Button(text="Όλα")
+                gate_mv_btn = Button(text="Ζυγοί ΜΤ")
+                gate_clear_btn = Button(text="Καμία")
                 gate_all_btn.bind(
                     on_press=lambda _x, mode="all", apply_fn=_apply_gate_selection: (
                         apply_fn(mode)
@@ -17020,17 +17057,19 @@ class SubstationApp(App):
                         apply_fn(mode)
                     )
                 )
-                gate_header.add_widget(gate_all_btn)
-                gate_header.add_widget(gate_mv_btn)
+                gate_actions_row.add_widget(gate_all_btn)
+                gate_actions_row.add_widget(gate_mv_btn)
                 if self._gate_has_transformer_elements(gate_elements):
-                    gate_tr_btn = Button(text="Μ/Σ", size_hint_x=0.12)
+                    gate_tr_btn = Button(text="Μ/Σ")
                     gate_tr_btn.bind(
                         on_press=lambda _x, mode="transformers", apply_fn=_apply_gate_selection: (
                             apply_fn(mode)
                         )
                     )
-                    gate_header.add_widget(gate_tr_btn)
-                gate_header.add_widget(gate_clear_btn)
+                    gate_actions_row.add_widget(gate_tr_btn)
+                gate_actions_row.add_widget(gate_clear_btn)
+                gate_header.add_widget(gate_title_row)
+                gate_header.add_widget(gate_actions_row)
                 gate_section.add_widget(gate_header)
 
                 gate_body = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=0)
@@ -17128,8 +17167,25 @@ class SubstationApp(App):
                     )
                     checkbox_layout.add_widget(checkbox)
 
-                    elem_label = Label(text=elem_display, size_hint_x=0.92, markup=True)
+                    elem_label = Label(
+                        text=elem_display,
+                        size_hint_x=0.92,
+                        size_hint_y=None,
+                        height=50,
+                        markup=True,
+                        halign="left",
+                        valign="middle",
+                    )
+                    elem_label.bind(
+                        width=lambda inst, val: setattr(
+                            inst, "text_size", (max(0, val - 6), None)
+                        ),
+                        texture_size=lambda inst, val: setattr(
+                            inst, "height", max(50, val[1] + 8)
+                        ),
+                    )
                     checkbox_layout.add_widget(elem_label)
+                    self._bind_row_height_to_children(checkbox_layout, min_height=50)
                     elem_box.add_widget(checkbox_layout)
 
                     # Per-element holders stored in element_widgets to avoid sharing
@@ -20106,6 +20162,189 @@ class SubstationApp(App):
         label.bind(size=lambda inst, val: setattr(inst, "text_size", val))
         return label
 
+    def _find_parent_scroll_view(self, widget):
+        try:
+            from kivy.uix.scrollview import ScrollView
+        except Exception:
+            return None
+
+        parent = getattr(widget, "parent", None)
+        while parent is not None:
+            if isinstance(parent, ScrollView):
+                return parent
+            parent = getattr(parent, "parent", None)
+        return None
+
+    def _get_widget_y_relative_to_ancestor(self, widget, ancestor):
+        y_pos = 0.0
+        current = widget
+        while current is not None and current is not ancestor:
+            try:
+                y_pos += float(getattr(current, "y", 0) or 0)
+            except Exception:
+                pass
+            current = getattr(current, "parent", None)
+        return y_pos if current is ancestor else None
+
+    def _normalize_text_input_padding(self, text_input):
+        padding = getattr(text_input, "padding", (0, 0, 0, 0)) or (0, 0, 0, 0)
+        if isinstance(padding, (int, float)):
+            value = float(padding)
+            return (value, value, value, value)
+        if len(padding) == 2:
+            horizontal, vertical = padding
+            return (horizontal, vertical, horizontal, vertical)
+        if len(padding) >= 4:
+            return tuple(padding[:4])
+        return (0, 0, 0, 0)
+
+    def _get_text_input_cursor_content_y(self, text_input, content_widget):
+        widget_y = self._get_widget_y_relative_to_ancestor(text_input, content_widget)
+        if widget_y is None:
+            return None
+
+        cursor_pos = getattr(text_input, "cursor_pos", None)
+        if isinstance(cursor_pos, (tuple, list)) and len(cursor_pos) > 1:
+            try:
+                return widget_y + float(cursor_pos[1])
+            except Exception:
+                pass
+
+        line_height = max(18.0, float(getattr(text_input, "line_height", 18) or 18))
+        cursor = getattr(text_input, "cursor", None)
+        cursor_row = 0
+        if isinstance(cursor, (tuple, list)) and len(cursor) > 1:
+            try:
+                cursor_row = max(0, int(cursor[1]))
+            except Exception:
+                cursor_row = 0
+
+        _padding_left, padding_top, _padding_right, padding_bottom = (
+            self._normalize_text_input_padding(text_input)
+        )
+        text_input_height = float(getattr(text_input, "height", 0) or 0)
+        cursor_local_y = max(
+            float(padding_bottom) + 2.0,
+            text_input_height - float(padding_top) - line_height * (cursor_row + 1),
+        )
+        return widget_y + cursor_local_y
+
+    def _get_parent_scroll_y_for_text_input_cursor(
+        self,
+        scroll_view,
+        text_input,
+        *,
+        padding=24,
+    ):
+        scroll_children = list(getattr(scroll_view, "children", []) or [])
+        if not scroll_children:
+            return None
+        content_widget = scroll_children[0]
+
+        try:
+            content_height = float(getattr(content_widget, "height", 0) or 0)
+            viewport_height = float(getattr(scroll_view, "height", 0) or 0)
+        except Exception:
+            return None
+
+        if content_height <= viewport_height or viewport_height <= 0:
+            return None
+
+        cursor_content_y = self._get_text_input_cursor_content_y(
+            text_input,
+            content_widget,
+        )
+        if cursor_content_y is None:
+            return None
+
+        max_scroll_bottom = max(0.0, content_height - viewport_height)
+        if max_scroll_bottom <= 0:
+            return None
+
+        try:
+            current_scroll_y = float(getattr(scroll_view, "scroll_y", 1.0) or 1.0)
+        except Exception:
+            current_scroll_y = 1.0
+        current_scroll_y = min(1.0, max(0.0, current_scroll_y))
+        current_bottom = max_scroll_bottom * current_scroll_y
+
+        caret_padding = max(0.0, float(padding or 0))
+        visible_min = current_bottom + caret_padding
+        visible_max = current_bottom + viewport_height - caret_padding
+
+        if cursor_content_y < visible_min:
+            desired_bottom = max(0.0, cursor_content_y - caret_padding)
+        elif cursor_content_y > visible_max:
+            desired_bottom = min(
+                max_scroll_bottom,
+                cursor_content_y + caret_padding - viewport_height,
+            )
+        else:
+            return None
+
+        return desired_bottom / max_scroll_bottom if max_scroll_bottom else None
+
+    def _keep_text_input_cursor_visible_in_parent_scroll(
+        self,
+        text_input,
+        *,
+        padding=24,
+    ):
+        if text_input is None or not getattr(text_input, "multiline", False):
+            return
+        if hasattr(text_input, "focus") and not getattr(text_input, "focus", False):
+            return
+
+        scroll_view = self._find_parent_scroll_view(text_input)
+        if scroll_view is None:
+            return
+
+        desired_scroll_y = self._get_parent_scroll_y_for_text_input_cursor(
+            scroll_view,
+            text_input,
+            padding=padding,
+        )
+        if desired_scroll_y is None:
+            return
+
+        try:
+            current_scroll_y = float(getattr(scroll_view, "scroll_y", 1.0) or 1.0)
+        except Exception:
+            current_scroll_y = 1.0
+        if abs(current_scroll_y - desired_scroll_y) < 0.001:
+            return
+
+        try:
+            scroll_view.scroll_y = desired_scroll_y
+        except Exception:
+            pass
+
+    def _bind_parent_scroll_follow_for_text_input(self, text_input, *, padding=24):
+        if text_input is None or not getattr(text_input, "multiline", False):
+            return text_input
+
+        def _schedule(*_args):
+            def _apply(_dt=0):
+                self._keep_text_input_cursor_visible_in_parent_scroll(
+                    text_input,
+                    padding=padding,
+                )
+
+            try:
+                from kivy.clock import Clock
+
+                Clock.schedule_once(_apply, 0)
+            except Exception:
+                _apply()
+
+        for event_name in ("focus", "cursor", "height", "size", "text"):
+            try:
+                text_input.bind(**{event_name: _schedule})
+            except Exception:
+                pass
+        _schedule()
+        return text_input
+
     def _enable_expandable_text_input(
         self, text_input, *, min_height=52, max_height=150
     ):
@@ -20119,6 +20358,7 @@ class SubstationApp(App):
             )
 
         text_input.bind(text=_resize)
+        self._bind_parent_scroll_follow_for_text_input(text_input)
         _resize()
         return text_input
 

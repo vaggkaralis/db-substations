@@ -524,6 +524,61 @@ def _dismiss_popup_safely(popup):
         pass
 
 
+def _capture_substation_popup_state(app, *popups, fallback_filter_name=None):
+    seen = set()
+    pending = list(popups)
+
+    while pending:
+        popup = pending.pop(0)
+        if popup is None:
+            continue
+
+        popup_id = id(popup)
+        if popup_id in seen:
+            continue
+        seen.add(popup_id)
+
+        if hasattr(popup, "_dbs_filter_name"):
+            prev_scroll_y = None
+            try:
+                prev_scroll_y = app._get_popup_scroll_y(popup)
+            except Exception:
+                prev_scroll_y = None
+
+            filter_name = getattr(popup, "_dbs_filter_name", None)
+            if filter_name is None:
+                filter_name = fallback_filter_name
+
+            return {
+                "filter_name": filter_name,
+                "element_type_filter": getattr(popup, "_dbs_element_type_filter", None),
+                "gate_filter": getattr(popup, "_dbs_gate_filter", None),
+                "prev_scroll_y": prev_scroll_y,
+            }
+
+        origin_popup = getattr(popup, "_dbs_origin_popup", None)
+        if origin_popup is not None:
+            pending.append(origin_popup)
+
+    return {
+        "filter_name": fallback_filter_name,
+        "element_type_filter": None,
+        "gate_filter": None,
+        "prev_scroll_y": None,
+    }
+
+
+def _restore_substation_popup_state(app, state, *, reuse_popup=None):
+    state = state or {}
+    return app._display_substations(
+        state.get("filter_name"),
+        reuse_popup=reuse_popup,
+        element_type_filter=state.get("element_type_filter"),
+        gate_filter=state.get("gate_filter"),
+        prev_scroll_y=state.get("prev_scroll_y"),
+    )
+
+
 def _element_has_valid_maintenance_history(conn, element_id):
     matches = _get_matching_element_rows(conn, element_id=element_id)
     element_ids = [row[0] for row in matches]
@@ -618,6 +673,7 @@ def show_manage_subelements_popup(
         title=f"Υποστοιχεία: {parent_element_name}",
         size_hint=(0.86, 0.82),
     )
+    popup._dbs_origin_popup = parent_popup
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     header = BoxLayout(size_hint_y=None, height=44, spacing=8)
@@ -1786,11 +1842,11 @@ def delete_element(app, element_id, substation_id, parent_popup, substation_name
     ):
         return
 
-    prev_scroll = None
-    try:
-        prev_scroll = app._get_popup_scroll_y(parent_popup)
-    except Exception:
-        prev_scroll = None
+    refresh_state = _capture_substation_popup_state(
+        app,
+        parent_popup,
+        fallback_filter_name=substation_name,
+    )
 
     c.execute("DELETE FROM elements WHERE id=?", (element_id,))
     try:
@@ -1804,14 +1860,11 @@ def delete_element(app, element_id, substation_id, parent_popup, substation_name
         pass
     app._append_change_log("delete", "elements", {"id": element_id})
     app.conn.commit()
-    if substation_name:
-        app._display_substations(
-            substation_name, reuse_popup=parent_popup, prev_scroll_y=prev_scroll
-        )
-    else:
-        app._display_substations(
-            None, reuse_popup=parent_popup, prev_scroll_y=prev_scroll
-        )
+    _restore_substation_popup_state(
+        app,
+        refresh_state,
+        reuse_popup=parent_popup,
+    )
     from popups import show_message_popup
 
     show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["ITEM_DELETED"])
@@ -1840,6 +1893,7 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
     inactive_elements = c.fetchall()
 
     popup = Popup(title=f"Ανενεργά Στοιχεία - {substation_name}", size_hint=(0.8, 0.8))
+    popup._dbs_origin_popup = parent_popup
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     if not inactive_elements:
@@ -2382,6 +2436,7 @@ def show_edit_element_popup(
     ) = element
 
     popup = Popup(title=f"Επεξεργασία: {name}", size_hint=(0.9, 0.9))
+    popup._dbs_origin_popup = parent_popup
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -2950,6 +3005,12 @@ def show_edit_element_popup(
 
             app.conn.commit()
 
+            refresh_state = _capture_substation_popup_state(
+                app,
+                parent_popup,
+                grandparent_popup,
+                fallback_filter_name=substation_name,
+            )
             save_state["completed"] = True
             _dismiss_popup_safely(popup)
             _dismiss_popup_safely(parent_popup)
@@ -2958,7 +3019,9 @@ def show_edit_element_popup(
                 show_message_popup(
                     "Επιτυχία",
                     "Οι αλλαγές αποθηκεύτηκαν!",
-                    callback=lambda: app._display_substations(substation_name),
+                    callback=lambda state=refresh_state: (
+                        _restore_substation_popup_state(app, state)
+                    ),
                 )
             else:
                 show_message_popup(
@@ -3594,13 +3657,25 @@ def show_add_element_popup_for_substation(
 
         app.conn.commit()
 
+        refresh_state = _capture_substation_popup_state(
+            app,
+            parent_popup,
+            fallback_filter_name=selected_substation_name,
+        )
+        if refresh_state.get("filter_name") != selected_substation_name:
+            refresh_state["filter_name"] = selected_substation_name
+            refresh_state["element_type_filter"] = None
+            refresh_state["gate_filter"] = None
+
         add_state["completed"] = True
         _dismiss_popup_safely(popup)
         _dismiss_popup_safely(parent_popup)
         show_message_popup(
             "Επιτυχία",
             "Στοιχείο προστέθηκε!",
-            callback=lambda: app._display_substations(selected_substation_name),
+            callback=lambda state=refresh_state: _restore_substation_popup_state(
+                app, state
+            ),
         )
 
     add_btn = Button(text=S["BUTTONS"]["ADD"])
