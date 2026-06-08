@@ -29,7 +29,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         pass
 
     cursor.execute(
-        "CREATE TABLE IF NOT EXISTS substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, adoption_date TEXT)"
+        "CREATE TABLE IF NOT EXISTS substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, adoption_date TEXT, base_distance_km REAL)"
     )
     # Element models master table
     cursor.execute("""
@@ -298,6 +298,11 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             cursor.execute(
                 'ALTER TABLE substations ADD COLUMN monogram_pdf TEXT DEFAULT ""'
             )
+        except Exception:
+            pass
+    if "base_distance_km" not in sub_columns:
+        try:
+            cursor.execute("ALTER TABLE substations ADD COLUMN base_distance_km REAL")
         except Exception:
             pass
     # Ensure a uniqueness index exists to prevent logical duplicate maintenance rows

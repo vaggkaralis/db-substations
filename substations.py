@@ -61,8 +61,22 @@ def display_substations_delegate(
 
 
 def show_edit_substation_popup_delegate(
-    app, substation_id, substation_name, location, adoption_date, division, parent_popup
+    app,
+    substation_id,
+    substation_name,
+    location,
+    adoption_date,
+    division,
+    parent_popup,
+    base_distance_km=None,
 ):
     return app.show_edit_substation_popup(
-        substation_id, substation_name, location, adoption_date, division, parent_popup
+        substation_id,
+        substation_name,
+        location,
+        adoption_date,
+        division,
+        False,
+        base_distance_km,
+        parent_popup,
     )

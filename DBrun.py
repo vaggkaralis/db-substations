@@ -3390,8 +3390,8 @@ class SubstationApp(App):
                 spinner.text = new_name
                 return
             c.execute(
-                "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
-                (new_name, "", "", "ΤΜΘ"),
+                "INSERT INTO substations (name, location, adoption_date, division, base_distance_km) VALUES (?, ?, ?, ?, ?)",
+                (new_name, "", "", "ΤΜΘ", None),
             )
             self.conn.commit()
             new_substation_id = c.lastrowid
@@ -3404,6 +3404,7 @@ class SubstationApp(App):
                     "location": "",
                     "adoption_date": "",
                     "division": "ΤΜΘ",
+                    "base_distance_km": None,
                 },
             )
             substation_names.append(new_name)
@@ -6464,7 +6465,7 @@ class SubstationApp(App):
 
     def show_add_substation_popup(self, instance):
         # Create popup
-        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.58))
+        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.72))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
@@ -6491,6 +6492,30 @@ class SubstationApp(App):
             Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15)
         )
         layout.add_widget(division_spinner)
+
+        distance_input = TextInput(
+            hint_text=S["MESSAGES"].get(
+                "BASE_DISTANCE_KM_LABEL", "Απόσταση από βάση (km):"
+            ),
+            size_hint_y=0.25,
+            multiline=False,
+        )
+        distance_input.bind(
+            text=lambda inst, val: (
+                setattr(inst, "text", self._normalize_decimal_numeric_text(val))
+                if val and "," in val
+                else None
+            )
+        )
+        layout.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "BASE_DISTANCE_KM_LABEL", "Απόσταση από βάση (km):"
+                ),
+                size_hint_y=0.15,
+            )
+        )
+        layout.add_widget(distance_input)
 
         # Thessaloniki toggle
         th_row = BoxLayout(orientation="horizontal", size_hint_y=0.2, spacing=4)
@@ -6529,21 +6554,26 @@ class SubstationApp(App):
             sub_cols = {
                 row[1] for row in c.execute("PRAGMA table_info(substations)").fetchall()
             }
+            distance_text = self._normalize_decimal_numeric_text(distance_input.text)
+            distance_value = (
+                float(distance_text) if str(distance_text).strip() else None
+            )
             if "is_thessaloniki" in sub_cols:
                 c.execute(
-                    "INSERT INTO substations (name, location, adoption_date, division, is_thessaloniki) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO substations (name, location, adoption_date, division, is_thessaloniki, base_distance_km) VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         name_input.text,
                         "",
                         "",
                         division_spinner.text,
                         1 if th_checkbox.active else 0,
+                        distance_value,
                     ),
                 )
             else:
                 c.execute(
-                    "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
-                    (name_input.text, "", "", division_spinner.text),
+                    "INSERT INTO substations (name, location, adoption_date, division, base_distance_km) VALUES (?, ?, ?, ?, ?)",
+                    (name_input.text, "", "", division_spinner.text, distance_value),
                 )
             self.conn.commit()
             popup.dismiss()
@@ -6568,7 +6598,7 @@ class SubstationApp(App):
     def show_add_substation_popup_from_db_view(self, parent_popup):
         """Add substation from within the database view, and refresh the view after"""
         # Create popup
-        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.58))
+        popup = Popup(title=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint=(0.8, 0.72))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         # Name input
@@ -6595,6 +6625,30 @@ class SubstationApp(App):
             Label(text=S["MESSAGES"].get("DIVISION_LABEL", "Τομέας:"), size_hint_y=0.15)
         )
         layout.add_widget(division_spinner)
+
+        distance_input = TextInput(
+            hint_text=S["MESSAGES"].get(
+                "BASE_DISTANCE_KM_LABEL", "Απόσταση από βάση (km):"
+            ),
+            size_hint_y=0.25,
+            multiline=False,
+        )
+        distance_input.bind(
+            text=lambda inst, val: (
+                setattr(inst, "text", self._normalize_decimal_numeric_text(val))
+                if val and "," in val
+                else None
+            )
+        )
+        layout.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "BASE_DISTANCE_KM_LABEL", "Απόσταση από βάση (km):"
+                ),
+                size_hint_y=0.15,
+            )
+        )
+        layout.add_widget(distance_input)
 
         # Thessaloniki toggle
         th_row = BoxLayout(orientation="horizontal", size_hint_y=0.2, spacing=4)
@@ -6636,21 +6690,26 @@ class SubstationApp(App):
             sub_cols = {
                 row[1] for row in c.execute("PRAGMA table_info(substations)").fetchall()
             }
+            distance_text = self._normalize_decimal_numeric_text(distance_input.text)
+            distance_value = (
+                float(distance_text) if str(distance_text).strip() else None
+            )
             if "is_thessaloniki" in sub_cols:
                 c.execute(
-                    "INSERT INTO substations (name, location, adoption_date, division, is_thessaloniki) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO substations (name, location, adoption_date, division, is_thessaloniki, base_distance_km) VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         name_input.text,
                         "",
                         "",
                         division_spinner.text,
                         1 if th_checkbox.active else 0,
+                        distance_value,
                     ),
                 )
             else:
                 c.execute(
-                    "INSERT INTO substations (name, location, adoption_date, division) VALUES (?, ?, ?, ?)",
-                    (name_input.text, "", "", division_spinner.text),
+                    "INSERT INTO substations (name, location, adoption_date, division, base_distance_km) VALUES (?, ?, ?, ?, ?)",
+                    (name_input.text, "", "", division_spinner.text, distance_value),
                 )
             self.conn.commit()
             popup.dismiss()
@@ -8391,13 +8450,13 @@ class SubstationApp(App):
         c = self.conn.cursor()
         if filter_name:
             c.execute(
-                "SELECT id, name, location, adoption_date, division, monogram_pdf, is_thessaloniki FROM substations WHERE name=?",
+                "SELECT id, name, location, adoption_date, division, monogram_pdf, is_thessaloniki, base_distance_km FROM substations WHERE name=?",
                 (filter_name,),
             )
             title = f"Υποσταθμός: {filter_name}"
         else:
             c.execute(
-                "SELECT id, name, location, adoption_date, division, monogram_pdf, is_thessaloniki FROM substations ORDER BY name"
+                "SELECT id, name, location, adoption_date, division, monogram_pdf, is_thessaloniki, base_distance_km FROM substations ORDER BY name"
             )
             title = "Εγγραφές Υποσταθμών"
 
@@ -8526,6 +8585,7 @@ class SubstationApp(App):
                 division,
                 monogram_pdf,
                 is_thessaloniki,
+                base_distance_km,
             ) in substations:
                 # Substation title in bigger letters with optional Thessaloniki tag
                 sub_title_layout = BoxLayout(size_hint_y=None, height=45, spacing=8)
@@ -8563,7 +8623,7 @@ class SubstationApp(App):
                 h_loc = Label(
                     text=S["MESSAGES"].get("LOC", "Τοποθεσία"),
                     bold=True,
-                    size_hint_x=0.17,
+                    size_hint_x=0.15,
                 )
                 h_loc.halign = "center"
                 h_loc.valign = "middle"
@@ -8574,10 +8634,24 @@ class SubstationApp(App):
                 )
                 header_layout.add_widget(h_loc)
 
+                h_distance = Label(
+                    text=S["MESSAGES"].get("BASE_DISTANCE_KM_SHORT", "Απόσταση (km)"),
+                    bold=True,
+                    size_hint_x=0.08,
+                )
+                h_distance.halign = "center"
+                h_distance.valign = "middle"
+                h_distance.bind(
+                    size=lambda instance, value: setattr(
+                        instance, "text_size", (value[0], value[1])
+                    )
+                )
+                header_layout.add_widget(h_distance)
+
                 h_ad = Label(
                     text=S["MESSAGES"].get("ADOPTION", "Ανάληψη"),
                     bold=True,
-                    size_hint_x=0.1,
+                    size_hint_x=0.08,
                 )
                 h_ad.halign = "center"
                 h_ad.valign = "middle"
@@ -8711,7 +8785,7 @@ class SubstationApp(App):
                     btn_holder.add_widget(globals()["Widget"]())
                     sub_row_layout.add_widget(btn_holder)
                 else:
-                    lbl_loc = Label(text=S["MESSAGES"]["DASH"], size_hint_x=0.17)
+                    lbl_loc = Label(text=S["MESSAGES"]["DASH"], size_hint_x=0.15)
                     lbl_loc.halign = "center"
                     lbl_loc.valign = "middle"
                     lbl_loc.bind(
@@ -8721,7 +8795,22 @@ class SubstationApp(App):
                     )
                     sub_row_layout.add_widget(lbl_loc)
 
-                lbl_ad = Label(text=adoption_date or "-", size_hint_x=0.1)
+                distance_display = (
+                    f"{float(base_distance_km):.1f}"
+                    if base_distance_km not in (None, "")
+                    else "-"
+                )
+                lbl_distance = Label(text=distance_display, size_hint_x=0.08)
+                lbl_distance.halign = "center"
+                lbl_distance.valign = "middle"
+                lbl_distance.bind(
+                    size=lambda instance, value: setattr(
+                        instance, "text_size", (value[0], value[1])
+                    )
+                )
+                sub_row_layout.add_widget(lbl_distance)
+
+                lbl_ad = Label(text=adoption_date or "-", size_hint_x=0.08)
                 lbl_ad.halign = "center"
                 lbl_ad.valign = "middle"
                 lbl_ad.bind(
@@ -8823,9 +8912,9 @@ class SubstationApp(App):
                     icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
                 )
                 edit_icon.bind(
-                    on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, is_th=is_thessaloniki, p=popup: (
+                    on_press=lambda x, sid=sub_id, sname=sub_name, loc=location, adate=adoption_date, div=division, is_th=is_thessaloniki, dist=base_distance_km, p=popup: (
                         self.show_edit_substation_popup(
-                            sid, sname, loc, adate, div, is_th, p
+                            sid, sname, loc, adate, div, is_th, dist, p
                         )
                     )
                 )
@@ -13612,6 +13701,7 @@ class SubstationApp(App):
         adoption_date,
         division,
         is_thessaloniki,
+        base_distance_km,
         parent_popup,
     ):
         # Create popup
@@ -13652,11 +13742,40 @@ class SubstationApp(App):
         layout.add_widget(Label(text="Τοποθεσία:", size_hint_y=0.08))
         layout.add_widget(location_input)
 
+        distance_input = TextInput(
+            text=(
+                ""
+                if base_distance_km in (None, "")
+                else self._normalize_decimal_numeric_text(str(base_distance_km))
+            ),
+            hint_text=S["MESSAGES"].get(
+                "BASE_DISTANCE_KM_LABEL", "Απόσταση από βάση (km):"
+            ),
+            size_hint_y=0.12,
+            multiline=False,
+        )
+        distance_input.bind(
+            text=lambda inst, val: (
+                setattr(inst, "text", self._normalize_decimal_numeric_text(val))
+                if val and "," in val
+                else None
+            )
+        )
+        layout.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "BASE_DISTANCE_KM_LABEL", "Απόσταση από βάση (km):"
+                ),
+                size_hint_y=0.08,
+            )
+        )
+        layout.add_widget(distance_input)
+
         # Adoption date input
         date_input = TextInput(
             text=adoption_date or "",
             hint_text="Ημερομηνία Ανάληψης (YYYY-MM-DD)",
-            size_hint_y=0.2,
+            size_hint_y=0.16,
             multiline=False,
         )
         layout.add_widget(Label(text="Ανάληψη:", size_hint_y=0.1))
@@ -13715,26 +13834,32 @@ class SubstationApp(App):
             sub_cols = {
                 row[1] for row in c.execute("PRAGMA table_info(substations)").fetchall()
             }
+            distance_text = self._normalize_decimal_numeric_text(distance_input.text)
+            distance_value = (
+                float(distance_text) if str(distance_text).strip() else None
+            )
             if "is_thessaloniki" in sub_cols:
                 c.execute(
-                    "UPDATE substations SET name=?, location=?, adoption_date=?, division=?, is_thessaloniki=? WHERE id=?",
+                    "UPDATE substations SET name=?, location=?, adoption_date=?, division=?, is_thessaloniki=?, base_distance_km=? WHERE id=?",
                     (
                         new_name,
                         location_input.text,
                         date_input.text,
                         division_spinner.text,
                         1 if th_checkbox.active else 0,
+                        distance_value,
                         substation_id,
                     ),
                 )
             else:
                 c.execute(
-                    "UPDATE substations SET name=?, location=?, adoption_date=?, division=? WHERE id=?",
+                    "UPDATE substations SET name=?, location=?, adoption_date=?, division=?, base_distance_km=? WHERE id=?",
                     (
                         new_name,
                         location_input.text,
                         date_input.text,
                         division_spinner.text,
+                        distance_value,
                         substation_id,
                     ),
                 )
@@ -13749,6 +13874,7 @@ class SubstationApp(App):
                     "adoption_date": date_input.text,
                     "division": division_spinner.text,
                     "is_thessaloniki": 1 if th_checkbox.active else 0,
+                    "base_distance_km": distance_value,
                 },
             )
             popup.dismiss()
