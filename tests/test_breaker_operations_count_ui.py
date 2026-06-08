@@ -227,6 +227,113 @@ def test_format_measurement_details_payload_formats_nested_values():
     assert "Αλλαγή λαδιών: Ναι" in text
 
 
+def test_collect_vidar_display_entries_prefers_structured_status_and_comment():
+    app = object.__new__(DBrun.SubstationApp)
+
+    entries = app._collect_vidar_display_entries(
+        {
+            "vidar_status": {
+                "vidar_fa": "OK",
+                "vidar_fb": "NOK",
+            },
+            "vidar_comment": {
+                "vidar_fb": "Χρειάζεται επανέλεγχος",
+            },
+        },
+        legacy_vidar={
+            "vidar_fa": 1.0,
+            "vidar_fb": 0.0,
+            "vidar_fc": 1.0,
+        },
+    )
+
+    assert entries == [
+        ("ΦΑ-ΦΑ", "OK"),
+        ("ΦΒ-ΦΒ", "NOK | Σχόλιο: Χρειάζεται επανέλεγχος"),
+        ("ΦΓ-ΦΓ", "OK"),
+    ]
+
+
+def test_legacy_vidar_display_value_maps_binary_values():
+    app = object.__new__(DBrun.SubstationApp)
+
+    assert app._legacy_vidar_display_value(1) == "OK"
+    assert app._legacy_vidar_display_value(0) == "NOK"
+    assert app._legacy_vidar_display_value(2.5) == "2.5"
+
+
+def test_receiving_breaker_contact_measurements_round_trip_through_serialization(
+    monkeypatch,
+):
+    monkeypatch.setattr(DBrun, "BoxLayout", BoxLayout)
+    monkeypatch.setattr(DBrun, "Label", Label)
+    monkeypatch.setattr(DBrun, "TextInput", TextInput)
+
+    app = object.__new__(DBrun.SubstationApp)
+    details_container = BoxLayout(orientation="vertical")
+    measurements = {
+        "contact_bus_departure": app._add_three_phase_measurement_row(
+            details_container,
+            "Αντίσταση Διέλευσης Ζυγού-Αναχώρησης (uΩ):",
+        ),
+        "contact_departure_departure": app._add_three_phase_measurement_row(
+            details_container,
+            "Αντίσταση Διέλευσης Αναχώρησης-Αναχώρησης (uΩ):",
+        ),
+    }
+    measurements["contact_bus_departure"][0].text = "12.5"
+    measurements["contact_departure_departure"][2].text = "8.4"
+
+    payload = app._serialize_measurements_for_storage(measurements)
+
+    restored_container = BoxLayout(orientation="vertical")
+    restored_measurements = {
+        "contact_bus_departure": app._add_three_phase_measurement_row(
+            restored_container,
+            "Αντίσταση Διέλευσης Ζυγού-Αναχώρησης (uΩ):",
+        ),
+        "contact_departure_departure": app._add_three_phase_measurement_row(
+            restored_container,
+            "Αντίσταση Διέλευσης Αναχώρησης-Αναχώρησης (uΩ):",
+        ),
+    }
+    app._apply_serialized_measurement_value(restored_measurements, payload)
+
+    assert restored_measurements["contact_bus_departure"][0].text == "12.5"
+    assert restored_measurements["contact_departure_departure"][2].text == "8.4"
+
+
+def test_build_measurement_summary_formats_structured_vidar_and_receiving_contact_values():
+    app = object.__new__(DBrun.SubstationApp)
+
+    summary = app._build_maintenance_element_measurement_summary(
+        elem_type=DBrun.SubstationApp.ELEM_BREAKER_MT,
+        breaker_category="Κενού",
+        cont_fa=10,
+        cont_fb=11,
+        cont_fc=12,
+        extra_measurements_json=json.dumps(
+            {
+                "vidar_status": {
+                    "vidar_fa": "OK",
+                    "vidar_fb": "NOK",
+                },
+                "vidar_comment": {
+                    "vidar_fb": "Απαιτείται παρατήρηση",
+                },
+                "contact_bus_departure": ["14", "15", "16"],
+                "contact_departure_departure": ["17", "18", "19"],
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    assert "Έλεγχος Κενού VIDAR" in summary
+    assert "ΦΒ-ΦΒ:[/b] NOK | Σχόλιο: Απαιτείται παρατήρηση" in summary
+    assert "Αντίσταση Διέλευσης Ζυγού-Αναχώρησης" in summary
+    assert "ΦΑ-ΦΑ:[/b] 14 uOhm" in summary
+
+
 def test_build_transformer_measurement_section_adds_labels_and_persistent_keys(
     monkeypatch,
 ):

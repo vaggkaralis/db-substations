@@ -91,6 +91,30 @@ def test_people_matched_on_surname_only_in_present_context():
     assert found == {30, 31}
 
 
+def test_people_matched_on_declined_surnames_in_crew_list_context():
+    conn = _make_conn()
+    cur = conn.cursor()
+    cur.executemany(
+        "INSERT INTO people (id, name, active) VALUES (?, ?, 1)",
+        [
+            (40, "Σιαμετης Χρηστος"),
+            (41, "Μπακανος Δημητριος"),
+            (42, "Σαρηγιαννιδης Γεωργιος"),
+            (43, "Τικτοπουλος Αθανασιος"),
+            (44, "Γιωβης Ιωαννης"),
+        ],
+    )
+    conn.commit()
+
+    body = (
+        "Σήμερα το συνεργείο αποτελούμενο από τους Σιαμετη, Μπάκανο, "
+        "Σαρηγιαννιδη, Τικτοπουλο και Γιωβη κλήθηκε να αντιμετωπίσει τη βλάβη."
+    )
+
+    found = mei._find_people_in_body(conn, body, exclude_ids={40})
+    assert found == {41, 42, 43, 44}
+
+
 def _make_element_conn():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row

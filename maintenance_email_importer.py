@@ -689,11 +689,37 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
             return False
         if body_token == person_token:
             return True
+
+        def _stem(token: str) -> str:
+            token = token or ""
+            for ending in (
+                "ων",
+                "ουσ",
+                "ου",
+                "οσ",
+                "ασ",
+                "ησ",
+                "εσ",
+                "α",
+                "η",
+                "ο",
+                "σ",
+            ):
+                if token.endswith(ending) and len(token) - len(ending) >= 4:
+                    return token[: -len(ending)]
+            return token
+
         # Allow Greek declension variants that differ only by a suffix character.
         if (
             len(body_token) >= 4
             and len(person_token) >= 4
             and body_token[:-1] == person_token[:-1]
+        ):
+            return True
+        if (
+            len(body_token) >= 5
+            and len(person_token) >= 5
+            and _stem(body_token) == _stem(person_token)
         ):
             return True
         return False
@@ -707,16 +733,30 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
         return re.search(pattern, normalized_body) is not None
 
     def _matches_surname_in_crew_context(surname_token: str) -> bool:
-        if not surname_token or not normalized_body:
+        if not surname_token or not tokens:
             return False
-        for m in re.finditer(rf"\b{re.escape(surname_token)}\b", normalized_body):
-            start = max(0, m.start() - 120)
-            end = min(len(normalized_body), m.end() + 120)
-            window = normalized_body[start:end]
-            if re.search(
-                r"\b(εργαζομεν|συνεργει|υπερωρι|ομαδα|επικεφαλησ|παροντ|συμμετειχ|τεχνικ|προσωπικ)\w*",
-                window,
-            ):
+
+        context_roots = (
+            "εργαζομεν",
+            "συνεργει",
+            "υπερωρι",
+            "ομαδα",
+            "επικεφαλησ",
+            "παροντ",
+            "συμμετειχ",
+            "τεχνικ",
+            "προσωπικ",
+            "αποτελ",
+        )
+        context_pattern = r"\b(" + "|".join(context_roots) + r")\w*"
+
+        for index, body_token in enumerate(tokens):
+            if not _person_token_match(body_token, surname_token):
+                continue
+            start = max(0, index - 10)
+            end = min(len(tokens), index + 11)
+            window = " ".join(tokens[start:end])
+            if re.search(context_pattern, window):
                 return True
         return False
 

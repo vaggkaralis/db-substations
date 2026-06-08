@@ -242,6 +242,79 @@ def test_open_maintenance_from_email_payload_uses_shared_matching_helpers():
     assert prefill["element_ids"] == {10}
 
 
+def test_open_maintenance_from_email_payload_does_not_fallback_previous_elements():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.executemany(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        [
+            (10, 1, "Διακόπτης ΜΤ", "Ρ-601A", "Κενού"),
+            (11, 1, "Διακόπτης ΜΤ", "Ρ-602A", "Κενού"),
+        ],
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, responsible_id) VALUES (?, ?, ?, ?, ?)",
+        (99, 1, "Prev", "2026-06-01 08:00", 5),
+    )
+    cur.executemany(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+        [(99, 10, ""), (99, 11, "")],
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    payload = {
+        "subject": "Συντήρηση 08.06.2026",
+        "body": "Το συνεργείο του ΤΕΙ μετέβη στον υποσταθμό και εκτέλεσε εργασίες.",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-06-08T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    prefill = captured["kwargs"]["prefill_data"]
+    assert prefill["element_ids"] == set()
+    assert prefill["incomplete_elements"] == set()
+
+
 def test_open_maintenance_from_email_payload_reuses_unfinished_workflow_without_pending_row():
     conn = init_db(":memory:")
     conn.row_factory = sqlite3.Row

@@ -1325,9 +1325,6 @@ def open_maintenance_from_email_payload(
         # Don't use previous crew - only include explicitly mentioned crew from email body
         # if not prefill["crew_ids"] and prev.get("crew_ids"):
         #     prefill["crew_ids"] = prev.get("crew_ids")
-        if not prefill["element_ids"] and prev.get("element_ids"):
-            prefill["element_ids"] = prev.get("element_ids")
-            prefill["incomplete_elements"] = set(prefill["element_ids"])
         if not prefill["maintenance_type"] and prev.get("maintenance_type"):
             prefill["maintenance_type"] = prev.get("maintenance_type")
         if not prefill["overall_comments"] and prev.get("overall_comments"):

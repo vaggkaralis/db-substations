@@ -15475,6 +15475,9 @@ class SubstationApp(App):
             _update_save_button_state()
 
         maintenance_type_spinner.bind(text=lambda *_args: refresh_checklist_summary())
+        maintenance_type_spinner.bind(
+            text=lambda *_args: _rebuild_element_details_for_maintenance_type()
+        )
 
         wizard_nav_row = BoxLayout(size_hint_y=None, height=40, spacing=8)
         wizard_back_btn = Button(
@@ -16679,6 +16682,84 @@ class SubstationApp(App):
             workflow_next_action_label.text = (
                 f"Επόμενη κίνηση: {workflow_summary['next_action']}"
             )
+
+        def _capture_element_detail_state(widgets):
+            widgets = widgets or {}
+            measurements = widgets.get("measurements") or {}
+            measurement_toggle = widgets.get("measurements_toggle")
+            return {
+                "comment_text": getattr(widgets.get("comments"), "text", "") or "",
+                "measurements": self._serialize_measurements_for_storage(measurements),
+                "measurements_enabled": bool(
+                    getattr(measurement_toggle, "active", False)
+                )
+                if measurement_toggle is not None
+                else True,
+            }
+
+        def _rebuild_element_details_for_maintenance_type(element_ids=None):
+            target_ids = (
+                list(element_widgets.keys())
+                if element_ids is None
+                else list(element_ids)
+            )
+            for element_id in target_ids:
+                widgets = element_widgets.get(element_id) or {}
+                ensure_details = widgets.get("ensure_details")
+                checkbox = widgets.get("checkbox")
+                if not callable(ensure_details) or not getattr(
+                    checkbox, "active", False
+                ):
+                    continue
+
+                existing_details = widgets.get("details_container")
+                existing_parent = getattr(existing_details, "parent", None)
+                preserved_state = _capture_element_detail_state(widgets)
+
+                if existing_parent is not None and existing_details is not None:
+                    try:
+                        existing_parent.remove_widget(existing_details)
+                    except Exception:
+                        pass
+
+                widgets["details_container"] = None
+                widgets["comments"] = None
+                widgets["measurements"] = None
+                widgets["ops_count_input"] = None
+                widgets["measurements_toggle"] = None
+
+                ensure_details()
+
+                rebuilt_widgets = element_widgets.get(element_id) or {}
+                rebuilt_comments = rebuilt_widgets.get("comments")
+                if rebuilt_comments is not None:
+                    try:
+                        rebuilt_comments.text = preserved_state.get("comment_text", "")
+                    except Exception:
+                        pass
+
+                rebuilt_measurements = rebuilt_widgets.get("measurements") or {}
+                try:
+                    self._apply_serialized_measurement_value(
+                        rebuilt_measurements,
+                        preserved_state.get("measurements") or {},
+                    )
+                except Exception:
+                    pass
+
+                rebuilt_toggle = rebuilt_widgets.get("measurements_toggle")
+                if rebuilt_toggle is not None:
+                    try:
+                        rebuilt_toggle.active = bool(
+                            preserved_state.get("measurements_enabled", True)
+                        )
+                    except Exception:
+                        pass
+
+            _refresh_elements_container_visibility()
+            refresh_workflow_summary()
+            _update_save_button_state()
+            _sync_dynamic_step_layout()
 
         def _has_minimum_save_data():
             return (
@@ -18142,6 +18223,42 @@ class SubstationApp(App):
                             contact_layout.add_widget(cont_fc)
                             details_container.add_widget(contact_layout)
 
+                            # Add extra receiving-breaker measurements when either
+                            # the element is a receiving breaker category OR the
+                            # selected maintenance type is 'Παραλαβή'. This ensures
+                            # the fields appear for MV breakers during handover
+                            # maintenances even if the element's breaker_category
+                            # field is not set to the canonical value.
+                            is_receiving = self._is_receiving_breaker_category(
+                                breaker_category
+                            )
+                            is_paralavi = False
+                            try:
+                                is_paralavi = (
+                                    self._normalize_text(
+                                        maintenance_type_spinner.text
+                                    ).strip()
+                                    == "παραλαβη"
+                                )
+                            except Exception:
+                                is_paralavi = (
+                                    maintenance_type_spinner.text or ""
+                                ).lower().strip() == "παραλαβη"
+
+                            if is_receiving or is_paralavi:
+                                measurements["contact_bus_departure"] = (
+                                    self._add_three_phase_measurement_row(
+                                        details_container,
+                                        "ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (uOhm) - ΖΥΓΟΣ-Αναχωρήσεις:",
+                                    )
+                                )
+                                measurements["contact_departure_departure"] = (
+                                    self._add_three_phase_measurement_row(
+                                        details_container,
+                                        "ΑΝΤΙΣΤΑΣΗ ΔΙΕΛΕΥΣΗΣ (uOhm) - Αναχώρηση-Αναχώρηση:",
+                                    )
+                                )
+
                             # expose ops_count and placeholders
                             try:
                                 measurements.setdefault("ops_count", ops_count_input)
@@ -18298,70 +18415,10 @@ class SubstationApp(App):
                                 elem_type == self.ELEM_BREAKER_MT
                                 and breaker_category in ["Vacuum", "Κενού"]
                             ):
-                                details_container.add_widget(
-                                    Label(
-                                        text=S["MESSAGES"].get(
-                                            "VIDAR_VACUUM_CHECK_LABEL",
-                                            "ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):",
-                                        ),
-                                        size_hint_y=None,
-                                        height=25,
-                                        bold=True,
-                                    )
+                                self._build_vacuum_vidar_section(
+                                    details_container,
+                                    measurements,
                                 )
-
-                                vidar_layout = BoxLayout(
-                                    size_hint_y=None, height=30, spacing=3
-                                )
-                                vidar_layout.add_widget(
-                                    Label(
-                                        text=S["MESSAGES"].get(
-                                            "PHASE_TO_PHASE_LABEL_COLON", "ΦΑ-ΦΑ:"
-                                        ),
-                                        size_hint_x=0.15,
-                                    )
-                                )
-                                vidar_fa = TextInput(
-                                    hint_text=S["MESSAGES"].get("VIDAR_HINT", "0.0"),
-                                    size_hint_x=0.25,
-                                    multiline=False,
-                                )
-                                vidar_layout.add_widget(vidar_fa)
-                                vidar_layout.add_widget(
-                                    Label(
-                                        text=S["MESSAGES"].get(
-                                            "VIDAR_LABEL_FB", "ΦΒ-ΦΒ:"
-                                        ),
-                                        size_hint_x=0.15,
-                                    )
-                                )
-                                vidar_fb = TextInput(
-                                    hint_text=S["MESSAGES"].get("VIDAR_HINT", "0.0"),
-                                    size_hint_x=0.25,
-                                    multiline=False,
-                                )
-                                vidar_layout.add_widget(vidar_fb)
-                                vidar_layout.add_widget(
-                                    Label(
-                                        text=S["MESSAGES"].get(
-                                            "VIDAR_LABEL_FC", "ΦΓ-ΦΓ:"
-                                        ),
-                                        size_hint_x=0.15,
-                                    )
-                                )
-                                vidar_fc = TextInput(
-                                    hint_text=S["MESSAGES"].get("VIDAR_HINT", "0.0"),
-                                    size_hint_x=0.25,
-                                    multiline=False,
-                                )
-                                vidar_layout.add_widget(vidar_fc)
-                                details_container.add_widget(vidar_layout)
-
-                                vidar_widgets = {
-                                    "vidar_fa": vidar_fa,
-                                    "vidar_fb": vidar_fb,
-                                    "vidar_fc": vidar_fc,
-                                }
 
                             # Transformer 150/20kV maintenance form (per-element)
                             if self._is_transformer(elem_type):
@@ -18733,6 +18790,14 @@ class SubstationApp(App):
                                     and data["vidar"].get(key) is not None
                                 ):
                                     widget.text = str(data["vidar"].get(key))
+
+                        vidar_status_widgets = measurements.get("vidar_status") or {}
+                        for key, widget in vidar_status_widgets.items():
+                            legacy_status = self._legacy_vidar_display_value(
+                                (data.get("vidar") or {}).get(key)
+                            )
+                            if legacy_status in {"OK", "NOK"}:
+                                widget.text = legacy_status
 
                         extra_measurements = data.get("extra_measurements") or {}
                         if extra_measurements:
@@ -19401,6 +19466,17 @@ class SubstationApp(App):
                                     )
                                 except Exception:
                                     vidar_vals[key] = None
+
+                    vidar_status_widgets = measurements.get("vidar_status") or {}
+                    if vidar_status_widgets:
+                        for key, widget in vidar_status_widgets.items():
+                            status_text = str(getattr(widget, "text", "") or "").strip()
+                            if status_text == "OK":
+                                vidar_vals[key] = 1.0
+                            elif status_text == "NOK":
+                                vidar_vals[key] = 0.0
+                            else:
+                                vidar_vals[key] = None
 
                     measurements_enabled = True
                     measurement_toggle = widgets.get("measurements_toggle")
@@ -20484,6 +20560,159 @@ class SubstationApp(App):
             inputs[row_key] = tuple(row_inputs)
         return inputs
 
+    @staticmethod
+    def _is_receiving_breaker_category(breaker_category):
+        return normalize_text(str(breaker_category or "")).strip() == "παραλαβη"
+
+    @staticmethod
+    def _legacy_vidar_display_value(value):
+        if value is None or str(value).strip() == "":
+            return None
+        try:
+            numeric = float(value)
+        except Exception:
+            return str(value)
+        if abs(numeric - 1.0) < 0.0001:
+            return "OK"
+        if abs(numeric) < 0.0001:
+            return "NOK"
+        if numeric.is_integer():
+            return str(int(numeric))
+        return str(numeric)
+
+    def _collect_vidar_display_entries(
+        self, extra_measurements=None, legacy_vidar=None
+    ):
+        extra_measurements = (
+            extra_measurements if isinstance(extra_measurements, dict) else {}
+        )
+        legacy_vidar = legacy_vidar if isinstance(legacy_vidar, dict) else {}
+        status_map = extra_measurements.get("vidar_status") or {}
+        comment_map = extra_measurements.get("vidar_comment") or {}
+        phase_map = (
+            ("vidar_fa", S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ")),
+            (
+                "vidar_fb",
+                S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ:").rstrip(":"),
+            ),
+            (
+                "vidar_fc",
+                S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ:").rstrip(":"),
+            ),
+        )
+
+        entries = []
+        for key, label in phase_map:
+            if self._has_meaningful_measurement_value(status_map.get(key)):
+                display_value = str(status_map.get(key)).strip()
+            else:
+                display_value = self._legacy_vidar_display_value(legacy_vidar.get(key))
+            if not self._has_meaningful_measurement_value(display_value):
+                continue
+            comment_text = str(comment_map.get(key) or "").strip()
+            if comment_text:
+                display_value = f"{display_value} | Σχόλιο: {comment_text}"
+            entries.append((label, display_value))
+        return entries
+
+    def _add_three_phase_measurement_row(
+        self,
+        container,
+        title,
+        *,
+        hint_text="0.0",
+        labels=None,
+    ):
+        container.add_widget(
+            Label(
+                text=title,
+                size_hint_y=None,
+                height=25,
+                bold=True,
+            )
+        )
+
+        phase_labels = labels or (
+            S["MESSAGES"].get("PHASE_TO_PHASE_LABEL_COLON", "ΦΑ-ΦΑ:"),
+            S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ:"),
+            S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ:"),
+        )
+        row = BoxLayout(size_hint_y=None, height=30, spacing=3)
+        inputs = []
+        for label_text in phase_labels:
+            row.add_widget(Label(text=label_text, size_hint_x=0.15))
+            text_input = TextInput(
+                hint_text=hint_text,
+                size_hint_x=0.25,
+                multiline=False,
+            )
+            row.add_widget(text_input)
+            inputs.append(text_input)
+        container.add_widget(row)
+        return tuple(inputs)
+
+    def _build_vacuum_vidar_section(self, details_container, measurements):
+        details_container.add_widget(
+            Label(
+                text=S["MESSAGES"].get(
+                    "VIDAR_VACUUM_CHECK_LABEL",
+                    "ΕΛΕΓΧΟΣ ΚΕΝΟΥ (VIDAR):",
+                ),
+                size_hint_y=None,
+                height=25,
+                bold=True,
+            )
+        )
+
+        status_widgets = {}
+        comment_widgets = {}
+        phase_map = (
+            (
+                "vidar_fa",
+                S["MESSAGES"].get("PHASE_TO_PHASE_LABEL_COLON", "ΦΑ-ΦΑ:"),
+            ),
+            ("vidar_fb", S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ:")),
+            ("vidar_fc", S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ:")),
+        )
+
+        for key, label_text in phase_map:
+            row = BoxLayout(size_hint_y=None, height=34, spacing=6)
+            status_spinner = Spinner(
+                text="",
+                values=("", "OK", "NOK"),
+                size_hint_x=0.18,
+            )
+            comment_input = TextInput(
+                hint_text="Σχόλιο VIDAR όταν η μέτρηση είναι NOK",
+                multiline=False,
+                size_hint_x=0.62,
+                disabled=True,
+            )
+            comment_input.opacity = 0.45
+
+            def _sync_comment_state(_inst, value, text_input=comment_input):
+                if str(value or "").strip() == "NOK":
+                    text_input.disabled = False
+                    text_input.opacity = 1
+                else:
+                    text_input.disabled = True
+                    text_input.opacity = 0.45
+                    text_input.text = ""
+
+            status_spinner.bind(text=_sync_comment_state)
+            _sync_comment_state(status_spinner, status_spinner.text)
+
+            row.add_widget(Label(text=label_text, size_hint_x=0.2))
+            row.add_widget(status_spinner)
+            row.add_widget(comment_input)
+            details_container.add_widget(row)
+
+            status_widgets[key] = status_spinner
+            comment_widgets[key] = comment_input
+
+        measurements["vidar_status"] = status_widgets
+        measurements["vidar_comment"] = comment_widgets
+
     def _build_transformer_measurement_section(self, details_container, measurements):
         def _add_section(title):
             details_container.add_widget(
@@ -20986,6 +21215,8 @@ class SubstationApp(App):
             "sf6_leak_methodology",
             "sf6",
             "vidar",
+            "vidar_status",
+            "vidar_comment",
         }
 
     def _prepare_measurement_details_payload(self, payload, exclude_keys=None):
@@ -21071,6 +21302,8 @@ class SubstationApp(App):
             "temp_alarm": "Θερμοστοιχεία ALARM",
             "temp_trip": "Θερμοστοιχεία TRIP",
             "diverter_res": "Μετρήσεις αντίστασης diverter",
+            "contact_bus_departure": "Αντίσταση Διέλευσης Ζυγού-Αναχώρησης",
+            "contact_departure_departure": "Αντίσταση Διέλευσης Αναχώρησης-Αναχώρησης",
         }
         if key in label_map:
             return label_map[key]
@@ -21085,6 +21318,8 @@ class SubstationApp(App):
             "resistance_raid": ["Α", "Β", "Γ"],
             "contact_az": ["Α", "Β", "Γ"],
             "contact_ms": ["Α", "Β", "Γ"],
+            "contact_bus_departure": ["ΦΑ-ΦΑ", "ΦΒ-ΦΒ", "ΦΓ-ΦΓ"],
+            "contact_departure_departure": ["ΦΑ-ΦΑ", "ΦΒ-ΦΒ", "ΦΓ-ΦΓ"],
             "measure": ["Α", "Β", "Γ"],
             "temp_fan": ["OIL", "X1", "X3"],
             "temp_alarm": ["OIL", "X1", "X3"],
@@ -21175,6 +21410,8 @@ class SubstationApp(App):
             "resistance_raid": "uOhm",
             "contact_az": "uOhm",
             "contact_ms": "uOhm",
+            "contact_bus_departure": "uOhm",
+            "contact_departure_departure": "uOhm",
             "sf6_pressure_gauge_value": "bar",
             "sf6_alarm_appearance_value": "bar",
             "sf6_block_appearance_value": "bar",
@@ -21390,7 +21627,23 @@ class SubstationApp(App):
             extra_measurements,
             exclude_keys=self._maintenance_detail_legacy_measurement_keys(),
         )
+        vidar_entries = self._collect_vidar_display_entries(
+            extra_measurements,
+            legacy_vidar={
+                "vidar_fa": vidar_fa,
+                "vidar_fb": vidar_fb,
+                "vidar_fc": vidar_fc,
+            },
+        )
         detail_payload = normalize_detail_payload(detail_payload)
+        vidar_entries = self._collect_vidar_display_entries(
+            extra_measurements,
+            legacy_vidar={
+                "vidar_fa": vidar_fa,
+                "vidar_fb": vidar_fb,
+                "vidar_fc": vidar_fc,
+            },
+        )
 
         lines = []
         is_hv_breaker = elem_type == self.ELEM_BREAKER_YT
@@ -21492,16 +21745,12 @@ class SubstationApp(App):
         if (
             breaker_category in ["Vacuum", "Κενού"]
             and elem_type == self.ELEM_BREAKER_MT
+            and vidar_entries
         ):
-            add_triplet(
+            add_section(
                 measurement_lines,
                 S["MESSAGES"].get("VIDAR_SECTION_TITLE", "Έλεγχος Κενού (VIDAR)"),
-                [
-                    (S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(vidar_fa)),
-                    (S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ"), fmt(vidar_fb)),
-                    (S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ"), fmt(vidar_fc)),
-                ],
-                unit="kV",
+                [f"  [b]{label}:[/b] {value}" for label, value in vidar_entries],
             )
 
         if self._has_meaningful_measurement_value(detail_payload):
@@ -24003,6 +24252,14 @@ class SubstationApp(App):
             extra_measurements,
             exclude_keys=self._maintenance_detail_legacy_measurement_keys(),
         )
+        vidar_entries = self._collect_vidar_display_entries(
+            extra_measurements,
+            legacy_vidar={
+                "vidar_fa": vidar_fa,
+                "vidar_fb": vidar_fb,
+                "vidar_fc": vidar_fc,
+            },
+        )
 
         def fmt(val, unit=None):
             if val is None or val == "":
@@ -24064,6 +24321,7 @@ class SubstationApp(App):
         has_measurements = has_measurements or self._has_meaningful_measurement_value(
             detail_payload
         )
+        has_measurements = has_measurements or bool(vidar_entries)
 
         popup = Popup(title=f"Μετρήσεις: {element_name}", size_hint=(0.9, 0.9))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
@@ -24337,22 +24595,15 @@ class SubstationApp(App):
             has_measurements
             and breaker_category in ["Vacuum", "Κενού"]
             and elem_type == self.ELEM_BREAKER_MT
-            and any([vidar_fa, vidar_fb, vidar_fc])
+            and vidar_entries
         ):
             add_section(
                 S["MESSAGES"].get("VIDAR_SECTION_TITLE", "Έλεγχος Κενού (VIDAR)")
             )
             grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
             grid.bind(minimum_height=grid.setter("height"))
-            add_kv_row(
-                grid, S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "ΦΑ-ΦΑ"), fmt(vidar_fa)
-            )
-            add_kv_row(
-                grid, S["MESSAGES"].get("VIDAR_LABEL_FB", "ΦΒ-ΦΒ"), fmt(vidar_fb)
-            )
-            add_kv_row(
-                grid, S["MESSAGES"].get("VIDAR_LABEL_FC", "ΦΓ-ΦΓ"), fmt(vidar_fc)
-            )
+            for label, value in vidar_entries:
+                add_kv_row(grid, label, value)
             content.add_widget(grid)
 
         if self._has_meaningful_measurement_value(detail_payload):
