@@ -16,6 +16,7 @@ ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπ�
 
 TRANSFORMER_CATEGORY_TOKEN = "150/20"
 MOTOR_DRIVE_CATEGORY = "Motor Drive"
+ALL_BREAKERS_TOKEN = "__ALL_BREAKERS__"
 
 TRANSFORMER_MODEL_FIELD_DEFS = [
     {
@@ -75,6 +76,701 @@ TRANSFORMER_MODEL_FIELD_DEFS = [
         "numeric": True,
     },
 ]
+
+
+def _safe_int(value):
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return None
+
+
+def _canonical_transformer_filter_label():
+    return "Μετασχηματιστής 150/20KV"
+
+
+def _is_transformer_filter_value(value):
+    text = str(value or "").strip().casefold()
+    return any(
+        token in text
+        for token in (
+            TRANSFORMER_CATEGORY_TOKEN.casefold(),
+            "transform",
+            "transofr",
+            "μετασχη",
+        )
+    )
+
+
+def _normalize_element_type_filter_value(value):
+    text = str(value or "").strip()
+    if _is_transformer_filter_value(text):
+        return _canonical_transformer_filter_label()
+    return text
+
+
+def _get_breaker_role_options():
+    return [
+        S["MESSAGES"].get("ALL_OPTION", "(Όλα)"),
+        S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός"),
+        S["MESSAGES"].get("BREAKER_LABEL_LINE", "Γραμμής"),
+        S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"),
+        S["MESSAGES"].get("BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"),
+    ]
+
+
+def _build_distance_filter_values(max_distance_km):
+    all_label = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    values = [all_label]
+    try:
+        max_distance_km = float(max_distance_km or 0)
+    except Exception:
+        max_distance_km = 0.0
+    if max_distance_km <= 0:
+        return values
+    step_max = int(((max_distance_km + 49.999) // 50) * 50)
+    for limit in range(50, step_max + 1, 50):
+        values.append(f"{limit} km")
+    return values
+
+
+def _parse_distance_filter_value(value):
+    text = str(value or "").strip()
+    if not text or text == S["MESSAGES"].get("ALL_OPTION", "(Όλα)"):
+        return None
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return int(digits) if digits else None
+
+
+def _element_type_filter_options(app_instance, conn):
+    c = conn.cursor()
+    c.execute(
+        "SELECT DISTINCT element_type FROM elements WHERE TRIM(COALESCE(element_type, '')) != '' ORDER BY element_type"
+    )
+    available = [
+        _normalize_element_type_filter_value(row[0])
+        for row in (c.fetchall() or [])
+        if row and row[0]
+    ]
+    ordered = [S["MESSAGES"].get("ALL_OPTION", "(Όλα)")]
+    ordered.append(S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες"))
+    for element_type in [
+        _normalize_element_type_filter_value(value)
+        for value in getattr(app_instance, "ELEMENT_TYPES", [])
+    ]:
+        if element_type in available and element_type not in ordered:
+            ordered.append(element_type)
+    for element_type in available:
+        if element_type not in ordered:
+            ordered.append(element_type)
+    return ordered
+
+
+def _breaker_role_match_sql(selected_role, elem_breaker_mt, elem_breaker_yt):
+    if not selected_role or selected_role == S["MESSAGES"].get("ALL_OPTION", "(Όλα)"):
+        return "", []
+
+    if selected_role == S["MESSAGES"].get("BREAKER_LABEL_CENTRAL", "Κεντρικός"):
+        return (
+            " AND ((e.element_type = ?) OR (e.element_type = ? AND COALESCE(e.is_main_switch, 0) = 1))",
+            [elem_breaker_yt, elem_breaker_mt],
+        )
+    if selected_role == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
+        return (
+            " AND e.element_type = ? AND COALESCE(e.is_main_switch, 0) = 2",
+            [elem_breaker_mt],
+        )
+    if selected_role == S["MESSAGES"].get(
+        "BREAKER_LABEL_CAPACITOR", "Διακόπτης Πυκνωτών"
+    ):
+        return (
+            " AND e.element_type = ? AND COALESCE(e.is_main_switch, 0) = 3",
+            [elem_breaker_mt],
+        )
+    return (
+        " AND e.element_type = ? AND COALESCE(e.is_main_switch, 0) = 0",
+        [elem_breaker_mt],
+    )
+
+
+def search_elements(
+    app_instance,
+    *,
+    element_type_filter=None,
+    breaker_category_filter=None,
+    breaker_role_filter=None,
+    year_relation=None,
+    reference_year=None,
+    distance_relation=None,
+    distance_limit_km=None,
+    sort_direction="distance_desc",
+    include_inactive=False,
+):
+    c = app_instance.conn.cursor()
+    c.execute("PRAGMA table_info(substations)")
+    substation_columns = {row[1] for row in (c.fetchall() or [])}
+    distance_expr = (
+        "s.base_distance_km" if "base_distance_km" in substation_columns else "NULL"
+    )
+
+    sql = f"""
+        SELECT
+            e.id,
+            e.element_type,
+            e.name,
+            e.serial_number,
+            e.maintenance_date,
+            e.manufacturer,
+            e.installation_space,
+            e.operating_status,
+            e.maintenance_cycle,
+            e.breaker_category,
+            e.manufacture_year,
+            s.name AS substation_name,
+            s.id AS substation_id,
+            {distance_expr} AS base_distance_km,
+            COALESCE(e.is_main_switch, 0) AS is_main_switch
+        FROM elements e
+        JOIN substations s ON e.substation_id = s.id
+        WHERE 1=1
+    """
+    params = []
+
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
+    if not include_inactive:
+        sql += " AND COALESCE(TRIM(e.operating_status), '') != 'Ανενεργή'"
+    if element_type_filter and element_type_filter != all_option:
+        normalized_type_filter = _normalize_element_type_filter_value(
+            element_type_filter
+        )
+        if normalized_type_filter == all_breakers_label:
+            sql += " AND e.element_type IN (?, ?)"
+            params.extend([ELEM_BREAKER_MT, ELEM_BREAKER_YT])
+        elif _is_transformer_filter_value(normalized_type_filter):
+            sql += (
+                " AND (e.element_type = ? OR e.element_type LIKE ? OR "
+                "LOWER(COALESCE(e.element_type, '')) LIKE ? OR "
+                "LOWER(COALESCE(e.element_type, '')) LIKE ? )"
+            )
+            params.extend(
+                [
+                    _canonical_transformer_filter_label(),
+                    "%150/20%",
+                    "%transform%",
+                    "%transofr%",
+                ]
+            )
+        else:
+            sql += " AND e.element_type = ?"
+            params.append(normalized_type_filter)
+
+    if breaker_category_filter and breaker_category_filter != all_option:
+        sql += " AND TRIM(COALESCE(e.breaker_category, '')) = ?"
+        params.append(str(breaker_category_filter).strip())
+
+    role_sql, role_params = _breaker_role_match_sql(
+        breaker_role_filter,
+        ELEM_BREAKER_MT,
+        ELEM_BREAKER_YT,
+    )
+    sql += role_sql
+    params.extend(role_params)
+
+    year_value = _safe_int(reference_year)
+    if year_relation and year_relation != all_option and year_value is not None:
+        year_expr = "CASE WHEN TRIM(COALESCE(e.manufacture_year, '')) GLOB '[0-9][0-9][0-9][0-9]' THEN CAST(TRIM(e.manufacture_year) AS INTEGER) END"
+        if year_relation == S["MESSAGES"].get(
+            "OLDER_THAN_YEAR_LABEL", "Παλαιότερα από"
+        ):
+            sql += f" AND {year_expr} IS NOT NULL AND {year_expr} < ?"
+        else:
+            sql += f" AND {year_expr} IS NOT NULL AND {year_expr} >= ?"
+        params.append(year_value)
+
+    if distance_limit_km is not None:
+        sql += " AND s.base_distance_km IS NOT NULL"
+        if distance_relation == S["MESSAGES"].get(
+            "DISTANCE_GREATER_THAN_LABEL", "Μεγαλύτερη από"
+        ):
+            sql += " AND s.base_distance_km >= ?"
+        else:
+            sql += " AND s.base_distance_km <= ?"
+        params.append(float(distance_limit_km))
+
+    if sort_direction == "distance_asc":
+        sql += " ORDER BY CASE WHEN s.base_distance_km IS NULL THEN 1 ELSE 0 END, s.base_distance_km ASC, s.name ASC, e.name ASC"
+    elif sort_direction == "substation_asc":
+        sql += " ORDER BY s.name ASC, e.name ASC"
+    else:
+        sql += " ORDER BY CASE WHEN s.base_distance_km IS NULL THEN 1 ELSE 0 END, s.base_distance_km DESC, s.name ASC, e.name ASC"
+
+    c.execute(sql, params)
+    return c.fetchall() or []
+
+
+def show_element_search_popup(app_instance, parent_popup=None):
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.textinput import TextInput
+    from kivy.uix.checkbox import CheckBox
+
+    popup = Popup(
+        title=S["MESSAGES"].get("ELEMENT_SEARCH_TITLE", "Αναζήτηση Στοιχείων"),
+        size_hint=(0.96, 0.92),
+    )
+    main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    c = app_instance.conn.cursor()
+    c.execute("SELECT MAX(base_distance_km) FROM substations")
+    max_distance = (c.fetchone() or [None])[0]
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
+
+    filter_grid = GridLayout(cols=2, spacing=8, size_hint_y=None, padding=4)
+    filter_grid.bind(minimum_height=filter_grid.setter("height"))
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("FILTER_TYPE_LABEL", "Τύπος Στοιχείου:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    element_type_spinner = Spinner(
+        text=all_option,
+        values=_element_type_filter_options(app_instance, app_instance.conn),
+        size_hint_y=None,
+        height=36,
+    )
+    filter_grid.add_widget(element_type_spinner)
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("BREAKER_CATEGORY_LABEL", "Κατηγορία Διακόπτη:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    breaker_category_spinner = Spinner(
+        text=all_option,
+        values=[all_option] + list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", [])),
+        size_hint_y=None,
+        height=36,
+        disabled=True,
+    )
+    filter_grid.add_widget(breaker_category_spinner)
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("BREAKER_ROLE_FILTER_LABEL", "Τύπος Διακόπτη:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    breaker_role_spinner = Spinner(
+        text=all_option,
+        values=_get_breaker_role_options(),
+        size_hint_y=None,
+        height=36,
+        disabled=True,
+    )
+    filter_grid.add_widget(breaker_role_spinner)
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("ELEMENT_YEAR_FILTER_LABEL", "Έτος κατασκευής:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    year_box = BoxLayout(size_hint_y=None, height=36, spacing=6)
+    year_relation_spinner = Spinner(
+        text=all_option,
+        values=[
+            all_option,
+            S["MESSAGES"].get("OLDER_THAN_YEAR_LABEL", "Παλαιότερα από"),
+            S["MESSAGES"].get("YOUNGER_THAN_YEAR_LABEL", "Νεότερα ή ίσα με"),
+        ],
+        size_hint_x=0.62,
+    )
+    year_input = TextInput(hint_text="YYYY", multiline=False, size_hint_x=0.38)
+    year_box.add_widget(year_relation_spinner)
+    year_box.add_widget(year_input)
+    filter_grid.add_widget(year_box)
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("DISTANCE_FILTER_LABEL", "Απόσταση από βάση:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    distance_box = BoxLayout(size_hint_y=None, height=36, spacing=6)
+    distance_relation_spinner = Spinner(
+        text=all_option,
+        values=[
+            all_option,
+            S["MESSAGES"].get("DISTANCE_SMALLER_THAN_LABEL", "Μικρότερη από"),
+            S["MESSAGES"].get("DISTANCE_GREATER_THAN_LABEL", "Μεγαλύτερη από"),
+        ],
+        size_hint_x=0.48,
+    )
+    distance_spinner = Spinner(
+        text=all_option,
+        values=_build_distance_filter_values(max_distance),
+        size_hint_x=0.52,
+    )
+    distance_box.add_widget(distance_relation_spinner)
+    distance_box.add_widget(distance_spinner)
+    filter_grid.add_widget(distance_box)
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SORT_RESULTS_LABEL", "Ταξινόμηση:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    sort_spinner = Spinner(
+        text=S["MESSAGES"].get("SORT_DISTANCE_DESC", "Μακρινότερα -> Κοντινότερα"),
+        values=[
+            S["MESSAGES"].get("SORT_DISTANCE_DESC", "Μακρινότερα -> Κοντινότερα"),
+            S["MESSAGES"].get("SORT_DISTANCE_ASC", "Κοντινότερα -> Μακρινότερα"),
+            S["MESSAGES"].get("SORT_SUBSTATION_ASC", "Υποσταθμός Α-Ω"),
+        ],
+        size_hint_y=None,
+        height=36,
+    )
+    filter_grid.add_widget(sort_spinner)
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SHOW_INACTIVE_ELEMENTS", "Εμφάνιση ανενεργών"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    inactive_box = BoxLayout(size_hint_y=None, height=36, spacing=6)
+    include_inactive_checkbox = CheckBox(
+        active=False, size_hint=(None, None), size=(28, 28)
+    )
+    inactive_box.add_widget(include_inactive_checkbox)
+    inactive_box.add_widget(
+        Label(
+            text=S["MESSAGES"].get(
+                "INACTIVE_RESULTS_NOTE", "Προβολή και ανενεργών στοιχείων"
+            ),
+            halign="left",
+            valign="middle",
+        )
+    )
+    filter_grid.add_widget(inactive_box)
+
+    main_layout.add_widget(filter_grid)
+
+    action_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+    results_summary = Label(text="", size_hint_x=0.68, halign="left", valign="middle")
+    results_summary.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+    search_btn = Button(
+        text=S["MESSAGES"].get("SEARCH_BUTTON", "Αναζήτηση"), size_hint_x=0.16
+    )
+    reset_btn = Button(text=S["BUTTONS"].get("CLEAR", "Καθαρισμός"), size_hint_x=0.16)
+    action_row.add_widget(results_summary)
+    action_row.add_widget(search_btn)
+    action_row.add_widget(reset_btn)
+    main_layout.add_widget(action_row)
+
+    scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+    results_grid = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
+    results_grid.bind(minimum_height=results_grid.setter("height"))
+    scroll.add_widget(results_grid)
+    main_layout.add_widget(scroll)
+
+    def _refresh_breaker_filters(*_args):
+        selected_type = element_type_spinner.text
+        breaker_enabled = selected_type in {
+            all_breakers_label,
+            ELEM_BREAKER_MT,
+            ELEM_BREAKER_YT,
+        }
+        breaker_category_spinner.disabled = not breaker_enabled
+        breaker_role_spinner.disabled = not breaker_enabled
+        if not breaker_enabled:
+            breaker_category_spinner.text = all_option
+            breaker_role_spinner.text = all_option
+            return
+        if selected_type == ELEM_BREAKER_MT:
+            categories = app_instance._get_breaker_categories_for_element_type(
+                ELEM_BREAKER_MT
+            )
+        elif selected_type == ELEM_BREAKER_YT:
+            categories = app_instance._get_breaker_categories_for_element_type(
+                ELEM_BREAKER_YT
+            )
+        else:
+            categories = list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", []))
+        breaker_category_spinner.values = [all_option] + list(categories)
+        if breaker_category_spinner.text not in breaker_category_spinner.values:
+            breaker_category_spinner.text = all_option
+
+    def _add_element_result(elem_data, is_inactive=False):
+        (
+            _elem_id,
+            elem_type,
+            elem_name,
+            serial_number,
+            maintenance_date,
+            manufacturer,
+            installation_space,
+            operating_status,
+            maintenance_cycle,
+            breaker_category,
+            manufacture_year,
+            _substation_name,
+            _substation_id,
+            _base_distance_km,
+            is_main_switch,
+        ) = elem_data
+
+        elem_box = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            height=88,
+            spacing=4,
+            padding=(12, 0, 0, 0),
+        )
+
+        status_text = " [color=ff0000][b]ΑΝΕΝΕΡΓΟ[/b][/color]" if is_inactive else ""
+        display_type = app_instance._format_elem_type(elem_type, is_main_switch)
+        title_text = f"[b][size=16]{elem_name}[/size][/b] - {display_type}{status_text}"
+        if breaker_category:
+            title_text += f" | {breaker_category}"
+        title_label = Label(
+            text=title_text,
+            markup=True,
+            size_hint_y=None,
+            height=24,
+            halign="left",
+            valign="middle",
+        )
+        title_label.bind(size=title_label.setter("text_size"))
+        elem_box.add_widget(title_label)
+
+        info_bits = [f"S/N: {serial_number or '-'}"]
+        if manufacture_year:
+            info_bits.append(f"Έτος: {manufacture_year}")
+        info_label = Label(
+            text=" | ".join(info_bits),
+            size_hint_y=None,
+            height=20,
+            halign="left",
+            valign="middle",
+        )
+        info_label.bind(size=info_label.setter("text_size"))
+        elem_box.add_widget(info_label)
+
+        details_label = Label(
+            text=(
+                f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | "
+                f"Κατάστ.: {operating_status or '-'} | Κύκλος: {maintenance_cycle or '-'} | "
+                f"Τελ. Συντ.: {maintenance_date or '-'}"
+            ),
+            size_hint_y=None,
+            height=20,
+            halign="left",
+            valign="middle",
+        )
+        details_label.bind(size=details_label.setter("text_size"))
+        elem_box.add_widget(details_label)
+        results_grid.add_widget(elem_box)
+
+    def _render_results(result_rows, search_executed=True):
+        results_grid.clear_widgets()
+        if not result_rows:
+            message = (
+                S["MESSAGES"].get(
+                    "SEARCH_PROMPT", "Ορίστε φίλτρα και πατήστε Αναζήτηση."
+                )
+                if not search_executed
+                else S["MESSAGES"].get(
+                    "NO_SEARCH_RESULTS", "Δεν βρέθηκαν στοιχεία με αυτά τα φίλτρα."
+                )
+            )
+            results_summary.text = message
+            results_grid.add_widget(Label(text=message, size_hint_y=None, height=40))
+            return
+
+        groups = {}
+        order = []
+        for row in result_rows:
+            substation_name = row[11]
+            substation_id = row[12]
+            base_distance_km = row[13]
+            operating_status = (row[7] or "").strip()
+            is_inactive = operating_status == "Ανενεργή"
+            if substation_name not in groups:
+                groups[substation_name] = {
+                    "id": substation_id,
+                    "distance": base_distance_km,
+                    "active": [],
+                    "inactive": [],
+                }
+                order.append(substation_name)
+            groups[substation_name]["inactive" if is_inactive else "active"].append(row)
+
+        results_summary.text = (
+            f"{len(result_rows)} στοιχεία σε {len(groups)} υποσταθμούς"
+        )
+
+        for substation_name in order:
+            group = groups[substation_name]
+            total_count = len(group["active"]) + len(group["inactive"])
+            distance_text = (
+                f"{float(group['distance']):.1f} km"
+                if group.get("distance") not in (None, "")
+                else "-"
+            )
+
+            header_row = BoxLayout(size_hint_y=None, height=40, spacing=10)
+            header_label = Label(
+                text=f"[b][size=18]{substation_name} ({total_count}) | {distance_text}[/size][/b]",
+                markup=True,
+                size_hint_x=0.75,
+                halign="left",
+                valign="middle",
+            )
+            header_label.bind(size=header_label.setter("text_size"))
+            header_row.add_widget(header_label)
+
+            jump_btn = Button(
+                text=S["MESSAGES"].get("GO_TO_SUBSTATION", "Μετάβαση στον Υποσταθμό"),
+                size_hint_x=0.25,
+            )
+            jump_btn.bind(
+                on_press=lambda _x, sname=substation_name, p=popup: jump_to_substation(
+                    app_instance, sname, p
+                )
+            )
+            header_row.add_widget(jump_btn)
+            results_grid.add_widget(header_row)
+
+            for row in group["active"]:
+                _add_element_result(row, False)
+            if group["inactive"]:
+                inactive_label = Label(
+                    text=f"[b][color=ff0000]Ανενεργά ({len(group['inactive'])})[/color][/b]",
+                    markup=True,
+                    size_hint_y=None,
+                    height=28,
+                    halign="left",
+                    valign="middle",
+                )
+                inactive_label.bind(size=inactive_label.setter("text_size"))
+                results_grid.add_widget(inactive_label)
+                for row in group["inactive"]:
+                    _add_element_result(row, True)
+
+    def _run_search(*_args):
+        year_value = _safe_int(year_input.text)
+        if year_relation_spinner.text != all_option and year_value is None:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("ELEMENT_MANUFACTURE_YEAR_HINT", "YYYY"),
+            )
+            return
+
+        distance_limit = _parse_distance_filter_value(distance_spinner.text)
+        if distance_relation_spinner.text != all_option and distance_limit is None:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get(
+                    "DISTANCE_FILTER_REQUIRED", "Επιλέξτε όριο απόστασης."
+                ),
+            )
+            return
+
+        has_meaningful_filter = any(
+            [
+                element_type_spinner.text != all_option,
+                breaker_category_spinner.text != all_option,
+                breaker_role_spinner.text != all_option,
+                year_relation_spinner.text != all_option and year_value is not None,
+                distance_relation_spinner.text != all_option
+                and distance_limit is not None,
+                include_inactive_checkbox.active,
+            ]
+        )
+        if not has_meaningful_filter:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get(
+                    "ELEMENT_SEARCH_FILTER_REQUIRED",
+                    "Επιλέξτε τουλάχιστον ένα φίλτρο πριν την αναζήτηση.",
+                ),
+            )
+            return
+
+        sort_map = {
+            S["MESSAGES"].get(
+                "SORT_DISTANCE_DESC", "Μακρινότερα -> Κοντινότερα"
+            ): "distance_desc",
+            S["MESSAGES"].get(
+                "SORT_DISTANCE_ASC", "Κοντινότερα -> Μακρινότερα"
+            ): "distance_asc",
+            S["MESSAGES"].get(
+                "SORT_SUBSTATION_ASC", "Υποσταθμός Α-Ω"
+            ): "substation_asc",
+        }
+        rows = search_elements(
+            app_instance,
+            element_type_filter=element_type_spinner.text,
+            breaker_category_filter=breaker_category_spinner.text,
+            breaker_role_filter=breaker_role_spinner.text,
+            year_relation=year_relation_spinner.text,
+            reference_year=year_value,
+            distance_relation=distance_relation_spinner.text,
+            distance_limit_km=distance_limit,
+            sort_direction=sort_map.get(sort_spinner.text, "distance_desc"),
+            include_inactive=bool(include_inactive_checkbox.active),
+        )
+        _render_results(rows, search_executed=True)
+
+    def _reset_filters(*_args):
+        element_type_spinner.text = all_option
+        breaker_category_spinner.text = all_option
+        breaker_role_spinner.text = all_option
+        year_relation_spinner.text = all_option
+        year_input.text = ""
+        distance_relation_spinner.text = all_option
+        distance_spinner.text = all_option
+        include_inactive_checkbox.active = False
+        sort_spinner.text = S["MESSAGES"].get(
+            "SORT_DISTANCE_DESC", "Μακρινότερα -> Κοντινότερα"
+        )
+        _refresh_breaker_filters()
+        _render_results([], search_executed=False)
+
+    element_type_spinner.bind(text=lambda *_args: _refresh_breaker_filters())
+    search_btn.bind(on_press=_run_search)
+    reset_btn.bind(on_press=_reset_filters)
+
+    close_btn = Button(
+        text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
+    )
+    close_btn.bind(on_press=popup.dismiss)
+    main_layout.add_widget(close_btn)
+
+    popup.content = main_layout
+    _refresh_breaker_filters()
+    _render_results([], search_executed=False)
+    popup.open()
+
 
 HV_BREAKER_MODEL_FIELD_DEFS = [
     {
@@ -311,12 +1007,21 @@ def show_models_management(app_instance):
     )
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-    # Add model button
+    action_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
     add_btn = Button(
-        text=S["BUTTONS"].get("ADD_MODEL", "+ Προσθήκη Νέου Μοντέλου"), size_hint_y=0.1
+        text=S["BUTTONS"].get("ADD_MODEL", "+ Προσθήκη Νέου Μοντέλου"),
+        size_hint_x=0.5,
     )
     add_btn.bind(on_press=lambda x: show_add_model_popup(app_instance, popup))
-    main_layout.add_widget(add_btn)
+    action_row.add_widget(add_btn)
+
+    search_btn = Button(
+        text=S["MESSAGES"].get("SEARCH_ELEMENTS_BUTTON", "Αναζήτηση Στοιχείων"),
+        size_hint_x=0.5,
+    )
+    search_btn.bind(on_press=lambda _x: show_element_search_popup(app_instance, popup))
+    action_row.add_widget(search_btn)
+    main_layout.add_widget(action_row)
 
     # Filter by element type
     available_categories = [row[1] for row in models]
