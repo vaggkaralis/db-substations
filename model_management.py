@@ -4,6 +4,7 @@ Model Management UI Functions for Element Models
 
 import os
 import webbrowser
+from datetime import date
 
 from breaker_model_utils import infer_breaker_model_values
 from popups import ask_open_file, show_message_popup
@@ -307,6 +308,787 @@ def search_elements(
 
     c.execute(sql, params)
     return c.fetchall() or []
+
+
+def _age_bucket_labels():
+    return ["0-10", "11-20", "21-30", "31+"]
+
+
+def _age_bucket_for_year(manufacture_year, current_year=None):
+    year_value = _safe_int(manufacture_year)
+    if year_value is None:
+        return None
+    current_year = current_year or date.today().year
+    age = max(0, int(current_year) - year_value)
+    if age <= 10:
+        return "0-10"
+    if age <= 20:
+        return "11-20"
+    if age <= 30:
+        return "21-30"
+    return "31+"
+
+
+def _increment_count(target, key, amount=1):
+    if not key:
+        return
+    target[key] = int(target.get(key, 0) or 0) + amount
+
+
+def _sorted_count_items(counts):
+    return sorted(
+        [(label, value) for label, value in (counts or {}).items() if value],
+        key=lambda item: (-item[1], str(item[0]).casefold()),
+    )
+
+
+def _filtered_elements_for_statistics(
+    app_instance,
+    *,
+    include_inactive=False,
+    distance_relation=None,
+    distance_limit_km=None,
+    element_scope=None,
+):
+    c = app_instance.conn.cursor()
+    sql = """
+        SELECT
+            e.id,
+            e.element_type,
+            e.breaker_category,
+            e.manufacture_year,
+            e.operating_status,
+            s.base_distance_km,
+            e.element_model_id,
+            em.model_name,
+            COALESCE(em.manufacturer, e.manufacturer, '-') AS model_manufacturer,
+            COALESCE(em.element_category, e.element_type) AS model_category
+        FROM elements e
+        JOIN substations s ON e.substation_id = s.id
+        LEFT JOIN element_models em ON e.element_model_id = em.id
+        WHERE 1=1
+    """
+    params = []
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
+
+    if not include_inactive:
+        sql += " AND COALESCE(TRIM(e.operating_status), '') != 'Ανενεργή'"
+
+    normalized_scope = _normalize_element_type_filter_value(element_scope)
+    if normalized_scope and normalized_scope != all_option:
+        if normalized_scope == all_breakers_label:
+            sql += " AND e.element_type IN (?, ?)"
+            params.extend([ELEM_BREAKER_MT, ELEM_BREAKER_YT])
+        elif _is_transformer_filter_value(normalized_scope):
+            sql += (
+                " AND (e.element_type = ? OR e.element_type LIKE ? OR "
+                "LOWER(COALESCE(e.element_type, '')) LIKE ? OR "
+                "LOWER(COALESCE(e.element_type, '')) LIKE ? )"
+            )
+            params.extend(
+                [
+                    _canonical_transformer_filter_label(),
+                    "%150/20%",
+                    "%transform%",
+                    "%transofr%",
+                ]
+            )
+        else:
+            sql += " AND e.element_type = ?"
+            params.append(normalized_scope)
+
+    if distance_limit_km is not None:
+        sql += " AND s.base_distance_km IS NOT NULL"
+        if distance_relation == S["MESSAGES"].get(
+            "DISTANCE_GREATER_THAN_LABEL", "Μεγαλύτερη από"
+        ):
+            sql += " AND s.base_distance_km >= ?"
+        else:
+            sql += " AND s.base_distance_km <= ?"
+        params.append(float(distance_limit_km))
+
+    sql += " ORDER BY e.element_type ASC, e.name ASC"
+    c.execute(sql, params)
+    return c.fetchall() or []
+
+
+def get_model_management_statistics(
+    app_instance,
+    *,
+    include_inactive=False,
+    distance_relation=None,
+    distance_limit_km=None,
+    element_scope=None,
+    top_n_models=5,
+):
+    rows = _filtered_elements_for_statistics(
+        app_instance,
+        include_inactive=include_inactive,
+        distance_relation=distance_relation,
+        distance_limit_km=distance_limit_km,
+        element_scope=element_scope,
+    )
+
+    hv_breaker_types = {}
+    mv_breaker_types = {}
+    transformer_ages = {label: 0 for label in _age_bucket_labels()}
+    hv_breaker_ages = {label: 0 for label in _age_bucket_labels()}
+    mv_breaker_ages = {label: 0 for label in _age_bucket_labels()}
+    manufacturer_models_by_category = {}
+    seen_models = set()
+    model_usage_by_category = {}
+
+    for (
+        _elem_id,
+        element_type,
+        breaker_category,
+        manufacture_year,
+        _operating_status,
+        _base_distance_km,
+        element_model_id,
+        model_name,
+        model_manufacturer,
+        model_category,
+    ) in rows:
+        if element_type == ELEM_BREAKER_YT:
+            _increment_count(
+                hv_breaker_types,
+                breaker_category or S["MESSAGES"].get("OTHER_LABEL", "Άλλο"),
+            )
+            age_bucket = _age_bucket_for_year(manufacture_year)
+            if age_bucket:
+                hv_breaker_ages[age_bucket] += 1
+        elif element_type == ELEM_BREAKER_MT:
+            _increment_count(
+                mv_breaker_types,
+                breaker_category or S["MESSAGES"].get("OTHER_LABEL", "Άλλο"),
+            )
+            age_bucket = _age_bucket_for_year(manufacture_year)
+            if age_bucket:
+                mv_breaker_ages[age_bucket] += 1
+
+        if _is_transformer_filter_value(element_type):
+            age_bucket = _age_bucket_for_year(manufacture_year)
+            if age_bucket:
+                transformer_ages[age_bucket] += 1
+
+        model_key = (
+            element_model_id
+            if element_model_id is not None
+            else (model_category, model_name, model_manufacturer)
+        )
+        if model_name and model_key not in seen_models:
+            seen_models.add(model_key)
+            category_key = _normalize_element_type_filter_value(
+                model_category or element_type
+            )
+            category_manufacturers = manufacturer_models_by_category.setdefault(
+                category_key, {}
+            )
+            _increment_count(category_manufacturers, model_manufacturer or "-")
+
+        if model_name:
+            category_key = _normalize_element_type_filter_value(
+                model_category or element_type
+            )
+            category_usage = model_usage_by_category.setdefault(category_key, {})
+            _increment_count(category_usage, model_name)
+
+    most_used_models = {
+        category: _sorted_count_items(counts)[: max(1, int(top_n_models or 5))]
+        for category, counts in model_usage_by_category.items()
+        if _sorted_count_items(counts)
+    }
+
+    return {
+        "rows_count": len(rows),
+        "pies": {
+            "types_hv_breakers": _sorted_count_items(hv_breaker_types),
+            "types_mv_breakers": _sorted_count_items(mv_breaker_types),
+            "age_transformers": _sorted_count_items(transformer_ages),
+            "age_hv_breakers": _sorted_count_items(hv_breaker_ages),
+            "age_mv_breakers": _sorted_count_items(mv_breaker_ages),
+        },
+        "bars": {
+            "manufacturer_count_models": {
+                category: _sorted_count_items(counts)
+                for category, counts in manufacturer_models_by_category.items()
+                if _sorted_count_items(counts)
+            },
+            "most_used_models_per_category": most_used_models,
+        },
+    }
+
+
+def show_model_statistics_popup(app_instance, parent_popup=None):
+    from kivy.graphics import Color, Ellipse, Line, Rectangle
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.checkbox import CheckBox
+    from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.widget import Widget
+
+    popup = Popup(
+        title=S["MESSAGES"].get("MODEL_STATS_TITLE", "Στατιστικά Στοιχείων"),
+        size_hint=(0.97, 0.94),
+    )
+    main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    c = app_instance.conn.cursor()
+    c.execute("SELECT MAX(base_distance_km) FROM substations")
+    max_distance = (c.fetchone() or [None])[0]
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+
+    filter_row = GridLayout(cols=2, spacing=8, size_hint_y=None)
+    filter_row.bind(minimum_height=filter_row.setter("height"))
+    filter_row.add_widget(
+        Label(
+            text=S["MESSAGES"].get("FILTER_TYPE_LABEL", "Τύπος Στοιχείου:"),
+            size_hint_y=None,
+            height=30,
+        )
+    )
+    scope_spinner = Spinner(
+        text=all_option,
+        values=_element_type_filter_options(app_instance, app_instance.conn),
+        size_hint_y=None,
+        height=36,
+    )
+    filter_row.add_widget(scope_spinner)
+
+    filter_row.add_widget(
+        Label(
+            text=S["MESSAGES"].get("DISTANCE_FILTER_LABEL", "Απόσταση από βάση:"),
+            size_hint_y=None,
+            height=30,
+        )
+    )
+    distance_box = BoxLayout(size_hint_y=None, height=36, spacing=6)
+    distance_relation_spinner = Spinner(
+        text=all_option,
+        values=[
+            all_option,
+            S["MESSAGES"].get("DISTANCE_SMALLER_THAN_LABEL", "Μικρότερη από"),
+            S["MESSAGES"].get("DISTANCE_GREATER_THAN_LABEL", "Μεγαλύτερη από"),
+        ],
+        size_hint_x=0.48,
+    )
+    distance_spinner = Spinner(
+        text=all_option,
+        values=_build_distance_filter_values(max_distance),
+        size_hint_x=0.52,
+    )
+    distance_box.add_widget(distance_relation_spinner)
+    distance_box.add_widget(distance_spinner)
+    filter_row.add_widget(distance_box)
+
+    filter_row.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SHOW_INACTIVE_ELEMENTS", "Εμφάνιση ανενεργών"),
+            size_hint_y=None,
+            height=30,
+        )
+    )
+    inactive_box = BoxLayout(size_hint_y=None, height=36, spacing=6)
+    include_inactive_checkbox = CheckBox(
+        active=False, size_hint=(None, None), size=(28, 28)
+    )
+    inactive_box.add_widget(include_inactive_checkbox)
+    inactive_box.add_widget(
+        Label(
+            text=S["MESSAGES"].get(
+                "INACTIVE_RESULTS_NOTE", "Προβολή και ανενεργών στοιχείων"
+            ),
+            halign="left",
+            valign="middle",
+        )
+    )
+    filter_row.add_widget(inactive_box)
+
+    main_layout.add_widget(filter_row)
+
+    header_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+    summary_label = Label(text="", size_hint_x=0.7, halign="left", valign="middle")
+    summary_label.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+    apply_btn = Button(
+        text=S["MESSAGES"].get("APPLY_FILTERS_BUTTON", "Εφαρμογή"), size_hint_x=0.15
+    )
+    reset_btn = Button(text=S["BUTTONS"].get("CLEAR", "Καθαρισμός"), size_hint_x=0.15)
+    header_row.add_widget(summary_label)
+    header_row.add_widget(apply_btn)
+    header_row.add_widget(reset_btn)
+    main_layout.add_widget(header_row)
+
+    scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+    charts_grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=5)
+    charts_grid.bind(minimum_height=charts_grid.setter("height"))
+    scroll.add_widget(charts_grid)
+    main_layout.add_widget(scroll)
+
+    palette = [
+        (0.16, 0.48, 0.72, 1),
+        (0.87, 0.44, 0.20, 1),
+        (0.28, 0.65, 0.33, 1),
+        (0.70, 0.24, 0.30, 1),
+        (0.55, 0.43, 0.75, 1),
+        (0.86, 0.72, 0.20, 1),
+    ]
+
+    def _color_box(color_rgba, height=16, width=16):
+        widget = Widget(size_hint=(None, None), size=(width, height))
+
+        def _redraw(*_args):
+            widget.canvas.clear()
+            with widget.canvas:
+                Color(*color_rgba)
+                Rectangle(pos=widget.pos, size=widget.size)
+
+        widget.bind(pos=_redraw, size=_redraw)
+        _redraw()
+        return widget
+
+    def _make_pie_chart_section(title, items):
+        if not items:
+            return None
+        container = BoxLayout(
+            orientation="vertical", size_hint_y=None, spacing=6, padding=4
+        )
+        container.bind(minimum_height=container.setter("height"))
+        container.add_widget(
+            Label(
+                text=f"[b]{title}[/b]",
+                markup=True,
+                size_hint_y=None,
+                height=28,
+                halign="left",
+                valign="middle",
+            )
+        )
+
+        legend = GridLayout(
+            cols=2,
+            spacing=(6, 4),
+            size_hint=(None, None),
+            padding=(0, 0, 0, 4),
+        )
+        legend.bind(minimum_width=legend.setter("width"))
+        legend.bind(minimum_height=legend.setter("height"))
+        legend.pos_hint = {"center_x": 0.5}
+        container.add_widget(legend)
+
+        body = BoxLayout(size_hint_y=None, height=260, spacing=10)
+        chart_widget = Widget(size_hint_x=1.0)
+
+        total = sum(value for _label, value in items) or 1
+
+        def _draw_chart(*_args):
+            import math
+
+            from kivy.core.text import Label as CoreLabel
+
+            def _prepare_text_block(lines):
+                textures = []
+                max_width = 0.0
+                total_height = 0.0
+                spacing = 2.0
+
+                for text_line, font_size in lines:
+                    core = CoreLabel(
+                        text=str(text_line),
+                        font_size=font_size,
+                        color=(0.05, 0.05, 0.05, 1),
+                    )
+                    core.refresh()
+                    texture = core.texture
+                    if texture is None:
+                        continue
+                    width, height = texture.size
+                    textures.append((texture, width, height))
+                    max_width = max(max_width, width)
+                    total_height += height
+
+                if not textures:
+                    return None
+
+                total_height += spacing * max(0, len(textures) - 1)
+                return {
+                    "textures": textures,
+                    "width": max_width,
+                    "height": total_height,
+                    "spacing": spacing,
+                }
+
+            def _clamp(value, minimum, maximum):
+                return max(minimum, min(maximum, value))
+
+            def _draw_label_block(x_pos, y_pos, prepared_block, align="left"):
+                if not prepared_block:
+                    return None
+
+                max_width = prepared_block["width"]
+                total_height = prepared_block["height"]
+                bg_pos = (
+                    x_pos - 4.0 if align == "left" else x_pos - max_width - 4.0,
+                    y_pos - total_height / 2.0 - 3.0,
+                )
+                bg_size = (max_width + 8.0, total_height + 6.0)
+
+                Color(1, 1, 1, 0.9)
+                Rectangle(pos=bg_pos, size=bg_size)
+
+                current_y = y_pos + total_height / 2.0
+                for texture, width, height in prepared_block["textures"]:
+                    current_y -= height
+                    Color(0.05, 0.05, 0.05, 1)
+                    if align == "left":
+                        text_x = x_pos
+                    else:
+                        text_x = x_pos - width
+                    Rectangle(
+                        texture=texture,
+                        pos=(text_x, current_y),
+                        size=(width, height),
+                    )
+                    current_y -= prepared_block["spacing"]
+
+                return (bg_pos[0], bg_pos[1], bg_size[0], bg_size[1])
+
+            chart_widget.canvas.clear()
+            with chart_widget.canvas:
+                size = max(20.0, min(chart_widget.width, chart_widget.height) - 20.0)
+                radius = size / 2.0
+                center_x = chart_widget.x + chart_widget.width / 2.0
+                center_y = chart_widget.y + chart_widget.height / 2.0
+                start = 0.0
+                label_candidates = []
+                max_label_width = 0.0
+                for index, (label, value) in enumerate(items):
+                    angle = 360.0 * (float(value) / float(total))
+                    slice_color = palette[index % len(palette)]
+                    Color(*slice_color)
+                    Ellipse(
+                        pos=(center_x - radius, center_y - radius),
+                        size=(size, size),
+                        angle_start=start,
+                        angle_end=start + angle,
+                    )
+
+                    share = float(value) / float(total)
+                    prepared_block = _prepare_text_block([(label, 10), (value, 11)])
+                    if prepared_block and share > 0.0:
+                        max_label_width = max(
+                            max_label_width, prepared_block["width"] + 8.0
+                        )
+                        mid_angle = start + angle / 2.0
+                        direction = (
+                            1.0 if math.cos(math.radians(mid_angle)) >= 0 else -1.0
+                        )
+                        anchor_radius = radius * 0.95
+                        anchor_x = (
+                            center_x + math.cos(math.radians(mid_angle)) * anchor_radius
+                        )
+                        anchor_y = (
+                            center_y + math.sin(math.radians(mid_angle)) * anchor_radius
+                        )
+                        label_width = prepared_block["width"] + 8.0
+                        label_height = prepared_block["height"] + 6.0
+                        label_candidates.append(
+                            {
+                                "direction": direction,
+                                "anchor": (anchor_x, anchor_y),
+                                "label_width": label_width,
+                                "label_height": label_height,
+                                "desired_y": anchor_y,
+                                "block": prepared_block,
+                                "color": slice_color,
+                            }
+                        )
+                    start += angle
+
+                label_top = chart_widget.y + 10.0
+                label_bottom = chart_widget.y + chart_widget.height - 10.0
+                side_groups = {1.0: [], -1.0: []}
+                for candidate in label_candidates:
+                    side_groups[candidate["direction"]].append(candidate)
+
+                for direction, candidates in side_groups.items():
+                    if not candidates:
+                        continue
+
+                    candidates.sort(key=lambda entry: entry["desired_y"])
+                    gap = 8.0
+                    label_positions = []
+                    for candidate in candidates:
+                        half_height = candidate["label_height"] / 2.0
+                        y_pos = _clamp(
+                            candidate["desired_y"],
+                            label_top + half_height,
+                            label_bottom - half_height,
+                        )
+                        label_positions.append([candidate, y_pos])
+
+                    for idx in range(1, len(label_positions)):
+                        prev_candidate, prev_y = label_positions[idx - 1]
+                        candidate, y_pos = label_positions[idx]
+                        min_y = (
+                            prev_y
+                            + prev_candidate["label_height"] / 2.0
+                            + candidate["label_height"] / 2.0
+                            + gap
+                        )
+                        if y_pos < min_y:
+                            label_positions[idx][1] = min_y
+
+                    if label_positions:
+                        last_candidate, last_y = label_positions[-1]
+                        max_last_y = label_bottom - last_candidate["label_height"] / 2.0
+                        if last_y > max_last_y:
+                            label_positions[-1][1] = max_last_y
+
+                    for idx in range(len(label_positions) - 2, -1, -1):
+                        candidate, y_pos = label_positions[idx]
+                        next_candidate, next_y = label_positions[idx + 1]
+                        max_y = (
+                            next_y
+                            - next_candidate["label_height"] / 2.0
+                            - candidate["label_height"] / 2.0
+                            - gap
+                        )
+                        if y_pos > max_y:
+                            label_positions[idx][1] = max_y
+
+                    for idx in range(len(label_positions)):
+                        candidate, y_pos = label_positions[idx]
+                        half_height = candidate["label_height"] / 2.0
+                        label_positions[idx][1] = _clamp(
+                            y_pos,
+                            label_top + half_height,
+                            label_bottom - half_height,
+                        )
+
+                    side_gap = 48.0
+                    safe_pad = 8.0
+                    preferred = center_x + direction * (radius + side_gap)
+                    if direction > 0:
+                        label_x = _clamp(
+                            preferred,
+                            chart_widget.x + safe_pad,
+                            chart_widget.x
+                            + chart_widget.width
+                            - safe_pad
+                            - max_label_width,
+                        )
+                    else:
+                        label_x = _clamp(
+                            preferred,
+                            chart_widget.x + safe_pad + max_label_width,
+                            chart_widget.x + chart_widget.width - safe_pad,
+                        )
+
+                    elbow_x = center_x + direction * (radius + 14.0)
+
+                    for candidate, y_pos in label_positions:
+                        anchor_x, anchor_y = candidate["anchor"]
+                        label_edge_x = label_x - 4.0 if direction > 0 else label_x + 4.0
+                        min_tail = 22.0
+                        if direction > 0:
+                            line_mid_x = min(elbow_x, label_edge_x - min_tail)
+                        else:
+                            line_mid_x = max(elbow_x, label_edge_x + min_tail)
+                        line_color = candidate["color"]
+                        Color(
+                            line_color[0] * 0.75,
+                            line_color[1] * 0.75,
+                            line_color[2] * 0.75,
+                            1,
+                        )
+                        Line(
+                            points=[
+                                anchor_x,
+                                anchor_y,
+                                line_mid_x,
+                                y_pos,
+                                label_edge_x,
+                                y_pos,
+                            ],
+                            width=1.0,
+                        )
+                        _draw_label_block(
+                            label_x,
+                            y_pos,
+                            candidate["block"],
+                            align="left" if direction > 0 else "right",
+                        )
+                Color(0.1, 0.1, 0.1, 1)
+                Line(circle=(center_x, center_y, radius), width=1.2)
+
+        chart_widget.bind(pos=_draw_chart, size=_draw_chart)
+        _draw_chart()
+
+        for index, (label, value) in enumerate(items):
+            legend.add_widget(_color_box(palette[index % len(palette)]))
+            legend.add_widget(
+                Label(
+                    text=f"{label}: {value}",
+                    size_hint_x=None,
+                    width=240,
+                    halign="left",
+                    valign="middle",
+                    text_size=(240, None),
+                )
+            )
+
+        body.add_widget(chart_widget)
+        container.add_widget(body)
+        return container
+
+    def _make_bar_chart_section(title, items):
+        if not items:
+            return None
+        container = BoxLayout(
+            orientation="vertical", size_hint_y=None, spacing=6, padding=4
+        )
+        container.bind(minimum_height=container.setter("height"))
+        container.add_widget(
+            Label(
+                text=f"[b]{title}[/b]",
+                markup=True,
+                size_hint_y=None,
+                height=28,
+                halign="left",
+                valign="middle",
+            )
+        )
+
+        max_value = max(value for _label, value in items) or 1
+        for index, (label, value) in enumerate(items):
+            row = BoxLayout(size_hint_y=None, height=26, spacing=6)
+            row.add_widget(
+                Label(text=label, size_hint_x=0.35, halign="left", valign="middle")
+            )
+            bar_widget = Widget(size_hint_x=0.55)
+
+            def _draw_bar(
+                widget=bar_widget, item_value=value, color=palette[index % len(palette)]
+            ):
+                def _redraw(*_args):
+                    widget.canvas.clear()
+                    with widget.canvas:
+                        Color(0.90, 0.90, 0.90, 1)
+                        Rectangle(pos=widget.pos, size=widget.size)
+                        Color(*color)
+                        width = widget.width * (float(item_value) / float(max_value))
+                        Rectangle(pos=widget.pos, size=(width, widget.height))
+
+                widget.bind(pos=_redraw, size=_redraw)
+                _redraw()
+
+            _draw_bar()
+            row.add_widget(bar_widget)
+            row.add_widget(
+                Label(
+                    text=str(value), size_hint_x=0.10, halign="right", valign="middle"
+                )
+            )
+            container.add_widget(row)
+        return container
+
+    def _render_statistics(stats_payload=None):
+        charts_grid.clear_widgets()
+        stats_payload = stats_payload or {"rows_count": 0, "pies": {}, "bars": {}}
+        summary_label.text = (
+            f"Στοιχεία στο σύνολο: {stats_payload.get('rows_count', 0)}"
+        )
+
+        pie_titles = [
+            ("types_hv_breakers", "Τύποι Διακοπτών ΥΤ"),
+            ("types_mv_breakers", "Τύποι Διακοπτών ΜΤ"),
+            ("age_transformers", "Ηλικία Μετασχηματιστών"),
+            ("age_hv_breakers", "Ηλικία Διακοπτών ΥΤ"),
+            ("age_mv_breakers", "Ηλικία Διακοπτών ΜΤ"),
+        ]
+        for key, title in pie_titles:
+            section = _make_pie_chart_section(
+                title, (stats_payload.get("pies") or {}).get(key) or []
+            )
+            if section is not None:
+                charts_grid.add_widget(section)
+
+        for category, items in (
+            (stats_payload.get("bars") or {}).get("manufacturer_count_models") or {}
+        ).items():
+            manufacturer_section = _make_bar_chart_section(
+                f"Κατασκευαστές Μοντέλων - {category}",
+                items,
+            )
+            if manufacturer_section is not None:
+                charts_grid.add_widget(manufacturer_section)
+
+        for category, items in (
+            (stats_payload.get("bars") or {}).get("most_used_models_per_category") or {}
+        ).items():
+            section = _make_bar_chart_section(
+                f"Πιο χρησιμοποιημένα μοντέλα - {category}", items
+            )
+            if section is not None:
+                charts_grid.add_widget(section)
+
+        if not charts_grid.children:
+            charts_grid.add_widget(
+                Label(
+                    text=S["MESSAGES"].get(
+                        "NO_STATS_RESULTS",
+                        "Δεν υπάρχουν δεδομένα για τα επιλεγμένα φίλτρα.",
+                    ),
+                    size_hint_y=None,
+                    height=40,
+                )
+            )
+
+    def _apply_filters(*_args):
+        distance_limit = _parse_distance_filter_value(distance_spinner.text)
+        if distance_relation_spinner.text != all_option and distance_limit is None:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get(
+                    "DISTANCE_FILTER_REQUIRED", "Επιλέξτε όριο απόστασης."
+                ),
+            )
+            return
+
+        stats_payload = get_model_management_statistics(
+            app_instance,
+            include_inactive=bool(include_inactive_checkbox.active),
+            distance_relation=distance_relation_spinner.text,
+            distance_limit_km=distance_limit,
+            element_scope=scope_spinner.text,
+        )
+        _render_statistics(stats_payload)
+
+    def _reset_filters(*_args):
+        scope_spinner.text = all_option
+        distance_relation_spinner.text = all_option
+        distance_spinner.text = all_option
+        include_inactive_checkbox.active = False
+        _apply_filters()
+
+    apply_btn.bind(on_press=_apply_filters)
+    reset_btn.bind(on_press=_reset_filters)
+
+    close_btn = Button(
+        text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
+    )
+    close_btn.bind(on_press=popup.dismiss)
+    main_layout.add_widget(close_btn)
+
+    popup.content = main_layout
+    _apply_filters()
+    popup.open()
 
 
 def show_element_search_popup(app_instance, parent_popup=None):
@@ -1010,17 +1792,24 @@ def show_models_management(app_instance):
     action_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
     add_btn = Button(
         text=S["BUTTONS"].get("ADD_MODEL", "+ Προσθήκη Νέου Μοντέλου"),
-        size_hint_x=0.5,
+        size_hint_x=0.34,
     )
     add_btn.bind(on_press=lambda x: show_add_model_popup(app_instance, popup))
     action_row.add_widget(add_btn)
 
     search_btn = Button(
         text=S["MESSAGES"].get("SEARCH_ELEMENTS_BUTTON", "Αναζήτηση Στοιχείων"),
-        size_hint_x=0.5,
+        size_hint_x=0.33,
     )
     search_btn.bind(on_press=lambda _x: show_element_search_popup(app_instance, popup))
     action_row.add_widget(search_btn)
+
+    stats_btn = Button(
+        text=S["MESSAGES"].get("MODEL_STATS_BUTTON", "Στατιστικά"),
+        size_hint_x=0.33,
+    )
+    stats_btn.bind(on_press=lambda _x: show_model_statistics_popup(app_instance, popup))
+    action_row.add_widget(stats_btn)
     main_layout.add_widget(action_row)
 
     # Filter by element type
@@ -2423,22 +3212,23 @@ def delete_model(app_instance, model_id, parent_popup):
         )
         return
 
-        from reports import show_confirm
+    from reports import show_confirm
 
-        def confirm():
-            c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
-            app_instance.conn.commit()
+    def confirm():
+        c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
+        app_instance.conn.commit()
+        if parent_popup:
             parent_popup.dismiss()
-            from popups import show_message_popup
+        from popups import show_message_popup
 
-            show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MODEL_DELETED"])
+        show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MODEL_DELETED"])
 
-        show_confirm(
-            "Επιβεβαίωση Διαγραφής",
-            "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το μοντέλο;",
-            yes_callback=confirm,
-            yes_color=(1, 0, 0, 1),
-        )
+    show_confirm(
+        "Επιβεβαίωση Διαγραφής",
+        "Είστε σίγουροι ότι θέλετε να διαγράψετε\nαυτό το μοντέλο;",
+        yes_callback=confirm,
+        yes_color=(1, 0, 0, 1),
+    )
 
 
 def jump_to_substation(app_instance, substation_name, current_popup):

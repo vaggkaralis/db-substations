@@ -4,6 +4,7 @@ from model_management import (
     ELEM_BREAKER_MT,
     ELEM_BREAKER_YT,
     _element_type_filter_options,
+    get_model_management_statistics,
     search_elements,
 )
 from strings_proxy import STRINGS as S
@@ -37,6 +38,7 @@ def _setup_db():
         CREATE TABLE elements (
             id INTEGER PRIMARY KEY,
             substation_id INTEGER,
+            element_model_id INTEGER,
             element_type TEXT,
             name TEXT,
             serial_number TEXT,
@@ -51,6 +53,25 @@ def _setup_db():
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE element_models (
+            id INTEGER PRIMARY KEY,
+            element_category TEXT,
+            model_name TEXT,
+            manufacturer TEXT
+        )
+        """
+    )
+    cur.executemany(
+        "INSERT INTO element_models (id, element_category, model_name, manufacturer) VALUES (?, ?, ?, ?)",
+        [
+            (1, ELEM_BREAKER_MT, "MV-100", "ABB"),
+            (2, ELEM_BREAKER_MT, "MV-200", "ABB"),
+            (3, ELEM_BREAKER_YT, "HV-100", "Siemens"),
+            (4, "Μετασχηματιστής 150/20KV", "TR-100", "GE"),
+        ],
+    )
     cur.executemany(
         "INSERT INTO substations (id, name, base_distance_km) VALUES (?, ?, ?)",
         [
@@ -62,13 +83,14 @@ def _setup_db():
     cur.executemany(
         """
         INSERT INTO elements (
-            id, substation_id, element_type, name, serial_number, maintenance_date,
+            id, substation_id, element_model_id, element_type, name, serial_number, maintenance_date,
             manufacturer, installation_space, operating_status, maintenance_cycle,
             breaker_category, manufacture_year, is_main_switch
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
+                1,
                 1,
                 1,
                 ELEM_BREAKER_MT,
@@ -86,6 +108,7 @@ def _setup_db():
             (
                 2,
                 2,
+                2,
                 ELEM_BREAKER_MT,
                 "MV SF6 CENTRAL",
                 "SN2",
@@ -99,6 +122,7 @@ def _setup_db():
                 1,
             ),
             (
+                3,
                 3,
                 3,
                 ELEM_BREAKER_YT,
@@ -116,6 +140,7 @@ def _setup_db():
             (
                 4,
                 3,
+                4,
                 "Μετασχηματιστής 150/20KV",
                 "TR 1",
                 "SN4",
@@ -130,6 +155,7 @@ def _setup_db():
             ),
             (
                 5,
+                1,
                 1,
                 ELEM_BREAKER_MT,
                 "MV VACUUM",
@@ -241,3 +267,47 @@ def test_element_type_filter_options_normalize_transformer_aliases():
 
     assert options.count("Μετασχηματιστής 150/20KV") == 1
     assert "Transformer" not in options
+
+
+def test_model_management_statistics_collects_expected_graph_data():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+
+    stats = get_model_management_statistics(app)
+
+    assert stats["rows_count"] == 4
+    assert stats["pies"]["types_hv_breakers"] == [("SF6", 1)]
+    assert stats["pies"]["types_mv_breakers"] == [("SF6", 1), ("Ελαίου", 1)]
+    assert stats["pies"]["age_transformers"] == [("21-30", 1)]
+    assert stats["bars"]["manufacturer_count_models"] == {
+        ELEM_BREAKER_MT: [("ABB", 2)],
+        ELEM_BREAKER_YT: [("Siemens", 1)],
+        "Μετασχηματιστής 150/20KV": [("GE", 1)],
+    }
+    assert stats["bars"]["most_used_models_per_category"][ELEM_BREAKER_MT] == [
+        ("MV-100", 1),
+        ("MV-200", 1),
+    ]
+
+
+def test_model_management_statistics_respects_distance_and_inactive_filters():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+
+    far_stats = get_model_management_statistics(
+        app,
+        distance_relation=S["MESSAGES"].get(
+            "DISTANCE_GREATER_THAN_LABEL", "Μεγαλύτερη από"
+        ),
+        distance_limit_km=100,
+    )
+    assert far_stats["rows_count"] == 3
+    assert far_stats["pies"]["types_mv_breakers"] == [("SF6", 1)]
+
+    inactive_stats = get_model_management_statistics(app, include_inactive=True)
+    assert inactive_stats["rows_count"] == 5
+    assert inactive_stats["pies"]["types_mv_breakers"] == [
+        ("SF6", 1),
+        ("Ελαίου", 1),
+        ("Κενού", 1),
+    ]
