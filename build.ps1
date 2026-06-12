@@ -69,6 +69,16 @@ function Resolve-VenvPython {
     return $null
 }
 
+function Test-PythonModule {
+    param(
+        [string]$PythonExe,
+        [string]$ModuleName
+    )
+
+    & $PythonExe -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('$ModuleName') else 1)" | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
 $VenvPython = Resolve-VenvPython -ProjectDir $ProjectDir
 
 if (-Not (Test-Path $VenvPython)) {
@@ -121,11 +131,36 @@ if (Test-Path "SubstationManager.spec") {
 
 Write-Host ""
 Write-Host "[2/5] Έλεγχος εξαρτήσεων..." -ForegroundColor Yellow
-& $VenvPython -m pip show pyinstaller kivy pandas openpyxl | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "      ΠΡΟΕΙΔΟΠΟΙΗΣΗ: Ορισμένες εξαρτήσεις λείπουν" -ForegroundColor Red
+ $requiredModules = @(
+    @{ module = "PyInstaller"; package = "pyinstaller" },
+    @{ module = "kivy"; package = "kivy" },
+    @{ module = "pandas"; package = "pandas" },
+    @{ module = "openpyxl"; package = "openpyxl" }
+)
+
+$missingPackages = @()
+foreach ($dependency in $requiredModules) {
+    if (-not (Test-PythonModule -PythonExe $VenvPython -ModuleName $dependency.module)) {
+        $missingPackages += $dependency.package
+    }
+}
+
+if ($missingPackages.Count -gt 0) {
+    Write-Host "      ΠΡΟΕΙΔΟΠΟΙΗΣΗ: Λείπουν εξαρτήσεις: $($missingPackages -join ', ')" -ForegroundColor Red
     Write-Host "      Εγκατάσταση εξαρτήσεων..." -ForegroundColor Yellow
-    & $VenvPython -m pip install pyinstaller kivy pandas openpyxl
+    & $VenvPython -m pip install $missingPackages
+
+    $stillMissing = @()
+    foreach ($dependency in $requiredModules) {
+        if (-not (Test-PythonModule -PythonExe $VenvPython -ModuleName $dependency.module)) {
+            $stillMissing += $dependency.package
+        }
+    }
+
+    if ($stillMissing.Count -gt 0) {
+        Write-Host "      ΣΦΑΛΜΑ: Αποτυχία εγκατάστασης εξαρτήσεων: $($stillMissing -join ', ')" -ForegroundColor Red
+        exit 1
+    }
 }
 Write-Host "      ✓ Όλες οι εξαρτήσεις είναι εγκατεστημένες" -ForegroundColor Green
 

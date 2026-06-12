@@ -1,0 +1,57 @@
+Edit maintenance_checklists.json according to the following data. Cat X shall be ignored, they are just the Categories. Make the code color the text accordingly if the word is a color, such as "Μπλε/Κόκκινη/Πράσινη ομάδα": the word "Μπλε" for example shall be colored blue (pay also attention that it shall word for Greek for inclinations like for example πράσινος/πράσινη/πράσινο/πράσινοι/πράσινες/πράσινα, or also slight differences like πρασινος, Πράσινος, Πράσινος, ΠΡΑΣΙΝΟΣ etc.).
+
+Cat 1: Γενικά
+	- Κατσαβίδια, καστάνιες, ματσόλα, σπαθί
+	- Φακοί
+	- Σπάτουλες για καθαρισμό επικαθίσεων
+	- Γειώσεις 6x
+		i. Είτε 3x150KV + 1x20KV
+		ii. Είτε 6x150KV
+	- Γράσο επαφών
+	- Βίδες
+	- Ξύλινη σκάλα
+
+Cat 2: Στοιχεία λαδιού (Μ/Σ, Diverter, ΔΙ Ελαίου ή Πτωχού Ελαίου)
+	- Γάντια
+	- Στολές
+	- Αντλία για λάδια (Φορητή, NV, Renault)
+	- Βαρέλια Λαδιού Άδεια
+	- Βαρέλια Λαδιού Γεμάτα
+	- Αλφαδολάστιχο
+
+Cat 3: Diverter
+	- Παλάγκο
+	- Στηρίγματα/ποδαρικά για παλάγκο
+
+Cat 3: Μετρήσεις
+	- Όργανα μέτρησης ΜΣ:
+		i. [Μπλε ομάδα] Schuetz, DV power Winding resistance, Doble tanδ
+		ii. [Κόκκινη ομάδα] 
+		iii.  [Πράσινη ομάδα]
+	- Megger
+	- Ducter
+	- Βραχυκυκλώματα
+	- Laptop
+	- Τραπέζι/Καρέκλες
+
+Cat 4: Διακόπτες SF6:
+	- Φιάλες SF6
+	- Μέτρηση ποιότητας SF6:
+		i. Rapidox
+		ii. DILO
+
+Cat 5: Κατασκευές:
+	- Μεταλλικός πάγκος εργασίας
+	- Μόρσα
+	- Μαγνητικό τρυπάνι
+	- Λάμα γείωσης
+	- Διμεταλλικά
+	- Loctite
+	- Molykote
+	- Κόφτης
+	- Πρέσα
+	- Καλώδιο γείωσης 35mm2
+	- Μεγάλο μπουλονόκλειδο
+	- Δυναμόκλειδο
+	- Παλέτες για μεταφορά
+	- Σωληνοκόφτης Cu
