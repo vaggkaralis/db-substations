@@ -5435,10 +5435,12 @@ class SubstationAndroidApp(App):
         )
 
         location = substation.get("location") or "-"
+        is_location_url = isinstance(location, str) and (
+            location.startswith("http://") or location.startswith("https://")
+        )
         location_text = (
             S.get("MESSAGES", {}).get("GOOGLE_MAPS_LINK", "Google Maps Link")
-            if isinstance(location, str)
-            and (location.startswith("http://") or location.startswith("https://"))
+            if is_location_url
             else location
         )
         adoption_text = substation.get("adoption_date") or "-"
@@ -5462,6 +5464,25 @@ class SubstationAndroidApp(App):
         location_label.bind(
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
+
+        location_button = None
+        if is_location_url:
+            location_button = Button(
+                text=S.get("MESSAGES", {}).get("OPEN_MAP", "Άνοιγμα Χάρτη"),
+                size_hint_y=None,
+                height=42,
+                halign="center",
+                valign="middle",
+            )
+            location_button.bind(
+                size=lambda inst, _size: setattr(
+                    inst, "text_size", (inst.width - 10, inst.height - 10)
+                )
+            )
+            self._style_button(location_button, "surface")
+            location_button.bind(
+                on_press=lambda _btn, map_url=location: self._open_url(map_url)
+            )
 
         adoption_label = Label(
             text=f"{S.get('MESSAGES', {}).get('ADOPTION', 'Ανάληψη')}: {adoption_text}",
@@ -5530,6 +5551,8 @@ class SubstationAndroidApp(App):
 
         header_layout.add_widget(name_label)
         header_layout.add_widget(location_label)
+        if location_button is not None:
+            header_layout.add_widget(location_button)
         header_layout.add_widget(adoption_label)
         header_layout.add_widget(counts_line_1)
         header_layout.add_widget(counts_line_2)
@@ -9626,12 +9649,53 @@ class SubstationAndroidApp(App):
 
     def _open_url(self, url):
         """Open a URL in the default browser or app"""
+        url_text = str(url or "").strip()
+        if not url_text:
+            self.show_error("Δεν υπάρχει έγκυρος σύνδεσμος.", is_info=True)
+            return
+
+        def _looks_like_map_link(target_url):
+            lower_url = target_url.lower()
+            map_tokens = (
+                "google.com/maps",
+                "maps.google",
+                "maps.app.goo.gl",
+                "goo.gl/maps",
+                "geo:",
+            )
+            return any(token in lower_url for token in map_tokens)
+
         try:
+            if platform == "android":
+                try:
+                    from jnius import autoclass
+
+                    Intent = autoclass("android.content.Intent")
+                    Uri = autoclass("android.net.Uri")
+                    PythonActivity = autoclass("org.kivy.android.PythonActivity")
+
+                    current_activity = PythonActivity.mActivity
+                    uri = Uri.parse(url_text)
+                    intent = Intent(Intent.ACTION_VIEW, uri)
+
+                    if _looks_like_map_link(url_text):
+                        try:
+                            intent.setPackage("com.google.android.apps.maps")
+                        except Exception:
+                            pass
+
+                    current_activity.startActivity(intent)
+                    return
+                except Exception as android_open_err:
+                    Logger.warning(
+                        f"APP: Android intent URL open failed, falling back to browser: {android_open_err}"
+                    )
+
             import webbrowser
 
-            webbrowser.open(url)
+            webbrowser.open(url_text)
         except Exception as e:
-            Logger.error(f"APP: Failed to open URL {url}: {e}")
+            Logger.error(f"APP: Failed to open URL {url_text}: {e}")
             self.show_error(
                 f"Δεν ήταν δυνατό να ανοίξει ο σύνδεσμος: {str(e)}", is_info=True
             )
