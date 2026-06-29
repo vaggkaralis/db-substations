@@ -5687,6 +5687,7 @@ class SubstationAndroidApp(App):
                             shorten=True,
                             shorten_from="right",
                             max_lines=1,
+                            color=self.theme.get("text", (0.12, 0.18, 0.24, 1)),
                         )
                         line1.bind(
                             size=lambda inst, _size: setattr(
@@ -5708,7 +5709,7 @@ class SubstationAndroidApp(App):
                             font_size="11sp",
                             halign="left",
                             valign="middle",
-                            color=(0.7, 0.7, 0.7, 1),
+                            color=self.theme.get("text_muted", (0.35, 0.43, 0.51, 1)),
                             size_hint_y=None,
                             height=36,
                             shorten=True,
@@ -5736,7 +5737,7 @@ class SubstationAndroidApp(App):
                             font_size="12sp",
                             halign="left",
                             valign="top",
-                            color=(0.6, 0.6, 0.6, 1),
+                            color=self.theme.get("text_muted", (0.35, 0.43, 0.51, 1)),
                             size_hint_y=None,
                             height=34,
                             shorten=True,
@@ -6078,7 +6079,22 @@ class SubstationAndroidApp(App):
 
     def show_maintenance_menu(self, substation_id, substation, force_blank=False):
         """Show maintenance recording interface"""
-        from reports import normalize_decimal_numeric_text
+
+        def normalize_decimal_numeric_text(value):
+            text = str(value or "").strip()
+            if not text:
+                return ""
+            compact = re.sub(r"\s+", "", text)
+            if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", compact):
+                return compact.replace(".", "").replace(",", "")
+            if "," in compact and "." in compact:
+                if compact.rfind(",") > compact.rfind("."):
+                    compact = compact.replace(".", "").replace(",", ".")
+                else:
+                    compact = compact.replace(",", "")
+            else:
+                compact = compact.replace(",", ".")
+            return compact
 
         integer_measurement_keys = {
             "ops_count",
