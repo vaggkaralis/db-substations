@@ -7364,6 +7364,7 @@ class SubstationAndroidApp(App):
                             "comments": elem_comments,
                             "measurements": measurements,
                             "elem_type": elem["element_type"],
+                            "breaker_category": elem.get("breaker_category", ""),
                         }
                 except Exception as e:
                     if loading_label.parent:
@@ -7404,6 +7405,291 @@ class SubstationAndroidApp(App):
         def save_maintenance():
             from reports import normalize_decimal_numeric_text
 
+            integer_measurement_keys = {
+                "ops_count",
+                "operations_count",
+                "hv_sf6_operations_count",
+                "satyf_counter",
+            }
+            numeric_measurement_keys = {
+                "ins_closed_fa",
+                "ins_closed_fb",
+                "ins_closed_fc",
+                "ins_open_fa",
+                "ins_open_fb",
+                "ins_open_fc",
+                "cont_fa",
+                "cont_fb",
+                "cont_fc",
+                "mv_sf6_leakage_kg",
+                "sf6_leakage",
+                "sf6_leakage_kg",
+                "mv_sf6_n2_fa",
+                "mv_sf6_n2_fb",
+                "mv_sf6_n2_fc",
+                "mv_h2o_fa",
+                "mv_h2o_fb",
+                "mv_h2o_fc",
+                "mv_so2_fa",
+                "mv_so2_fb",
+                "mv_so2_fc",
+                "sf6_n2_fa",
+                "sf6_n2_fb",
+                "sf6_n2_fc",
+                "h2o_fa",
+                "h2o_fb",
+                "h2o_fc",
+                "so2_fa",
+                "so2_fb",
+                "so2_fc",
+                "vidar_fa",
+                "vidar_fb",
+                "vidar_fc",
+                "hv_sf6_resistance_a",
+                "hv_sf6_resistance_b",
+                "hv_sf6_resistance_c",
+                "temp_fan_oil",
+                "temp_fan_x1",
+                "temp_fan_x3",
+                "temp_alarm_oil",
+                "temp_alarm_x1",
+                "temp_alarm_x3",
+                "temp_trip_oil",
+                "temp_trip_x1",
+                "temp_trip_x3",
+                "resistance_h1_1",
+                "resistance_h1_2",
+                "resistance_h2_1",
+                "resistance_h2_2",
+                "resistance_h3_1",
+                "resistance_h3_2",
+            }
+
+            def _has_value(value):
+                if value is None:
+                    return False
+                if isinstance(value, dict):
+                    return any(_has_value(v) for v in value.values())
+                if isinstance(value, (list, tuple)):
+                    return any(_has_value(v) for v in value)
+                if isinstance(value, bool):
+                    return value
+                return str(value).strip() != ""
+
+            def _parse_int_value(raw_text):
+                text = str(raw_text or "").strip()
+                if not text:
+                    return None
+                compact = re.sub(r"\s+", "", text)
+                if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", compact):
+                    compact = compact.replace(".", "").replace(",", "")
+                try:
+                    return int(compact)
+                except Exception:
+                    pass
+                normalized = normalize_decimal_numeric_text(compact).strip()
+                if not normalized:
+                    return None
+                try:
+                    float_val = float(normalized)
+                except Exception:
+                    return None
+                return int(float_val) if float_val.is_integer() else None
+
+            def _parse_float_value(raw_text):
+                text = str(raw_text or "").strip()
+                if not text:
+                    return None
+                normalized = normalize_decimal_numeric_text(text).strip()
+                if not normalized:
+                    return None
+                try:
+                    return float(normalized)
+                except Exception:
+                    return None
+
+            def _serialize_measurement_widget(widget, key_hint=None):
+                if widget is None:
+                    return None
+
+                if isinstance(widget, dict):
+                    serialized = {}
+                    for child_key, child_widget in widget.items():
+                        child_value = _serialize_measurement_widget(
+                            child_widget, key_hint=child_key
+                        )
+                        if _has_value(child_value):
+                            serialized[child_key] = child_value
+                    return serialized or None
+
+                if isinstance(widget, (list, tuple)):
+                    serialized_items = [
+                        _serialize_measurement_widget(child) for child in widget
+                    ]
+                    return serialized_items if _has_value(serialized_items) else None
+
+                if hasattr(widget, "active"):
+                    try:
+                        return bool(getattr(widget, "active", False))
+                    except Exception:
+                        return None
+
+                raw_text = getattr(widget, "text", None)
+                if raw_text is None:
+                    return None
+
+                raw_text = str(raw_text).strip()
+                if not raw_text:
+                    return None
+
+                if key_hint in integer_measurement_keys:
+                    parsed_int = _parse_int_value(raw_text)
+                    return parsed_int if parsed_int is not None else raw_text
+
+                if key_hint in numeric_measurement_keys:
+                    parsed_float = _parse_float_value(raw_text)
+                    return parsed_float if parsed_float is not None else raw_text
+
+                return raw_text
+
+            def _normalize_measurement_payload(raw_payload, widgets):
+                payload = dict(raw_payload or {})
+
+                # Keep Android names accepted by desktop, but also map to the
+                # canonical desktop keys so edits/history use the same schema.
+                alias_map = {
+                    "operations_count": "ops_count",
+                    "hv_sf6_operations_count": "ops_count",
+                    "mv_sf6_leakage_kg": "sf6_leakage",
+                    "mv_sf6_leak_methodology": "sf6_leak_methodology",
+                    "mv_sf6_n2_fa": "sf6_n2_fa",
+                    "mv_sf6_n2_fb": "sf6_n2_fb",
+                    "mv_sf6_n2_fc": "sf6_n2_fc",
+                    "mv_h2o_fa": "h2o_fa",
+                    "mv_h2o_fb": "h2o_fb",
+                    "mv_h2o_fc": "h2o_fc",
+                    "mv_so2_fa": "so2_fa",
+                    "mv_so2_fb": "so2_fb",
+                    "mv_so2_fc": "so2_fc",
+                    "hv_sf6_lubrication": "sf6_lubrication",
+                    "hv_sf6_leak_check": "sf6_leak_check",
+                    "hv_sf6_refill": "sf6_refill",
+                    "hv_sf6_wash_insulators": "wash_insulators",
+                    "hv_sf6_corrosion_check": "corrosion_check",
+                }
+                for source_key, target_key in alias_map.items():
+                    if source_key in payload and target_key not in payload:
+                        payload[target_key] = payload.get(source_key)
+
+                hv_raid_values = [
+                    payload.get("hv_sf6_resistance_a"),
+                    payload.get("hv_sf6_resistance_b"),
+                    payload.get("hv_sf6_resistance_c"),
+                ]
+                if any(_has_value(v) for v in hv_raid_values):
+                    payload["resistance_raid"] = hv_raid_values
+
+                # Group transformer checks using desktop field schema.
+                elem_type = (widgets or {}).get("elem_type")
+                if self._is_transformer(elem_type):
+                    grouped_fields = {
+                        "insulators_checks": [
+                            "insulators_fracture_check",
+                            "insulators_leaks",
+                            "insulators_cleaning",
+                            "insulators_spikes",
+                        ],
+                        "oil_checks": ["oil_level_check", "oil_filling"],
+                        "terminal_connection_checks": [
+                            "terminals_bolt_tightness",
+                            "terminals_flexible_connectors",
+                        ],
+                        "transformer_body_checks": [
+                            "body_oil_leaks",
+                            "body_sealing",
+                            "body_cleaning",
+                            "body_relief_valves",
+                            "body_pressure_gauges",
+                            "body_bucholz",
+                        ],
+                        "temp_fan": ["temp_fan_oil", "temp_fan_x1", "temp_fan_x3"],
+                        "temp_alarm": [
+                            "temp_alarm_oil",
+                            "temp_alarm_x1",
+                            "temp_alarm_x3",
+                        ],
+                        "temp_trip": ["temp_trip_oil", "temp_trip_x1", "temp_trip_x3"],
+                        "satyf_mechanism_checks": [
+                            "satyf_gas_transmission_check",
+                            "satyf_joints_cleaning_lubrication",
+                            "satyf_gears_cleaning_lubrication",
+                            "satyf_test_operations",
+                            "satyf_diverter_cracks_check",
+                        ],
+                        "diverter_switch_checks": [
+                            "diverter_contacts_check",
+                            "diverter_connections",
+                            "diverter_oil_change",
+                            "diverter_low_level_alarm_check",
+                        ],
+                        "diverter_res": [
+                            "resistance_h1_1",
+                            "resistance_h1_2",
+                            "resistance_h2_1",
+                            "resistance_h2_2",
+                            "resistance_h3_1",
+                            "resistance_h3_2",
+                        ],
+                        "transformer_node_resistance_checks": [
+                            "node_resistance_cleaning"
+                        ],
+                        "vt_checks_voltage": [
+                            "vt_visual_check",
+                            "vt_leakage_check",
+                            "vt_tightness_check",
+                            "vt_insulation_resistance_check",
+                        ],
+                        "vt_checks_current": [
+                            "ct_visual_check",
+                            "ct_leakage_check",
+                            "ct_tightness_check",
+                            "ct_insulation_resistance_check",
+                        ],
+                        "vt_checks_injection": [
+                            "it_visual_check",
+                            "it_leakage_check",
+                            "it_tightness_check",
+                            "it_insulation_resistance_check",
+                        ],
+                        "lightning_arrester_checks": [
+                            "arresters_visual_check",
+                            "arresters_tightness_check",
+                            "arresters_insulation_resistance_check",
+                        ],
+                        "switch_checks_bms": [
+                            "hv_breaker_visual_check",
+                            "hv_breaker_cleaning_lubrication",
+                            "hv_breaker_tightness_check",
+                        ],
+                        "switch_checks_voltage": [
+                            "voltage_breaker_visual_check",
+                            "voltage_breaker_cleaning_lubrication",
+                            "voltage_breaker_tightness_check",
+                        ],
+                    }
+
+                    if "silica_check" in payload and "silica" not in payload:
+                        payload["silica"] = payload.get("silica_check")
+
+                    for group_key, source_keys in grouped_fields.items():
+                        if group_key in payload:
+                            continue
+                        values = [payload.get(source_key) for source_key in source_keys]
+                        if any(_has_value(v) for v in values):
+                            payload[group_key] = values
+
+                return payload
+
             # Validate
             selected_elements = [
                 (eid, widgets)
@@ -7430,23 +7716,17 @@ class SubstationAndroidApp(App):
                 # Add measurements if available
                 measurements = widgets["measurements"]
                 if measurements:
+                    raw_measurements = {}
                     for key, widget in measurements.items():
-                        if hasattr(widget, "text"):
-                            normalized_text = normalize_decimal_numeric_text(
-                                widget.text
-                            )
-                            if normalized_text != widget.text:
-                                widget.text = normalized_text
-                            try:
-                                elem_data[key] = (
-                                    float(normalized_text)
-                                    if normalized_text.strip()
-                                    else None
-                                )
-                            except ValueError:
-                                elem_data[key] = None
-                        else:  # Spinner
-                            elem_data[key] = widget.text
+                        serialized_value = _serialize_measurement_widget(
+                            widget,
+                            key_hint=key,
+                        )
+                        if _has_value(serialized_value):
+                            raw_measurements[key] = serialized_value
+                    elem_data.update(
+                        _normalize_measurement_payload(raw_measurements, widgets)
+                    )
 
                 maintenance_elements.append(elem_data)
 
