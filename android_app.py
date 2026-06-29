@@ -10,6 +10,7 @@ Features:
 """
 
 import json
+import hashlib
 import importlib
 import logging
 import os
@@ -1993,6 +1994,7 @@ class SubstationAndroidApp(App):
         Logger.info("APP: Initializing SubstationAndroidApp")
         try:
             super().__init__(**kwargs)
+            self.theme = self._build_theme_palette()
             self.substations = []
             self.elements = {}
             self.current_substation = None
@@ -2012,6 +2014,112 @@ class SubstationAndroidApp(App):
             Logger.critical(f"APP: Error in __init__: {str(e)}")
             Logger.critical(f"APP: Traceback: {traceback.format_exc()}")
             raise
+
+    def _build_theme_palette(self):
+        return {
+            "background": (0.94, 0.96, 0.98, 1),
+            "surface": (0.985, 0.99, 1, 1),
+            "surface_alt": (0.91, 0.95, 0.99, 1),
+            "surface_emphasis": (0.83, 0.9, 0.97, 1),
+            "primary": (0.06, 0.2, 0.38, 1),
+            "primary_alt": (0.15, 0.38, 0.63, 1),
+            "accent": (0.88, 0.68, 0.22, 1),
+            "text": (0.12, 0.18, 0.24, 1),
+            "text_muted": (0.35, 0.43, 0.51, 1),
+            "text_on_primary": (1, 1, 1, 1),
+            "border": (0.74, 0.82, 0.9, 1),
+            "success": (0.16, 0.45, 0.4, 1),
+            "warning": (0.66, 0.56, 0.16, 1),
+        }
+
+    def _apply_surface_style(
+        self,
+        widget,
+        *,
+        fill_color=None,
+        border_color=None,
+        radius=22,
+        border_width=1.15,
+    ):
+        try:
+            from kivy.graphics import Color, Line, RoundedRectangle
+        except Exception:
+            return widget
+
+        fill_color = fill_color or self.theme["surface"]
+        border_color = border_color or self.theme["border"]
+
+        with widget.canvas.before:
+            widget._surface_fill_color = Color(*fill_color)
+            widget._surface_fill_rect = RoundedRectangle(radius=[radius])
+        with widget.canvas.after:
+            widget._surface_border_color = Color(*border_color)
+            widget._surface_border_line = Line(
+                width=border_width,
+                rounded_rectangle=(0, 0, 0, 0, 0),
+            )
+
+        def _update_surface(*_args):
+            try:
+                x, y = widget.pos
+                w, h = widget.size
+                widget._surface_fill_rect.pos = (x, y)
+                widget._surface_fill_rect.size = (w, h)
+                widget._surface_border_line.rounded_rectangle = (
+                    x,
+                    y,
+                    w,
+                    h,
+                    radius,
+                    radius,
+                    radius,
+                    radius,
+                    120,
+                )
+            except Exception:
+                pass
+
+        widget.bind(pos=_update_surface, size=_update_surface)
+        _update_surface()
+        return widget
+
+    def _style_button(self, button, variant="primary"):
+        palette = {
+            "primary": (self.theme["primary"], self.theme["text_on_primary"]),
+            "secondary": (
+                self.theme["primary_alt"],
+                self.theme["text_on_primary"],
+            ),
+            "accent": (self.theme["accent"], self.theme["primary"]),
+            "success": (self.theme["success"], self.theme["text_on_primary"]),
+            "warning": (self.theme["warning"], self.theme["primary"]),
+            "surface": (self.theme["surface"], self.theme["text"]),
+        }
+        fill_color, text_color = palette.get(
+            variant, (self.theme["primary"], self.theme["text_on_primary"])
+        )
+        try:
+            button.background_normal = ""
+            button.background_down = ""
+            button.background_disabled_normal = ""
+            button.background_color = (0, 0, 0, 0)
+            button.color = text_color
+            button.bold = True
+            if hasattr(button, "padding"):
+                button.padding = [14, 12]
+            if hasattr(button, "disabled") and button.disabled:
+                button.opacity = 0.65
+        except Exception:
+            pass
+        border = self.theme["border"] if variant == "surface" else fill_color
+        self._apply_surface_style(
+            button,
+            fill_color=fill_color,
+            border_color=border,
+            radius=20,
+            border_width=1.1,
+        )
+        return button
 
     def on_start(self):
         try:
@@ -2828,8 +2936,11 @@ class SubstationAndroidApp(App):
         icon_color = icon_color or [0.05, 0.18, 0.36, 1]
         try:
             from kivy.uix.behaviors import ButtonBehavior
-            from kivy.graphics import Color, Line
+            from kivy.graphics import Color, Line, RoundedRectangle
             from kivy.uix.widget import Widget
+
+            tile_fill = self.theme.get("surface", (1, 1, 1, 1))
+            tile_border = self.theme.get("border", icon_color)
 
             normalized_icon_type = {
                 "history": "maintenance",
@@ -2950,6 +3061,16 @@ class SubstationAndroidApp(App):
                     self.size = button_size
                     self.padding = (2, 2)
                     self.orientation = "horizontal"
+                    with self.canvas.before:
+                        Color(*tile_fill)
+                        self._tile_rect = RoundedRectangle(radius=[18])
+                    with self.canvas.after:
+                        Color(*tile_border)
+                        self._tile_border = Line(
+                            width=1.1,
+                            rounded_rectangle=(0, 0, 0, 0, 0),
+                        )
+                    self.bind(pos=self._update_tile, size=self._update_tile)
                     self.icon = _LocalIconWidget(
                         icon_type=normalized_icon_type,
                         icon_color=icon_color,
@@ -2958,6 +3079,23 @@ class SubstationAndroidApp(App):
                     dim = max(24, int(button_size[1] * 0.85))
                     self.icon.size = (dim, dim)
                     self.add_widget(self.icon)
+
+                def _update_tile(self, *_args):
+                    x, y = self.pos
+                    w, h = self.size
+                    self._tile_rect.pos = (x, y)
+                    self._tile_rect.size = (w, h)
+                    self._tile_border.rounded_rectangle = (
+                        x,
+                        y,
+                        w,
+                        h,
+                        18,
+                        18,
+                        18,
+                        18,
+                        120,
+                    )
 
             button = _VectorIconButton(size=size)
             button.bind(on_press=on_press)
@@ -3205,7 +3343,7 @@ class SubstationAndroidApp(App):
             orientation="vertical",
             size_hint_y=0.10,
             height=logo_height,
-            padding=[4, 4, 4, 4],
+            padding=[12, 8, 12, 8],
         )
         # Ensure size_hint_y attribute exists in test shims that may ignore
         # constructor kwargs.
@@ -3246,15 +3384,27 @@ class SubstationAndroidApp(App):
             )
             fallback_logo.bind(size=fallback_logo.setter("text_size"))
             self.logo_area.add_widget(fallback_logo)
+        self._apply_surface_style(
+            self.logo_area,
+            fill_color=self.theme["surface"],
+            border_color=self.theme["border"],
+            radius=26,
+        )
         main_layout.add_widget(self.logo_area)
 
         self.header_area = BoxLayout(
             orientation="horizontal",
             size_hint_y=0.10,
             spacing=10,
-            padding=[10, 6, 10, 6],
+            padding=[14, 8, 14, 8],
         )
         self.header_area.size_hint_y = 0.10
+        self._apply_surface_style(
+            self.header_area,
+            fill_color=self.theme["surface_emphasis"],
+            border_color=self.theme["border"],
+            radius=26,
+        )
 
         if platform == "android":
             Logger.info("APP: Using local settings icon button")
@@ -3305,13 +3455,14 @@ class SubstationAndroidApp(App):
             ),
             bold=True,
             size_hint_x=1,
-            font_size="15sp",
+            font_size="16sp",
             halign="left",
             valign="middle",
             shorten=False,
             # Allow wrapping; `text_size` is set to the widget size so the
             # label will wrap lines automatically.
         )
+        header_label.color = self.theme["primary"]
         header_label.bind(size=header_label.setter("text_size"))
         # Keep header area height unchanged (tests expect 0.10). Do not
         # modify `header_area.size_hint_y` to preserve proportional layout.
@@ -3689,11 +3840,23 @@ class SubstationAndroidApp(App):
                     pass
             Logger.info("APP: Setting window title")
             self.title = "DB Substations"
+            try:
+                self.icon = os.path.join(
+                    os.path.dirname(__file__), "res", "icons", "android_launcher.png"
+                )
+            except Exception:
+                pass
+            try:
+                from kivy.core.window import Window
+
+                Window.clearcolor = self.theme["background"]
+            except Exception:
+                pass
             # Ensure spinner dropdowns are fully opaque
             from kivy.uix.spinner import Spinner, SpinnerOption
 
-            primary = (0.05, 0.18, 0.36, 1)
-            text_on_primary = (1, 1, 1, 1)
+            primary = self.theme["primary"]
+            text_on_primary = self.theme["text_on_primary"]
             try:
                 Spinner.background_normal = ""
                 Spinner.background_down = ""
@@ -3707,15 +3870,28 @@ class SubstationAndroidApp(App):
                 # If Spinner isn't available for some runtime, skip styling
                 Logger.debug("APP: Spinner styling skipped (Spinner unavailable)")
             Logger.info("APP: Creating main_layout BoxLayout")
-            main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+            main_layout = BoxLayout(orientation="vertical", padding=12, spacing=10)
+            self._apply_surface_style(
+                main_layout,
+                fill_color=self.theme["background"],
+                border_color=self.theme["background"],
+                radius=0,
+                border_width=0.0,
+            )
             Logger.info("APP: Main layout created successfully")
 
             self._build_android_header(main_layout)
             Logger.info("APP: Header added")
 
             # Database selection bar (cleaner, single row)
-            self.db_bar = BoxLayout(size_hint_y=0.09, spacing=8, padding=[10, 0, 10, 0])
+            self.db_bar = BoxLayout(size_hint_y=0.09, spacing=8, padding=[12, 4, 12, 4])
             self.db_bar.size_hint_y = 0.09
+            self._apply_surface_style(
+                self.db_bar,
+                fill_color=self.theme["surface"],
+                border_color=self.theme["border"],
+                radius=24,
+            )
 
             self.mode_label = Label(
                 text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"),
@@ -3726,6 +3902,7 @@ class SubstationAndroidApp(App):
                 shorten=True,
                 shorten_from="right",
             )
+            self.mode_label.color = self.theme["text"]
             self.mode_label.bind(size=self.mode_label.setter("text_size"))
 
             self.local_db_btn = Button(
@@ -3741,6 +3918,7 @@ class SubstationAndroidApp(App):
                 )
             )
             self.local_db_btn.bind(on_press=lambda _x: self.open_local_db_picker())
+            self._style_button(self.local_db_btn, "secondary")
 
             self.db_bar.add_widget(self.mode_label)
             self.db_bar.add_widget(self.local_db_btn)
@@ -3775,6 +3953,7 @@ class SubstationAndroidApp(App):
                 )
             )
             self.refresh_btn.bind(on_press=self.load_substations)
+            self._style_button(self.refresh_btn, "primary")
             primary_row.add_widget(self.refresh_btn)
 
             self.refresh_area.add_widget(primary_row)
@@ -3805,6 +3984,7 @@ class SubstationAndroidApp(App):
                 )
             )
             self.change_log_btn.bind(on_press=lambda _x: self.show_change_log_menu())
+            self._style_button(self.change_log_btn, "surface")
             secondary_row.add_widget(self.change_log_btn)
 
             self.actions_area.add_widget(secondary_row)
@@ -4031,6 +4211,80 @@ class SubstationAndroidApp(App):
             except Exception:
                 pass
         return None
+
+    def _ensure_user_data_dir(self):
+        target_dir = getattr(self, "user_data_dir", None)
+        if target_dir:
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+                return target_dir
+            except Exception:
+                pass
+
+        try:
+            from kivy.utils import platform as kivy_platform
+
+            if kivy_platform == "android":
+                from android.storage import app_storage_path
+
+                target_dir = app_storage_path()
+            else:
+                target_dir = os.path.join(os.getcwd(), "user_data")
+        except Exception:
+            target_dir = os.path.join(os.getcwd(), "user_data")
+
+        os.makedirs(target_dir, exist_ok=True)
+        self.user_data_dir = target_dir
+        return target_dir
+
+    def _get_maintenance_draft_path(self, substation_id, db_path=None):
+        resolved_db_path = db_path or self.local_db_path or self._get_saved_db_path()
+        if not str(resolved_db_path or "").strip():
+            return None
+
+        draft_root = os.path.join(self._ensure_user_data_dir(), "maintenance_drafts")
+        os.makedirs(draft_root, exist_ok=True)
+
+        db_key_source = str(resolved_db_path)
+        db_key = hashlib.md5(db_key_source.encode("utf-8")).hexdigest()[:12]
+        safe_substation = re.sub(
+            r"[^0-9A-Za-z_.-]+", "_", str(substation_id or "unknown")
+        )
+        return os.path.join(draft_root, f"maintenance_{db_key}_{safe_substation}.json")
+
+    def _load_maintenance_draft(self, substation_id, db_path=None):
+        draft_path = self._get_maintenance_draft_path(substation_id, db_path=db_path)
+        if not draft_path:
+            return None
+        try:
+            with open(draft_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            return payload if isinstance(payload, dict) else None
+        except FileNotFoundError:
+            return None
+        except Exception as draft_err:
+            Logger.warning(f"APP: Failed to load maintenance draft: {draft_err}")
+            return None
+
+    def _save_maintenance_draft(self, substation_id, payload, db_path=None):
+        draft_path = self._get_maintenance_draft_path(substation_id, db_path=db_path)
+        if not draft_path:
+            return None
+        draft_payload = dict(payload or {})
+        draft_payload["saved_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        with open(draft_path, "w", encoding="utf-8") as handle:
+            json.dump(draft_payload, handle, ensure_ascii=False, indent=2)
+        return draft_path
+
+    def _clear_maintenance_draft(self, substation_id, db_path=None):
+        draft_path = self._get_maintenance_draft_path(substation_id, db_path=db_path)
+        if not draft_path:
+            return
+        try:
+            if os.path.exists(draft_path):
+                os.remove(draft_path)
+        except Exception as draft_err:
+            Logger.warning(f"APP: Failed to clear maintenance draft: {draft_err}")
 
     def _append_change_log(self, operation, table, data):
         if not self.change_log_path:
@@ -5099,8 +5353,10 @@ class SubstationAndroidApp(App):
                 halign="center",
                 valign="middle",
                 padding=[5, 5],
-                background_color=(0.18, 0.34, 0.52, 1),
+                background_color=(0, 0, 0, 0),
             )
+            substation_btn.color = self.theme["text_on_primary"]
+            self._style_button(substation_btn, "secondary")
             try:
                 if autosize_button_text:
                     autosize_button_text(
@@ -5151,7 +5407,17 @@ class SubstationAndroidApp(App):
 
         # Substation header with desktop-like summary details (increased spacing for readability)
         header_layout = BoxLayout(
-            orientation="vertical", size_hint_y=None, height=320, spacing=14
+            orientation="vertical",
+            size_hint_y=None,
+            height=320,
+            spacing=14,
+            padding=[18, 16, 18, 16],
+        )
+        self._apply_surface_style(
+            header_layout,
+            fill_color=self.theme["surface"],
+            border_color=self.theme["border"],
+            radius=28,
         )
         name_label = Label(
             text=substation["name"],
@@ -5163,6 +5429,7 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
+        name_label.color = self.theme["primary"]
         name_label.bind(
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
@@ -5191,6 +5458,7 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
+        location_label.color = self.theme["text"]
         location_label.bind(
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
@@ -5204,6 +5472,7 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
+        adoption_label.color = self.theme["text"]
         adoption_label.bind(
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
@@ -5220,6 +5489,7 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
+        counts_line_1.color = self.theme["text_muted"]
         counts_line_1.bind(
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
@@ -5236,6 +5506,7 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
+        counts_line_2.color = self.theme["text_muted"]
         counts_line_2.bind(
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
@@ -5252,6 +5523,7 @@ class SubstationAndroidApp(App):
             shorten_from="right",
             max_lines=1,
         )
+        counts_line_3.color = self.theme["text_muted"]
         counts_line_3.bind(
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
@@ -5287,8 +5559,9 @@ class SubstationAndroidApp(App):
             text=S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
             font_size="18sp",
             bold=True,
-            background_color=(0.2, 0.5, 0.7, 1),
+            background_color=(0, 0, 0, 0),
         )
+        self._style_button(maint_btn, "primary")
         maint_btn.bind(
             on_press=lambda x: self._run_substation_action(
                 S.get("BUTTONS", {}).get("MAINTENANCE", "Συντήρηση"),
@@ -5303,8 +5576,9 @@ class SubstationAndroidApp(App):
             text=S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
             font_size="18sp",
             bold=True,
-            background_color=(0.5, 0.5, 0.2, 1),
+            background_color=(0, 0, 0, 0),
         )
+        self._style_button(inspect_btn, "accent")
         inspect_btn.bind(
             on_press=lambda x: self._run_substation_action(
                 S.get("BUTTONS", {}).get("INSPECT", "Επιθεώρηση"),
@@ -5320,6 +5594,7 @@ class SubstationAndroidApp(App):
             font_size="18sp",
             bold=True,
         )
+        self._style_button(back_btn, "surface")
         back_btn.bind(on_press=lambda x: self.load_substations(None))
         actions_container.add_widget(back_btn)
 
@@ -5801,8 +6076,95 @@ class SubstationAndroidApp(App):
             no_text=S.get("BUTTONS", {}).get("NO", "Όχι").upper(),
         )
 
-    def show_maintenance_menu(self, substation_id, substation):
+    def show_maintenance_menu(self, substation_id, substation, force_blank=False):
         """Show maintenance recording interface"""
+        from reports import normalize_decimal_numeric_text
+
+        integer_measurement_keys = {
+            "ops_count",
+            "operations_count",
+            "hv_sf6_operations_count",
+            "satyf_counter",
+        }
+        numeric_measurement_keys = {
+            "ins_closed_fa",
+            "ins_closed_fb",
+            "ins_closed_fc",
+            "ins_open_fa",
+            "ins_open_fb",
+            "ins_open_fc",
+            "cont_fa",
+            "cont_fb",
+            "cont_fc",
+            "mv_sf6_leakage_kg",
+            "sf6_leakage",
+            "sf6_leakage_kg",
+            "mv_sf6_n2_fa",
+            "mv_sf6_n2_fb",
+            "mv_sf6_n2_fc",
+            "mv_h2o_fa",
+            "mv_h2o_fb",
+            "mv_h2o_fc",
+            "mv_so2_fa",
+            "mv_so2_fb",
+            "mv_so2_fc",
+            "sf6_n2_fa",
+            "sf6_n2_fb",
+            "sf6_n2_fc",
+            "h2o_fa",
+            "h2o_fb",
+            "h2o_fc",
+            "so2_fa",
+            "so2_fb",
+            "so2_fc",
+            "vidar_fa",
+            "vidar_fb",
+            "vidar_fc",
+            "hv_sf6_resistance_a",
+            "hv_sf6_resistance_b",
+            "hv_sf6_resistance_c",
+            "temp_fan_oil",
+            "temp_fan_x1",
+            "temp_fan_x3",
+            "temp_alarm_oil",
+            "temp_alarm_x1",
+            "temp_alarm_x3",
+            "temp_trip_oil",
+            "temp_trip_x1",
+            "temp_trip_x3",
+            "resistance_h1_1",
+            "resistance_h1_2",
+            "resistance_h2_1",
+            "resistance_h2_2",
+            "resistance_h3_1",
+            "resistance_h3_2",
+        }
+
+        maintenance_type_values = S.get("MESSAGES", {}).get(
+            "MAINTENANCE_TYPES",
+            [
+                "Παραλαβή",
+                "Επαναληπτική συντήρηση",
+                "Βλάβη",
+                "Φυσικοχημικές/Αεριοχρωματογραφία",
+            ],
+        )
+        default_maintenance_type = S.get("MESSAGES", {}).get(
+            "MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"
+        )
+        draft_payload = (
+            None if force_blank else self._load_maintenance_draft(substation_id)
+        )
+        draft_status = {
+            "loaded": bool(draft_payload),
+            "applying": False,
+            "finalized": False,
+            "discarding": False,
+            "notice": None,
+        }
+        bound_widget_ids = set()
+        draft_save_event = {"event": None}
+
         popup = Popup(title=f"Συντήρηση - {substation['name']}", size_hint=(0.95, 0.95))
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -5830,18 +6192,10 @@ class SubstationAndroidApp(App):
         # Maintenance Type
         content_layout.add_widget(wrapped_label("Τύπος Συντήρησης:"))
         maint_type_spinner = Spinner(
-            text=S.get("MESSAGES", {}).get(
-                "MAINT_TYPE_DEFAULT", "Επαναληπτική συντήρηση"
+            text=(draft_payload or {}).get(
+                "maintenance_type", default_maintenance_type
             ),
-            values=S.get("MESSAGES", {}).get(
-                "MAINTENANCE_TYPES",
-                [
-                    "Παραλαβή",
-                    "Επαναληπτική συντήρηση",
-                    "Βλάβη",
-                    "Φυσικοχημικές/Αεριοχρωματογραφία",
-                ],
-            ),
+            values=maintenance_type_values,
             size_hint_y=None,
             height=56,
         )
@@ -5850,7 +6204,9 @@ class SubstationAndroidApp(App):
         # Date/Time
         content_layout.add_widget(wrapped_label("Ημερομηνία & Ώρα:"))
         datetime_input = TextInput(
-            text=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            text=(draft_payload or {}).get(
+                "date_time", datetime.now().strftime("%Y-%m-%d %H:%M")
+            ),
             hint_text="YYYY-MM-DD HH:MM",
             size_hint_y=None,
             height=95,
@@ -5862,6 +6218,7 @@ class SubstationAndroidApp(App):
         # Overall comments (rendered outside the scrolling elements list
         # so it remains visible and cannot be overlapped while elements load - auto-grow with content)
         overall_comments = TextInput(
+            text=(draft_payload or {}).get("overall_comments", ""),
             hint_text=S.get("MESSAGES", {}).get(
                 "OVERALL_COMMENTS_HINT", "Γενικά σχόλια για την συντήρηση..."
             ),
@@ -5902,8 +6259,464 @@ class SubstationAndroidApp(App):
         )
         content_layout.add_widget(retry_btn)
 
+        draft_notice = Label(
+            text=(
+                "Φορτώθηκε αποθηκευμένο πρόχειρο. Μπορείτε να συνεχίσετε από εκεί που σταματήσατε."
+                if draft_payload
+                else ""
+            ),
+            size_hint_y=None,
+            halign="left",
+            valign="middle",
+            color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+        )
+        draft_notice.bind(
+            width=lambda instance, value: setattr(instance, "text_size", (value, None)),
+            texture_size=lambda instance, value: setattr(
+                instance, "height", value[1] + 8
+            ),
+        )
+        if draft_payload:
+            content_layout.add_widget(draft_notice)
+        draft_status["notice"] = draft_notice
+
         # Store element widgets
         element_widgets = {}
+
+        def _has_value(value):
+            if value is None:
+                return False
+            if isinstance(value, dict):
+                return any(_has_value(v) for v in value.values())
+            if isinstance(value, (list, tuple)):
+                return any(_has_value(v) for v in value)
+            if isinstance(value, bool):
+                return value
+            return str(value).strip() != ""
+
+        def _parse_int_value(raw_text):
+            text = str(raw_text or "").strip()
+            if not text:
+                return None
+            compact = re.sub(r"\s+", "", text)
+            if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", compact):
+                compact = compact.replace(".", "").replace(",", "")
+            try:
+                return int(compact)
+            except Exception:
+                pass
+            normalized = normalize_decimal_numeric_text(compact).strip()
+            if not normalized:
+                return None
+            try:
+                float_val = float(normalized)
+            except Exception:
+                return None
+            return int(float_val) if float_val.is_integer() else None
+
+        def _parse_float_value(raw_text):
+            text = str(raw_text or "").strip()
+            if not text:
+                return None
+            normalized = normalize_decimal_numeric_text(text).strip()
+            if not normalized:
+                return None
+            try:
+                return float(normalized)
+            except Exception:
+                return None
+
+        def _serialize_measurement_widget(widget, key_hint=None):
+            if widget is None:
+                return None
+
+            if isinstance(widget, dict):
+                serialized = {}
+                for child_key, child_widget in widget.items():
+                    child_value = _serialize_measurement_widget(
+                        child_widget, key_hint=child_key
+                    )
+                    if _has_value(child_value):
+                        serialized[child_key] = child_value
+                return serialized or None
+
+            if isinstance(widget, (list, tuple)):
+                serialized_items = [
+                    _serialize_measurement_widget(child) for child in widget
+                ]
+                return serialized_items if _has_value(serialized_items) else None
+
+            if hasattr(widget, "active"):
+                try:
+                    return bool(getattr(widget, "active", False))
+                except Exception:
+                    return None
+
+            raw_text = getattr(widget, "text", None)
+            if raw_text is None:
+                return None
+
+            raw_text = str(raw_text).strip()
+            if not raw_text:
+                return None
+
+            if key_hint in integer_measurement_keys:
+                parsed_int = _parse_int_value(raw_text)
+                return parsed_int if parsed_int is not None else raw_text
+
+            if key_hint in numeric_measurement_keys:
+                parsed_float = _parse_float_value(raw_text)
+                return parsed_float if parsed_float is not None else raw_text
+
+            return raw_text
+
+        def _apply_widget_value(widget, value):
+            if widget is None:
+                return
+            if isinstance(widget, dict):
+                source = value if isinstance(value, dict) else {}
+                for child_key, child_widget in widget.items():
+                    _apply_widget_value(child_widget, source.get(child_key))
+                return
+            if isinstance(widget, (list, tuple)):
+                source_values = list(value) if isinstance(value, (list, tuple)) else []
+                for index, child_widget in enumerate(widget):
+                    child_value = (
+                        source_values[index] if index < len(source_values) else None
+                    )
+                    _apply_widget_value(child_widget, child_value)
+                return
+            if hasattr(widget, "active"):
+                try:
+                    widget.active = bool(value)
+                except Exception:
+                    pass
+                return
+            if hasattr(widget, "text"):
+                try:
+                    widget.text = "" if value is None else str(value)
+                except Exception:
+                    pass
+
+        def _normalize_measurement_payload(raw_payload, widgets):
+            payload = dict(raw_payload or {})
+
+            alias_map = {
+                "operations_count": "ops_count",
+                "hv_sf6_operations_count": "ops_count",
+                "mv_sf6_leakage_kg": "sf6_leakage",
+                "mv_sf6_leak_methodology": "sf6_leak_methodology",
+                "mv_sf6_n2_fa": "sf6_n2_fa",
+                "mv_sf6_n2_fb": "sf6_n2_fb",
+                "mv_sf6_n2_fc": "sf6_n2_fc",
+                "mv_h2o_fa": "h2o_fa",
+                "mv_h2o_fb": "h2o_fb",
+                "mv_h2o_fc": "h2o_fc",
+                "mv_so2_fa": "so2_fa",
+                "mv_so2_fb": "so2_fb",
+                "mv_so2_fc": "so2_fc",
+                "hv_sf6_lubrication": "sf6_lubrication",
+                "hv_sf6_leak_check": "sf6_leak_check",
+                "hv_sf6_refill": "sf6_refill",
+                "hv_sf6_wash_insulators": "wash_insulators",
+                "hv_sf6_corrosion_check": "corrosion_check",
+            }
+            for source_key, target_key in alias_map.items():
+                if source_key in payload and target_key not in payload:
+                    payload[target_key] = payload.get(source_key)
+
+            hv_raid_values = [
+                payload.get("hv_sf6_resistance_a"),
+                payload.get("hv_sf6_resistance_b"),
+                payload.get("hv_sf6_resistance_c"),
+            ]
+            if any(_has_value(v) for v in hv_raid_values):
+                payload["resistance_raid"] = hv_raid_values
+
+            elem_type = (widgets or {}).get("elem_type")
+            if self._is_transformer(elem_type):
+                grouped_fields = {
+                    "insulators_checks": [
+                        "insulators_fracture_check",
+                        "insulators_leaks",
+                        "insulators_cleaning",
+                        "insulators_spikes",
+                    ],
+                    "oil_checks": ["oil_level_check", "oil_filling"],
+                    "terminal_connection_checks": [
+                        "terminals_bolt_tightness",
+                        "terminals_flexible_connectors",
+                    ],
+                    "transformer_body_checks": [
+                        "body_oil_leaks",
+                        "body_sealing",
+                        "body_cleaning",
+                        "body_relief_valves",
+                        "body_pressure_gauges",
+                        "body_bucholz",
+                    ],
+                    "temp_fan": ["temp_fan_oil", "temp_fan_x1", "temp_fan_x3"],
+                    "temp_alarm": [
+                        "temp_alarm_oil",
+                        "temp_alarm_x1",
+                        "temp_alarm_x3",
+                    ],
+                    "temp_trip": ["temp_trip_oil", "temp_trip_x1", "temp_trip_x3"],
+                    "satyf_mechanism_checks": [
+                        "satyf_gas_transmission_check",
+                        "satyf_joints_cleaning_lubrication",
+                        "satyf_gears_cleaning_lubrication",
+                        "satyf_test_operations",
+                        "satyf_diverter_cracks_check",
+                    ],
+                    "diverter_switch_checks": [
+                        "diverter_contacts_check",
+                        "diverter_connections",
+                        "diverter_oil_change",
+                        "diverter_low_level_alarm_check",
+                    ],
+                    "diverter_res": [
+                        "resistance_h1_1",
+                        "resistance_h1_2",
+                        "resistance_h2_1",
+                        "resistance_h2_2",
+                        "resistance_h3_1",
+                        "resistance_h3_2",
+                    ],
+                    "transformer_node_resistance_checks": ["node_resistance_cleaning"],
+                    "vt_checks_voltage": [
+                        "vt_visual_check",
+                        "vt_leakage_check",
+                        "vt_tightness_check",
+                        "vt_insulation_resistance_check",
+                    ],
+                    "vt_checks_current": [
+                        "ct_visual_check",
+                        "ct_leakage_check",
+                        "ct_tightness_check",
+                        "ct_insulation_resistance_check",
+                    ],
+                    "vt_checks_injection": [
+                        "it_visual_check",
+                        "it_leakage_check",
+                        "it_tightness_check",
+                        "it_insulation_resistance_check",
+                    ],
+                    "lightning_arrester_checks": [
+                        "arresters_visual_check",
+                        "arresters_tightness_check",
+                        "arresters_insulation_resistance_check",
+                    ],
+                    "switch_checks_bms": [
+                        "hv_breaker_visual_check",
+                        "hv_breaker_cleaning_lubrication",
+                        "hv_breaker_tightness_check",
+                    ],
+                    "switch_checks_voltage": [
+                        "voltage_breaker_visual_check",
+                        "voltage_breaker_cleaning_lubrication",
+                        "voltage_breaker_tightness_check",
+                    ],
+                }
+
+                if "silica_check" in payload and "silica" not in payload:
+                    payload["silica"] = payload.get("silica_check")
+
+                for group_key, source_keys in grouped_fields.items():
+                    if group_key in payload:
+                        continue
+                    values = [payload.get(source_key) for source_key in source_keys]
+                    if any(_has_value(v) for v in values):
+                        payload[group_key] = values
+
+            return payload
+
+        def _build_draft_payload():
+            draft_elements = []
+            for elem_id, widgets in element_widgets.items():
+                raw_measurements = {}
+                for key, widget in widgets["measurements"].items():
+                    serialized_value = _serialize_measurement_widget(
+                        widget,
+                        key_hint=key,
+                    )
+                    if _has_value(serialized_value):
+                        raw_measurements[key] = serialized_value
+
+                entry = {
+                    "element_id": elem_id,
+                    "selected": bool(widgets["checkbox"].active),
+                    "element_comments": widgets["comments"].text.strip(),
+                    "measurements_enabled": bool(
+                        widgets.get("measurements_toggle")
+                        and widgets["measurements_toggle"].active
+                    ),
+                    "measurements": raw_measurements,
+                }
+                if (
+                    entry["selected"]
+                    or entry["element_comments"]
+                    or entry["measurements_enabled"]
+                    or entry["measurements"]
+                ):
+                    draft_elements.append(entry)
+
+            return {
+                "substation_id": substation_id,
+                "substation_name": substation.get("name"),
+                "source_db_path": self.local_db_path or self._get_saved_db_path(),
+                "date_time": datetime_input.text.strip(),
+                "overall_comments": overall_comments.text.strip(),
+                "maintenance_type": maint_type_spinner.text,
+                "elements": draft_elements,
+            }
+
+        def _draft_has_meaningful_content(payload):
+            if not payload:
+                return False
+            if str(payload.get("overall_comments") or "").strip():
+                return True
+            if str(payload.get("maintenance_type") or "").strip() not in (
+                "",
+                default_maintenance_type,
+            ):
+                return True
+            for item in payload.get("elements") or []:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("selected"):
+                    return True
+                if str(item.get("element_comments") or "").strip():
+                    return True
+                if item.get("measurements_enabled"):
+                    return True
+                if _has_value(item.get("measurements") or {}):
+                    return True
+            return False
+
+        def _persist_draft_snapshot(*, notify=False):
+            if draft_status["applying"]:
+                return False
+            draft_payload_local = _build_draft_payload()
+            if _draft_has_meaningful_content(draft_payload_local):
+                draft_path = self._save_maintenance_draft(
+                    substation_id,
+                    draft_payload_local,
+                    db_path=self.local_db_path or self._get_saved_db_path(),
+                )
+                if draft_status["notice"] is not None:
+                    draft_status[
+                        "notice"
+                    ].text = "Το πρόχειρο αποθηκεύτηκε τοπικά και θα συνεχίσει να είναι διαθέσιμο σε αυτή τη βάση."
+                    if draft_status["notice"].parent is None:
+                        content_layout.add_widget(draft_status["notice"], index=0)
+                if notify:
+                    show_message_popup(
+                        S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                        f"Το πρόχειρο αποθηκεύτηκε τοπικά στο:\n{draft_path}",
+                    )
+                return True
+
+            self._clear_maintenance_draft(
+                substation_id,
+                db_path=self.local_db_path or self._get_saved_db_path(),
+            )
+            if (
+                draft_status["notice"] is not None
+                and draft_status["notice"].parent is not None
+            ):
+                content_layout.remove_widget(draft_status["notice"])
+            if notify:
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    "Δεν υπήρχαν αρκετά δεδομένα για αποθήκευση προχείρου.",
+                )
+            return False
+
+        def _schedule_draft_save(*_args):
+            if draft_status["applying"]:
+                return
+            event = draft_save_event.get("event")
+            if event is not None:
+                try:
+                    event.cancel()
+                except Exception:
+                    pass
+            draft_save_event["event"] = Clock.schedule_once(
+                lambda _dt: _persist_draft_snapshot(),
+                0.6,
+            )
+
+        def _bind_widget_for_draft(widget):
+            if widget is None:
+                return
+            if isinstance(widget, dict):
+                for child in widget.values():
+                    _bind_widget_for_draft(child)
+                return
+            if isinstance(widget, (list, tuple)):
+                for child in widget:
+                    _bind_widget_for_draft(child)
+                return
+
+            widget_id = id(widget)
+            if widget_id in bound_widget_ids:
+                return
+            bound_widget_ids.add(widget_id)
+
+            try:
+                if hasattr(widget, "active"):
+                    widget.bind(active=lambda *_args: _schedule_draft_save())
+            except Exception:
+                pass
+            try:
+                if hasattr(widget, "text"):
+                    widget.bind(text=lambda *_args: _schedule_draft_save())
+            except Exception:
+                pass
+
+        def _apply_draft_to_form(payload):
+            if not payload:
+                return
+
+            draft_status["applying"] = True
+            try:
+                if payload.get("date_time"):
+                    datetime_input.text = str(payload.get("date_time") or "")
+                if payload.get("overall_comments"):
+                    overall_comments.text = str(payload.get("overall_comments") or "")
+                if payload.get("maintenance_type"):
+                    maint_type_spinner.text = str(payload.get("maintenance_type") or "")
+
+                draft_elements = {}
+                for item in payload.get("elements") or []:
+                    if isinstance(item, dict) and item.get("element_id") is not None:
+                        draft_elements[str(item.get("element_id"))] = item
+
+                for elem_id, widgets in element_widgets.items():
+                    draft_item = draft_elements.get(str(elem_id))
+                    if not draft_item:
+                        continue
+                    widgets["checkbox"].active = bool(draft_item.get("selected"))
+                    widgets["comments"].text = str(
+                        draft_item.get("element_comments") or ""
+                    )
+                    if widgets.get("measurements_toggle") is not None:
+                        widgets["measurements_toggle"].active = bool(
+                            draft_item.get("measurements_enabled")
+                        )
+                    for key, widget in widgets["measurements"].items():
+                        if key in (draft_item.get("measurements") or {}):
+                            _apply_widget_value(
+                                widget,
+                                (draft_item.get("measurements") or {}).get(key),
+                            )
+            finally:
+                draft_status["applying"] = False
+
+        _bind_widget_for_draft(maint_type_spinner)
+        _bind_widget_for_draft(datetime_input)
+        _bind_widget_for_draft(overall_comments)
 
         def load_elements():
             """Load elements and create checkboxes with fields"""
@@ -7363,9 +8176,19 @@ class SubstationAndroidApp(App):
                             "checkbox": checkbox,
                             "comments": elem_comments,
                             "measurements": measurements,
+                            "measurements_toggle": measurements_toggle,
                             "elem_type": elem["element_type"],
                             "breaker_category": elem.get("breaker_category", ""),
                         }
+
+                    for widgets in element_widgets.values():
+                        _bind_widget_for_draft(widgets["checkbox"])
+                        _bind_widget_for_draft(widgets["comments"])
+                        _bind_widget_for_draft(widgets.get("measurements_toggle"))
+                        _bind_widget_for_draft(widgets["measurements"])
+
+                    if draft_payload and not draft_status["applying"]:
+                        _apply_draft_to_form(draft_payload)
                 except Exception as e:
                     if loading_label.parent:
                         content_layout.remove_widget(loading_label)
@@ -7403,293 +8226,6 @@ class SubstationAndroidApp(App):
         button_layout = BoxLayout(size_hint_y=0.15, spacing=10)
 
         def save_maintenance():
-            from reports import normalize_decimal_numeric_text
-
-            integer_measurement_keys = {
-                "ops_count",
-                "operations_count",
-                "hv_sf6_operations_count",
-                "satyf_counter",
-            }
-            numeric_measurement_keys = {
-                "ins_closed_fa",
-                "ins_closed_fb",
-                "ins_closed_fc",
-                "ins_open_fa",
-                "ins_open_fb",
-                "ins_open_fc",
-                "cont_fa",
-                "cont_fb",
-                "cont_fc",
-                "mv_sf6_leakage_kg",
-                "sf6_leakage",
-                "sf6_leakage_kg",
-                "mv_sf6_n2_fa",
-                "mv_sf6_n2_fb",
-                "mv_sf6_n2_fc",
-                "mv_h2o_fa",
-                "mv_h2o_fb",
-                "mv_h2o_fc",
-                "mv_so2_fa",
-                "mv_so2_fb",
-                "mv_so2_fc",
-                "sf6_n2_fa",
-                "sf6_n2_fb",
-                "sf6_n2_fc",
-                "h2o_fa",
-                "h2o_fb",
-                "h2o_fc",
-                "so2_fa",
-                "so2_fb",
-                "so2_fc",
-                "vidar_fa",
-                "vidar_fb",
-                "vidar_fc",
-                "hv_sf6_resistance_a",
-                "hv_sf6_resistance_b",
-                "hv_sf6_resistance_c",
-                "temp_fan_oil",
-                "temp_fan_x1",
-                "temp_fan_x3",
-                "temp_alarm_oil",
-                "temp_alarm_x1",
-                "temp_alarm_x3",
-                "temp_trip_oil",
-                "temp_trip_x1",
-                "temp_trip_x3",
-                "resistance_h1_1",
-                "resistance_h1_2",
-                "resistance_h2_1",
-                "resistance_h2_2",
-                "resistance_h3_1",
-                "resistance_h3_2",
-            }
-
-            def _has_value(value):
-                if value is None:
-                    return False
-                if isinstance(value, dict):
-                    return any(_has_value(v) for v in value.values())
-                if isinstance(value, (list, tuple)):
-                    return any(_has_value(v) for v in value)
-                if isinstance(value, bool):
-                    return value
-                return str(value).strip() != ""
-
-            def _parse_int_value(raw_text):
-                text = str(raw_text or "").strip()
-                if not text:
-                    return None
-                compact = re.sub(r"\s+", "", text)
-                if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", compact):
-                    compact = compact.replace(".", "").replace(",", "")
-                try:
-                    return int(compact)
-                except Exception:
-                    pass
-                normalized = normalize_decimal_numeric_text(compact).strip()
-                if not normalized:
-                    return None
-                try:
-                    float_val = float(normalized)
-                except Exception:
-                    return None
-                return int(float_val) if float_val.is_integer() else None
-
-            def _parse_float_value(raw_text):
-                text = str(raw_text or "").strip()
-                if not text:
-                    return None
-                normalized = normalize_decimal_numeric_text(text).strip()
-                if not normalized:
-                    return None
-                try:
-                    return float(normalized)
-                except Exception:
-                    return None
-
-            def _serialize_measurement_widget(widget, key_hint=None):
-                if widget is None:
-                    return None
-
-                if isinstance(widget, dict):
-                    serialized = {}
-                    for child_key, child_widget in widget.items():
-                        child_value = _serialize_measurement_widget(
-                            child_widget, key_hint=child_key
-                        )
-                        if _has_value(child_value):
-                            serialized[child_key] = child_value
-                    return serialized or None
-
-                if isinstance(widget, (list, tuple)):
-                    serialized_items = [
-                        _serialize_measurement_widget(child) for child in widget
-                    ]
-                    return serialized_items if _has_value(serialized_items) else None
-
-                if hasattr(widget, "active"):
-                    try:
-                        return bool(getattr(widget, "active", False))
-                    except Exception:
-                        return None
-
-                raw_text = getattr(widget, "text", None)
-                if raw_text is None:
-                    return None
-
-                raw_text = str(raw_text).strip()
-                if not raw_text:
-                    return None
-
-                if key_hint in integer_measurement_keys:
-                    parsed_int = _parse_int_value(raw_text)
-                    return parsed_int if parsed_int is not None else raw_text
-
-                if key_hint in numeric_measurement_keys:
-                    parsed_float = _parse_float_value(raw_text)
-                    return parsed_float if parsed_float is not None else raw_text
-
-                return raw_text
-
-            def _normalize_measurement_payload(raw_payload, widgets):
-                payload = dict(raw_payload or {})
-
-                # Keep Android names accepted by desktop, but also map to the
-                # canonical desktop keys so edits/history use the same schema.
-                alias_map = {
-                    "operations_count": "ops_count",
-                    "hv_sf6_operations_count": "ops_count",
-                    "mv_sf6_leakage_kg": "sf6_leakage",
-                    "mv_sf6_leak_methodology": "sf6_leak_methodology",
-                    "mv_sf6_n2_fa": "sf6_n2_fa",
-                    "mv_sf6_n2_fb": "sf6_n2_fb",
-                    "mv_sf6_n2_fc": "sf6_n2_fc",
-                    "mv_h2o_fa": "h2o_fa",
-                    "mv_h2o_fb": "h2o_fb",
-                    "mv_h2o_fc": "h2o_fc",
-                    "mv_so2_fa": "so2_fa",
-                    "mv_so2_fb": "so2_fb",
-                    "mv_so2_fc": "so2_fc",
-                    "hv_sf6_lubrication": "sf6_lubrication",
-                    "hv_sf6_leak_check": "sf6_leak_check",
-                    "hv_sf6_refill": "sf6_refill",
-                    "hv_sf6_wash_insulators": "wash_insulators",
-                    "hv_sf6_corrosion_check": "corrosion_check",
-                }
-                for source_key, target_key in alias_map.items():
-                    if source_key in payload and target_key not in payload:
-                        payload[target_key] = payload.get(source_key)
-
-                hv_raid_values = [
-                    payload.get("hv_sf6_resistance_a"),
-                    payload.get("hv_sf6_resistance_b"),
-                    payload.get("hv_sf6_resistance_c"),
-                ]
-                if any(_has_value(v) for v in hv_raid_values):
-                    payload["resistance_raid"] = hv_raid_values
-
-                # Group transformer checks using desktop field schema.
-                elem_type = (widgets or {}).get("elem_type")
-                if self._is_transformer(elem_type):
-                    grouped_fields = {
-                        "insulators_checks": [
-                            "insulators_fracture_check",
-                            "insulators_leaks",
-                            "insulators_cleaning",
-                            "insulators_spikes",
-                        ],
-                        "oil_checks": ["oil_level_check", "oil_filling"],
-                        "terminal_connection_checks": [
-                            "terminals_bolt_tightness",
-                            "terminals_flexible_connectors",
-                        ],
-                        "transformer_body_checks": [
-                            "body_oil_leaks",
-                            "body_sealing",
-                            "body_cleaning",
-                            "body_relief_valves",
-                            "body_pressure_gauges",
-                            "body_bucholz",
-                        ],
-                        "temp_fan": ["temp_fan_oil", "temp_fan_x1", "temp_fan_x3"],
-                        "temp_alarm": [
-                            "temp_alarm_oil",
-                            "temp_alarm_x1",
-                            "temp_alarm_x3",
-                        ],
-                        "temp_trip": ["temp_trip_oil", "temp_trip_x1", "temp_trip_x3"],
-                        "satyf_mechanism_checks": [
-                            "satyf_gas_transmission_check",
-                            "satyf_joints_cleaning_lubrication",
-                            "satyf_gears_cleaning_lubrication",
-                            "satyf_test_operations",
-                            "satyf_diverter_cracks_check",
-                        ],
-                        "diverter_switch_checks": [
-                            "diverter_contacts_check",
-                            "diverter_connections",
-                            "diverter_oil_change",
-                            "diverter_low_level_alarm_check",
-                        ],
-                        "diverter_res": [
-                            "resistance_h1_1",
-                            "resistance_h1_2",
-                            "resistance_h2_1",
-                            "resistance_h2_2",
-                            "resistance_h3_1",
-                            "resistance_h3_2",
-                        ],
-                        "transformer_node_resistance_checks": [
-                            "node_resistance_cleaning"
-                        ],
-                        "vt_checks_voltage": [
-                            "vt_visual_check",
-                            "vt_leakage_check",
-                            "vt_tightness_check",
-                            "vt_insulation_resistance_check",
-                        ],
-                        "vt_checks_current": [
-                            "ct_visual_check",
-                            "ct_leakage_check",
-                            "ct_tightness_check",
-                            "ct_insulation_resistance_check",
-                        ],
-                        "vt_checks_injection": [
-                            "it_visual_check",
-                            "it_leakage_check",
-                            "it_tightness_check",
-                            "it_insulation_resistance_check",
-                        ],
-                        "lightning_arrester_checks": [
-                            "arresters_visual_check",
-                            "arresters_tightness_check",
-                            "arresters_insulation_resistance_check",
-                        ],
-                        "switch_checks_bms": [
-                            "hv_breaker_visual_check",
-                            "hv_breaker_cleaning_lubrication",
-                            "hv_breaker_tightness_check",
-                        ],
-                        "switch_checks_voltage": [
-                            "voltage_breaker_visual_check",
-                            "voltage_breaker_cleaning_lubrication",
-                            "voltage_breaker_tightness_check",
-                        ],
-                    }
-
-                    if "silica_check" in payload and "silica" not in payload:
-                        payload["silica"] = payload.get("silica_check")
-
-                    for group_key, source_keys in grouped_fields.items():
-                        if group_key in payload:
-                            continue
-                        values = [payload.get(source_key) for source_key in source_keys]
-                        if any(_has_value(v) for v in values):
-                            payload[group_key] = values
-
-                return payload
-
             # Validate
             selected_elements = [
                 (eid, widgets)
@@ -7743,6 +8279,11 @@ class SubstationAndroidApp(App):
                 # Append an insert entry to the change log which the desktop app
                 # will later import. Generate a temporary client-side id.
                 temp_id = f"android-{int(datetime.utcnow().timestamp() * 1000)}"
+                self._clear_maintenance_draft(
+                    substation_id,
+                    db_path=self.local_db_path or self._get_saved_db_path(),
+                )
+                draft_status["finalized"] = True
                 self._append_change_log(
                     "insert", "maintenance", {"id": temp_id, **payload}
                 )
@@ -7754,12 +8295,68 @@ class SubstationAndroidApp(App):
                 Logger.error(f"APP: Failed to append maintenance to change log: {e}")
                 self.show_error(f"Local change log error: {str(e)}")
 
+        def save_draft_and_keep_open():
+            _persist_draft_snapshot(notify=True)
+
+        def close_with_draft():
+            _persist_draft_snapshot(notify=False)
+            popup.dismiss()
+
+        def start_new_maintenance():
+            from reports import show_confirm
+
+            def _confirm_new():
+                draft_status["discarding"] = True
+                self._clear_maintenance_draft(
+                    substation_id,
+                    db_path=self.local_db_path or self._get_saved_db_path(),
+                )
+                popup.dismiss()
+                Clock.schedule_once(
+                    lambda _dt: self.show_maintenance_menu(
+                        substation_id,
+                        substation,
+                        force_blank=True,
+                    ),
+                    0,
+                )
+
+            show_confirm(
+                "Νέα συντήρηση",
+                "Θέλετε να απορρίψετε το αποθηκευμένο πρόχειρο και να ξεκινήσετε νέα συντήρηση;",
+                yes_callback=_confirm_new,
+                yes_text=S.get("BUTTONS", {}).get("YES", "Ναι"),
+                no_text=S.get("BUTTONS", {}).get("NO", "Όχι"),
+            )
+
+        def _on_popup_dismiss(*_args):
+            if draft_status["finalized"] or draft_status["discarding"]:
+                return
+            try:
+                _persist_draft_snapshot(notify=False)
+            except Exception as draft_err:
+                Logger.warning(
+                    f"APP: Failed to persist maintenance draft on dismiss: {draft_err}"
+                )
+
+        if hasattr(popup, "bind"):
+            popup.bind(on_dismiss=_on_popup_dismiss)
+
+        draft_btn = Button(text="Πρόχειρο")
+        draft_btn.bind(on_press=lambda _x: save_draft_and_keep_open())
+        button_layout.add_widget(draft_btn)
+
+        if draft_payload:
+            fresh_btn = Button(text="Νέα")
+            fresh_btn.bind(on_press=lambda _x: start_new_maintenance())
+            button_layout.add_widget(fresh_btn)
+
         save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
         save_btn.bind(on_press=lambda x: save_maintenance())
         button_layout.add_widget(save_btn)
 
         cancel_btn = Button(text=S.get("BUTTONS", {}).get("CANCEL", "Άκυρο"))
-        cancel_btn.bind(on_press=popup.dismiss)
+        cancel_btn.bind(on_press=lambda _x: close_with_draft())
         button_layout.add_widget(cancel_btn)
 
         main_layout.add_widget(button_layout)

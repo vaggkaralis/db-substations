@@ -95,3 +95,9 @@ tests/results.xml
 # Access import/export backups (local only)
 backups/access_imports/
 backups/access_export/
+
+# Local workspace-only artifacts
+00_Assitive/DBSubstations TODO.txt
+00_Assitive/substation asset maintenance.accdb
+backups/backups by user/
+pytest_android_draft_out.txt
