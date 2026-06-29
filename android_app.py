@@ -1599,7 +1599,8 @@ class SubstationAndroidApp(App):
             resolved_path, source_reference=None, copied_sidecars=None
         ):
             self.local_db_path = resolved_path
-            self._set_saved_db_path(resolved_path)
+            persisted_source_path = source_reference or resolved_path
+            self._set_saved_db_path(persisted_source_path)
             self.data_mode = "local"
             self.change_log_path = None
             self._ensure_change_log_path()
@@ -8271,22 +8272,66 @@ class SubstationAndroidApp(App):
 
             conn = sqlite3.connect(self.local_db_path)
             c = conn.cursor()
+            canonical_element_id, _canonical_element_name, matching_element_ids = (
+                self._resolve_element_history_scope(conn, element_id)
+            )
+            if not matching_element_ids:
+                conn.close()
+                return False
+            placeholders = ",".join(["?"] * len(matching_element_ids))
 
             c.execute(
-                """
-                SELECT COUNT(*)
+                f"""
+                SELECT 1
                 FROM maintenance_elements me
                 JOIN maintenance m ON m.id = me.maintenance_id
-                WHERE me.element_id = ?
+                WHERE me.element_id IN ({placeholders})
+                LIMIT 1
                 """,
-                (element_id,),
+                matching_element_ids,
             )
-            count = c.fetchone()[0]
+            count = 1 if c.fetchone() else 0
             conn.close()
 
             return count > 0
         except Exception:
             return False
+
+    def _resolve_element_history_scope(self, conn, element_id, element_name=None):
+        canonical_element_id = element_id
+        canonical_element_name = element_name or ""
+        matching_element_ids = [element_id] if element_id is not None else []
+        try:
+            from elements import (
+                _choose_canonical_element_id,
+                _get_matching_element_rows,
+            )
+
+            matching_rows = _get_matching_element_rows(conn, element_id=element_id)
+            if matching_rows:
+                matching_element_ids = [
+                    row[0] for row in matching_rows if row and row[0] is not None
+                ]
+                resolved_element_id = _choose_canonical_element_id(
+                    conn,
+                    matching_element_ids,
+                    preferred_id=element_id,
+                )
+                if resolved_element_id is not None:
+                    canonical_element_id = resolved_element_id
+                resolved_name = next(
+                    (
+                        row[1]
+                        for row in matching_rows
+                        if row[0] == canonical_element_id and row[1]
+                    ),
+                    None,
+                )
+                if resolved_name:
+                    canonical_element_name = resolved_name
+        except Exception:
+            pass
+        return canonical_element_id, canonical_element_name, matching_element_ids
 
     def show_element_maintenance_history(self, element_id, element_name):
         """Show maintenance history for a specific element"""
@@ -8297,10 +8342,17 @@ class SubstationAndroidApp(App):
 
             conn = sqlite3.connect(self.local_db_path)
             c = conn.cursor()
+            canonical_element_id, canonical_element_name, matching_element_ids = (
+                self._resolve_element_history_scope(conn, element_id, element_name)
+            )
+            if not matching_element_ids:
+                matching_element_ids = [element_id]
+            placeholders = ",".join(["?"] * len(matching_element_ids))
 
-            # Query all maintenances where this element was maintained
+            # Query one row per maintenance for the selected element scope.
+            # Prefer the canonical element row when duplicates exist.
             c.execute(
-                """
+                f"""
                 SELECT m.id, m.date_time, m.maintenance_type, m.overall_comments,
                        me.element_comments, s.name as substation_name,
                        me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
@@ -8309,17 +8361,26 @@ class SubstationAndroidApp(App):
                 FROM maintenance m
                 JOIN maintenance_elements me ON m.id = me.maintenance_id
                 JOIN substations s ON m.substation_id = s.id
-                WHERE me.element_id = ?
+                WHERE me.rowid = (
+                    SELECT me2.rowid
+                    FROM maintenance_elements me2
+                    WHERE me2.maintenance_id = m.id
+                      AND me2.element_id IN ({placeholders})
+                    ORDER BY CASE WHEN me2.element_id = ? THEN 0 ELSE 1 END,
+                             me2.element_id,
+                             me2.rowid
+                    LIMIT 1
+                )
                 ORDER BY m.date_time DESC
                 """,
-                (element_id,),
+                [*matching_element_ids, canonical_element_id],
             )
             maintenance_records = c.fetchall()
             # Also fetch the element's stored substation name (use element's
             # substation as the authoritative context for element history)
             c.execute(
                 "SELECT s.name FROM elements e JOIN substations s ON e.substation_id = s.id WHERE e.id = ? LIMIT 1",
-                (element_id,),
+                (canonical_element_id,),
             )
             er = c.fetchone()
             element_substation_name = er[0] if er and er[0] else None
@@ -8378,7 +8439,8 @@ class SubstationAndroidApp(App):
 
             # Create popup
             popup = Popup(
-                title=f"Ιστορικό Συντηρήσεων - {element_name}", size_hint=(0.95, 0.9)
+                title=f"Ιστορικό Συντηρήσεων - {canonical_element_name or element_name}",
+                size_hint=(0.95, 0.9),
             )
             main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
