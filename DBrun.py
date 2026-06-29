@@ -16916,17 +16916,29 @@ class SubstationApp(App):
                     elements_container.height = max(
                         0, getattr(elements_container, "minimum_height", 0)
                     )
+                    oil_planning_rows.height = max(
+                        0, getattr(oil_planning_rows, "minimum_height", 0)
+                    )
+                    oil_planning_section.height = max(
+                        0, getattr(oil_planning_section, "minimum_height", 0)
+                    )
                 else:
                     if getattr(crew_section, "size_hint_y", None) is None:
                         crew_section.height = 0
                     if getattr(elements_container, "size_hint_y", None) is None:
                         elements_container.height = 0
+                    if getattr(oil_planning_rows, "size_hint_y", None) is None:
+                        oil_planning_rows.height = 0
+                    if getattr(oil_planning_section, "size_hint_y", None) is None:
+                        oil_planning_section.height = 0
             except Exception:
                 pass
             for widget in (
                 checklist_inline_container,
                 crew_section,
                 elements_container,
+                oil_planning_rows,
+                oil_planning_section,
                 content_layout,
                 scroll_view,
             ):
