@@ -6327,19 +6327,49 @@ class SubstationApp(App):
                                choose combined gates (e.g., ΠΥΛΗ 1-2).
         """
         c = self.conn.cursor()
-        # Get all transformers for this substation, ordered by name
+        # Prefer to derive gates from existing transformer `gate` values when available
+        # so we don't invent sequential gate numbers (which breaks cases like gates 1,2,9).
         c.execute(
-            """SELECT name FROM elements
+            """SELECT DISTINCT TRIM(COALESCE(gate, '')) FROM elements
                 WHERE substation_id=? AND (element_type LIKE '%150/20%' OR element_type LIKE '%Μετασχη%')
-                ORDER BY name""",
+                AND TRIM(COALESCE(gate, '')) != ''
+                ORDER BY TRIM(COALESCE(gate, ''))""",
             (substation_id,),
         )
-        transformers = c.fetchall()
+        raw_gate_rows = [r[0] for r in c.fetchall() or []]
 
-        num_gates = len(transformers)
         gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
-        regular = [f"{gate_prefix} {i + 1}" for i in range(num_gates)]
-        gate_numbers = [i + 1 for i in range(num_gates)]
+
+        # Extract numeric gate numbers when possible (e.g. 'ΠΥΛΗ 9' -> 9)
+        gate_numbers = []
+        import re
+
+        for g in raw_gate_rows:
+            if not g:
+                continue
+            m = re.search(r"(\d+)", str(g))
+            if m:
+                try:
+                    n = int(m.group(1))
+                    if n not in gate_numbers:
+                        gate_numbers.append(n)
+                except Exception:
+                    pass
+
+        # Fallback: if no explicit gate labels on transformers, fall back to sequential
+        if not gate_numbers:
+            # Count transformers and produce 1..N numbering
+            c.execute(
+                """SELECT name FROM elements
+                    WHERE substation_id=? AND (element_type LIKE '%150/20%' OR element_type LIKE '%Μετασχη%')
+                    ORDER BY name""",
+                (substation_id,),
+            )
+            transformers = c.fetchall()
+            num_gates = len(transformers)
+            gate_numbers = [i + 1 for i in range(num_gates)]
+
+        regular = [f"{gate_prefix} {n}" for n in gate_numbers]
         from scripts.access_gate_utils import generate_interconnection_gate_labels
 
         inter = generate_interconnection_gate_labels(gate_numbers)
