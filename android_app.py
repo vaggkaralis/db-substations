@@ -3067,6 +3067,27 @@ class SubstationAndroidApp(App):
                                 ],
                                 width=line_w,
                             )
+                        elif self._icon_type == "refresh":
+                            cx = x + w * 0.5
+                            cy = y + h * 0.5
+                            radius = min(w, h) * 0.26
+                            Line(
+                                circle=(cx, cy, radius, 40, 335),
+                                width=max(1.15, line_w),
+                            )
+                            tip_x = cx + radius * 0.92
+                            tip_y = cy + radius * 0.34
+                            Line(
+                                points=[
+                                    tip_x - w * 0.11,
+                                    tip_y - h * 0.02,
+                                    tip_x,
+                                    tip_y,
+                                    tip_x - w * 0.02,
+                                    tip_y - h * 0.11,
+                                ],
+                                width=max(1.15, line_w),
+                            )
                         else:
                             cx = x + w * 0.5
                             cy = y + h * 0.5
@@ -3145,6 +3166,7 @@ class SubstationAndroidApp(App):
                 "history": "H",
                 "manual": "B",
                 "inspection": "I",
+                "refresh": "R",
             }
             fallback_text = glyph_map.get(icon_type, "+")
             fallback_btn = Button(
@@ -3558,16 +3580,8 @@ class SubstationAndroidApp(App):
         layout.add_widget(buttons)
 
         action_buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
-        refresh_btn = Button(text="Ανανέωση από OneDrive")
         close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
-
-        def _refresh_from_onedrive(_instance):
-            popup.dismiss()
-            self._refresh_db_from_onedrive_source()
-
-        refresh_btn.bind(on_press=_refresh_from_onedrive)
         close_btn.bind(on_press=popup.dismiss)
-        action_buttons.add_widget(refresh_btn)
         action_buttons.add_widget(close_btn)
         layout.add_widget(action_buttons)
 
@@ -3957,7 +3971,7 @@ class SubstationAndroidApp(App):
 
             self.mode_label = Label(
                 text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"),
-                size_hint_x=0.65,
+                size_hint_x=0.58,
                 font_size="13sp",
                 halign="left",
                 valign="middle",
@@ -3969,7 +3983,7 @@ class SubstationAndroidApp(App):
 
             self.local_db_btn = Button(
                 text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Βάση Δεδομένων"),
-                size_hint_x=0.35,
+                size_hint_x=0.26,
                 font_size="13sp",
                 halign="center",
                 valign="middle",
@@ -3982,8 +3996,32 @@ class SubstationAndroidApp(App):
             self.local_db_btn.bind(on_press=lambda _x: self.open_local_db_picker())
             self._style_button(self.local_db_btn, "secondary")
 
+            self.onedrive_refresh_btn = self._build_vector_icon_button(
+                "refresh",
+                lambda _x: self._refresh_db_from_onedrive_source(),
+                size=(36, 36),
+            )
+            self.onedrive_refresh_btn_container = None
+            try:
+                from kivy.uix.anchorlayout import AnchorLayout
+
+                self.onedrive_refresh_btn_container = AnchorLayout(
+                    anchor_x="center",
+                    anchor_y="center",
+                    size_hint_x=0.16,
+                )
+                self.onedrive_refresh_btn_container.add_widget(
+                    self.onedrive_refresh_btn
+                )
+            except Exception:
+                self.onedrive_refresh_btn.size_hint_x = 0.16
+
             self.db_bar.add_widget(self.mode_label)
             self.db_bar.add_widget(self.local_db_btn)
+            if self.onedrive_refresh_btn_container is not None:
+                self.db_bar.add_widget(self.onedrive_refresh_btn_container)
+            else:
+                self.db_bar.add_widget(self.onedrive_refresh_btn)
             main_layout.add_widget(self.db_bar)
 
             # Main content area

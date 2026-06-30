@@ -135,6 +135,29 @@ def test_build_uses_local_database_button_label(monkeypatch):
     assert mode_label in texts
 
 
+def test_build_places_onedrive_refresh_button_in_db_bar(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_run_startup_sync", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_auto_load_saved_db", lambda: False)
+
+    app.build()
+
+    assert hasattr(app, "onedrive_refresh_btn")
+    assert app.onedrive_refresh_btn is not None
+    assert app.local_db_btn.size_hint_x < 0.35
+    container = getattr(app, "onedrive_refresh_btn_container", None)
+    if container is not None:
+        assert container in app.db_bar.children
+    else:
+        assert app.onedrive_refresh_btn in app.db_bar.children
+
+    btn_text = getattr(app.onedrive_refresh_btn, "text", None)
+    if btn_text is not None:
+        assert btn_text != "X"
+
+
 def test_build_hides_sync_button_on_android(monkeypatch):
     app = android_app.SubstationAndroidApp()
 
