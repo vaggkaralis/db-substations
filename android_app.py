@@ -3471,13 +3471,13 @@ class SubstationAndroidApp(App):
         main_layout.add_widget(self.header_area)
 
     def _show_android_app_menu(self):
-        popup = Popup(title="Ρυθμίσεις", size_hint=(0.92, 0.36))
+        popup = Popup(title="Ρυθμίσεις", size_hint=(0.92, 0.6))
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
         layout.add_widget(
             Label(
                 text=(
                     "Η Android έκδοση χρησιμοποιεί μόνο τοπική βάση δεδομένων. "
-                    "Από εδώ ορίζεις μόνο το αρχείο της βάσης."
+                    "Από εδώ μπορείτε να ορίσετε το τοπικό αρχείο και την πηγή OneDrive για ανανέωση."
                 )
             )
         )
@@ -3494,21 +3494,51 @@ class SubstationAndroidApp(App):
         path_label.bind(size=path_label.setter("text_size"))
         layout.add_widget(path_label)
 
+        onedrive_source = self._get_onedrive_source_path() or "-"
+        source_label = Label(
+            text=f"Πηγή ανανέωσης OneDrive: {onedrive_source}",
+            halign="left",
+            valign="middle",
+            shorten=True,
+            shorten_from="left",
+        )
+        source_label.bind(size=source_label.setter("text_size"))
+        layout.add_widget(source_label)
+
         buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
         select_db_btn = Button(
             text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Βάση Δεδομένων")
         )
-        close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
+        set_source_btn = Button(text="Πηγή OneDrive")
 
         def _open_local_db(_instance):
             popup.dismiss()
             self.open_local_db_picker()
 
+        def _set_onedrive_source(_instance):
+            popup.dismiss()
+            self._pick_onedrive_source_path(on_done=None)
+
         select_db_btn.bind(on_press=_open_local_db)
-        close_btn.bind(on_press=popup.dismiss)
+        set_source_btn.bind(on_press=_set_onedrive_source)
         buttons.add_widget(select_db_btn)
-        buttons.add_widget(close_btn)
+        buttons.add_widget(set_source_btn)
         layout.add_widget(buttons)
+
+        action_buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
+        refresh_btn = Button(text="Ανανέωση από OneDrive")
+        close_btn = Button(text=S.get("BUTTONS", {}).get("CLOSE", "Κλείσιμο"))
+
+        def _refresh_from_onedrive(_instance):
+            popup.dismiss()
+            self._refresh_db_from_onedrive_source()
+
+        refresh_btn.bind(on_press=_refresh_from_onedrive)
+        close_btn.bind(on_press=popup.dismiss)
+        action_buttons.add_widget(refresh_btn)
+        action_buttons.add_widget(close_btn)
+        layout.add_widget(action_buttons)
+
         popup.content = layout
         popup.open()
 
@@ -4211,6 +4241,151 @@ class SubstationAndroidApp(App):
             except Exception:
                 pass
         return None
+
+    def _set_onedrive_source_path(self, path):
+        value = str(path or "").strip()
+        self.onedrive_source_path = value
+        user_dir = self._ensure_user_data_dir()
+        try:
+            with open(os.path.join(user_dir, "onedrive_source_db.txt"), "w") as f:
+                f.write(value)
+        except Exception as write_err:
+            Logger.warning(f"APP: Failed to persist OneDrive source path: {write_err}")
+
+    def _get_onedrive_source_path(self):
+        if hasattr(self, "onedrive_source_path"):
+            return str(self.onedrive_source_path or "").strip()
+        user_dir = self._ensure_user_data_dir()
+        try:
+            with open(os.path.join(user_dir, "onedrive_source_db.txt"), "r") as f:
+                value = f.read().strip()
+                self.onedrive_source_path = value
+                return value
+        except Exception:
+            return ""
+
+    def _pick_onedrive_source_path(self, on_done=None):
+        if platform != "android":
+            self.show_error(
+                "Η ρύθμιση πηγής OneDrive είναι διαθέσιμη μόνο στην Android εφαρμογή.",
+                is_info=True,
+            )
+            if callable(on_done):
+                on_done(None)
+            return
+
+        def _selected(selection):
+            chosen = ""
+            try:
+                if selection and selection[0]:
+                    chosen = str(selection[0]).strip()
+            except Exception:
+                chosen = ""
+
+            if not chosen:
+                self.show_error("Δεν επιλέχθηκε πηγή OneDrive.", is_info=True)
+                if callable(on_done):
+                    on_done(None)
+                return
+
+            self._set_onedrive_source_path(chosen)
+            self.show_error("Η πηγή OneDrive αποθηκεύτηκε επιτυχώς.", is_info=True)
+            if callable(on_done):
+                on_done(chosen)
+
+        def _cancelled():
+            if callable(on_done):
+                on_done(None)
+
+        self._open_android_document_picker(_selected, on_cancel=_cancelled)
+
+    def _finalize_refreshed_local_db(self, target_path, source_reference):
+        self.local_db_path = target_path
+        self.data_mode = "local"
+        if hasattr(self, "mode_label"):
+            self.mode_label.text = S["MESSAGES"].get(
+                "MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"
+            )
+
+        if source_reference:
+            self._set_onedrive_source_path(source_reference)
+
+        try:
+            self._inspect_local_db(target_path)
+        except Exception as inspect_err:
+            Logger.info(f"APP: Refresh DB inspection warning: {inspect_err}")
+
+        self.load_substations(None)
+        self.show_error("Η βάση ανανεώθηκε επιτυχώς από OneDrive.", is_info=True)
+
+    def _refresh_db_from_onedrive_source(self, source_path=None):
+        source = str(source_path or self._get_onedrive_source_path() or "").strip()
+        if not source:
+            self.show_error(
+                "Δεν έχει οριστεί πηγή OneDrive. Θα ανοίξει ο επιλογέας για να επιλέξετε το αρχείο βάσης από OneDrive.",
+                is_info=True,
+            )
+
+            def _after_pick(chosen):
+                if chosen:
+                    self._refresh_db_from_onedrive_source(chosen)
+
+            self._pick_onedrive_source_path(on_done=_after_pick)
+            return
+
+        if source.startswith("content://"):
+            target_path = getattr(self, "local_db_path", None)
+            if not target_path:
+                try:
+                    target_path = self._copy_content_uri_to_file(source)
+                    self._maybe_copy_android_sqlite_sidecars(source, target_path)
+                    self._finalize_refreshed_local_db(target_path, source)
+                except Exception as load_err:
+                    self.show_error(f"Αποτυχία ανανέωσης από OneDrive: {load_err}")
+                return
+
+            def _on_copy_done(success, val):
+                if not success:
+                    self.show_error(f"Αποτυχία ανανέωσης από OneDrive: {val}")
+                    return
+                try:
+                    copied_file = str(val)
+                    self._clear_local_db_copy_targets(
+                        target_path, clear_main_file=False
+                    )
+                    shutil.copy2(copied_file, target_path)
+                    self._maybe_copy_android_sqlite_sidecars(source, target_path)
+                    self._finalize_refreshed_local_db(target_path, source)
+                except Exception as copy_err:
+                    self.show_error(
+                        f"Αποτυχία αντικατάστασης τοπικής βάσης: {copy_err}"
+                    )
+
+            self._copy_content_uri_to_file_async(source, _on_copy_done)
+            return
+
+        normalized_source = self._normalize_android_storage_path(source)
+        if not os.path.exists(normalized_source):
+            self.show_error(
+                "Η αποθηκευμένη πηγή OneDrive δεν είναι προσβάσιμη. Επιλέξτε ξανά το αρχείο μέσω του επιλογέα.",
+                is_info=True,
+            )
+            self._pick_onedrive_source_path(on_done=None)
+            return
+
+        target_path = getattr(self, "local_db_path", None)
+        if not target_path:
+            self.use_local_mode(normalized_source)
+            self._set_onedrive_source_path(source)
+            return
+
+        try:
+            self._clear_local_db_copy_targets(target_path, clear_main_file=False)
+            shutil.copy2(normalized_source, target_path)
+            self._maybe_copy_android_sqlite_sidecars(normalized_source, target_path)
+            self._finalize_refreshed_local_db(target_path, source)
+        except Exception as copy_err:
+            self.show_error(f"Αποτυχία αντικατάστασης τοπικής βάσης: {copy_err}")
 
     def _ensure_user_data_dir(self):
         target_dir = getattr(self, "user_data_dir", None)
