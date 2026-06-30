@@ -232,6 +232,18 @@ jobs:
           grep '^source.dir' buildozer.spec
           find android_ci_src -maxdepth 2 \( -name 'main.py' -o -name 'strings.py' -o -name 'strings_proxy.py' -o -name 'config_manager.py' -o -path 'android_ci_src/dbsubstations' \) | sort
           echo "Building installable internal APK"
+
+      - name: Set Android numeric version code
+        shell: bash
+        run: |
+          NUMERIC_VERSION=$((100000 + GITHUB_RUN_NUMBER))
+          if grep -q '^android.numeric_version' buildozer.spec; then
+            sed -i "s/^android.numeric_version.*/android.numeric_version = ${NUMERIC_VERSION}/" buildozer.spec
+          else
+            printf '\nandroid.numeric_version = %s\n' "${NUMERIC_VERSION}" >> buildozer.spec
+          fi
+          grep -E '^(version|android.numeric_version)' buildozer.spec
+
       - name: Setup Android SDK
         run: |
           mkdir -p ~/.buildozer/android/platform

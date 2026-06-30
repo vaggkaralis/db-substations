@@ -10,6 +10,9 @@ source.exclude_patterns = tests/*,tests/_shims/*,scripts/*,tools/*,dist/*,__pyca
 icon.filename = res/icons/android_launcher.png
 
 version = 1.0.0
+# Android requires a monotonically increasing versionCode for updates.
+# CI workflows overwrite this value per run to guarantee update installability.
+android.numeric_version = 10000
 requirements = python3,kivy==2.3.0,plyer,pillow,certifi,urllib3,charset-normalizer,idna,requests
 
 permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE
