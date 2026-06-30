@@ -1,7 +1,13 @@
 import DBrun
 from database import init_db
+from openpyxl import load_workbook
+from pathlib import Path
 
-from reports import _get_sf6_report_data, normalize_decimal_numeric_text
+from reports import (
+    _export_sf6_excel,
+    _get_sf6_report_data,
+    normalize_decimal_numeric_text,
+)
 
 
 def test_hv_sf6_leakage_persistence(tmp_path):
@@ -144,6 +150,59 @@ def test_sf6_report_excludes_methodology_only_rows(tmp_path):
     data = _get_sf6_report_data(DummyApp(conn), "2026")
 
     assert data["rows"] == []
+
+    conn.close()
+
+
+def test_sf6_excel_export_uses_template_and_keeps_blank_leakage_rows(tmp_path):
+    db_path = tmp_path / "test_sf6_export.db"
+    conn = init_db(str(db_path))
+    cur = conn.cursor()
+
+    template_path = Path(__file__).resolve().parents[1] / "ΚΣΜΘ ΥΣ SF6 2026.xlsx"
+    template_sheetnames = load_workbook(template_path, read_only=True).sheetnames
+    template_substation_sheet = template_sheetnames[1]
+
+    cur.execute(
+        "INSERT INTO substations (id, name) VALUES (?, ?)",
+        (1, template_substation_sheet),
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category, operating_status) VALUES (?, ?, ?, ?, ?, ?)",
+        (10, 1, "Διακόπτης ΜΤ", "Q1", "SF6", "Ενεργή"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time) VALUES (?, ?, ?, ?)",
+        (100, 1, "SF6 Method", "2026-04-20"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, sf6_leak_methodology) VALUES (?, ?, ?)",
+        (100, 10, "Πλήρωση"),
+    )
+    conn.commit()
+
+    class DummyApp:
+        def __init__(self, connection):
+            self.conn = connection
+
+        def _format_maintenance_date(self, value):
+            return value
+
+    output_path = _export_sf6_excel(DummyApp(conn), "2026")
+    wb = load_workbook(output_path)
+
+    assert wb.sheetnames == template_sheetnames
+
+    ws = wb[template_substation_sheet]
+    data_row = None
+    for row_idx in range(3, 10):
+        if ws.cell(row=row_idx, column=1).value == 1:
+            data_row = row_idx
+            break
+
+    assert data_row == 3
+    assert ws.cell(row=data_row, column=5).value == "Πλήρωση"
+    assert ws.cell(row=data_row, column=7).value in (None, "")
 
     conn.close()
 

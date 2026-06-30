@@ -9,7 +9,7 @@ source.exclude_dirs = .git,.github,.venv,__pycache__,tests,scripts,tools,dist,.p
 source.exclude_patterns = tests/*,tests/_shims/*,scripts/*,tools/*,dist/*,__pycache__/*,*.pyc,*.pyo,test_*.py,build_*.py
 icon.filename = res/icons/android_launcher.png
 
-version = 0.5.0
+version = 1.0.0
 requirements = python3,kivy==2.3.0,plyer,pillow,certifi,urllib3,charset-normalizer,idna,requests
 
 permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE

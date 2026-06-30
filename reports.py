@@ -943,7 +943,7 @@ def _get_sf6_report_data(app, year: str):
         LEFT JOIN people p ON m.responsible_id = p.id
         WHERE e.breaker_category = 'SF6'
           AND m.date_time LIKE ?
-                    AND {sf6_filter}
+                                        AND {sf6_filter}
         ORDER BY m.date_time ASC
                 """,
         (year_prefix,),
@@ -1054,27 +1054,94 @@ def _get_sf6_report_data(app, year: str):
     }
 
 
+def _resolve_sf6_template_path(year: str):
+    base_dir = os.path.dirname(__file__)
+    template_candidates = [
+        os.path.join(base_dir, f"ΚΣΜΘ ΥΣ SF6 {year}.xlsx"),
+        os.path.join(base_dir, "ΚΣΜΘ ΥΣ SF6 2026.xlsx"),
+    ]
+    for template_path in template_candidates:
+        if os.path.exists(template_path):
+            return template_path
+    return None
+
+
 def _export_sf6_excel(app, year: str, substation_filter=None):
     try:
-        from openpyxl import Workbook
-        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl import load_workbook
     except Exception as exc:
         raise RuntimeError(
             "Δεν βρέθηκε το πακέτο openpyxl. Εγκαταστήστε το για εξαγωγή Excel."
         ) from exc
 
+    template_path = _resolve_sf6_template_path(year)
+    if not template_path:
+        raise RuntimeError(
+            f"Δεν βρέθηκε το πρότυπο Excel SF6. Το αρχείο ΚΣΜΘ ΥΣ SF6 {year}.xlsx πρέπει να υπάρχει στον φάκελο της εφαρμογής."
+        )
+
     data = _get_sf6_report_data(app, year)
-    selected_substation_stats = None
+
+    c = app.conn.cursor()
+    year_prefix = f"{year}%"
+    c.execute(
+        """
+            SELECT m.id, m.date_time, s.id, s.name, e.id, e.name, e.element_type, me.sf6_leakage_kg,
+                me.sf6_leak_methodology, p.name
+            FROM maintenance_elements me
+            JOIN maintenance m ON me.maintenance_id = m.id
+            JOIN elements e ON me.element_id = e.id
+            JOIN substations s ON m.substation_id = s.id
+            LEFT JOIN people p ON m.responsible_id = p.id
+            WHERE e.breaker_category = 'SF6'
+              AND m.date_time LIKE ?
+            ORDER BY m.date_time ASC
+        """,
+        (year_prefix,),
+    )
+    export_rows = []
+    for (
+        maintenance_id,
+        date_time,
+        substation_id,
+        sub_name,
+        element_id,
+        elem_name,
+        elem_type,
+        leakage,
+        methodology,
+        responsible_name,
+    ) in c.fetchall():
+        export_rows.append(
+            {
+                "maintenance_id": maintenance_id,
+                "date_time": date_time,
+                "substation_id": substation_id,
+                "substation": sub_name or "-",
+                "element_id": element_id,
+                "element": elem_name or "-",
+                "element_type": elem_type or "-",
+                "leakage": leakage,
+                "methodology": methodology or "",
+                "responsible": responsible_name or "-",
+            }
+        )
+
+    export_substation_rows = {}
+    for row in export_rows:
+        export_substation_rows.setdefault(row["substation"], []).append(row)
+
     if substation_filter:
-        selected_rows = data["substation_rows"].get(substation_filter, [])
+        export_rows = export_substation_rows.get(substation_filter, [])
+        export_substation_rows = {substation_filter: export_rows}
         selected_substation_stats = data.get("substation_stats", {}).get(
             substation_filter, {}
         )
         data = {
             **data,
-            "rows": selected_rows,
-            "substation_rows": {substation_filter: selected_rows},
-            "total_leakage": sum((row.get("leakage") or 0.0) for row in selected_rows),
+            "rows": export_rows,
+            "substation_rows": export_substation_rows,
+            "total_leakage": sum((row.get("leakage") or 0.0) for row in export_rows),
             "installed_sf6": selected_substation_stats.get("installed_sf6", 0.0),
             "active_elements": selected_substation_stats.get("active_elements", 0),
             "active_substations": 1 if selected_substation_stats else 0,
@@ -1084,138 +1151,65 @@ def _export_sf6_excel(app, year: str, substation_filter=None):
             if data["installed_sf6"]
             else 0.0
         )
+    else:
+        data = {**data, "rows": export_rows, "substation_rows": export_substation_rows}
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Σύνοψη"
+    wb = load_workbook(template_path)
 
-    grey_fill = PatternFill(fill_type="solid", fgColor="D9D9D9")
-    blue_fill = PatternFill(fill_type="solid", fgColor="1F4E79")
-    white_font = Font(color="FFFFFF", bold=True)
-    bold_font = Font(bold=True)
-    thin = Side(style="thin")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    def _find_footer_row(ws):
+        for row_idx in range(3, ws.max_row + 1):
+            value = ws.cell(row=row_idx, column=1).value
+            if isinstance(value, str) and value.strip().startswith("Σχόλια"):
+                return row_idx
+        return ws.max_row + 1
 
-    summary_titles = [
-        "ΣΥΝΟΛΙΚΗ ΕΓΚΑΤΕΣΤΗΜΕΝΗ ΠΟΣΟΤΗΤΑ (kg)",
-        f"ΔΙΑΡΡΟΕΣ {year} (kg)",
-        f"ΠΟΣΟΣΤΟ ΔΙΑΡΡΟΩΝ {year}",
-    ]
-    summary_values = [
-        f"{data['installed_sf6']:.2f}",
-        f"{data['total_leakage']:.2f}",
-        f"{data['percentage']:.2f}%",
-    ]
+    def _first_template_data_row(ws):
+        for row_idx in range(3, ws.max_row + 1):
+            if ws.cell(row=row_idx, column=1).value == 1:
+                return row_idx
+        return 3
 
-    for col_idx, title in enumerate(summary_titles, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=title)
-        cell.fill = grey_fill
-        cell.font = bold_font
-        cell.alignment = center
-        cell.border = border
-
-        val_cell = ws.cell(row=2, column=col_idx, value=summary_values[col_idx - 1])
-        val_cell.alignment = center
-        val_cell.border = border
-
-    ws.row_dimensions[1].height = 30
-    ws.row_dimensions[2].height = 24
-
-    for col in range(1, 4):
-        ws.column_dimensions[chr(64 + col)].width = 35
-
-    substation_sums = []
+    template_sheet_map = {ws.title: ws for ws in wb.worksheets}
     for substation, rows in data["substation_rows"].items():
-        total = sum([r.get("leakage") or 0 for r in rows])
-        if total > 0:
-            substation_sums.append((substation, total))
+        ws_sub = template_sheet_map.get(substation)
+        if ws_sub is None:
+            continue
 
-    start_row = 4
-    if substation_sums:
-        ws.cell(row=start_row, column=1, value="Υποσταθμός").font = bold_font
-        ws.cell(row=start_row, column=2, value="Σύνολο Διαρροών (kg)").font = bold_font
-        for col_idx in (1, 2):
-            cell = ws.cell(row=start_row, column=col_idx)
-            cell.alignment = center
-            cell.border = border
-
-        row_ptr = start_row + 1
-        for substation, total in sorted(substation_sums, key=lambda x: x[0] or ""):
-            ws.cell(row=row_ptr, column=1, value=substation or "-").border = border
-            ws.cell(row=row_ptr, column=2, value=f"{total:.2f}").border = border
-            ws.cell(row=row_ptr, column=1).alignment = center
-            ws.cell(row=row_ptr, column=2).alignment = center
-            row_ptr += 1
-
-    for substation, rows in data["substation_rows"].items():
-        sheet_title = substation[:31] if substation else "Υποσταθμός"
-        if sheet_title in wb.sheetnames:
-            suffix = 1
-            base = sheet_title[:28]
-            while f"{base}_{suffix}" in wb.sheetnames:
-                suffix += 1
-            sheet_title = f"{base}_{suffix}"
-
-        ws_sub = wb.create_sheet(title=sheet_title)
-        ws_sub.merge_cells("A1:J1")
-        title_cell = ws_sub["A1"]
-        title_cell.value = "ΠΙΝΑΚΑΣ 4: ΠΗΓΗ ΕΚΠΟΜΠΩΝ ΑΠΌ ΕΞΟΠΛΙΣΜΟ ΧΡΗΣΗΣ SF6"
-        title_cell.alignment = center
-
-        for col_idx in range(1, 11):
-            cell = ws_sub.cell(row=1, column=col_idx)
-            cell.fill = blue_fill
-            cell.font = white_font
-            cell.alignment = center
-            cell.border = border
-
-        headers = [
-            "Α/Α",
-            "ΒΟΚ ή ΠΕΡΙΟΧΗ",
-            "ΕΓΚΑΤΑΣΤΑΣΗ (Πχ. Όνομα Υ/Σ)",
-            "ΜΟΝΑΔΑ ΜΕΤΡΗΣΗΣ",
-            "ΠΛΗΡΩΣΗ Ή ΑΝΤΙΚΑΤΑΣΤΑΣΗ (ΜΕΘΟΔΟΛΟΓΙΑ)",
-            "ΣΥΝΟΛΙΚΗ ΕΓΚΑΤΕΣΤΗΜΕΝΗ ΠΟΣΟΤΗΤΑ (kg)",
-            "ΠΟΣΟΤΗΤΑ ΔΙΑΡΡΟΩΝ (kg)",
-            "ΗΜ/ΝΙΑ",
-            "ΥΠΕΥΘΥΝΟΣ ΣΥΝΕΡΓΕΙΟΥ",
-            "ΥΠΟΓΡΑΦΗ",
-        ]
-
-        for col_idx, header in enumerate(headers, start=1):
-            cell = ws_sub.cell(row=2, column=col_idx, value=header)
-            cell.font = bold_font
-            cell.alignment = center
-            cell.border = border
-
+        data_start_row = _first_template_data_row(ws_sub)
+        footer_row = _find_footer_row(ws_sub)
         installed_sub = data["substation_installed"].get(substation, 0.0)
-        start_row = 3
-        for idx, row in enumerate(rows, start=1):
-            values = [
-                idx,
-                "ΔΕΕΔ",
-                substation,
-                "kg",
-                row.get("methodology", "") or "",
-                f"{installed_sub:.2f}",
-                f"{row['leakage']:.2f}",
-                _format_display_date(app, row.get("date_time")) or "-",
-                row.get("responsible", "-") or "-",
-                "",
-            ]
-            for col_idx, value in enumerate(values, start=1):
-                cell = ws_sub.cell(row=start_row, column=col_idx, value=value)
-                cell.alignment = Alignment(
-                    horizontal="center", vertical="center", wrap_text=True
-                )
-                cell.border = border
-            start_row += 1
 
-        ws_sub.row_dimensions[1].height = 30
-        ws_sub.row_dimensions[2].height = 28
-        for col_idx in range(1, 11):
-            ws_sub.column_dimensions[chr(64 + col_idx)].width = 22
+        for idx, row in enumerate(rows, start=1):
+            target_row = data_start_row + idx - 1
+            if target_row >= footer_row:
+                break
+            leakage = row.get("leakage")
+            ws_sub.cell(row=target_row, column=1, value=idx)
+            ws_sub.cell(row=target_row, column=2, value="ΔΕΕΔ")
+            ws_sub.cell(row=target_row, column=3, value=substation)
+            ws_sub.cell(row=target_row, column=4, value="Kg")
+            ws_sub.cell(
+                row=target_row, column=5, value=row.get("methodology", "") or ""
+            )
+            ws_sub.cell(row=target_row, column=6, value=f"{installed_sub:.2f}")
+            ws_sub.cell(
+                row=target_row,
+                column=7,
+                value="" if leakage is None else f"{leakage:.2f}",
+            )
+            ws_sub.cell(
+                row=target_row,
+                column=8,
+                value=_format_display_date(app, row.get("date_time")) or "",
+            )
+            ws_sub.cell(
+                row=target_row, column=9, value=row.get("responsible", "-") or "-"
+            )
+            ws_sub.cell(row=target_row, column=10, value="")
+
+        for row_idx in range(data_start_row + len(rows), footer_row):
+            for col_idx in range(1, 11):
+                ws_sub.cell(row=row_idx, column=col_idx, value=None)
 
     reports_dir = os.path.join(os.path.dirname(__file__), "reports")
     os.makedirs(reports_dir, exist_ok=True)
