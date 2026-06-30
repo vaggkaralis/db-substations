@@ -27,6 +27,7 @@ import threading
 import time
 import traceback
 import webbrowser
+from urllib.parse import unquote, urlparse
 
 import faulthandler
 from database import init_db
@@ -8942,23 +8943,25 @@ class SubstationApp(App):
                 )
                 sub_row_layout.add_widget(lbl_last)
 
+                resolved_monogram_pdf = self._resolve_monogram_pdf_path(monogram_pdf)
                 mono_text = (
-                    S["BUTTONS"]["OPEN"] if monogram_pdf else S["BUTTONS"]["ADD"]
+                    S["BUTTONS"]["OPEN"]
+                    if resolved_monogram_pdf
+                    else S["BUTTONS"]["ADD"]
                 )
-                # hyperlink style: underline, blue text, transparent background
                 monogram_btn = Button(
-                    text=f"[u]{mono_text}[/u]",
-                    markup=True,
+                    text=mono_text,
+                    bold=True,
                     background_normal="",
                     background_down="",
-                    background_color=(0, 0, 0, 0),
-                    color=(0.2, 0.6, 1, 1),
+                    background_color=(0.2, 0.58, 0.95, 1),
+                    color=(1, 1, 1, 1),
                     size_hint_x=0.12,
                 )
-                if monogram_pdf and os.path.exists(monogram_pdf):
+                if resolved_monogram_pdf:
                     monogram_btn.bind(
-                        on_press=lambda x, path=monogram_pdf: self._open_monogram_pdf(
-                            path
+                        on_press=lambda x, path=resolved_monogram_pdf: (
+                            self._open_monogram_pdf(path)
                         )
                     )
                 else:
@@ -9787,11 +9790,84 @@ class SubstationApp(App):
         popup.content = layout
         popup.open()
 
+    def _resolve_monogram_pdf_path(self, pdf_path):
+        raw_value = str(pdf_path or "").strip()
+        if not raw_value:
+            return None
+
+        candidate_values = [raw_value]
+
+        if raw_value.lower().startswith("file://"):
+            try:
+                parsed = urlparse(raw_value)
+                uri_path = unquote(parsed.path or "")
+                if os.name == "nt" and uri_path.startswith("/"):
+                    uri_path = uri_path.lstrip("/")
+                if parsed.netloc and os.name == "nt":
+                    # UNC URI: file://server/share/path
+                    uri_path = f"//{parsed.netloc}{uri_path}"
+                if uri_path:
+                    candidate_values.append(uri_path)
+            except Exception:
+                pass
+
+        normalized_values = []
+        for value in candidate_values:
+            try:
+                clean = os.path.expandvars(os.path.expanduser(str(value).strip()))
+            except Exception:
+                clean = str(value).strip()
+            if clean:
+                normalized_values.append(clean)
+
+        base_dirs = []
+        db_dir = ""
+        try:
+            db_dir = os.path.dirname(
+                os.path.abspath(getattr(self, "db_path", "") or "")
+            )
+        except Exception:
+            db_dir = ""
+        if db_dir:
+            base_dirs.append(db_dir)
+        base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
+        base_dirs.append(os.getcwd())
+
+        checked = set()
+        for value in normalized_values:
+            path_variants = [value]
+            if not os.path.isabs(value):
+                path_variants.extend(
+                    os.path.join(base, value) for base in base_dirs if base
+                )
+
+            for variant in path_variants:
+                try:
+                    resolved = os.path.abspath(os.path.normpath(variant))
+                except Exception:
+                    resolved = variant
+                key = resolved.lower() if os.name == "nt" else resolved
+                if key in checked:
+                    continue
+                checked.add(key)
+                if os.path.isfile(resolved):
+                    return resolved
+
+        return None
+
     def _open_monogram_pdf(self, pdf_path):
+        resolved_path = self._resolve_monogram_pdf_path(pdf_path)
+        if not resolved_path:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                f"{S['MESSAGES'].get('OPEN_FILE_NOT_FOUND', 'Το αρχείο δεν βρέθηκε!')}\n{str(pdf_path or '').strip()}",
+            )
+            return False
+
         from reports import open_file as _open
 
         return _open(
-            pdf_path,
+            resolved_path,
             not_found_message="Το αρχείο δεν βρέθηκε!",
             error_prefix="Αποτυχία ανοίγματος PDF:\n",
         )
