@@ -1669,6 +1669,22 @@ class SubstationAndroidApp(App):
                 break
         return normalized
 
+    def _paths_point_to_same_file(self, source_path, target_path) -> bool:
+        source = self._normalize_android_storage_path(str(source_path or "").strip())
+        target = self._normalize_android_storage_path(str(target_path or "").strip())
+        if not source or not target:
+            return False
+
+        try:
+            return os.path.samefile(source, target)
+        except Exception:
+            pass
+
+        try:
+            return os.path.abspath(source) == os.path.abspath(target)
+        except Exception:
+            return source == target
+
     def _prepare_local_db_path(self, path_value: str) -> str:
         normalized = self._normalize_android_storage_path(path_value)
         if normalized.startswith("content://"):
@@ -4350,6 +4366,9 @@ class SubstationAndroidApp(App):
                     return
                 try:
                     copied_file = str(val)
+                    if self._paths_point_to_same_file(copied_file, target_path):
+                        self._finalize_refreshed_local_db(target_path, source)
+                        return
                     self._clear_local_db_copy_targets(
                         target_path, clear_main_file=False
                     )
@@ -4380,6 +4399,9 @@ class SubstationAndroidApp(App):
             return
 
         try:
+            if self._paths_point_to_same_file(normalized_source, target_path):
+                self._finalize_refreshed_local_db(target_path, source)
+                return
             self._clear_local_db_copy_targets(target_path, clear_main_file=False)
             shutil.copy2(normalized_source, target_path)
             self._maybe_copy_android_sqlite_sidecars(normalized_source, target_path)
