@@ -1948,13 +1948,53 @@ class SubstationApp(App):
             return False
         return True
 
+    def _resolve_startup_db_path(self):
+        """Resolve DB path for startup in a portable way.
+
+        If a default-style configured path no longer exists (common when moving
+        an EXE bundle between machines), fall back to the runtime default DB
+        path and persist it so subsequent runs remain stable.
+        """
+        configured_path = get_db_path()
+        if configured_path:
+            configured_path = os.path.abspath(configured_path)
+            if os.path.isfile(configured_path):
+                return configured_path
+
+            default_path = os.path.abspath(DB_PATH)
+            configured_name = os.path.basename(configured_path).lower()
+            default_name = os.path.basename(default_path).lower()
+            if configured_name == default_name and os.path.isfile(default_path):
+                APP_LOGGER.info(
+                    "Configured db_path '%s' is missing; falling back to runtime default '%s'",
+                    configured_path,
+                    default_path,
+                )
+                try:
+                    set_db_path(default_path)
+                except Exception:
+                    pass
+                return default_path
+
+            return configured_path
+
+        return os.path.abspath(DB_PATH)
+
     def _check_db_integrity(self):
         """Check database integrity to detect corruption or data issues.
 
         Returns:
             True if integrity check passed or user chose to continue, False to abort
         """
-        db_path = get_db_path() or DB_PATH
+        db_path = self._resolve_startup_db_path()
+
+        # For first-run / repair flows, DB may not exist yet and will be handled
+        # by the setup wizard before main UI initialization.
+        if not os.path.isfile(db_path):
+            APP_LOGGER.info(
+                "Skipping integrity check because database file is missing: %s", db_path
+            )
+            return True
 
         # Perform quick integrity check (fast, essential checks only)
         integrity_result = check_database_integrity(db_path, quick_check=True)
@@ -2046,6 +2086,17 @@ class SubstationApp(App):
 
     def _finish_build(self, *_args):
         APP_LOGGER.info("========== FINISH_BUILD STARTING ==========")
+        # First decide whether setup/repair is needed. Running integrity checks
+        # before this can fail on a fresh install where the DB has not been set yet.
+        if self._needs_first_time_setup():
+            APP_LOGGER.info("First-time setup is required")
+            self._show_first_use_setup_wizard(
+                on_complete=lambda: self.show_login_popup(
+                    on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
+                )
+            )
+            return
+
         # Check DB compatibility before proceeding
         APP_LOGGER.info("Checking database compatibility")
         if not self._check_db_compatibility():
@@ -2057,20 +2108,11 @@ class SubstationApp(App):
         if not self._check_db_integrity():
             APP_LOGGER.error("Database integrity check failed")
             return
-        # Check if first-time setup is needed
-        if self._needs_first_time_setup():
-            APP_LOGGER.info("First-time setup is required")
-            self._show_first_use_setup_wizard(
-                on_complete=lambda: self.show_login_popup(
-                    on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
-                )
-            )
-        else:
-            # Always show login popup at startup (will pre-select last user)
-            APP_LOGGER.info("Showing startup login popup")
-            self.show_login_popup(
-                on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
-            )
+        # Always show login popup at startup (will pre-select last user)
+        APP_LOGGER.info("Showing startup login popup")
+        self.show_login_popup(
+            on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
+        )
 
     def _needs_first_time_setup(self) -> bool:
         """Check if setup wizard should be shown.
@@ -2078,9 +2120,9 @@ class SubstationApp(App):
         Returns True for a fresh install (no DB file) OR when a previously
         configured critical setting is now missing/invalid.
         """
-        from config_manager import get_db_path, get_app_setting
+        from config_manager import get_app_setting
 
-        db_path = get_db_path()
+        db_path = self._resolve_startup_db_path()
         wizard_done = bool(get_app_setting("setup_wizard_completed", False))
 
         # If wizard was already completed, only re-show when a critical
@@ -2095,7 +2137,7 @@ class SubstationApp(App):
         # Wizard not yet done for this install.
         # If the default/configured DB file exists, it's an existing installation -
         # silently mark completed and skip wizard.
-        effective_db = db_path or DB_PATH
+        effective_db = db_path or os.path.abspath(DB_PATH)
         if os.path.isfile(effective_db):
             set_app_setting("setup_wizard_completed", True)
             return False
@@ -2573,7 +2615,7 @@ class SubstationApp(App):
             )
         )
 
-        selected_db_path = get_db_path() or DB_PATH
+        selected_db_path = self._resolve_startup_db_path()
         APP_LOGGER.info("Opening database: %s", selected_db_path)
         self.conn = init_db(selected_db_path)
         self.db_path = os.path.abspath(selected_db_path)
