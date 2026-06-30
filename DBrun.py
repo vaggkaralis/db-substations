@@ -4567,10 +4567,10 @@ class SubstationApp(App):
 
         return _f(self, year)
 
-    def _export_sf6_excel(self, year: str):
+    def _export_sf6_excel(self, year: str, substation_filter=None):
         from reports import _export_sf6_excel as _f
 
-        return _f(self, year)
+        return _f(self, year, substation_filter=substation_filter)
 
     def show_sf6_management_popup(self, instance=None):
         from reports import show_sf6_management_popup as _f
@@ -8956,7 +8956,7 @@ class SubstationApp(App):
                     background_down="",
                     background_color=(0.2, 0.58, 0.95, 1),
                     color=(1, 1, 1, 1),
-                    size_hint_x=0.12,
+                    size_hint=(1, 1),
                 )
                 if resolved_monogram_pdf:
                     monogram_btn.bind(
@@ -8974,9 +8974,7 @@ class SubstationApp(App):
                 actions_container = BoxLayout(size_hint_x=0.32, spacing=6)
                 # monogram occupies the left portion (matching header 0.12 / 0.32)
                 mono_portion = BoxLayout(size_hint_x=0.375)
-                mono_portion.add_widget(globals()["Widget"]())
                 mono_portion.add_widget(monogram_btn)
-                mono_portion.add_widget(globals()["Widget"]())
                 actions_container.add_widget(mono_portion)
 
                 # small action buttons on the right portion
