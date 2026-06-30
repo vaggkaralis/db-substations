@@ -1,7 +1,7 @@
 import DBrun
+import reports
 from database import init_db
-from openpyxl import load_workbook
-from pathlib import Path
+from openpyxl import Workbook, load_workbook
 
 from reports import (
     _export_sf6_excel,
@@ -154,14 +154,33 @@ def test_sf6_report_excludes_methodology_only_rows(tmp_path):
     conn.close()
 
 
-def test_sf6_excel_export_uses_template_and_keeps_blank_leakage_rows(tmp_path):
+def test_sf6_excel_export_uses_template_and_keeps_blank_leakage_rows(
+    tmp_path, monkeypatch
+):
     db_path = tmp_path / "test_sf6_export.db"
     conn = init_db(str(db_path))
     cur = conn.cursor()
 
-    template_path = Path(__file__).resolve().parents[1] / "ΚΣΜΘ ΥΣ SF6 2026.xlsx"
+    template_path = tmp_path / "ΚΣΜΘ ΥΣ SF6 2026.xlsx"
+    template_substation_sheet = "ΥΣ ΔΟΚΙΜΗ"
+    wb_template = Workbook()
+    ws_summary = wb_template.active
+    ws_summary.title = "Σύνοψη"
+    ws_substation = wb_template.create_sheet(template_substation_sheet)
+    for ws in (ws_summary, ws_substation):
+        ws.cell(
+            row=1, column=1, value="ΠΙΝΑΚΑΣ 4: ΠΗΓΗ ΕΚΠΟΜΠΩΝ ΑΠΌ ΕΞΟΠΛΙΣΜΟ ΧΡΗΣΗΣ SF6"
+        )
+        ws.cell(row=2, column=1, value="Α/Α")
+        ws.cell(row=3, column=1, value=1)
+        ws.cell(row=8, column=1, value="Σχόλια")
+    wb_template.save(template_path)
     template_sheetnames = load_workbook(template_path, read_only=True).sheetnames
-    template_substation_sheet = template_sheetnames[1]
+    monkeypatch.setattr(
+        reports,
+        "_resolve_sf6_template_path",
+        lambda _year: str(template_path),
+    )
 
     cur.execute(
         "INSERT INTO substations (id, name) VALUES (?, ?)",
