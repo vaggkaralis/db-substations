@@ -3038,6 +3038,21 @@ class SubstationAndroidApp(App):
                                     ],
                                     width=max(0.8, line_w * 0.7),
                                 )
+                        elif self._icon_type == "models":
+                            box_x = x + w * 0.18
+                            box_w = w * 0.64
+                            box_h = h * 0.16
+                            start_y = y + h * 0.18
+                            gap = h * 0.09
+                            inset = w * 0.04
+                            for index in range(3):
+                                row_y = start_y + index * (box_h + gap)
+                                row_x = box_x + (inset if index == 1 else 0)
+                                row_w = box_w - (inset * 2 if index == 1 else 0)
+                                Line(
+                                    rectangle=(row_x, row_y, row_w, box_h),
+                                    width=max(1.0, line_w),
+                                )
                         elif self._icon_type == "inspection":
                             Line(
                                 circle=(x + w * 0.4, y + h * 0.55, w * 0.2),
@@ -3125,6 +3140,7 @@ class SubstationAndroidApp(App):
             glyph_map = {
                 "settings": "S",
                 "book": "B",
+                "models": "M",
                 "maintenance": "H",
                 "history": "H",
                 "manual": "B",
@@ -6001,6 +6017,21 @@ class SubstationAndroidApp(App):
                                 size=(50, 50),
                             )
                             elem_card.add_widget(history_btn)
+
+                        if (
+                            elem.get("element_model_id")
+                            or elem.get("model_name")
+                            or elem.get("model")
+                        ):
+                            model_usage_btn = self._build_vector_icon_button(
+                                "models",
+                                lambda x, element_data=dict(elem): (
+                                    self.show_element_model_usages(element_data)
+                                ),
+                                icon_color=(0.24, 0.55, 0.42, 1),
+                                size=(50, 50),
+                            )
+                            elem_card.add_widget(model_usage_btn)
 
                         elem_row.add_widget(
                             self._build_gate_tag_widget(gate_name, height=160)
@@ -9445,6 +9476,195 @@ class SubstationAndroidApp(App):
         except Exception:
             pass
         return canonical_element_id, canonical_element_name, matching_element_ids
+
+    def _get_element_model_usage_groups(self, element_row):
+        if not self.local_db_path or not os.path.exists(self.local_db_path):
+            raise Exception("Δεν υπάρχει φορτωμένη βάση δεδομένων")
+
+        model_id = element_row.get("element_model_id")
+        model_name = str(
+            element_row.get("model_name") or element_row.get("model") or ""
+        ).strip()
+        model_manufacturer = str(
+            element_row.get("model_manufacturer")
+            or element_row.get("manufacturer")
+            or ""
+        ).strip()
+        element_type = str(element_row.get("element_type") or "").strip()
+        current_element_id = element_row.get("id")
+        current_substation_id = element_row.get("substation_id")
+
+        if not model_id and not model_name:
+            return []
+
+        conn = sqlite3.connect(self.local_db_path)
+        cursor = conn.cursor()
+        try:
+            if model_id:
+                cursor.execute(
+                    """
+                    SELECT s.name, e.name, e.id
+                    FROM elements e
+                    JOIN substations s ON s.id = e.substation_id
+                    WHERE e.element_model_id = ?
+                      AND e.id != ?
+                      AND e.substation_id != ?
+                    ORDER BY s.name, e.name, e.id
+                    """,
+                    (model_id, current_element_id, current_substation_id),
+                )
+            else:
+                params = [model_name, current_element_id, current_substation_id]
+                sql = """
+                    SELECT s.name, e.name, e.id
+                    FROM elements e
+                    JOIN substations s ON s.id = e.substation_id
+                    LEFT JOIN element_models em ON em.id = e.element_model_id
+                    WHERE TRIM(COALESCE(em.model_name, e.model, '')) = ?
+                      AND e.id != ?
+                      AND e.substation_id != ?
+                """
+                if model_manufacturer:
+                    sql += (
+                        " AND TRIM(COALESCE(em.manufacturer, e.manufacturer, '')) = ?"
+                    )
+                    params.append(model_manufacturer)
+                if element_type:
+                    sql += " AND TRIM(COALESCE(e.element_type, '')) = ?"
+                    params.append(element_type)
+                sql += " ORDER BY s.name, e.name, e.id"
+                cursor.execute(sql, params)
+
+            rows = cursor.fetchall() or []
+        finally:
+            conn.close()
+
+        grouped = []
+        for substation_name, other_element_name, other_element_id in rows:
+            if not grouped or grouped[-1]["substation_name"] != substation_name:
+                grouped.append({"substation_name": substation_name, "elements": []})
+            grouped[-1]["elements"].append(
+                {"id": other_element_id, "name": other_element_name}
+            )
+        return grouped
+
+    def show_element_model_usages(self, element_row):
+        try:
+            display_model = (
+                str(
+                    element_row.get("model_name") or element_row.get("model") or "-"
+                ).strip()
+                or "-"
+            )
+            groups = self._get_element_model_usage_groups(element_row)
+
+            popup = Popup(
+                title=f"Ίδιο Μοντέλο - {display_model}",
+                size_hint=(0.94, 0.78),
+            )
+            main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+            if groups:
+                total_elements = sum(len(group["elements"]) for group in groups)
+                summary_label = Label(
+                    text=(
+                        f"Το ίδιο μοντέλο βρέθηκε σε {len(groups)} υποσταθμούς "
+                        f"και {total_elements} στοιχεία."
+                    ),
+                    size_hint_y=None,
+                    height=42,
+                    halign="left",
+                    valign="middle",
+                )
+                summary_label.bind(size=summary_label.setter("text_size"))
+                main_layout.add_widget(summary_label)
+
+                scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+                content = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=4)
+                content.bind(minimum_height=content.setter("height"))
+
+                for group in groups:
+                    card = BoxLayout(
+                        orientation="vertical",
+                        size_hint_y=None,
+                        spacing=4,
+                        padding=[10, 8],
+                    )
+                    card.bind(minimum_height=card.setter("height"))
+
+                    header = Label(
+                        text=f"[b]{group['substation_name']}[/b]",
+                        markup=True,
+                        size_hint_y=None,
+                        halign="left",
+                        valign="middle",
+                        color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+                    )
+                    header.bind(
+                        size=lambda inst, _size: setattr(
+                            inst, "text_size", (inst.width, None)
+                        )
+                    )
+                    header.bind(
+                        texture_size=lambda inst, size: setattr(
+                            inst, "height", size[1] + 8
+                        )
+                    )
+                    card.add_widget(header)
+
+                    items_label = Label(
+                        text=", ".join(
+                            item.get("name") or "-" for item in group["elements"]
+                        ),
+                        size_hint_y=None,
+                        halign="left",
+                        valign="top",
+                        color=self.theme.get("text_muted", (0.35, 0.43, 0.51, 1)),
+                    )
+                    items_label.bind(
+                        size=lambda inst, _size: setattr(
+                            inst, "text_size", (inst.width, None)
+                        )
+                    )
+                    items_label.bind(
+                        texture_size=lambda inst, size: setattr(
+                            inst, "height", size[1] + 8
+                        )
+                    )
+                    card.add_widget(items_label)
+                    self._apply_surface_style(
+                        card,
+                        fill_color=self.theme.get("surface", (1, 1, 1, 1)),
+                        border_color=self.theme.get("border", (0.8, 0.85, 0.9, 1)),
+                        radius=18,
+                    )
+                    content.add_widget(card)
+
+                scroll.add_widget(content)
+                main_layout.add_widget(scroll)
+            else:
+                empty_label = Label(
+                    text="Το ίδιο μοντέλο δεν βρέθηκε σε άλλον υποσταθμό.",
+                    halign="center",
+                    valign="middle",
+                )
+                empty_label.bind(size=empty_label.setter("text_size"))
+                main_layout.add_widget(empty_label)
+
+            close_btn = Button(
+                text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"),
+                size_hint_y=None,
+                height=48,
+            )
+            self._style_button(close_btn, "surface")
+            close_btn.bind(on_press=popup.dismiss)
+            main_layout.add_widget(close_btn)
+
+            popup.content = main_layout
+            popup.open()
+        except Exception as model_err:
+            Logger.error(f"APP: Error showing element model usages: {model_err}")
+            self.show_error(f"Σφάλμα: {str(model_err)}")
 
     def show_element_maintenance_history(self, element_id, element_name):
         """Show maintenance history for a specific element"""

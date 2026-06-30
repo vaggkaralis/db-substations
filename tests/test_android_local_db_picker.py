@@ -266,6 +266,7 @@ def test_load_substation_elements_uses_icon_only_android_action_buttons(monkeypa
             "serial_number": "SN-1",
             "model_manufacturer": "ABB",
             "model_name": "Model X",
+            "element_model_id": 15,
             "voltage_level": "20kV",
             "manufacture_year": "2020",
             "operating_status": "Ενεργή",
@@ -302,9 +303,141 @@ def test_load_substation_elements_uses_icon_only_android_action_buttons(monkeypa
 
     app._load_substation_elements(1, grid)
 
-    assert [button.icon_type for button in created_buttons] == ["book", "maintenance"]
+    assert [button.icon_type for button in created_buttons] == [
+        "book",
+        "maintenance",
+        "models",
+    ]
     assert all(button.bind_calls == 0 for button in created_buttons)
-    assert len(_collect_widgets_by_class_name(grid, "DummyIconButton")) == 2
+    assert len(_collect_widgets_by_class_name(grid, "DummyIconButton")) == 3
+
+
+def test_get_element_model_usage_groups_prefers_element_model_id(tmp_path):
+    app = android_app.SubstationAndroidApp()
+    db_path = tmp_path / "android_model_usage.db"
+    app.local_db_path = str(db_path)
+
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE element_models (
+            id INTEGER PRIMARY KEY,
+            model_name TEXT,
+            manufacturer TEXT
+        );
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            element_type TEXT,
+            name TEXT,
+            manufacturer TEXT,
+            model TEXT,
+            element_model_id INTEGER
+        );
+        """
+    )
+    cur.executemany(
+        "INSERT INTO substations (id, name) VALUES (?, ?)",
+        [(1, "A"), (2, "B"), (3, "C")],
+    )
+    cur.execute(
+        "INSERT INTO element_models (id, model_name, manufacturer) VALUES (?,?,?)",
+        (15, "Model X", "ABB"),
+    )
+    cur.executemany(
+        "INSERT INTO elements (id, substation_id, element_type, name, manufacturer, model, element_model_id) VALUES (?,?,?,?,?,?,?)",
+        [
+            (7, 1, "Διακόπτης ΜΤ", "Ρ15", "ABB", "Model X", 15),
+            (8, 2, "Διακόπτης ΜΤ", "Ρ15", "ABB", "Model X", 15),
+            (9, 2, "Διακόπτης ΜΤ", "Ρ25", "ABB", "Model X", 15),
+            (10, 3, "Διακόπτης ΜΤ", "Ρ35", "ABB", "Model X", 15),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    groups = app._get_element_model_usage_groups(
+        {
+            "id": 7,
+            "substation_id": 1,
+            "element_type": "Διακόπτης ΜΤ",
+            "element_model_id": 15,
+            "model_name": "Model X",
+            "model_manufacturer": "ABB",
+        }
+    )
+
+    assert groups == [
+        {
+            "substation_name": "B",
+            "elements": [{"id": 8, "name": "Ρ15"}, {"id": 9, "name": "Ρ25"}],
+        },
+        {
+            "substation_name": "C",
+            "elements": [{"id": 10, "name": "Ρ35"}],
+        },
+    ]
+
+
+def test_get_element_model_usage_groups_falls_back_to_exact_model_text(tmp_path):
+    app = android_app.SubstationAndroidApp()
+    db_path = tmp_path / "android_model_usage_fallback.db"
+    app.local_db_path = str(db_path)
+
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE element_models (
+            id INTEGER PRIMARY KEY,
+            model_name TEXT,
+            manufacturer TEXT
+        );
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            element_type TEXT,
+            name TEXT,
+            manufacturer TEXT,
+            model TEXT,
+            element_model_id INTEGER
+        );
+        """
+    )
+    cur.executemany(
+        "INSERT INTO substations (id, name) VALUES (?, ?)",
+        [(1, "A"), (2, "B")],
+    )
+    cur.executemany(
+        "INSERT INTO elements (id, substation_id, element_type, name, manufacturer, model, element_model_id) VALUES (?,?,?,?,?,?,?)",
+        [
+            (7, 1, "Διακόπτης ΜΤ", "Ρ15", "ABB", "Legacy X", None),
+            (8, 2, "Διακόπτης ΜΤ", "Ρ25", "ABB", "Legacy X", None),
+            (9, 2, "Διακόπτης ΥΤ", "Q1", "ABB", "Legacy X", None),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    groups = app._get_element_model_usage_groups(
+        {
+            "id": 7,
+            "substation_id": 1,
+            "element_type": "Διακόπτης ΜΤ",
+            "model": "Legacy X",
+            "manufacturer": "ABB",
+        }
+    )
+
+    assert groups == [
+        {
+            "substation_name": "B",
+            "elements": [{"id": 8, "name": "Ρ25"}],
+        }
+    ]
 
 
 def test_show_maintenance_menu_uses_save_and_cancel_text_fallback(monkeypatch):
