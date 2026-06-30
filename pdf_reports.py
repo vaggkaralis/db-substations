@@ -893,9 +893,11 @@ class MaintenanceReportGenerator:
                 m.user_name,
                 s.name as substation_name,
                 s.location,
-                s.division
+                s.division,
+                p.name as responsible_name
             FROM maintenance m
             JOIN substations s ON m.substation_id = s.id
+            LEFT JOIN people p ON p.id = m.responsible_id
             WHERE m.id = ?
         """,
             (maintenance_id,),
@@ -915,6 +917,7 @@ class MaintenanceReportGenerator:
             sub_name,
             sub_location,
             division,
+            responsible_name,
         ) = maintenance
 
         # Get element details
@@ -1210,7 +1213,10 @@ class MaintenanceReportGenerator:
             sub_name,
             sub_location,
             division,
+            responsible_name,
         ) = maintenance_data
+
+        responsible_display = responsible_name or user_name or "-"
         (
             elem_id,
             elem_type,
@@ -1251,6 +1257,7 @@ class MaintenanceReportGenerator:
             ["ΣΤΟΙΧΕΙΑ ΣΥΝΤΗΡΗΣΗΣ", ""],
             ["Ημερομηνία:", date_time or "-"],
             ["Τύπος Συντήρησης:", maint_type or "-"],
+            ["Υπεύθυνος:", responsible_display],
             ["Τομέας:", division or "-"],
         ]
 

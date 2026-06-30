@@ -56,6 +56,21 @@ def test_get_available_gates_inter_true_false():
     assert all("-" in g for g in inter if g != "(Μη καταχωρημένο)")
 
 
+def test_get_available_gates_fills_missing_for_unassigned_transformer():
+    app, sid = setup_app_with_substation_and_transformers(["T1", "T2"])
+    c = app.conn.cursor()
+    c.execute(
+        "UPDATE elements SET gate=? WHERE substation_id=? AND name=?",
+        ("ΠΥΛΗ 1", sid, "T1"),
+    )
+    app.conn.commit()
+
+    regular = app.get_available_gates(sid, False)
+
+    assert "ΠΥΛΗ 1" in regular
+    assert "ΠΥΛΗ 2" in regular
+
+
 def test_get_available_hemizygos_options():
     options = SubstationApp.get_available_hemizygos_options()
     assert options[0] == S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")

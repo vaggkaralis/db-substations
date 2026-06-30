@@ -6399,18 +6399,35 @@ class SubstationApp(App):
                 except Exception:
                     pass
 
-        # Fallback: if no explicit gate labels on transformers, fall back to sequential
+        # Count transformers and ensure the regular gate list can cover all of them,
+        # even if only some transformers already have an explicit gate set.
+        c.execute(
+            """SELECT name FROM elements
+                WHERE substation_id=? AND (element_type LIKE '%150/20%' OR element_type LIKE '%Μετασχη%')
+                ORDER BY name""",
+            (substation_id,),
+        )
+        transformers = c.fetchall()
+        num_gates = len(transformers)
+
+        # If no explicit gate labels exist, keep sequential 1..N behavior.
         if not gate_numbers:
-            # Count transformers and produce 1..N numbering
-            c.execute(
-                """SELECT name FROM elements
-                    WHERE substation_id=? AND (element_type LIKE '%150/20%' OR element_type LIKE '%Μετασχη%')
-                    ORDER BY name""",
-                (substation_id,),
-            )
-            transformers = c.fetchall()
-            num_gates = len(transformers)
             gate_numbers = [i + 1 for i in range(num_gates)]
+        # If some gates are set but there are additional transformers without a gate,
+        # append the smallest missing gate numbers until we can represent every
+        # transformer (e.g. existing [1] + two transformers => [1, 2]).
+        elif len(gate_numbers) < num_gates:
+            missing_needed = num_gates - len(gate_numbers)
+            used = set(gate_numbers)
+            candidate = 1
+            while missing_needed > 0:
+                if candidate not in used:
+                    gate_numbers.append(candidate)
+                    used.add(candidate)
+                    missing_needed -= 1
+                candidate += 1
+
+        gate_numbers = sorted(gate_numbers)
 
         regular = [f"{gate_prefix} {n}" for n in gate_numbers]
         from scripts.access_gate_utils import generate_interconnection_gate_labels

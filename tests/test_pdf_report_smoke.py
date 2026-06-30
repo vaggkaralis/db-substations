@@ -39,7 +39,12 @@ def _create_pdf_schema(conn):
             date_time TEXT,
             overall_comments TEXT,
             maintenance_type TEXT,
-            user_name TEXT
+            user_name TEXT,
+            responsible_id INTEGER
+        );
+        CREATE TABLE people (
+            id INTEGER PRIMARY KEY,
+            name TEXT
         );
         CREATE TABLE maintenance_elements (
             maintenance_id INTEGER,
