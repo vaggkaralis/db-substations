@@ -6916,7 +6916,7 @@ class SubstationAndroidApp(App):
                     if draft_status["notice"].parent is None:
                         content_layout.add_widget(draft_status["notice"], index=0)
                 if notify:
-                    show_message_popup(
+                    _show_maintenance_popup(
                         S["TITLES"].get("SUCCESS", "Επιτυχία"),
                         f"Το πρόχειρο αποθηκεύτηκε τοπικά στο:\n{draft_path}",
                     )
@@ -6932,7 +6932,7 @@ class SubstationAndroidApp(App):
             ):
                 content_layout.remove_widget(draft_status["notice"])
             if notify:
-                show_message_popup(
+                _show_maintenance_popup(
                     S["TITLES"].get("SUCCESS", "Επιτυχία"),
                     "Δεν υπήρχαν αρκετά δεδομένα για αποθήκευση προχείρου.",
                 )
@@ -8530,6 +8530,18 @@ class SubstationAndroidApp(App):
         # Buttons
         button_layout = BoxLayout(size_hint_y=0.15, spacing=10)
 
+        def _show_maintenance_popup(title, message, *, is_error=False):
+            try:
+                if callable(show_message_popup):
+                    show_message_popup(title, message)
+                    return
+            except Exception as popup_err:
+                Logger.warning(
+                    f"APP: maintenance popup helper failed, fallback to show_error: {popup_err}"
+                )
+
+            self.show_error(str(message), is_info=not is_error)
+
         def save_maintenance():
             # Validate
             selected_elements = [
@@ -8593,7 +8605,7 @@ class SubstationAndroidApp(App):
                     "insert", "maintenance", {"id": temp_id, **payload}
                 )
                 popup.dismiss()
-                show_message_popup(
+                _show_maintenance_popup(
                     S["TITLES"]["SUCCESS"], S["MESSAGES"]["MAINTENANCE_SAVED_CHANGELOG"]
                 )
             except Exception as e:
