@@ -156,6 +156,13 @@ def show_maintenance_menu_popup(app, ui):
             size_hint_y=None,
             height=50,
         )
+        latest_btn = Button(
+            text=S["MESSAGES"].get(
+                "LATEST_MAINTENANCES_LABEL", "Τελευταίες 10 Συντηρήσεις"
+            ),
+            size_hint_y=None,
+            height=50,
+        )
 
         def _on_complete(_btn):
             choice_popup.dismiss()
@@ -167,10 +174,17 @@ def show_maintenance_menu_popup(app, ui):
             menu_popup.dismiss()
             app.show_undone_maintenances(parent_popup=menu_popup)
 
+        def _on_latest(_btn):
+            choice_popup.dismiss()
+            menu_popup.dismiss()
+            app.show_latest_maintenances(parent_popup=menu_popup)
+
         complete_btn.bind(on_press=_on_complete)
         undone_btn.bind(on_press=_on_undone)
+        latest_btn.bind(on_press=_on_latest)
         btns.add_widget(complete_btn)
         btns.add_widget(undone_btn)
+        btns.add_widget(latest_btn)
         ch_layout.add_widget(btns)
         choice_popup.content = ch_layout
         choice_popup.open()

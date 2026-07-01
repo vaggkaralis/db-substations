@@ -14237,7 +14237,7 @@ class SubstationApp(App):
                     S["MESSAGES"].get(
                         "DGA_LABEL", "Physicochemical/Gas Chromatography"
                     ),
-                    "",
+                    str((get_current_user() or {}).get("name") or "").strip(),
                 ),
             )
             maint_id = c.lastrowid
@@ -19500,7 +19500,12 @@ class SubstationApp(App):
                         "Η συντήρηση Φυσικοχημικών/Αεριοχρωματογραφίας επιτρέπεται μόνο για μετασχηματιστές.",
                     )
                     return
-            user_name = ""
+            current_user = get_current_user() or {}
+            user_name = str(current_user.get("name") or "").strip()
+            if not user_name:
+                user_name = str(responsible_spinner.text or "").strip()
+                if user_name == S["MESSAGES"].get("SELECT_PROMPT", "Επιλογή"):
+                    user_name = ""
             _previous_element_ids = []
             if maintenance_id:
                 c.execute(
@@ -22177,6 +22182,157 @@ class SubstationApp(App):
                 "MAINT_HISTORY_LABEL", "Ιστορικό Συντήρησης – Επιλογή Υποσταθμού"
             ),
         )
+
+    def show_latest_maintenances(self, parent_popup=None, limit=10):
+        """Show the latest registered maintenances globally across all substations.
+
+        This view is sync-aware by design because it reads from the merged local
+        `maintenance` table, which includes imported/synchronized entries from
+        different users/devices.
+        """
+        if parent_popup:
+            try:
+                parent_popup.dismiss()
+            except Exception:
+                pass
+
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
+
+        c = self.conn.cursor()
+        row_limit = max(1, int(limit or 10))
+        c.execute(
+            """
+            SELECT m.id,
+                   m.name,
+                   m.date_time,
+                   m.maintenance_type,
+                   COALESCE(
+                       NULLIF(TRIM(m.user_name), ''),
+                       NULLIF(TRIM(resp_by_id.name), ''),
+                       NULLIF(TRIM(resp_by_role.name), ''),
+                       NULLIF(TRIM(crew_fallback.name), ''),
+                       '-'
+                   ) AS resolved_user_name,
+                   m.substation_id,
+                   s.name
+            FROM maintenance m
+            LEFT JOIN substations s ON s.id = m.substation_id
+            LEFT JOIN people resp_by_id ON resp_by_id.id = m.responsible_id
+            LEFT JOIN people resp_by_role
+                ON resp_by_role.id = (
+                    SELECT mp.person_id
+                    FROM maintenance_people mp
+                    WHERE mp.maintenance_id = m.id AND mp.role = 'responsible'
+                    ORDER BY mp.id
+                    LIMIT 1
+                )
+            LEFT JOIN people crew_fallback
+                ON crew_fallback.id = (
+                    SELECT mp.person_id
+                    FROM maintenance_people mp
+                    WHERE mp.maintenance_id = m.id AND mp.role = 'crew'
+                    ORDER BY mp.id
+                    LIMIT 1
+                )
+            ORDER BY m.id DESC
+            LIMIT ?
+            """,
+            (row_limit,),
+        )
+        latest_rows = c.fetchall() or []
+
+        if not latest_rows:
+            show_message_popup(
+                S["TITLES"].get("INFO", "Πληροφορία"),
+                S["MESSAGES"].get(
+                    "NO_MAINTENANCES", "Δεν υπάρχουν καταχωρημένες συντηρήσεις"
+                ),
+            )
+            return
+
+        popup = Popup(
+            title=S["MESSAGES"].get(
+                "LATEST_MAINTENANCES_LABEL", "Τελευταίες 10 Συντηρήσεις"
+            ),
+            size_hint=(0.92, 0.88),
+        )
+        main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        info_label = Label(
+            text=S["MESSAGES"]
+            .get(
+                "LATEST_MAINTENANCES_INFO_FMT",
+                "Εμφανίζονται οι {count} πιο πρόσφατες καταχωρήσεις από όλες τις πηγές (τοπικές/συγχρονισμένες).",
+            )
+            .format(count=len(latest_rows)),
+            size_hint_y=None,
+            height=36,
+            halign="left",
+            valign="middle",
+        )
+        info_label.bind(size=info_label.setter("text_size"))
+        main_layout.add_widget(info_label)
+
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        rows_layout = GridLayout(cols=1, spacing=8, size_hint_y=None)
+        rows_layout.bind(minimum_height=rows_layout.setter("height"))
+
+        for (
+            maintenance_id,
+            maintenance_name,
+            date_time,
+            maintenance_type,
+            user_name,
+            substation_id,
+            substation_name,
+        ) in latest_rows:
+            row = BoxLayout(size_hint_y=None, height=72, spacing=8)
+            label_text = (
+                f"#{maintenance_id} | {substation_name or '-'} | "
+                f"{date_time or '-'}\n"
+                f"{maintenance_type or '-'} | Χρήστης: {user_name or '-'}"
+            )
+            row_label = Label(text=label_text, halign="left", valign="middle")
+            row_label.bind(size=row_label.setter("text_size"))
+            row.add_widget(row_label)
+
+            open_btn = Button(
+                text=S["BUTTONS"].get("OPEN", "Άνοιγμα"), size_hint_x=None, width=120
+            )
+
+            def _open_selected(
+                _instance=None,
+                m_id=maintenance_id,
+                sid=substation_id,
+                sname=substation_name,
+            ):
+                popup.dismiss()
+                self.show_substation_maintenance_history(
+                    sid,
+                    sname or "-",
+                    include_maintenance_ids=[m_id],
+                )
+
+            open_btn.bind(on_press=_open_selected)
+            row.add_widget(open_btn)
+            rows_layout.add_widget(row)
+
+        scroll.add_widget(rows_layout)
+        main_layout.add_widget(scroll)
+
+        close_btn = Button(
+            text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
+        )
+        close_btn.bind(on_press=popup.dismiss)
+        main_layout.add_widget(close_btn)
+
+        popup.content = main_layout
+        popup.open()
 
     def _show_maintenance_history_obsolete_unused(self, instance, _deferred=False):
         """Deprecated shim. Kept only to avoid breaking stale callbacks."""

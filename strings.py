@@ -372,6 +372,8 @@ STRINGS_EL = {
         "MAINTENANCE_TYPE_LABEL": "Τύπος:",
         "MAINTENANCE_UPDATED": "Η συντήρηση ενημερώθηκε!",
         "MAINT_HISTORY_LABEL": "Ιστορικό Συντηρήσεων",
+        "LATEST_MAINTENANCES_LABEL": "Τελευταίες 10 Συντηρήσεις",
+        "LATEST_MAINTENANCES_INFO_FMT": "Εμφανίζονται οι {count} πιο πρόσφατες καταχωρήσεις από όλες τις πηγές (τοπικές/συγχρονισμένες).",
         "UNDONE_MAINTENANCES_LABEL": "Εκκρεμείς Συντηρήσεις",
         "TASKS_LEFT_LABEL": "Εργασίες που απομένουν",
         "INCOMPLETE_MAINTENANCE_REMINDER_TITLE": "Υπενθύμιση εκκρεμών συντηρήσεων",
@@ -949,6 +951,8 @@ STRINGS_EN = {
             "Use the button above to add one."
         ),
         "MAINT_HISTORY_LABEL": "Maintenance History",
+        "LATEST_MAINTENANCES_LABEL": "Latest 10 Maintenances",
+        "LATEST_MAINTENANCES_INFO_FMT": "Showing the {count} most recent entries from all sources (local/synced).",
         "DGA_LABEL": "Physicochemical/Gas Chromatography",
         "DGA_NEW_MEASUREMENT_LABEL": "New DGA Measurement",
         "DGA_ADD_MEASUREMENT_SHORT": "New Measurement",
