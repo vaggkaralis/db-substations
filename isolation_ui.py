@@ -1,6 +1,14 @@
 import os
+import glob
+import mimetypes
+import tempfile
 from datetime import datetime, timedelta
+from email.parser import BytesHeaderParser
+from email import policy
+from email.message import EmailMessage
+from email.utils import getaddresses
 
+from config_manager import get_app_setting
 from email_eml_parser import parse_eml_file
 from isolation_importer import (
     match_element_ids_from_text,
@@ -14,6 +22,284 @@ from strings_proxy import STRINGS as S
 
 _STATUS_VALUES = ["Requested", "Accepted", "Cancelled"]
 _DEFAULT_IMPORTED_STATUS = "Accepted"
+_ISOLATION_EMAIL_TEMPLATE_SETTING_KEY = "isolation_email_template_path"
+_ISOLATION_EMAIL_TEMPLATE_CACHE = {
+    "path": "",
+    "mtime": 0.0,
+    "payload": None,
+}
+
+
+def _extract_email_addresses(raw_header_value):
+    if not raw_header_value:
+        return []
+    result = []
+    for _name, email in getaddresses([str(raw_header_value)]):
+        email_text = str(email or "").strip()
+        if email_text:
+            result.append(email_text)
+    # Keep stable order while de-duplicating.
+    return list(dict.fromkeys(result))
+
+
+def _build_isolation_email_subject(request_id, substation_name, template_payload=None):
+    template_subject = str((template_payload or {}).get("subject") or "").strip()
+    if template_subject:
+        return f"{template_subject} | Αίτηση #{request_id}"
+    return f"Αίτηση Απομόνωσης #{request_id} - {substation_name}"
+
+
+def _build_isolation_email_body(
+    request_id,
+    substation_name,
+    start_dt,
+    end_dt,
+    notes,
+    selected_elements,
+):
+    lines = [
+        "Καλησπέρα σας,",
+        "",
+        "Παρακαλώ για την απομόνωση και άδεια εργασίας σύμφωνα με τα στοιχεία:",
+        f"- Αίτηση: #{request_id}",
+        f"- Υποσταθμός: {substation_name}",
+        f"- Έναρξη: {start_dt}",
+        f"- Λήξη: {end_dt}",
+    ]
+
+    if selected_elements:
+        lines.append("- Στοιχεία:")
+        for element_name, element_type, gate in selected_elements:
+            type_part = str(element_type or "-").strip()
+            gate_part = str(
+                gate or S["MESSAGES"].get("UNREGISTERED_GATE", "Μη δηλωμένη πύλη")
+            ).strip()
+            lines.append(f"  * {element_name} | {type_part} | {gate_part}")
+
+    note_text = str(notes or "").strip()
+    if note_text:
+        lines.append("")
+        lines.append("Παρατηρήσεις:")
+        lines.append(note_text)
+
+    lines.extend(["", "Το αρχείο αίτησης επισυνάπτεται αυτόματα.", "", "Με εκτίμηση"])
+    return "\n".join(lines).strip()
+
+
+def _resolve_isolation_email_template_path():
+    configured = str(
+        get_app_setting(_ISOLATION_EMAIL_TEMPLATE_SETTING_KEY, "") or ""
+    ).strip()
+    if configured and os.path.isfile(configured):
+        return configured
+
+    workspace_root = os.path.dirname(os.path.abspath(__file__))
+    candidates = sorted(glob.glob(os.path.join(workspace_root, "*ΑΠΟΜΟΝΩΣΗ*.eml")))
+    if candidates:
+        return candidates[0]
+    return ""
+
+
+def _pick_template_xlsx_attachment(template_payload):
+    if not isinstance(template_payload, dict):
+        return ""
+    paths = template_payload.get("document_attachment_paths") or []
+    for path in paths:
+        file_path = str(path or "").strip()
+        if file_path.lower().endswith(".xlsx") and os.path.isfile(file_path):
+            return file_path
+    return ""
+
+
+def _ensure_template_xlsx_attachment_path(template_payload):
+    cached = str((template_payload or {}).get("_template_xlsx_path") or "").strip()
+    if cached and os.path.isfile(cached):
+        return cached
+
+    template_eml_path = str(
+        (template_payload or {}).get("_template_eml_path") or ""
+    ).strip()
+    if not template_eml_path or not os.path.isfile(template_eml_path):
+        return ""
+
+    try:
+        parsed_payload = parse_eml_file(template_eml_path)
+    except Exception:
+        return ""
+
+    xlsx_path = _pick_template_xlsx_attachment(parsed_payload)
+    if xlsx_path:
+        template_payload["_template_xlsx_path"] = xlsx_path
+    return xlsx_path
+
+
+def _create_outlook_isolation_draft(
+    template_payload,
+    subject,
+    body,
+    attachment_path,
+):
+    headers = (template_payload or {}).get("headers") or {}
+    to_recipients = _extract_email_addresses(headers.get("to"))
+    cc_recipients = _extract_email_addresses(headers.get("cc"))
+
+    if not to_recipients:
+        return False, "Δεν βρέθηκαν παραλήπτες (To) στο πρότυπο email."
+
+    if not attachment_path or not os.path.isfile(attachment_path):
+        return False, "Δεν βρέθηκε το επισυναπτόμενο αρχείο αίτησης."
+
+    prefer_shell_open = bool((template_payload or {}).get("_prefer_shell_open"))
+
+    def _open_draft_via_eml_shell():
+        try:
+            msg = EmailMessage()
+            msg["To"] = "; ".join(to_recipients)
+            if cc_recipients:
+                msg["Cc"] = "; ".join(cc_recipients)
+            msg["Subject"] = str(subject or "").strip()
+            # Widely used hint for opening as an unsent draft.
+            msg["X-Unsent"] = "1"
+            msg.set_content(str(body or ""), subtype="plain", charset="utf-8")
+
+            file_name = os.path.basename(attachment_path)
+            guessed_type, _enc = mimetypes.guess_type(file_name)
+            maintype, subtype = (
+                guessed_type.split("/", 1)
+                if guessed_type
+                else ["application", "octet-stream"]
+            )
+            with open(attachment_path, "rb") as fh:
+                msg.add_attachment(
+                    fh.read(),
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=file_name,
+                )
+
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".eml", delete=False
+            ) as temp_fh:
+                temp_fh.write(msg.as_bytes(policy=policy.default))
+                temp_eml = temp_fh.name
+
+            if hasattr(os, "startfile"):
+                os.startfile(temp_eml)
+                return True, ""
+
+            return (
+                False,
+                "Το λειτουργικό σύστημα δεν υποστηρίζει άνοιγμα .eml με startfile.",
+            )
+        except Exception as exc:
+            return False, f"Αποτυχία δημιουργίας τοπικού προσχεδίου .eml: {exc}"
+
+    if prefer_shell_open:
+        ok, msg_text = _open_draft_via_eml_shell()
+        if ok:
+            return True, ""
+
+    try:
+        import win32com.client
+
+        try:
+            import pythoncom
+        except Exception:
+            pythoncom = None
+    except Exception:
+        # Fallback to shell-opened .eml when COM is unavailable.
+        ok, msg_text = _open_draft_via_eml_shell()
+        if ok:
+            return True, ""
+        return (False, f"Δεν είναι διαθέσιμο το Outlook COM (pywin32).\n{msg_text}")
+
+    try:
+        if pythoncom is not None:
+            pythoncom.CoInitialize()
+        outlook = win32com.client.Dispatch("Outlook.Application")
+
+        # Prefer opening the original .eml template. In some Outlook profiles,
+        # CreateItem can fail when no default data store/account is configured.
+        mail = None
+        template_eml_path = str(
+            (template_payload or {}).get("_template_eml_path") or ""
+        ).strip()
+        if template_eml_path and os.path.isfile(template_eml_path):
+            try:
+                namespace = outlook.GetNamespace("MAPI")
+                mail = namespace.OpenSharedItem(template_eml_path)
+            except Exception:
+                mail = None
+
+        if mail is None:
+            mail = outlook.CreateItem(0)
+
+        try:
+            attachments = getattr(mail, "Attachments", None)
+            count = int(getattr(attachments, "Count", 0) or 0)
+            for idx in range(count, 0, -1):
+                attachments.Remove(idx)
+        except Exception:
+            pass
+
+        mail.To = ";".join(to_recipients)
+        mail.CC = ";".join(cc_recipients)
+        mail.Subject = str(subject or "").strip()
+        mail.Body = str(body or "")
+        mail.Attachments.Add(os.path.abspath(attachment_path))
+        # Open draft for final user review before send.
+        mail.Display(False)
+        return True, ""
+    except Exception as exc:
+        # Last-resort fallback path.
+        ok, msg_text = _open_draft_via_eml_shell()
+        if ok:
+            return True, ""
+        return False, f"Αποτυχία δημιουργίας email στο Outlook: {exc}\n{msg_text}"
+    finally:
+        try:
+            if "pythoncom" in locals() and pythoncom is not None:
+                pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+
+def _load_isolation_email_template_payload():
+    template_path = _resolve_isolation_email_template_path()
+    if not template_path:
+        return None, "Δεν βρέθηκε αρχείο προτύπου .eml για απομόνωση."
+
+    try:
+        mtime = float(os.path.getmtime(template_path))
+    except Exception:
+        mtime = 0.0
+
+    cached_payload = _ISOLATION_EMAIL_TEMPLATE_CACHE.get("payload")
+    if (
+        _ISOLATION_EMAIL_TEMPLATE_CACHE.get("path") == template_path
+        and _ISOLATION_EMAIL_TEMPLATE_CACHE.get("mtime") == mtime
+        and isinstance(cached_payload, dict)
+    ):
+        return cached_payload, ""
+
+    try:
+        with open(template_path, "rb") as fh:
+            msg = BytesHeaderParser(policy=policy.default).parse(fh)
+        payload = {
+            "subject": str(msg.get("subject") or "").strip(),
+            "headers": {
+                "to": str(msg.get("to") or "").strip(),
+                "cc": str(msg.get("cc") or "").strip(),
+            },
+        }
+        payload["_template_eml_path"] = template_path
+        payload["_template_xlsx_path"] = ""
+        _ISOLATION_EMAIL_TEMPLATE_CACHE["path"] = template_path
+        _ISOLATION_EMAIL_TEMPLATE_CACHE["mtime"] = mtime
+        _ISOLATION_EMAIL_TEMPLATE_CACHE["payload"] = payload
+        return payload, ""
+    except Exception as exc:
+        return None, f"Αποτυχία ανάγνωσης προτύπου email: {exc}"
 
 
 def _default_isolation_end_datetime(start_value, parsed_end_value=None):
@@ -974,6 +1260,20 @@ def _show_isolation_request_form(
     _resize_notes_input()
     content.add_widget(notes_input)
 
+    send_email_checkbox = None
+    if is_new_request:
+        send_email_row = BoxLayout(size_hint_y=None, height=34, spacing=8)
+        send_email_checkbox = CheckBox(active=False, size_hint_x=None, width=34)
+        send_email_row.add_widget(send_email_checkbox)
+        send_email_row.add_widget(
+            Label(
+                text="Μετά την αποθήκευση: δημιουργία email Outlook με συνημμένη αίτηση",
+                halign="left",
+                valign="middle",
+            )
+        )
+        content.add_widget(send_email_row)
+
     if request_record:
         linked_box = GridLayout(cols=1, size_hint_y=None, spacing=6)
         linked_box.bind(minimum_height=linked_box.setter("height"))
@@ -1141,6 +1441,18 @@ def _show_isolation_request_form(
         status_value = status_spinner.text
         selected_attachment = attachment_input.text.strip()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        send_email_enabled = bool(
+            is_new_request and send_email_checkbox and send_email_checkbox.active
+        )
+        template_payload = None
+        if send_email_enabled:
+            template_payload, template_error = _load_isolation_email_template_payload()
+            if not template_payload:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    template_error,
+                )
+                return
 
         if request_id:
             c.execute(
@@ -1180,6 +1492,10 @@ def _show_isolation_request_form(
             )
             if selected_abs != existing_abs:
                 copied_attachment_paths = [selected_attachment]
+        elif send_email_enabled:
+            template_xlsx = _ensure_template_xlsx_attachment_path(template_payload)
+            if template_xlsx:
+                copied_attachment_paths = [template_xlsx]
 
         stored_attachment_path = (
             existing_attachment_path
@@ -1250,6 +1566,46 @@ def _show_isolation_request_form(
         existing_attachment_path = stored_attachment_path
         attachment_input.text = stored_attachment_path or ""
 
+        email_result_message = ""
+        if send_email_enabled:
+            selected_elements = []
+            if selected_ids:
+                placeholders = ",".join(["?"] * len(selected_ids))
+                c.execute(
+                    f"""
+                    SELECT name, element_type, gate
+                    FROM elements
+                    WHERE id IN ({placeholders})
+                    ORDER BY gate, name
+                    """,
+                    tuple(selected_ids),
+                )
+                selected_elements = c.fetchall()
+
+            subject = _build_isolation_email_subject(
+                request_id=request_id,
+                substation_name=substation_input.text.strip(),
+                template_payload=template_payload,
+            )
+            body = _build_isolation_email_body(
+                request_id=request_id,
+                substation_name=substation_input.text.strip(),
+                start_dt=start_dt,
+                end_dt=end_dt,
+                notes=notes_value,
+                selected_elements=selected_elements,
+            )
+            ok, error_message = _create_outlook_isolation_draft(
+                template_payload=template_payload,
+                subject=subject,
+                body=body,
+                attachment_path=stored_attachment_path,
+            )
+            if ok:
+                email_result_message = "\n\nΔημιουργήθηκε προσχέδιο email στο Outlook."
+            else:
+                email_result_message = f"\n\nΗ αποθήκευση ολοκληρώθηκε, αλλά το email δεν δημιουργήθηκε:\n{error_message}"
+
         if not request_record:
             c.execute(
                 """
@@ -1275,6 +1631,8 @@ def _show_isolation_request_form(
             if is_new_request
             else "Η αίτηση απομόνωσης ενημερώθηκε!"
         )
+        if email_result_message:
+            message = f"{message}{email_result_message}"
         show_message_popup(
             S["TITLES"].get("SUCCESS", "Επιτυχία"),
             message,
@@ -1296,7 +1654,236 @@ def _show_isolation_request_form(
     save_btn.bind(on_press=lambda _x: save_request())
     buttons_layout.add_widget(save_btn)
 
+    send_email_btn = None
+    sending_email_in_progress = [False]
+    send_email_watchdog_state = {"cycles": 0}
+
+    def _start_outlook_draft_async(template_payload, subject, body, attachment_path):
+        if sending_email_in_progress[0]:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                "Η δημιουργία email είναι ήδη σε εξέλιξη. Παρακαλώ περιμένετε.",
+            )
+            return
+
+        try:
+            import threading
+            from kivy.clock import Clock
+        except Exception:
+            ok, error_message = _create_outlook_isolation_draft(
+                template_payload=template_payload,
+                subject=subject,
+                body=body,
+                attachment_path=attachment_path,
+            )
+            if ok:
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    "Δημιουργήθηκε προσχέδιο email στο Outlook.",
+                )
+            else:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Το email δεν δημιουργήθηκε:\n{error_message}",
+                )
+            return
+
+        sending_email_in_progress[0] = True
+        send_email_watchdog_state["cycles"] = 0
+        original_text = ""
+        if send_email_btn is not None:
+            original_text = str(send_email_btn.text or "")
+            send_email_btn.disabled = True
+            send_email_btn.text = "Αποστολή..."
+
+        worker_ref = {"thread": None}
+
+        def _restore_button_state():
+            sending_email_in_progress[0] = False
+            if send_email_btn is not None:
+                try:
+                    send_email_btn.disabled = False
+                    send_email_btn.text = original_text or "Αποστολή Email"
+                except Exception:
+                    pass
+
+        def _worker():
+            worker_payload = dict(template_payload or {})
+            worker_payload["_prefer_shell_open"] = True
+            ok, error_message = _create_outlook_isolation_draft(
+                template_payload=worker_payload,
+                subject=subject,
+                body=body,
+                attachment_path=attachment_path,
+            )
+
+            def _on_done(_dt):
+                _restore_button_state()
+                if ok:
+                    show_message_popup(
+                        S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                        "Δημιουργήθηκε προσχέδιο email στο Outlook.",
+                    )
+                else:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        f"Το email δεν δημιουργήθηκε:\n{error_message}",
+                    )
+
+            Clock.schedule_once(_on_done, 0)
+
+        # Fail-safe: if Outlook blocks, do not freeze UI or show immediate false errors.
+        def _watchdog(_dt):
+            if not sending_email_in_progress[0]:
+                return
+
+            worker = worker_ref.get("thread")
+            if worker is not None and worker.is_alive():
+                send_email_watchdog_state["cycles"] += 1
+                if send_email_btn is not None:
+                    try:
+                        send_email_btn.text = "Αναμονή Outlook..."
+                    except Exception:
+                        pass
+
+                # Keep waiting while Outlook is still working.
+                # After ~2 minutes, restore UI and inform user without hard error.
+                if send_email_watchdog_state["cycles"] >= 6:
+                    _restore_button_state()
+                    show_message_popup(
+                        S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                        "Το Outlook καθυστερεί να απαντήσει.\n"
+                        "Η εφαρμογή παραμένει λειτουργική και μπορείτε να δοκιμάσετε ξανά.",
+                    )
+                    return
+
+                Clock.schedule_once(_watchdog, 20)
+                return
+
+            # Worker seems finished but UI callback has not restored state yet.
+            Clock.schedule_once(_watchdog, 0.5)
+
+        Clock.schedule_once(_watchdog, 20)
+        worker_thread = threading.Thread(target=_worker, daemon=True)
+        worker_ref["thread"] = worker_thread
+        worker_thread.start()
+
+    def send_email_for_existing_request():
+        nonlocal existing_attachment_path, storage_folder_path
+
+        if not request_id:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                "Αποθηκεύστε πρώτα την αίτηση και στη συνέχεια στείλτε email.",
+            )
+            return
+
+        validated = _validate_datetimes()
+        if not validated:
+            return
+        start_dt, end_dt = validated
+
+        substation_id = substation_map.get(substation_input.text)
+        if not substation_id:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"), "Δεν βρέθηκε υποσταθμός."
+            )
+            return
+
+        template_payload, template_error = _load_isolation_email_template_payload()
+        if not template_payload:
+            show_message_popup(S["TITLES"].get("ERROR", "Σφάλμα"), template_error)
+            return
+
+        selected_ids = [
+            element_id
+            for element_id, checkbox in element_checks.items()
+            if checkbox.active
+        ]
+        notes_value = notes_input.text.strip()
+        selected_attachment = attachment_input.text.strip()
+        attachment_path = ""
+
+        if selected_attachment and os.path.isfile(selected_attachment):
+            attachment_path = selected_attachment
+        elif existing_attachment_path and os.path.isfile(existing_attachment_path):
+            attachment_path = existing_attachment_path
+        else:
+            template_xlsx = _ensure_template_xlsx_attachment_path(template_payload)
+            copied_paths = [template_xlsx] if template_xlsx else []
+            storage_result = ensure_isolation_request_storage(
+                app.conn,
+                request_id=request_id,
+                substation_id=substation_id,
+                start_datetime=start_dt,
+                attachment_paths=copied_paths,
+                storage_folder_path=storage_folder_path,
+                request_file_path=selected_attachment or existing_attachment_path,
+                db_path=getattr(app, "db_path", None),
+            )
+            storage_folder_path = (
+                storage_result.get("storage_folder") or storage_folder_path
+            )
+            stored_files = storage_result.get("stored_files") or []
+            if stored_files:
+                attachment_path = stored_files[0]
+
+            existing_attachment_path = attachment_path
+            attachment_input.text = attachment_path or ""
+            c.execute(
+                """
+                UPDATE isolation_requests
+                SET request_file_path=?, storage_folder_path=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    attachment_path or None,
+                    storage_folder_path or None,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    request_id,
+                ),
+            )
+            app.conn.commit()
+
+        selected_elements = []
+        if selected_ids:
+            placeholders = ",".join(["?"] * len(selected_ids))
+            c.execute(
+                f"""
+                SELECT name, element_type, gate
+                FROM elements
+                WHERE id IN ({placeholders})
+                ORDER BY gate, name
+                """,
+                tuple(selected_ids),
+            )
+            selected_elements = c.fetchall()
+
+        subject = _build_isolation_email_subject(
+            request_id=request_id,
+            substation_name=substation_input.text.strip(),
+            template_payload=template_payload,
+        )
+        body = _build_isolation_email_body(
+            request_id=request_id,
+            substation_name=substation_input.text.strip(),
+            start_dt=start_dt,
+            end_dt=end_dt,
+            notes=notes_value,
+            selected_elements=selected_elements,
+        )
+        _start_outlook_draft_async(
+            template_payload=template_payload,
+            subject=subject,
+            body=body,
+            attachment_path=attachment_path,
+        )
+
     if request_id:
+        send_email_btn = Button(text="Αποστολή Email")
+        send_email_btn.size_hint_x = 1
+        send_email_btn.bind(on_press=lambda _x: send_email_for_existing_request())
+        buttons_layout.add_widget(send_email_btn)
 
         def delete_request():
             def _do_delete():
