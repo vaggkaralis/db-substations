@@ -22212,12 +22212,10 @@ class SubstationApp(App):
                    m.date_time,
                    m.maintenance_type,
                    COALESCE(
-                       NULLIF(TRIM(m.user_name), ''),
                        NULLIF(TRIM(resp_by_id.name), ''),
                        NULLIF(TRIM(resp_by_role.name), ''),
-                       NULLIF(TRIM(crew_fallback.name), ''),
                        '-'
-                   ) AS resolved_user_name,
+                   ) AS resolved_responsible_name,
                    m.substation_id,
                    s.name
             FROM maintenance m
@@ -22228,14 +22226,6 @@ class SubstationApp(App):
                     SELECT mp.person_id
                     FROM maintenance_people mp
                     WHERE mp.maintenance_id = m.id AND mp.role = 'responsible'
-                    ORDER BY mp.id
-                    LIMIT 1
-                )
-            LEFT JOIN people crew_fallback
-                ON crew_fallback.id = (
-                    SELECT mp.person_id
-                    FROM maintenance_people mp
-                    WHERE mp.maintenance_id = m.id AND mp.role = 'crew'
                     ORDER BY mp.id
                     LIMIT 1
                 )
@@ -22287,7 +22277,7 @@ class SubstationApp(App):
             maintenance_name,
             date_time,
             maintenance_type,
-            user_name,
+            responsible_name,
             substation_id,
             substation_name,
         ) in latest_rows:
@@ -22295,7 +22285,7 @@ class SubstationApp(App):
             label_text = (
                 f"#{maintenance_id} | {substation_name or '-'} | "
                 f"{date_time or '-'}\n"
-                f"{maintenance_type or '-'} | Χρήστης: {user_name or '-'}"
+                f"{maintenance_type or '-'} | Υπεύθυνος: {responsible_name or '-'}"
             )
             row_label = Label(text=label_text, halign="left", valign="middle")
             row_label.bind(size=row_label.setter("text_size"))
