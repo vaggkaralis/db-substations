@@ -23396,6 +23396,100 @@ class SubstationApp(App):
             comment_popup.content = comment_layout
             comment_popup.open()
 
+        # Cache expensive per-maintenance derivations so filter/toggle actions
+        # don't repeatedly parse/format the same payloads on every render.
+        maintenance_render_cache = {}
+
+        def _get_cached_record_view_data(
+            maint_id,
+            maint_name,
+            date_time,
+            maintenance_type,
+            maintenance_data_json,
+            preparation_checklist_json,
+            onedrive_media_folder_link,
+        ):
+            cached = maintenance_render_cache.get(maint_id)
+            if cached is not None:
+                return cached
+
+            formatted_date = self._format_maintenance_date(date_time)
+            if maint_name:
+                try:
+                    clean_name = re.sub(
+                        r"(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}(:\d{2})?",
+                        lambda m: datetime.strptime(m.group(1), "%Y-%m-%d").strftime(
+                            "%d/%m/%Y"
+                        ),
+                        maint_name,
+                    )
+                    clean_name = re.sub(
+                        r"(\d{4}-\d{2}-\d{2})",
+                        lambda m: datetime.strptime(m.group(1), "%Y-%m-%d").strftime(
+                            "%d/%m/%Y"
+                        ),
+                        clean_name,
+                    )
+                except Exception:
+                    clean_name = maint_name
+                if formatted_date and formatted_date not in clean_name:
+                    display_name = f"{clean_name} ({formatted_date})"
+                else:
+                    display_name = clean_name
+            else:
+                display_name = self._build_maintenance_name(substation_name, date_time)
+
+            display_name = self._format_maintenance_display_name(
+                maint_id,
+                substation_name,
+                date_time,
+                display_name,
+            )
+            maint_type_display = maintenance_type or S["MESSAGES"].get(
+                "MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση"
+            )
+
+            elements_count = len(elements_by_maint.get(maint_id, []))
+            pending_tasks_text = pending_tasks_by_maint.get(maint_id, "")
+            try:
+                _payload, workflow_state = self._load_maintenance_workflow_state(
+                    maintenance_data_json
+                )
+            except Exception:
+                workflow_state = {}
+            try:
+                workflow_checklist_state = (
+                    json.loads(preparation_checklist_json)
+                    if preparation_checklist_json
+                    else None
+                )
+            except Exception:
+                workflow_checklist_state = None
+            workflow_summary = self._summarize_maintenance_workflow(
+                workflow_state,
+                checklist_state=normalize_state(workflow_checklist_state),
+                checklist_summary_text=self._summarize_preparation_checklist_state(
+                    workflow_checklist_state,
+                    maintenance_type,
+                ),
+                selected_elements_count=elements_count,
+                completed=not bool(pending_tasks_text),
+                pending_tasks_text=pending_tasks_text,
+                attachment_paths=[],
+                onedrive_link=onedrive_media_folder_link,
+            )
+
+            cached = {
+                "display_name": display_name,
+                "maint_type_display": maint_type_display,
+                "workflow_line": (
+                    f"Στάδιο: {workflow_summary['stage_label']} | "
+                    f"{workflow_summary['next_action']}"
+                ),
+            }
+            maintenance_render_cache[maint_id] = cached
+            return cached
+
         def render_cards():
             grid.clear_widgets()
 
@@ -23488,48 +23582,20 @@ class SubstationApp(App):
                 card.bind(minimum_height=card.setter("height"))
                 _style_maintenance_card(card)
 
+                cached_view_data = _get_cached_record_view_data(
+                    maint_id,
+                    maint_name,
+                    date_time,
+                    maintenance_type,
+                    maintenance_data_json,
+                    preparation_checklist_json,
+                    onedrive_media_folder_link,
+                )
+
                 # Header row
                 header = BoxLayout(size_hint_y=None, height=40, spacing=5)
-                # Ensure we show the maintenance date (only date, no time) and
-                # strip any time component from existing maintenance names.
-                formatted_date = self._format_maintenance_date(date_time)
-                if maint_name:
-                    # Replace occurrences of 'YYYY-MM-DD HH:MM(:SS)' or 'YYYY-MM-DD' in the name
-                    try:
-                        clean_name = re.sub(
-                            r"(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}(:\d{2})?",
-                            lambda m: datetime.strptime(
-                                m.group(1), "%Y-%m-%d"
-                            ).strftime("%d/%m/%Y"),
-                            maint_name,
-                        )
-                        clean_name = re.sub(
-                            r"(\d{4}-\d{2}-\d{2})",
-                            lambda m: datetime.strptime(
-                                m.group(1), "%Y-%m-%d"
-                            ).strftime("%d/%m/%Y"),
-                            clean_name,
-                        )
-                    except Exception:
-                        clean_name = maint_name
-                    # Append formatted date if not already present
-                    if formatted_date and formatted_date not in clean_name:
-                        display_name = f"{clean_name} ({formatted_date})"
-                    else:
-                        display_name = clean_name
-                else:
-                    display_name = self._build_maintenance_name(
-                        substation_name, date_time
-                    )
-                display_name = self._format_maintenance_display_name(
-                    maint_id,
-                    substation_name,
-                    date_time,
-                    display_name,
-                )
-                maint_type_display = maintenance_type or S["MESSAGES"].get(
-                    "MAINT_TYPE_DEFAULT", "Επαναληπτική Συντήρηση"
-                )
+                display_name = cached_view_data["display_name"]
+                maint_type_display = cached_view_data["maint_type_display"]
                 header_title = (
                     S["MESSAGES"]
                     .get("MAINTENANCE_HEADER", "{type}: {name}")
@@ -23784,33 +23850,8 @@ class SubstationApp(App):
                         ),
                     )
                     card.add_widget(people_label)
-
-                _payload, workflow_state = self._load_maintenance_workflow_state(
-                    maintenance_data_json
-                )
-                try:
-                    workflow_checklist_state = (
-                        json.loads(preparation_checklist_json)
-                        if preparation_checklist_json
-                        else None
-                    )
-                except Exception:
-                    workflow_checklist_state = None
-                workflow_summary = self._summarize_maintenance_workflow(
-                    workflow_state,
-                    checklist_state=normalize_state(workflow_checklist_state),
-                    checklist_summary_text=self._summarize_preparation_checklist_state(
-                        workflow_checklist_state,
-                        maintenance_type,
-                    ),
-                    selected_elements_count=len(elements),
-                    completed=not bool(pending_tasks_by_maint.get(maint_id)),
-                    pending_tasks_text=pending_tasks_by_maint.get(maint_id, ""),
-                    attachment_paths=[],
-                    onedrive_link=onedrive_media_folder_link,
-                )
                 workflow_label = Label(
-                    text=f"Στάδιο: {workflow_summary['stage_label']} | {workflow_summary['next_action']}",
+                    text=cached_view_data["workflow_line"],
                     size_hint_y=None,
                     halign="left",
                     valign="middle",
