@@ -3462,17 +3462,17 @@ class SubstationAndroidApp(App):
 
         if platform == "android":
             Logger.info("APP: Using local settings icon button")
-            # Make gear ~50% larger than default for better touchability
+            # Keep header layout compact but make tap target much larger.
             settings_btn = self._build_vector_icon_button(
                 "settings",
                 lambda _x: self._show_android_app_menu(),
-                size=(51, 51),
+                size=(72, 72),
             )
         else:
             settings_btn = self._build_vector_icon_button(
                 "settings",
                 lambda _x: self._show_sync_settings(),
-                size=(51, 51),
+                size=(72, 72),
             )
         # Wrap settings button in a fixed-width, center-anchored container so
         # it aligns vertically with the title and doesn't steal horizontal
@@ -3480,13 +3480,13 @@ class SubstationAndroidApp(App):
         try:
             from kivy.uix.anchorlayout import AnchorLayout
 
-            # Slightly wider container to accommodate the larger icon but
-            # keep it constrained so the title gets the remaining width.
+            # Keep the reserved header slot compact while fitting the larger
+            # touch target for easier tapping.
             settings_container = AnchorLayout(
                 anchor_x="center",
                 anchor_y="center",
                 size_hint_x=None,
-                width=72,
+                width=84,
             )
             # Ensure the button uses its intrinsic size and is centered
             try:
@@ -3999,7 +3999,7 @@ class SubstationAndroidApp(App):
             self.onedrive_refresh_btn = self._build_vector_icon_button(
                 "refresh",
                 lambda _x: self._refresh_db_from_onedrive_source(),
-                size=(36, 36),
+                size=(52, 52),
             )
             self.onedrive_refresh_btn_container = None
             try:
@@ -4010,6 +4010,9 @@ class SubstationAndroidApp(App):
                     anchor_y="center",
                     size_hint_x=0.16,
                 )
+                # Fill the same reserved slot so tapping is easier without
+                # increasing the slot width in the DB toolbar.
+                self.onedrive_refresh_btn.size_hint = (0.95, 0.9)
                 self.onedrive_refresh_btn_container.add_widget(
                     self.onedrive_refresh_btn
                 )
