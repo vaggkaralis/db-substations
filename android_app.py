@@ -6920,6 +6920,7 @@ class SubstationAndroidApp(App):
                         S["TITLES"].get("SUCCESS", "Επιτυχία"),
                         f"Το πρόχειρο αποθηκεύτηκε τοπικά στο:\n{draft_path}",
                     )
+                draft_status["loaded"] = True
                 return True
 
             self._clear_maintenance_draft(
@@ -6936,6 +6937,7 @@ class SubstationAndroidApp(App):
                     S["TITLES"].get("SUCCESS", "Επιτυχία"),
                     "Δεν υπήρχαν αρκετά δεδομένα για αποθήκευση προχείρου.",
                 )
+            draft_status["loaded"] = False
             return False
 
         def _schedule_draft_save(*_args):
@@ -8620,7 +8622,11 @@ class SubstationAndroidApp(App):
             popup.dismiss()
 
         def start_new_maintenance():
-            from reports import show_confirm
+            current_form_payload = _build_draft_payload()
+            has_unsaved_form_content = _draft_has_meaningful_content(
+                current_form_payload
+            )
+            has_saved_draft = bool(draft_status.get("loaded"))
 
             def _confirm_new():
                 draft_status["discarding"] = True
@@ -8628,6 +8634,7 @@ class SubstationAndroidApp(App):
                     substation_id,
                     db_path=self.local_db_path or self._get_saved_db_path(),
                 )
+                draft_status["loaded"] = False
                 popup.dismiss()
                 Clock.schedule_once(
                     lambda _dt: self.show_maintenance_menu(
@@ -8638,13 +8645,61 @@ class SubstationAndroidApp(App):
                     0,
                 )
 
-            show_confirm(
-                "Νέα συντήρηση",
-                "Θέλετε να απορρίψετε το αποθηκευμένο πρόχειρο και να ξεκινήσετε νέα συντήρηση;",
-                yes_callback=_confirm_new,
-                yes_text=S.get("BUTTONS", {}).get("YES", "Ναι"),
-                no_text=S.get("BUTTONS", {}).get("NO", "Όχι"),
+            if not has_saved_draft and not has_unsaved_form_content:
+                _confirm_new()
+                return
+
+            if has_saved_draft and has_unsaved_form_content:
+                confirm_text = (
+                    "Θέλετε να απορρίψετε το αποθηκευμένο πρόχειρο και τις τρέχουσες μη αποθηκευμένες αλλαγές "
+                    "και να ξεκινήσετε νέα συντήρηση;"
+                )
+            elif has_saved_draft:
+                confirm_text = "Θέλετε να απορρίψετε το αποθηκευμένο πρόχειρο και να ξεκινήσετε νέα συντήρηση;"
+            else:
+                confirm_text = (
+                    "Υπάρχουν μη αποθηκευμένες αλλαγές στην τρέχουσα φόρμα. Θέλετε να τις απορρίψετε "
+                    "και να ξεκινήσετε νέα συντήρηση;"
+                )
+
+            confirm_popup = Popup(
+                title="Νέα συντήρηση",
+                size_hint=(0.85, 0.35),
+                auto_dismiss=False,
             )
+            confirm_layout = BoxLayout(orientation="vertical", padding=12, spacing=10)
+            confirm_message = Label(
+                text=confirm_text,
+                halign="left",
+                valign="middle",
+            )
+            confirm_message.bind(
+                size=lambda instance, _value: setattr(
+                    instance, "text_size", (instance.width, None)
+                ),
+                texture_size=lambda instance, value: setattr(
+                    instance, "height", value[1] + 8
+                ),
+            )
+            confirm_layout.add_widget(confirm_message)
+
+            confirm_buttons = BoxLayout(size_hint_y=None, height=56, spacing=10)
+            no_btn = Button(text=S.get("BUTTONS", {}).get("NO", "Όχι"))
+            yes_btn = Button(text=S.get("BUTTONS", {}).get("YES", "Ναι"))
+
+            no_btn.bind(on_press=lambda _x: confirm_popup.dismiss())
+
+            def _on_yes(_x):
+                confirm_popup.dismiss()
+                _confirm_new()
+
+            yes_btn.bind(on_press=_on_yes)
+            confirm_buttons.add_widget(no_btn)
+            confirm_buttons.add_widget(yes_btn)
+            confirm_layout.add_widget(confirm_buttons)
+
+            confirm_popup.content = confirm_layout
+            confirm_popup.open()
 
         def _on_popup_dismiss(*_args):
             if draft_status["finalized"] or draft_status["discarding"]:
@@ -8663,10 +8718,9 @@ class SubstationAndroidApp(App):
         draft_btn.bind(on_press=lambda _x: save_draft_and_keep_open())
         button_layout.add_widget(draft_btn)
 
-        if draft_payload:
-            fresh_btn = Button(text="Νέα")
-            fresh_btn.bind(on_press=lambda _x: start_new_maintenance())
-            button_layout.add_widget(fresh_btn)
+        fresh_btn = Button(text="Νέα")
+        fresh_btn.bind(on_press=lambda _x: start_new_maintenance())
+        button_layout.add_widget(fresh_btn)
 
         save_btn = Button(text=S.get("BUTTONS", {}).get("SAVE", "Αποθήκευση"))
         save_btn.bind(on_press=lambda x: save_maintenance())
