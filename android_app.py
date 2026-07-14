@@ -1518,7 +1518,7 @@ class SubstationAndroidApp(App):
             if on_cancel is not None:
                 Clock.schedule_once(lambda _dt: on_cancel(), 0)
 
-    def use_local_mode(self, db_path):
+    def use_local_mode(self, db_path, startup=False):
         if not db_path or str(db_path).strip().lower() in ("none", "null"):
             self.show_error(
                 S.get("MESSAGES", {}).get(
@@ -1621,6 +1621,18 @@ class SubstationAndroidApp(App):
                 Logger.info(f"APP: Local DB inspection failed: {inspect_err}")
             # Only load substations if DB is valid and loaded
             self.load_substations(None)
+
+            if startup and not getattr(self, "_startup_onedrive_refresh_done", False):
+                source_path = self._get_onedrive_source_path()
+                if source_path:
+                    self._startup_onedrive_refresh_done = True
+                    try:
+                        Clock.schedule_once(self._run_startup_sync, 0)
+                    except Exception as schedule_err:
+                        self._startup_onedrive_refresh_done = False
+                        Logger.warning(
+                            f"APP: Failed to schedule startup OneDrive refresh: {schedule_err}"
+                        )
 
             if (
                 isinstance(source_reference, str)
@@ -2023,6 +2035,7 @@ class SubstationAndroidApp(App):
             self._android_permission_request_in_flight = False
             self._pending_change_log_review_after_share = False
             self._startup_change_log_review_shown = False
+            self._startup_onedrive_refresh_done = False
             self.sync_btn = None
             self.settings_btn = None
             Logger.info("APP: SubstationAndroidApp initialized successfully")
@@ -4125,7 +4138,7 @@ class SubstationAndroidApp(App):
                 loadable_path = self._get_auto_load_db_path(raw_path)
                 if not loadable_path:
                     continue
-                self.use_local_mode(loadable_path)
+                self.use_local_mode(loadable_path, startup=True)
                 return True
         except Exception as e:
             self.show_error(f"Auto-load DB error: {str(e)}")
@@ -5155,48 +5168,29 @@ class SubstationAndroidApp(App):
         t.start()
 
     def _run_startup_sync(self, dt):
-        """Run automatic sync on app startup if enabled."""
-        if platform == "android":
-            Logger.info("SYNC: Startup sync disabled on Android")
-            return
-
+        """Refresh the local DB from the saved OneDrive source on startup."""
         try:
             if not hasattr(self, "local_db_path") or not self.local_db_path:
-                Logger.info("SYNC: Skipping startup sync - no DB loaded yet")
+                Logger.info("SYNC: Skipping startup update - no DB loaded yet")
                 return
 
-            # Check if sync is enabled
             from config_manager import get_app_setting
 
-            sync_enabled = get_app_setting("sync_auto_cycle_enabled", True)
-            if not sync_enabled:
-                Logger.info("SYNC: Auto-sync disabled in settings")
+            if not get_app_setting("sync_auto_cycle_enabled", True):
+                Logger.info("SYNC: Startup update disabled in settings")
                 return
 
-            Logger.info("SYNC: Starting startup sync cycle")
+            source_path = self._get_onedrive_source_path()
+            if not source_path:
+                Logger.info(
+                    "SYNC: Skipping startup update - no OneDrive source configured"
+                )
+                return
 
-            def _sync_worker():
-                try:
-                    result = self._perform_sync()
-                    # Show result if there were changes
-                    if result:
-                        sync_result = result.get("sync", {})
-                        accepted = sync_result.get("accepted", 0)
-                        conflicts = sync_result.get("conflicts", 0)
-                        if accepted > 0 or conflicts > 0:
-                            msg = f"Εισήχθησαν {accepted} αλλαγές"
-                            if conflicts > 0:
-                                msg += f", {conflicts} συγκρούσεις"
-                            Logger.info(f"SYNC: {msg}")
-                    Clock.schedule_once(lambda dt: self._on_sync_complete(result), 0)
-                except Exception as e:
-                    err = str(e)
-                    Clock.schedule_once(lambda dt, msg=err: self._on_sync_error(msg), 0)
-
-            t = threading.Thread(target=_sync_worker, daemon=True)
-            t.start()
+            Logger.info("SYNC: Starting startup OneDrive refresh")
+            self._refresh_db_from_onedrive_source(source_path)
         except Exception as e:
-            Logger.warning(f"SYNC: Startup sync error: {e}")
+            Logger.warning(f"SYNC: Startup update error: {e}")
 
     def _perform_sync(self):
         """Execute the sync cycle with the desktop sync_service."""

@@ -1,4 +1,7 @@
+import types
+
 import android_app
+import config_manager
 
 
 def test_refresh_from_onedrive_skips_copy_when_source_is_same_path(monkeypatch):
@@ -74,3 +77,44 @@ def test_refresh_from_onedrive_content_uri_skips_replace_when_async_copy_matches
     app._refresh_db_from_onedrive_source(source_uri)
 
     assert finalized == [(app.local_db_path, source_uri)]
+
+
+def test_startup_loaded_db_refreshes_from_saved_onedrive_source(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+
+    refresh_calls = []
+
+    monkeypatch.setattr(android_app, "platform", "win")
+    monkeypatch.setattr(
+        android_app,
+        "Clock",
+        types.SimpleNamespace(schedule_once=lambda callback, _dt=0: callback(0)),
+    )
+    monkeypatch.setattr(
+        config_manager,
+        "get_app_setting",
+        lambda key, default=None: True if key == "sync_auto_cycle_enabled" else default,
+    )
+    monkeypatch.setattr(app, "_prepare_local_db_path", lambda _path: "/tmp/resolved.db")
+    monkeypatch.setattr(
+        app,
+        "_inspect_local_db",
+        lambda _path: {"substations_count": 1, "journal_mode": "wal"},
+    )
+    monkeypatch.setattr(app, "_set_saved_db_path", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app, "_ensure_change_log_path", lambda: None)
+    monkeypatch.setattr(app, "load_substations", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        app,
+        "_get_onedrive_source_path",
+        lambda: "/tmp/onedrive_source.db",
+    )
+    monkeypatch.setattr(
+        app,
+        "_refresh_db_from_onedrive_source",
+        lambda source_path=None: refresh_calls.append(source_path),
+    )
+
+    app.use_local_mode("/tmp/local.db", startup=True)
+
+    assert refresh_calls == ["/tmp/onedrive_source.db"]
