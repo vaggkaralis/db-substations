@@ -100,3 +100,34 @@ def test_show_element_history_includes_cross_substation_linked_maintenances():
     assert captured["kwargs"]["include_maintenance_ids"] == [10, 11]
 
     conn.close()
+
+
+def test_show_substation_history_does_not_warn_for_assigned_gate_values(monkeypatch):
+    mod = importlib.import_module("DBrun")
+
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            name TEXT,
+            gate TEXT,
+            element_type TEXT,
+            is_main_switch INTEGER
+        );
+        INSERT INTO substations (id, name) VALUES (1, 'ΣΙΝΔΟΣ (Β.Π.ΘΕΣΣΑΛΟΝΙΚΗΣ)');
+        INSERT INTO elements (id, substation_id, name, gate, element_type, is_main_switch)
+        VALUES (10, 1, 'Q1', 'ΠΥΛΗ 9', 'Διακόπτης ΥΤ', 1);
+        INSERT INTO elements (id, substation_id, name, gate, element_type, is_main_switch)
+        VALUES (11, 1, 'Q2', NULL, 'Διακόπτης ΥΤ', 1);
+        """
+    )
+
+    rows = mod._elements_missing_gate_warning_rows(conn, 1)
+
+    assert [row[0] for row in rows] == [11]
+
+    conn.close()

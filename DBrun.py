@@ -79,6 +79,24 @@ from validation import (
     group_people_by_category,
 )
 
+
+def _elements_missing_gate_warning_rows(conn, substation_id):
+    unregistered_gate = S["MESSAGES"].get(
+        "UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"
+    )
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, name, gate FROM elements WHERE substation_id=?",
+        (substation_id,),
+    )
+    rows = cur.fetchall() or []
+    return [
+        row
+        for row in rows
+        if not str(row[2] or "").strip() or str(row[2]).strip() == unregistered_gate
+    ]
+
+
 # Move runtime-only imports here so module-level imports are at top
 import importlib
 
@@ -22840,17 +22858,9 @@ class SubstationApp(App):
         """Show maintenance history for a specific substation with element filter."""
         font_kwargs = self._get_ui_font_kwargs()
         refresh_parent_popup = parent_display_popup
-        # Warn if any elements map to an unknown gate (ΠΥΛΗ Άγνωστη)
+        # Warn only when the gate is actually missing or left unregistered.
         try:
-            from onedrive_hybrid_storage import _bucket_for_gate
-
-            cur2 = self.conn.cursor()
-            cur2.execute(
-                "SELECT id, name, gate FROM elements WHERE substation_id=?",
-                (substation_id,),
-            )
-            rows = cur2.fetchall() or []
-            unknowns = [r for r in rows if _bucket_for_gate(r[2])[1] == "unknown"]
+            unknowns = _elements_missing_gate_warning_rows(self.conn, substation_id)
             if unknowns:
                 show_message_popup(
                     S["TITLES"].get("WARNING", "Προειδοποίηση"),
