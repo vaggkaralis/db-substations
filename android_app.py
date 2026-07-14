@@ -10,6 +10,7 @@ Features:
 """
 
 import json
+import inspect
 import hashlib
 import importlib
 import logging
@@ -4129,6 +4130,18 @@ class SubstationAndroidApp(App):
     def _auto_load_saved_db(self):
         """Attempt to auto-load saved DB path if available. Returns True if loaded, False otherwise."""
         try:
+            use_local_mode = getattr(self, "use_local_mode", None)
+            accepts_startup_kwarg = False
+            if callable(use_local_mode):
+                try:
+                    signature = inspect.signature(use_local_mode)
+                    accepts_startup_kwarg = "startup" in signature.parameters or any(
+                        parameter.kind == inspect.Parameter.VAR_KEYWORD
+                        for parameter in signature.parameters.values()
+                    )
+                except Exception:
+                    accepts_startup_kwarg = False
+
             for raw_path in (
                 getattr(self, "local_db_path", None),
                 self._get_saved_db_path()
@@ -4138,7 +4151,10 @@ class SubstationAndroidApp(App):
                 loadable_path = self._get_auto_load_db_path(raw_path)
                 if not loadable_path:
                     continue
-                self.use_local_mode(loadable_path, startup=True)
+                if accepts_startup_kwarg:
+                    use_local_mode(loadable_path, startup=True)
+                else:
+                    use_local_mode(loadable_path)
                 return True
         except Exception as e:
             self.show_error(f"Auto-load DB error: {str(e)}")
