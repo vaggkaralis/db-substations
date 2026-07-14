@@ -40,9 +40,9 @@ def normalize_decimal_numeric_text(value, decimal_separator="."):
     return canonical
 
 
-def _compute_sf6_leakage_bands(rows):
+def _compute_sf6_leakage_bands(rows, value_key="leakage"):
     values = [
-        row.get("leakage") for row in (rows or []) if row.get("leakage") is not None
+        row.get(value_key) for row in (rows or []) if row.get(value_key) is not None
     ]
     if not values:
         return {"min": None, "low_max": None, "mid_max": None, "max": None}
@@ -362,11 +362,15 @@ def show_sf6_management_popup(
         header = BoxLayout(size_hint_y=None, height=34, spacing=6, padding=(6, 0))
         _apply_background(header, (0.84, 0.88, 0.93, 1.0))
         columns = [
-            (S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), 0.17),
-            (S["MESSAGES"].get("ELEMENT_LABEL", "Στοιχείο"), 0.31),
-            (S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), 0.13),
-            ("Μεθοδολογία", 0.17),
-            (S["MESSAGES"].get("RESPONSIBLE_LABEL", "Υπεύθυνος"), 0.16),
+            (S["MESSAGES"].get("DATE_LABEL", "Ημερομηνία"), 0.15),
+            (S["MESSAGES"].get("ELEMENT_LABEL", "Στοιχείο"), 0.27),
+            (S["MESSAGES"].get("LEAKAGE_LABEL", "Διαρροή (kg)"), 0.1),
+            (
+                S["MESSAGES"].get("SF6_TOTAL_LEAKAGE_HEADER", "Σύνολο Διαρροών (kg)"),
+                0.14,
+            ),
+            ("Μεθοδολογία", 0.15),
+            (S["MESSAGES"].get("RESPONSIBLE_LABEL", "Υπεύθυνος"), 0.13),
             ("", 0.06),
         ]
         for text, width in columns:
@@ -472,45 +476,56 @@ def show_sf6_management_popup(
             )
             for row in rows:
                 leakage = row.get("leakage")
+                total_leakage = row.get("element_total_leakage")
                 leakage_text = "-" if leakage is None else f"{leakage:.2f}"
+                total_leakage_text = (
+                    "-" if total_leakage is None else f"{total_leakage:.2f}"
+                )
                 row_layout = BoxLayout(
                     size_hint_y=None,
-                    height=36,
+                    height=42,
                     spacing=6,
                     padding=(6, 0),
                 )
                 _apply_background(
                     row_layout,
-                    _sf6_row_background_rgba(leakage, leakage_bands),
+                    _sf6_row_background_rgba(total_leakage, leakage_bands),
                 )
                 row_layout.add_widget(
                     Label(
                         text=_format_display_date(app, row.get("date_time")) or "-",
-                        size_hint_x=0.17,
+                        size_hint_x=0.15,
                         color=(0, 0, 0, 1),
                     )
                 )
                 row_layout.add_widget(
                     Label(
                         text=row.get("element") or "-",
-                        size_hint_x=0.31,
+                        size_hint_x=0.27,
                         color=(0, 0, 0, 1),
                     )
                 )
                 row_layout.add_widget(
-                    Label(text=leakage_text, size_hint_x=0.13, color=(0, 0, 0, 1))
+                    Label(text=leakage_text, size_hint_x=0.1, color=(0, 0, 0, 1))
+                )
+                row_layout.add_widget(
+                    Label(
+                        text=total_leakage_text,
+                        size_hint_x=0.14,
+                        color=(0, 0, 0, 1),
+                    )
                 )
                 row_layout.add_widget(
                     Label(
                         text=row.get("methodology") or "-",
-                        size_hint_x=0.17,
+                        size_hint_x=0.15,
                         color=(0, 0, 0, 1),
                     )
                 )
                 row_layout.add_widget(
                     Label(
                         text=row.get("responsible") or "-",
-                        size_hint_x=0.16,
+                        size_hint_x=0.13,
                         color=(0, 0, 0, 1),
                     )
                 )
@@ -944,13 +959,14 @@ def _get_sf6_report_data(app, year: str):
         WHERE e.breaker_category = 'SF6'
           AND m.date_time LIKE ?
                                         AND {sf6_filter}
-        ORDER BY m.date_time ASC
+        ORDER BY m.date_time ASC, m.id ASC, e.id ASC
                 """,
         (year_prefix,),
     )
     leak_rows = c.fetchall()
 
     total_leakage = 0.0
+    running_totals_by_element = {}
     rows = []
     for (
         maintenance_id,
@@ -964,7 +980,11 @@ def _get_sf6_report_data(app, year: str):
         methodology,
         responsible_name,
     ) in leak_rows:
-        total_leakage += leakage or 0.0
+        leakage_value = leakage or 0.0
+        total_leakage += leakage_value
+        element_key = (substation_id, element_id)
+        running_total = running_totals_by_element.get(element_key, 0.0) + leakage_value
+        running_totals_by_element[element_key] = running_total
         rows.append(
             {
                 "maintenance_id": maintenance_id,
@@ -975,6 +995,7 @@ def _get_sf6_report_data(app, year: str):
                 "element": elem_name or "-",
                 "element_type": elem_type or "-",
                 "leakage": leakage,
+                "element_total_leakage": running_total,
                 "methodology": methodology or "",
                 "responsible": responsible_name or "-",
             }
@@ -1050,7 +1071,9 @@ def _get_sf6_report_data(app, year: str):
         },
         "substation_stats": substation_stats,
         "available_substations": available_substations,
-        "leakage_bands": _compute_sf6_leakage_bands(rows),
+        "leakage_bands": _compute_sf6_leakage_bands(
+            rows, value_key="element_total_leakage"
+        ),
     }
 
 
@@ -1095,7 +1118,7 @@ def _export_sf6_excel(app, year: str, substation_filter=None):
             LEFT JOIN people p ON m.responsible_id = p.id
             WHERE e.breaker_category = 'SF6'
               AND m.date_time LIKE ?
-            ORDER BY m.date_time ASC
+            ORDER BY m.date_time ASC, m.id ASC, e.id ASC
         """,
         (year_prefix,),
     )

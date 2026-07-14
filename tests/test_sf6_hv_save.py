@@ -120,6 +120,51 @@ def test_sf6_report_data_groups_by_substation_and_keeps_ids(tmp_path):
     conn.close()
 
 
+def test_sf6_report_data_accumulates_leakage_per_element(tmp_path):
+    db_path = tmp_path / "test_sf6_report_running_total.db"
+    conn = init_db(str(db_path))
+    cur = conn.cursor()
+
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "ΥΣ Α"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category, operating_status) VALUES (?, ?, ?, ?, ?, ?)",
+        (10, 1, "Διακόπτης ΥΤ", "Q1", "SF6", "Ενεργή"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time) VALUES (?, ?, ?, ?)",
+        (100, 1, "Leak 1", "2026-01-05"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time) VALUES (?, ?, ?, ?)",
+        (101, 1, "Leak 2", "2026-02-10"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, sf6_leakage_kg, sf6_leak_methodology) VALUES (?, ?, ?, ?)",
+        (100, 10, 1.0, "Πλήρωση"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, sf6_leakage_kg, sf6_leak_methodology) VALUES (?, ?, ?, ?)",
+        (101, 10, 1.0, "Αντικατάσταση"),
+    )
+    conn.commit()
+
+    class DummyApp:
+        def __init__(self, connection):
+            self.conn = connection
+
+        def _format_maintenance_date(self, value):
+            return value
+
+    data = _get_sf6_report_data(DummyApp(conn), "2026")
+
+    assert [row["element_total_leakage"] for row in data["rows"]] == [1.0, 2.0]
+    assert data["leakage_bands"]["max"] == 2.0
+    assert reports._classify_sf6_leakage(1.0, data["leakage_bands"]) == "green"
+    assert reports._classify_sf6_leakage(2.0, data["leakage_bands"]) == "red"
+
+    conn.close()
+
+
 def test_sf6_report_excludes_methodology_only_rows(tmp_path):
     db_path = tmp_path / "test_sf6_methodology_only.db"
     conn = init_db(str(db_path))
