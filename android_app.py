@@ -1790,6 +1790,8 @@ class SubstationAndroidApp(App):
                 diagnosis
                 and "SQLite" not in diagnosis
                 and "κατεστραμμένο" not in diagnosis
+                and "δικαίωμα"
+                not in diagnosis  # Don't raise on permission errors; try fallback copy
             ):
                 # File doesn't look like a valid SQLite database at all
                 raise RuntimeError(diagnosis)
