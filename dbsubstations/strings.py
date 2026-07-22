@@ -66,7 +66,38 @@ STRINGS_EL = {
         "ALL_LABEL": "(Όλα)",
         "ALL_SUBSTATIONS_LABEL": "Όλοι οι Υ/Σ",
         "ANDROID_FILECHOOSER_FALLBACK": "Ο επιλογέας αρχείων του Android δεν είναι διαθέσιμος. Χρησιμοποίησε τη λίστα αρχείων στο παράθυρο.",
-        "APP_INFO_BODY": "HEDNO Substations DEDD/KSMTH/TEI\nVersion: {version}\nDB Version: {db_version}\nCompatibility: {compat_status}\n\nApplication features:\n• View and manage substation database\n• Add/edit/delete substations and elements\n• Circuit breaker categories (SF6/Oil/Low Oil)\n• Manage element types (models/manufacturers/cycles)\n• Maintenance records\n• Import maintenance from e-mail (.eml)\n• Maintenance history (all/by substation)\n• Breaker measurements (insulation/passage/operations)\n• SF6 gas quality & leaks (kg)\n• SF6 management (leakage report by year)\n• Export SF6 Excel reports (summary & per substation)\n• Print maintenance PDF reports\n• Inspections (entry/view/history)\n• Isolation requests\n• Import substations/elements from CSV/Excel\n• PDF & Excel reports\n\nApp folder: {app_dir}",
+        "APP_INFO_BODY": (
+            "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ\n"
+            "Έκδοση: {version}\n"
+            "Έκδοση ΒΔ: {db_version}\n"
+            "Συμβατότητα: {compat_status}\n\n"
+            "Δυνατότητες Εφαρμογής:\n"
+            "• Προβολή και διαχείριση βάσης δεδομένων υποσταθμών\n"
+            "• Προσθήκη/επεξεργασία/διαγραφή υποσταθμών και στοιχείων\n"
+            "• Κατηγορίες διακοπτών (SF6/Ελαίου/Πτωχού Ελαίου)\n"
+            "• Διαχείριση τύπων στοιχείων (μοντέλα/κατασκευαστές/κύκλοι)\n"
+            "• Αρχεία συντήρησης\n"
+            "• Εισαγωγή συντήρησης από email (.eml)\n"
+            "• Ιστορικό συντήρησης (όλα/ανά υποσταθμό)\n"
+            "• Μετρήσεις διακοπτών (μόνωση/διέλευση/λειτουργίες)\n"
+            "• Ποιότητα & διαρροές αερίου SF6 (kg)\n"
+            "• Διαχείριση SF6 (αναφορά διαρροών ανά έτος)\n"
+            "• Εξαγωγή αναφορών SF6 Excel (σύνοψη & ανά υποσταθμό)\n"
+            "• Εκτύπωση αναφορών συντήρησης PDF\n"
+            "• Επιθεωρήσεις (καταχώρηση/προβολή/ιστορικό)\n"
+            "• Αιτήματα απομόνωσης\n"
+            "• Εισαγωγή υποσταθμών/στοιχείων από CSV/Excel\n"
+            "• Αναφορές PDF & Excel\n\n"
+            "Στοίβα Ανάπτυξης Τεχνολογίας:\n"
+            "• GUI Framework: Kivy 2.3.0\n"
+            "• Βάση Δεδομένων: SQLite3 με WAL mode\n"
+            "• Γλώσσα Προγραμματισμού: Python 3.12+\n"
+            "• Επεξεργασία Δεδομένων: pandas, openpyxl, xlrd\n"
+            "• Μορφές Εγγράφων: PyPDF2, python-pptx, email\n"
+            "• Κινητή Εφαρμογή: python-for-android\n"
+            "• Συγχρονισμός Cloud: OneDrive hybrid storage\n\n"
+            "Φάκελος εφαρμογής: {app_dir}"
+        ),
         "APP_INFO_SHORT": "Πληρ. Εφαρμ.",
         "STARTUP_EMAIL_REVIEW_BUTTON": "Έλεγχος για αναφορές/απομονώσεις",
         "APP_INFO_TITLE": "Πληροφορίες Εφαρμογής",
@@ -891,6 +922,14 @@ STRINGS_EN = {
             "• Isolation requests\n"
             "• Import substations/elements from CSV/Excel\n"
             "• PDF & Excel reports\n\n"
+            "Development Technology Stack:\n"
+            "• GUI Framework: Kivy 2.3.0\n"
+            "• Database: SQLite3 with WAL mode\n"
+            "• Language: Python 3.12+\n"
+            "• Data Processing: pandas, openpyxl, xlrd\n"
+            "• Document Formats: PyPDF2, python-pptx, email\n"
+            "• Mobile: python-for-android\n"
+            "• Cloud Sync: OneDrive hybrid storage\n\n"
             "App folder: {app_dir}"
         ),
         "LOADING": "Loading...",
