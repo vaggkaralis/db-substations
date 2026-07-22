@@ -1256,6 +1256,49 @@ def show_element_search_popup(app_instance, parent_popup=None):
 
     main_layout.add_widget(filter_grid)
 
+    # Restore filter state if it was saved on parent_popup
+    if parent_popup and hasattr(parent_popup, "_dbs_element_search_filters"):
+        saved_filters = getattr(parent_popup, "_dbs_element_search_filters", {})
+        if (
+            saved_filters.get("element_type")
+            and saved_filters["element_type"] in element_type_spinner.values
+        ):
+            element_type_spinner.text = saved_filters["element_type"]
+        if (
+            saved_filters.get("breaker_category")
+            and saved_filters["breaker_category"] in breaker_category_spinner.values
+        ):
+            breaker_category_spinner.text = saved_filters["breaker_category"]
+        if (
+            saved_filters.get("breaker_role")
+            and saved_filters["breaker_role"] in breaker_role_spinner.values
+        ):
+            breaker_role_spinner.text = saved_filters["breaker_role"]
+        if (
+            saved_filters.get("year_relation")
+            and saved_filters["year_relation"] in year_relation_spinner.values
+        ):
+            year_relation_spinner.text = saved_filters["year_relation"]
+        if saved_filters.get("year_value"):
+            year_input.text = saved_filters["year_value"]
+        if (
+            saved_filters.get("distance_relation")
+            and saved_filters["distance_relation"] in distance_relation_spinner.values
+        ):
+            distance_relation_spinner.text = saved_filters["distance_relation"]
+        if (
+            saved_filters.get("distance_value")
+            and saved_filters["distance_value"] in distance_spinner.values
+        ):
+            distance_spinner.text = saved_filters["distance_value"]
+        if (
+            saved_filters.get("sort_order")
+            and saved_filters["sort_order"] in sort_spinner.values
+        ):
+            sort_spinner.text = saved_filters["sort_order"]
+        if saved_filters.get("include_inactive"):
+            include_inactive_checkbox.active = saved_filters["include_inactive"]
+
     action_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
     results_summary = Label(text="", size_hint_x=0.68, halign="left", valign="middle")
     results_summary.bind(size=lambda inst, val: setattr(inst, "text_size", val))
@@ -1435,8 +1478,9 @@ def show_element_search_popup(app_instance, parent_popup=None):
                 size_hint_x=0.25,
             )
             jump_btn.bind(
-                on_press=lambda _x, sname=substation_name, p=popup: jump_to_substation(
-                    app_instance, sname, p
+                on_press=lambda _x, sname=substation_name, p=popup: (
+                    _capture_filter_state(),
+                    jump_to_substation(app_instance, sname, p),
                 )
             )
             header_row.add_widget(jump_btn)
@@ -1542,13 +1586,37 @@ def show_element_search_popup(app_instance, parent_popup=None):
     search_btn.bind(on_press=_run_search)
     reset_btn.bind(on_press=_reset_filters)
 
+    def _capture_filter_state():
+        """Capture current filter state to parent_popup for persistence"""
+        if parent_popup:
+            parent_popup._dbs_element_search_filters = {
+                "element_type": element_type_spinner.text,
+                "breaker_category": breaker_category_spinner.text,
+                "breaker_role": breaker_role_spinner.text,
+                "year_relation": year_relation_spinner.text,
+                "year_value": year_input.text,
+                "distance_relation": distance_relation_spinner.text,
+                "distance_value": distance_spinner.text,
+                "sort_order": sort_spinner.text,
+                "include_inactive": include_inactive_checkbox.active,
+            }
+
+    def _close_with_state_capture():
+        """Capture state before closing"""
+        _capture_filter_state()
+        popup.dismiss()
+
     close_btn = Button(
         text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
     )
-    close_btn.bind(on_press=popup.dismiss)
+    close_btn.bind(on_press=lambda *_: _close_with_state_capture())
     main_layout.add_widget(close_btn)
 
     popup.content = main_layout
+
+    # Bind dismiss callback to capture state even if popup is dismissed through other means
+    popup.bind(on_dismiss=lambda *args: _capture_filter_state())
+
     _refresh_breaker_filters()
     _render_results([], search_executed=False)
     popup.open()

@@ -249,24 +249,76 @@ def import_substations_from_excel(
                     return
             except Exception as exc2:
                 tb = traceback.format_exc()
+
+                # Provide more specific error messages based on the exception type
+                error_msg = str(exc2).lower()
+                if "file not found" in error_msg or "no such file" in error_msg:
+                    user_msg = f"Το αρχείο δεν βρέθηκε: {file_path}"
+                elif "permission denied" in error_msg:
+                    user_msg = f"Δεν έχετε δικαίωμα ανάγνωσης του αρχείου: {file_path}"
+                elif (
+                    "unsupported format" in error_msg
+                    or "not a zip file" in error_msg
+                    or "expected" in error_msg
+                ):
+                    user_msg = (
+                        "Το αρχείο δεν είναι έγκυρο Excel. "
+                        "Βεβαιωθείτε ότι το αρχείο δεν είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                        f"Λάθος: {exc2}"
+                    )
+                elif "truncated" in error_msg:
+                    user_msg = (
+                        "Το αρχείο φαίνεται να είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                        "Δοκιμάστε να κατεβάσετε ξανά το αρχείο."
+                    )
+                else:
+                    user_msg = f"Σφάλμα κατά την ανάγνωση του αρχείου: {exc2}"
+
                 details = (
-                    f"Σφάλμα κατά τον έλεγχο αρχείου: {exc2}\n"
+                    f"{user_msg}\n\n"
+                    f"Λεπτομέρειες:\n"
                     f"Path: {repr(file_path)}\n"
                     f"Exists: {os.path.exists(file_path)}\n"
                     f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
-                    f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                    f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'} bytes\n"
                     f"Traceback:\n{tb}"
                 )
                 on_error(details)
                 return
         except Exception as exc:
             tb = traceback.format_exc()
+
+            # Provide more specific error messages based on the exception type
+            error_msg = str(exc).lower()
+            if "file not found" in error_msg or "no such file" in error_msg:
+                user_msg = f"Το αρχείο δεν βρέθηκε: {file_path}"
+            elif "permission denied" in error_msg:
+                user_msg = f"Δεν έχετε δικαίωμα ανάγνωσης του αρχείου: {file_path}"
+            elif (
+                "unsupported format" in error_msg
+                or "not a zip file" in error_msg
+                or "expected" in error_msg
+            ):
+                user_msg = (
+                    "Το αρχείο δεν είναι έγκυρο Excel. "
+                    "Βεβαιωθείτε ότι το αρχείο δεν είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                    f"Λάθος: {exc}"
+                )
+            elif "truncated" in error_msg:
+                user_msg = (
+                    "Το αρχείο φαίνεται να είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                    "Δοκιμάστε να κατεβάσετε ξανά το αρχείο."
+                )
+            else:
+                user_msg = f"Σφάλμα κατά την ανάγνωση του αρχείου: {exc}"
+
             details = (
-                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"{user_msg}\n\n"
+                f"Λεπτομέρειες:\n"
                 f"Path: {repr(file_path)}\n"
                 f"Exists: {os.path.exists(file_path)}\n"
                 f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
-                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'} bytes\n"
                 f"Traceback:\n{tb}"
             )
             on_error(details)
@@ -338,12 +390,38 @@ def import_substations_from_csv(
             df_sub = pd.read_csv(file_path)
         except Exception as exc:
             tb = traceback.format_exc()
+
+            # Provide more specific error messages based on the exception type
+            error_msg = str(exc).lower()
+            if "file not found" in error_msg or "no such file" in error_msg:
+                user_msg = f"Το αρχείο δεν βρέθηκε: {file_path}"
+            elif "permission denied" in error_msg:
+                user_msg = f"Δεν έχετε δικαίωμα ανάγνωσης του αρχείου: {file_path}"
+            elif (
+                "unsupported format" in error_msg
+                or "not a zip file" in error_msg
+                or "expected" in error_msg
+            ):
+                user_msg = (
+                    "Το αρχείο δεν είναι έγκυρο CSV. "
+                    "Βεβαιωθείτε ότι το αρχείο δεν είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                    f"Λάθος: {exc}"
+                )
+            elif "truncated" in error_msg or "decoding" in error_msg:
+                user_msg = (
+                    "Το αρχείο φαίνεται να είναι κατεστραμμένο, μερικώς κατεβασμένο ή έχει κακή κωδικοποίηση. "
+                    "Δοκιμάστε να κατεβάσετε ξανά το αρχείο ή να το ανοίξετε με Excel και να το σώσετε ως CSV."
+                )
+            else:
+                user_msg = f"Σφάλμα κατά την ανάγνωση του αρχείου: {exc}"
+
             details = (
-                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"{user_msg}\n\n"
+                f"Λεπτομέρειες:\n"
                 f"Path: {repr(file_path)}\n"
                 f"Exists: {os.path.exists(file_path)}\n"
                 f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
-                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'} bytes\n"
                 f"Traceback:\n{tb}"
             )
             on_error(details)
@@ -452,12 +530,38 @@ def import_elements_from_excel(
                 return
         except Exception as exc:
             tb = traceback.format_exc()
+
+            # Provide more specific error messages based on the exception type
+            error_msg = str(exc).lower()
+            if "file not found" in error_msg or "no such file" in error_msg:
+                user_msg = f"Το αρχείο δεν βρέθηκε: {file_path}"
+            elif "permission denied" in error_msg:
+                user_msg = f"Δεν έχετε δικαίωμα ανάγνωσης του αρχείου: {file_path}"
+            elif (
+                "unsupported format" in error_msg
+                or "not a zip file" in error_msg
+                or "expected" in error_msg
+            ):
+                user_msg = (
+                    "Το αρχείο δεν είναι έγκυρο Excel ή CSV. "
+                    "Βεβαιωθείτε ότι το αρχείο δεν είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                    f"Λάθος: {exc}"
+                )
+            elif "truncated" in error_msg:
+                user_msg = (
+                    "Το αρχείο φαίνεται να είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                    "Δοκιμάστε να κατεβάσετε ξανά το αρχείο."
+                )
+            else:
+                user_msg = f"Σφάλμα κατά την ανάγνωση του αρχείου: {exc}"
+
             details = (
-                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"{user_msg}\n\n"
+                f"Λεπτομέρειες:\n"
                 f"Path: {repr(file_path)}\n"
                 f"Exists: {os.path.exists(file_path)}\n"
                 f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
-                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'} bytes\n"
                 f"Traceback:\n{tb}"
             )
             on_error(details)
@@ -1245,12 +1349,38 @@ def import_elements_from_csv(
             df_elem = pd.read_csv(file_path)
         except Exception as exc:
             tb = traceback.format_exc()
+
+            # Provide more specific error messages based on the exception type
+            error_msg = str(exc).lower()
+            if "file not found" in error_msg or "no such file" in error_msg:
+                user_msg = f"Το αρχείο δεν βρέθηκε: {file_path}"
+            elif "permission denied" in error_msg:
+                user_msg = f"Δεν έχετε δικαίωμα ανάγνωσης του αρχείου: {file_path}"
+            elif (
+                "unsupported format" in error_msg
+                or "not a zip file" in error_msg
+                or "expected" in error_msg
+            ):
+                user_msg = (
+                    "Το αρχείο δεν είναι έγκυρο CSV. "
+                    "Βεβαιωθείτε ότι το αρχείο δεν είναι κατεστραμμένο ή μερικώς κατεβασμένο. "
+                    f"Λάθος: {exc}"
+                )
+            elif "truncated" in error_msg or "decoding" in error_msg:
+                user_msg = (
+                    "Το αρχείο φαίνεται να είναι κατεστραμμένο, μερικώς κατεβασμένο ή έχει κακή κωδικοποίηση. "
+                    "Δοκιμάστε να κατεβάσετε ξανά το αρχείο ή να το ανοίξετε με Excel και να το σώσετε ως CSV."
+                )
+            else:
+                user_msg = f"Σφάλμα κατά την ανάγνωση του αρχείου: {exc}"
+
             details = (
-                f"Σφάλμα κατά τον έλεγχο αρχείου: {exc}\n"
+                f"{user_msg}\n\n"
+                f"Λεπτομέρειες:\n"
                 f"Path: {repr(file_path)}\n"
                 f"Exists: {os.path.exists(file_path)}\n"
                 f"Readable: {os.access(file_path, os.R_OK) if os.path.exists(file_path) else 'N/A'}\n"
-                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}\n"
+                f"Size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'} bytes\n"
                 f"Traceback:\n{tb}"
             )
             on_error(details)

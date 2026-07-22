@@ -866,6 +866,66 @@ Logger.info("APP: JSON import successful")
 Logger.info("APP: Threading import successful")
 
 
+def _diagnose_db_file_error(file_path: str) -> str:
+    """Diagnose why a database file cannot be opened and return user-friendly error message.
+
+    Checks:
+    - File exists
+    - File is readable
+    - File has SQLite magic bytes (SQLite format 3)
+    - File is not empty
+    - File is not a known non-database format
+
+    Returns a descriptive error message suitable for end users.
+    """
+    if not file_path:
+        return "Δεν καθορίστηκε διαδρομή αρχείου."
+
+    if not os.path.exists(file_path):
+        return f"Το αρχείο δεν βρέθηκε: {file_path}"
+
+    if not os.access(file_path, os.R_OK):
+        return f"Δεν έχετε δικαίωμα ανάγνωσης του αρχείου: {file_path}"
+
+    try:
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            return "Το αρχείο βάσης είναι κενό (0 bytes). Επιλέξτε ένα έγκυρο αρχείο βάσης δεδομένων."
+        if file_size < 512:
+            return f"Το αρχείο είναι πολύ μικρό ({file_size} bytes). Μπορεί να μην είναι έγκυρη βάση SQLite."
+    except Exception as size_err:
+        return f"Σφάλμα ανάγνωσης μεγέθους αρχείου: {size_err}"
+
+    # Check SQLite magic bytes (first 16 bytes should be "SQLite format 3")
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(16)
+
+        if header.startswith(b"SQLite format 3"):
+            # File has correct SQLite header; problem is likely corruption
+            return "Το αρχείο φαίνεται να είναι βάση SQLite αλλά δεν μπορεί να ανοιχθεί. Μπορεί να είναι κατεστραμμένο. Δοκιμάστε να επαναφέρετε από ένα αντίγραφο ασφαλείας."
+        else:
+            # Try to identify what the file actually is
+            file_preview = header.decode("utf-8", errors="ignore").strip()
+            if not file_preview:
+                # Binary file with no readable header
+                return "Το αρχείο δεν φαίνεται να είναι βάση SQLite. Βεβαιωθείτε ότι επιλέξατε το σωστό αρχείο (.db ή .sqlite)."
+            elif len(file_preview) > 0:
+                # Might be text file
+                if file_preview.lower().startswith("pk"):
+                    return "Το αρχείο είναι ZIP ή Excel (XLSX). Αυτό δεν είναι έγκυρη βάση δεδομένων. Επιλέξτε αρχείο .db."
+                elif "xml" in file_preview.lower() or file_preview.startswith("<"):
+                    return "Το αρχείο είναι XML. Δεν είναι έγκυρη βάση δεδομένων SQLite. Επιλέξτε αρχείο .db."
+                elif file_preview.startswith("{%") or file_preview.startswith('{"'):
+                    return "Το αρχείο είναι JSON. Δεν είναι έγκυρη βάση δεδομένων SQLite. Επιλέξτε αρχείο .db."
+                else:
+                    return f"Το αρχείο δεν είναι έγκυρη βάση SQLite. Ξεκινά με: {file_preview[:40]}... Βεβαιωθείτε ότι επιλέξατε το σωστό αρχείο βάσης δεδομένων."
+    except Exception as header_err:
+        return f"Σφάλμα κατά την ανάγνωση του αρχείου: {header_err}"
+
+    return "Δεν είναι δυνατό να ανοιχθεί το αρχείο βάσης. Βεβαιωθείτε ότι είναι έγκυρη βάση SQLite."
+
+
 class SubstationAndroidApp(App):
     # Use centralized lists from strings module; keep safe fallbacks
     ELEMENT_TYPES = S.get("MESSAGES", {}).get(
@@ -1589,10 +1649,22 @@ class SubstationAndroidApp(App):
 
                 resolved = self._prepare_local_db_path(selected_db_path)
             except FileNotFoundError:
-                self.show_error("Το αρχείο βάσης δεν βρέθηκε")
+                self.show_error(
+                    _diagnose_db_file_error(selected_db_path)
+                    or "Το αρχείο βάσης δεν βρέθηκε"
+                )
+                return
+            except RuntimeError as e:
+                # RuntimeError with diagnosis message
+                self.show_error(str(e))
                 return
             except Exception as e:
-                self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
+                # Try to diagnose the underlying issue
+                diagnosis = _diagnose_db_file_error(selected_db_path)
+                if diagnosis:
+                    self.show_error(diagnosis)
+                else:
+                    self.show_error(f"Αποτυχία ανοίγματος βάσης: {str(e)}")
                 return
 
             _continue_with_path(resolved, source_reference=selected_db_path)
@@ -1711,6 +1783,17 @@ class SubstationAndroidApp(App):
         except sqlite3.OperationalError as e:
             if "unable to open database file" not in str(e).lower():
                 raise
+            # File cannot be opened in place; try to copy and retry
+            # But first diagnose the actual problem for better error reporting
+            diagnosis = _diagnose_db_file_error(normalized)
+            if (
+                diagnosis
+                and "SQLite" not in diagnosis
+                and "κατεστραμμένο" not in diagnosis
+            ):
+                # File doesn't look like a valid SQLite database at all
+                raise RuntimeError(diagnosis)
+
             # Set user_data_dir only if needed
             target_dir = getattr(self, "user_data_dir", None)
             if not target_dir:
@@ -1735,10 +1818,19 @@ class SubstationAndroidApp(App):
                 conn = sqlite3.connect(f"file:{target_path}?mode=ro", uri=True)
                 conn.close()
                 return target_path
-            except Exception as copy_err:
+            except sqlite3.OperationalError as copy_op_err:
+                # Database still can't be opened after copy; likely corrupted
                 raise RuntimeError(
-                    f"Unable to open database file: {normalized}"
-                ) from copy_err
+                    "Το αρχείο βάσης είναι κατεστραμμένο ή δεν είναι έγκυρη βάση SQLite. "
+                    "Δοκιμάστε να επαναφέρετε από ένα αντίγραφο ασφαλείας."
+                ) from copy_op_err
+            except Exception as copy_err:
+                diag = (
+                    _diagnose_db_file_error(target_path)
+                    if os.path.exists(target_path)
+                    else str(copy_err)
+                )
+                raise RuntimeError(diag) from copy_err
 
     def _can_open_local_db_in_place(self, path_value: str) -> bool:
         normalized = self._normalize_android_storage_path(path_value)
