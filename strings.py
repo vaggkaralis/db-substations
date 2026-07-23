@@ -404,6 +404,7 @@ STRINGS_EL = {
         "MAINTENANCE_UPDATED": "Η συντήρηση ενημερώθηκε!",
         "MAINT_HISTORY_LABEL": "Ιστορικό Συντηρήσεων",
         "LATEST_MAINTENANCES_LABEL": "Τελευταίες 10 Συντηρήσεις",
+        "DUE_MAINT_SUBSTATIONS_LABEL": "Υποσταθμοί με ληξιπρόθεσμα στοιχεία",
         "LATEST_MAINTENANCES_INFO_FMT": "Εμφανίζονται οι {count} πιο πρόσφατες καταχωρήσεις από όλες τις πηγές (τοπικές/συγχρονισμένες).",
         "UNDONE_MAINTENANCES_LABEL": "Εκκρεμείς Συντηρήσεις",
         "TASKS_LEFT_LABEL": "Εργασίες που απομένουν",

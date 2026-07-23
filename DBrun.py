@@ -2907,6 +2907,18 @@ class SubstationApp(App):
 
         return _m(self, ui)
 
+    def show_due_substations_popup(self, parent_popup=None):
+        from maintenance import show_due_substations_popup as _m
+
+        ui = {
+            "Popup": Popup,
+            "BoxLayout": BoxLayout,
+            "Label": Label,
+            "Button": Button,
+            "show_message_popup": show_message_popup,
+        }
+        return _m(self, ui, parent_popup=parent_popup)
+
     def _show_import_maintenance_email_dialog(self, parent_popup=None):
         from maintenance import _show_import_maintenance_email_dialog as _m
 
@@ -6876,7 +6888,7 @@ class SubstationApp(App):
         # Create selection popup
         selection_popup = Popup(
             title=S["MESSAGES"].get("VIEW_SELECTION_TITLE", "Επιλογή Προβολής"),
-            size_hint=(0.6, 0.4),
+            size_hint=(0.62, 0.52),
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -6926,6 +6938,20 @@ class SubstationApp(App):
             )
         )
         layout.add_widget(select_specific_btn)
+
+        due_btn = Button(
+            text=S["MESSAGES"].get(
+                "DUE_MAINT_SUBSTATIONS_LABEL", "Υποσταθμοί με ληξιπρόθεσμα στοιχεία"
+            ),
+            size_hint_y=0.35,
+        )
+        due_btn.bind(
+            on_press=lambda _x: (
+                selection_popup.dismiss(),
+                self.show_due_substations_popup(parent_popup=selection_popup),
+            )
+        )
+        layout.add_widget(due_btn)
 
         # Cancel button
         cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.2)

@@ -2,7 +2,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from import_diagnostics import log_import_diagnostic
 from strings_proxy import STRINGS as S
@@ -26,6 +26,239 @@ def _make_ui_dict(ui):
         "export_maintenances_per_substation",
     )
     return {k: ui.get(k) for k in keys}
+
+
+def _load_due_elements_grouped_by_substation(app):
+    cursor = app.conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            s.id,
+            s.name,
+            e.id,
+            e.element_type,
+            e.name,
+            e.serial_number,
+            e.maintenance_date,
+            e.gate,
+            e.manufacturer,
+            e.model,
+            e.maintenance_cycle,
+            em.maintenance_cycle,
+            e.operating_status
+        FROM elements e
+        JOIN substations s ON s.id = e.substation_id
+        LEFT JOIN element_models em ON em.id = e.element_model_id
+        ORDER BY s.name COLLATE NOCASE ASC, e.name COLLATE NOCASE ASC
+        """
+    )
+
+    grouped = {}
+    now = datetime.now()
+
+    for row in cursor.fetchall() or []:
+        (
+            substation_id,
+            substation_name,
+            element_id,
+            element_type,
+            element_name,
+            serial_number,
+            maintenance_date,
+            gate,
+            manufacturer,
+            model,
+            element_cycle,
+            model_cycle,
+            operating_status,
+        ) = row
+
+        if operating_status and str(operating_status).strip() == "Ανενεργή":
+            continue
+
+        maintenance_cycle = None
+        if element_cycle and int(element_cycle) > 0:
+            maintenance_cycle = int(element_cycle)
+        elif model_cycle and int(model_cycle) > 0:
+            maintenance_cycle = int(model_cycle)
+
+        if not maintenance_cycle:
+            continue
+
+        is_due = False
+        next_due_text = "-"
+        last_maint_text = (maintenance_date or "-").strip() or "-"
+
+        if not maintenance_date or not str(maintenance_date).strip():
+            is_due = True
+            next_due_text = "Άμεσα (χωρίς τελευταία συντήρηση)"
+        else:
+            try:
+                last_maint = datetime.strptime(
+                    str(maintenance_date).split()[0], "%Y-%m-%d"
+                )
+                next_due = last_maint + timedelta(days=maintenance_cycle * 365)
+                next_due_text = next_due.strftime("%Y-%m-%d")
+                is_due = next_due <= now
+            except Exception:
+                is_due = True
+                next_due_text = "Μη έγκυρη ημερομηνία τελευταίας συντήρησης"
+
+        if not is_due:
+            continue
+
+        entry = {
+            "element_id": element_id,
+            "element_type": element_type or "-",
+            "element_name": element_name or "-",
+            "serial_number": serial_number or "-",
+            "gate": gate or "-",
+            "manufacturer": manufacturer or "-",
+            "model": model or "-",
+            "maintenance_cycle": maintenance_cycle,
+            "maintenance_date": last_maint_text,
+            "next_due": next_due_text,
+        }
+
+        bucket = grouped.setdefault(
+            substation_id,
+            {
+                "substation_id": substation_id,
+                "substation_name": substation_name or f"Υ/Σ {substation_id}",
+                "elements": [],
+            },
+        )
+        bucket["elements"].append(entry)
+
+    return sorted(
+        grouped.values(),
+        key=lambda x: (-len(x["elements"]), x["substation_name"].lower()),
+    )
+
+
+def _show_due_substations_popup(app, ui, parent_popup=None):
+    ui = _make_ui_dict(ui)
+    Popup = ui["Popup"]
+    BoxLayout = ui["BoxLayout"]
+    Label = ui["Label"]
+    Button = ui["Button"]
+
+    from kivy.uix.scrollview import ScrollView
+
+    due_groups = _load_due_elements_grouped_by_substation(app)
+
+    popup = Popup(
+        title=S["MESSAGES"].get(
+            "DUE_MAINT_SUBSTATIONS_LABEL", "Υποσταθμοί με ληξιπρόθεσμα στοιχεία"
+        ),
+        size_hint=(0.86, 0.86),
+    )
+    popup._dbs_origin_popup = parent_popup
+
+    root = BoxLayout(orientation="vertical", spacing=8, padding=10)
+
+    header_text = (
+        f"Βρέθηκαν {len(due_groups)} υποσταθμοί με ληξιπρόθεσμα στοιχεία"
+        if due_groups
+        else "Δεν βρέθηκαν ληξιπρόθεσμα στοιχεία."
+    )
+    root.add_widget(Label(text=header_text, size_hint_y=None, height=34))
+
+    scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+    rows = BoxLayout(orientation="vertical", size_hint_y=None, spacing=6)
+    rows.bind(minimum_height=rows.setter("height"))
+
+    if not due_groups:
+        rows.add_widget(
+            Label(
+                text="Όλα τα στοιχεία βρίσκονται εντός κύκλου συντήρησης.",
+                size_hint_y=None,
+                height=40,
+            )
+        )
+    else:
+        for group in due_groups:
+            substation_name = group["substation_name"]
+            elements = group["elements"]
+
+            section = BoxLayout(orientation="vertical", size_hint_y=None, spacing=4)
+            section.bind(minimum_height=section.setter("height"))
+
+            expanded_state = {"open": False}
+
+            header_btn = Button(
+                text=f"[+] {substation_name} ({len(elements)})",
+                size_hint_y=None,
+                height=42,
+            )
+            section.add_widget(header_btn)
+
+            details_panel = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                spacing=4,
+                padding=(16, 0, 0, 4),
+            )
+            details_panel.bind(minimum_height=details_panel.setter("height"))
+
+            row_height = 92
+
+            for idx, elem in enumerate(elements, 1):
+                line = (
+                    f"{idx}. [b]{elem['element_name']}[/b] - {elem['element_type']}\\n"
+                    f"   Πύλη: {elem['gate']} | S/N: {elem['serial_number']}\\n"
+                    f"   Κατασκ.: {elem['manufacturer']} | Μοντ.: {elem['model']}\\n"
+                    f"   Κύκλος: {elem['maintenance_cycle']} έτη | "
+                    f"Τελ. Συντ.: {elem['maintenance_date']} | "
+                    f"[color=ff0000]Επόμενη: {elem['next_due']}[/color]"
+                )
+                lbl = Label(
+                    text=line,
+                    markup=True,
+                    size_hint_y=None,
+                    height=row_height,
+                    halign="left",
+                    valign="top",
+                )
+                lbl.bind(
+                    width=lambda inst, val: setattr(inst, "text_size", (val, None))
+                )
+                details_panel.add_widget(lbl)
+
+            def _toggle_details(
+                _btn,
+                panel=details_panel,
+                section_layout=section,
+                state=expanded_state,
+                btn=header_btn,
+                name=substation_name,
+                count=len(elements),
+            ):
+                state["open"] = not state["open"]
+                expanded = state["open"]
+                if expanded:
+                    if panel.parent is None:
+                        section_layout.add_widget(panel)
+                elif panel.parent is section_layout:
+                    section_layout.remove_widget(panel)
+                btn.text = f"{'[-]' if expanded else '[+]'} {name} ({count})"
+
+            header_btn.bind(on_release=_toggle_details)
+            rows.add_widget(section)
+
+    scroll.add_widget(rows)
+    root.add_widget(scroll)
+
+    close_btn = Button(
+        text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"),
+        size_hint_y=None,
+        height=48,
+    )
+    close_btn.bind(on_press=popup.dismiss)
+    root.add_widget(close_btn)
+
+    popup.content = root
+    popup.open()
 
 
 def show_maintenance_menu_popup(app, ui):
@@ -239,6 +472,10 @@ def show_maintenance_menu_popup(app, ui):
 
     menu_popup.content = layout
     menu_popup.open()
+
+
+def show_due_substations_popup(app, ui, parent_popup=None):
+    return _show_due_substations_popup(app, ui, parent_popup=parent_popup)
 
 
 def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):
