@@ -158,10 +158,18 @@ set "PS_RUNNER=%OUT_DIR%\launcher_runner.ps1"
     echo ^    [string]$LogPath
     echo ^)
     echo.
-    echo Start-Transcript -Path $LogPath -Append ^| Out-Null
-    echo ^& $BatchPath --runmain
+    echo try {
+    echo ^    Start-Transcript -Path $LogPath -Append
+    echo } catch {
+    echo ^    Write-Host "Transcript could not be started: $($_.Exception.Message)"
+    echo }
+    echo cmd.exe /d /c ""$BatchPath" --runmain"
     echo $ec = $LASTEXITCODE
-    echo Stop-Transcript ^| Out-Null
+    echo try {
+    echo ^    Stop-Transcript
+    echo } catch {
+    echo ^    # Ignore if transcript was never started.
+    echo }
     echo exit $ec
 ) > "%PS_RUNNER%"
 
