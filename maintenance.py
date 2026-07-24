@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import threading
 from datetime import datetime, timedelta
 
@@ -30,6 +31,7 @@ def _make_ui_dict(ui):
 
 def _load_due_elements_grouped_by_substation(app):
     cursor = app.conn.cursor()
+    unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
     cursor.execute(
         """
         SELECT
@@ -45,7 +47,18 @@ def _load_due_elements_grouped_by_substation(app):
             e.model,
             e.maintenance_cycle,
             em.maintenance_cycle,
-            e.operating_status
+            e.operating_status,
+            e.hemizygos,
+            e.is_main_switch,
+            em.breaker_category,
+            em.model_name,
+            em.manufacturer,
+            e.voltage_level,
+            e.manufacture_year,
+            e.power_mva,
+            em.power_mva,
+            em.installation_space,
+            e.installation_space
         FROM elements e
         JOIN substations s ON s.id = e.substation_id
         LEFT JOIN element_models em ON em.id = e.element_model_id
@@ -71,6 +84,17 @@ def _load_due_elements_grouped_by_substation(app):
             element_cycle,
             model_cycle,
             operating_status,
+            hemizygos,
+            is_main_switch,
+            breaker_category,
+            model_name,
+            model_manufacturer,
+            voltage_level,
+            manufacture_year,
+            element_power_mva,
+            model_power_mva,
+            model_installation_space,
+            element_installation_space,
         ) = row
 
         if operating_status and str(operating_status).strip() == "Ανενεργή":
@@ -107,14 +131,52 @@ def _load_due_elements_grouped_by_substation(app):
         if not is_due:
             continue
 
+        resolved_model_name = (
+            str(model_name).strip()
+            if model_name is not None and str(model_name).strip()
+            else (
+                str(model).strip() if model is not None and str(model).strip() else "-"
+            )
+        )
+        resolved_manufacturer = (
+            str(model_manufacturer).strip()
+            if model_manufacturer is not None and str(model_manufacturer).strip()
+            else (
+                str(manufacturer).strip()
+                if manufacturer is not None and str(manufacturer).strip()
+                else "-"
+            )
+        )
+        resolved_power_mva = (
+            model_power_mva if model_power_mva is not None else element_power_mva
+        )
+        resolved_installation_space = (
+            str(model_installation_space).strip()
+            if model_installation_space is not None
+            and str(model_installation_space).strip()
+            else (
+                str(element_installation_space).strip()
+                if element_installation_space is not None
+                and str(element_installation_space).strip()
+                else "-"
+            )
+        )
+
         entry = {
             "element_id": element_id,
             "element_type": element_type or "-",
             "element_name": element_name or "-",
             "serial_number": serial_number or "-",
-            "gate": gate or "-",
-            "manufacturer": manufacturer or "-",
-            "model": model or "-",
+            "gate": gate or unreg,
+            "hemizygos": hemizygos or "",
+            "is_main_switch": is_main_switch,
+            "breaker_category": breaker_category or "",
+            "manufacturer": resolved_manufacturer,
+            "model": resolved_model_name,
+            "voltage_level": voltage_level or "-",
+            "manufacture_year": manufacture_year or "-",
+            "power_mva": resolved_power_mva,
+            "installation_space": resolved_installation_space,
             "maintenance_cycle": maintenance_cycle,
             "maintenance_date": last_maint_text,
             "next_due": next_due_text,
@@ -144,6 +206,29 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
     Button = ui["Button"]
 
     from kivy.uix.scrollview import ScrollView
+
+    try:
+        from ui.shared import IconOnlyButton as _IconOnlyButton
+    except Exception:
+        _IconOnlyButton = None
+
+    app_module = sys.modules.get(app.__class__.__module__)
+    add_gate_tag_if_missing = (
+        getattr(app_module, "add_gate_tag_if_missing", None) if app_module else None
+    )
+    add_hemizygos_tag_if_missing = (
+        getattr(app_module, "add_hemizygos_tag_if_missing", None)
+        if app_module
+        else None
+    )
+
+    def _make_action_btn(icon_type, fallback_text, color):
+        if _IconOnlyButton is not None:
+            try:
+                return _IconOnlyButton(icon_type=icon_type, icon_color=color)
+            except Exception:
+                pass
+        return Button(text=fallback_text)
 
     due_groups = _load_due_elements_grouped_by_substation(app)
 
@@ -177,8 +262,46 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
             )
         )
     else:
+        gate_palette = [
+            (0.16, 0.56, 0.94, 1.00),
+            (0.92, 0.34, 0.18, 1.00),
+            (0.12, 0.67, 0.36, 1.00),
+            (0.50, 0.38, 0.86, 1.00),
+            (0.93, 0.68, 0.18, 1.00),
+            (0.11, 0.63, 0.70, 1.00),
+        ]
+
+        def _fallback_gate_color(gate_name):
+            key = str(gate_name or "")
+            idx = sum(ord(ch) for ch in key) % len(gate_palette)
+            return gate_palette[idx]
+
+        def _element_sort_priority(element):
+            elem_type = element.get("element_type")
+            elem_name = str(element.get("element_name") or "").lower()
+            is_main_switch = element.get("is_main_switch")
+            is_transformer = bool(
+                hasattr(app, "_is_transformer") and app._is_transformer(elem_type)
+            )
+            if elem_type == getattr(app, "ELEM_BREAKER_YT", ""):
+                return (1, elem_name)
+            if is_transformer:
+                return (2, elem_name)
+            if elem_type == "Motor Drive":
+                return (3, elem_name)
+            if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 1:
+                return (4, elem_name)
+            if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 2:
+                return (5, elem_name)
+            if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 0:
+                return (6, elem_name)
+            if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 3:
+                return (7, elem_name)
+            return (8, elem_name)
+
         for group in due_groups:
             substation_name = group["substation_name"]
+            substation_id = group["substation_id"]
             elements = group["elements"]
 
             section = BoxLayout(orientation="vertical", size_hint_y=None, spacing=4)
@@ -196,34 +319,236 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
             details_panel = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
-                spacing=4,
+                spacing=2,
                 padding=(16, 0, 0, 4),
             )
             details_panel.bind(minimum_height=details_panel.setter("height"))
 
-            row_height = 92
+            gates_dict = {}
+            for elem in elements:
+                gate_key = elem.get("gate") or S["MESSAGES"].get(
+                    "UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"
+                )
+                gates_dict.setdefault(gate_key, []).append(elem)
 
-            for idx, elem in enumerate(elements, 1):
-                line = (
-                    f"{idx}. [b]{elem['element_name']}[/b] - {elem['element_type']}\\n"
-                    f"   Πύλη: {elem['gate']} | S/N: {elem['serial_number']}\\n"
-                    f"   Κατασκ.: {elem['manufacturer']} | Μοντ.: {elem['model']}\\n"
-                    f"   Κύκλος: {elem['maintenance_cycle']} έτη | "
-                    f"Τελ. Συντ.: {elem['maintenance_date']} | "
-                    f"[color=ff0000]Επόμενη: {elem['next_due']}[/color]"
-                )
-                lbl = Label(
-                    text=line,
-                    markup=True,
+            for gate_key in list(gates_dict.keys()):
+                gates_dict[gate_key].sort(key=_element_sort_priority)
+
+            gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+            unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
+            prefixed = [g for g in gates_dict.keys() if str(g).startswith(gate_prefix)]
+            non_prefixed = [
+                g
+                for g in gates_dict.keys()
+                if not str(g).startswith(gate_prefix) and g != unreg
+            ]
+            if hasattr(app, "sort_gate_labels_for_display"):
+                sorted_gates = list(app.sort_gate_labels_for_display(prefixed))
+            else:
+                sorted_gates = sorted(prefixed)
+            sorted_gates.extend(sorted(non_prefixed))
+            if unreg in gates_dict:
+                sorted_gates.append(unreg)
+
+            row_counter = 1
+            for gate_name in sorted_gates:
+                gate_elements = gates_dict.get(gate_name) or []
+                gate_header = Label(
+                    text=f"{gate_name} ({len(gate_elements)} στοιχεία)",
                     size_hint_y=None,
-                    height=row_height,
-                    halign="left",
-                    valign="top",
+                    height=30,
+                    bold=True,
+                    color=(0.2, 0.6, 1, 1),
                 )
-                lbl.bind(
-                    width=lambda inst, val: setattr(inst, "text_size", (val, None))
-                )
-                details_panel.add_widget(lbl)
+                details_panel.add_widget(gate_header)
+
+                for elem in gate_elements:
+                    elem_type = elem.get("element_type") or "-"
+                    if (
+                        hasattr(app, "BREAKER_ELEMENT_TYPES")
+                        and elem_type in app.BREAKER_ELEMENT_TYPES
+                        and hasattr(app, "_format_elem_type")
+                    ):
+                        elem_type_display = app._format_elem_type(
+                            elem_type, elem.get("is_main_switch")
+                        )
+                    else:
+                        elem_type_display = elem_type
+
+                    breaker_info = (
+                        f" | {elem['breaker_category']}"
+                        if elem.get("breaker_category")
+                        else ""
+                    )
+                    manufacture_info = (
+                        f" | Έτος: {elem['manufacture_year']}"
+                        if elem.get("manufacture_year")
+                        and elem.get("manufacture_year") != "-"
+                        else ""
+                    )
+                    power_mva = elem.get("power_mva")
+                    power_display = f"{power_mva} MVA" if power_mva else "-"
+
+                    elem_text = (
+                        f"{row_counter}. [b][size=18]{elem['element_name']}[/size][/b] - "
+                        f"{elem_type_display}{breaker_info}\\n"
+                        f"   S/N: {elem['serial_number']}{manufacture_info}\\n"
+                        f"   Κατ.: {elem['manufacturer']} | Μοντ.: {elem['model']} | "
+                        f"Χώρος: {elem['installation_space']} | Τάση: {elem['voltage_level']} | "
+                        f"Ισχ.: {power_display}\\n"
+                        f"   Κύκλος: {elem['maintenance_cycle']} έτη | "
+                        f"Τελ. Συντ.: {elem['maintenance_date']} | "
+                        f"[color=ff0000][b]Επόμενη: {elem['next_due']}[/b][/color]"
+                    )
+
+                    elem_row = BoxLayout(size_hint_y=None, height=88, spacing=5)
+
+                    tags_layout = BoxLayout(
+                        orientation="horizontal",
+                        size_hint_x=None,
+                        width=(74 if str(elem.get("hemizygos") or "").strip() else 36),
+                        spacing=2,
+                    )
+
+                    hemizygos = str(elem.get("hemizygos") or "").strip()
+                    if callable(add_gate_tag_if_missing):
+                        add_gate_tag_if_missing(tags_layout, gate_name)
+                    else:
+                        gate_badge = Button(
+                            text=str(gate_name),
+                            size_hint_y=None,
+                            height=36,
+                            disabled=True,
+                            background_normal="",
+                            background_color=_fallback_gate_color(gate_name),
+                            color=(1, 1, 1, 1),
+                        )
+                        tags_layout.add_widget(gate_badge)
+
+                    if hemizygos:
+                        if callable(add_hemizygos_tag_if_missing):
+                            add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+                        else:
+                            hemi_badge = Button(
+                                text=hemizygos,
+                                size_hint_y=None,
+                                height=36,
+                                disabled=True,
+                                background_normal="",
+                                background_color=(0.33, 0.45, 0.65, 1),
+                                color=(1, 1, 1, 1),
+                            )
+                            tags_layout.add_widget(hemi_badge)
+                    elem_row.add_widget(tags_layout)
+
+                    elem_label = Label(
+                        text=elem_text,
+                        markup=True,
+                        halign="left",
+                        valign="top",
+                        size_hint=(0.76, None),
+                        height=88,
+                    )
+                    elem_label.bind(
+                        width=lambda inst, val: setattr(inst, "text_size", (val, None))
+                    )
+                    elem_row.add_widget(elem_label)
+
+                    elem_type_raw = elem.get("element_type") or ""
+                    is_transformer = bool(
+                        hasattr(app, "_is_transformer")
+                        and app._is_transformer(elem_type_raw)
+                    )
+                    button_slots = 4 + (1 if is_transformer else 0)
+                    slot_size = 1.0 / float(button_slots)
+                    btn_box = BoxLayout(
+                        size_hint_x=(0.30 if is_transformer else 0.24),
+                        spacing=6,
+                    )
+
+                    history_btn = _make_action_btn(
+                        "maintenance",
+                        "Ιστ.",
+                        (0.4, 0.6, 0.8, 1),
+                    )
+                    history_btn.size_hint_x = slot_size
+                    history_btn.bind(
+                        on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], p=popup: (
+                            app.show_element_maintenance_history(eid, ename, p)
+                            if hasattr(app, "show_element_maintenance_history")
+                            else None
+                        )
+                    )
+                    btn_box.add_widget(history_btn)
+
+                    view_btn = _make_action_btn(
+                        "eye",
+                        "Πρ.",
+                        getattr(app, "theme", {}).get("text", (0.12, 0.12, 0.12, 1)),
+                    )
+                    view_btn.size_hint_x = slot_size
+                    view_btn.bind(
+                        on_press=lambda _x, eid=elem["element_id"]: (
+                            app._show_element_quick_view(eid)
+                            if hasattr(app, "_show_element_quick_view")
+                            else None
+                        )
+                    )
+                    btn_box.add_widget(view_btn)
+
+                    if is_transformer:
+                        subelements_btn = _make_action_btn(
+                            "subelements",
+                            "Υποσ.",
+                            getattr(app, "theme", {}).get("primary", (0.2, 0.6, 1, 1)),
+                        )
+                        subelements_btn.size_hint_x = slot_size
+                        subelements_btn.bind(
+                            on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], sid=substation_id, sname=substation_name, p=popup: (
+                                app.show_manage_subelements_popup(
+                                    eid, ename, sid, sname, p
+                                )
+                                if hasattr(app, "show_manage_subelements_popup")
+                                else None
+                            )
+                        )
+                        btn_box.add_widget(subelements_btn)
+
+                    edit_btn = _make_action_btn(
+                        "edit",
+                        "Επ.",
+                        getattr(app, "theme", {}).get("primary", (0.2, 0.6, 1, 1)),
+                    )
+                    edit_btn.size_hint_x = slot_size
+                    edit_btn.bind(
+                        on_press=lambda _x, eid=elem["element_id"], sid=substation_id, sname=substation_name, p=popup: (
+                            app.show_edit_element_popup(eid, sid, p, sname)
+                            if hasattr(app, "show_edit_element_popup")
+                            else None
+                        )
+                    )
+                    btn_box.add_widget(edit_btn)
+
+                    delete_btn = _make_action_btn(
+                        "delete",
+                        "Δι.",
+                        (1, 0.0, 0.0, 1),
+                    )
+                    delete_btn.size_hint_x = slot_size
+                    delete_btn.bind(
+                        on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], sid=substation_id, sname=substation_name, p=popup: (
+                            app.confirm_delete_element(eid, ename, sid, p, sname)
+                            if hasattr(app, "confirm_delete_element")
+                            else None
+                        )
+                    )
+                    btn_box.add_widget(delete_btn)
+
+                    elem_row.add_widget(btn_box)
+                    details_panel.add_widget(elem_row)
+
+                    details_panel.add_widget(Label(text="", size_hint_y=None, height=1))
+                    row_counter += 1
 
             def _toggle_details(
                 _btn,
