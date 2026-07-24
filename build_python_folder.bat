@@ -13,13 +13,9 @@ echo   Substation Manager - Python Folder Build
 echo ========================================
 echo.
 
-if exist "%OUT_DIR%" (
-    echo [1/4] Cleaning old output folder...
-    rmdir /s /q "%OUT_DIR%"
-)
-
+echo [1/4] Preparing output folder...
 if not exist "%OUT_ROOT%" mkdir "%OUT_ROOT%"
-mkdir "%OUT_DIR%"
+if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
 echo [2/4] Copying project files...
 robocopy "%SRC_DIR%" "%OUT_DIR%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XD ".git" ".venv" "build" "dist" "__pycache__" ".pytest_cache" ".ruff_cache" ".vscode" "backups" "backups_auto" "user_data" /XF "*.pyc" "*.pyo" "SubstationManager.spec" "build_*.log" "pyinstaller_run.log"
@@ -73,6 +69,10 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo.
     echo :main
     echo set "VENV_DIR=%%CD%%\.venv"
+    echo set "PY_RUNTIME_CFG=%%CD%%\python_runtime.conf"
+    echo set "PYTHON_EXE_OVERRIDE="
+    echo call :load_python_runtime_config
+    echo if errorlevel 1 exit /b 1
     echo.
     echo if exist "%%VENV_DIR%%\Scripts\python.exe" ^(
     echo ^    call :check_venv_py312
@@ -106,12 +106,40 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo "%%VENV_DIR%%\Scripts\python.exe" DBrun.py
     echo exit /b %%ERRORLEVEL%%
     echo.
+    echo :load_python_runtime_config
+    echo if not exist "%%PY_RUNTIME_CFG%%" exit /b 0
+    echo for /f "usebackq tokens=1,* delims==" %%%%A in ("%%PY_RUNTIME_CFG%%"^) do ^(
+    echo ^    set "_K=%%%%~A"
+    echo ^    set "_V=%%%%~B"
+    echo ^    if /I "!_K!"=="PYTHON_EXE" set "PYTHON_EXE_OVERRIDE=!_V!"
+    echo ^)
+    echo if defined PYTHON_EXE_OVERRIDE if not exist "%%PYTHON_EXE_OVERRIDE%%" ^(
+    echo ^    echo Configured PYTHON_EXE does not exist: %%PYTHON_EXE_OVERRIDE%%
+    echo ^    exit /b 1
+    echo ^)
+    echo exit /b 0
+    echo.
     echo :check_venv_py312
+    echo if exist "%%VENV_DIR%%\pyvenv.cfg" ^(
+    echo ^    findstr /R /C:"^version *= *3\.12\." "%%VENV_DIR%%\pyvenv.cfg" ^>nul 2^>nul
+    echo ^    if not errorlevel 1 exit /b 0
+    echo ^)
     echo "%%VENV_DIR%%\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2]==^(3,12^) else 1)" ^>nul 2^>nul
     echo if not errorlevel 1 exit /b 0
     echo exit /b 1
     echo.
     echo :create_venv
+    echo if defined PYTHON_EXE_OVERRIDE ^(
+    echo ^    call :check_python312 "%%PYTHON_EXE_OVERRIDE%%"
+    echo ^    if errorlevel 1 exit /b 1
+    echo ^    echo Creating local virtual environment with configured Python 3.12...
+    echo ^    "%%PYTHON_EXE_OVERRIDE%%" -m venv "%%VENV_DIR%%"
+    echo ^    if errorlevel 1 ^(
+    echo ^        echo Failed to create virtual environment.
+    echo ^        exit /b 1
+    echo ^    ^)
+    echo ^    exit /b 0
+    echo ^)
     echo py -3.12 -c "import sys" ^>nul 2^>nul
     echo if not errorlevel 1 goto :create_venv_py312
     echo.
@@ -125,6 +153,7 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo python -c "import sys; sys.exit(0 if sys.version_info[:2]==^(3,12^) else 1)" ^>nul 2^>nul
     echo if errorlevel 1 ^(
     echo ^    echo Detected system Python version is not 3.12.
+    echo ^    echo Optional fix: edit %%PY_RUNTIME_CFG%% and set PYTHON_EXE to your Python 3.12 path.
     echo ^    echo This app currently requires Python 3.12 because of Kivy dependency compatibility.
     echo ^    echo Install Python 3.12 and rerun this launcher.
     echo ^    exit /b 1
@@ -143,6 +172,18 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo py -3.12 -m venv "%%VENV_DIR%%"
     echo if errorlevel 1 ^(
     echo ^    echo Failed to create virtual environment.
+    echo ^    exit /b 1
+    echo ^)
+    echo exit /b 0
+    echo.
+    echo :check_python312
+    echo set "_PY_CMD=%%~1"
+    echo if "%%_PY_CMD%%"=="" ^(
+    echo ^    set "_PY_CMD=python"
+    echo ^)
+    echo "%%_PY_CMD%%" -c "import sys; sys.exit(0 if sys.version_info[:2]==^(3,12^) else 1)" ^>nul 2^>nul
+    echo if errorlevel 1 ^(
+    echo ^    echo Configured Python is not version 3.12: %%_PY_CMD%%
     echo ^    exit /b 1
     echo ^)
     echo exit /b 0
@@ -172,6 +213,16 @@ set "PS_RUNNER=%OUT_DIR%\launcher_runner.ps1"
     echo }
     echo exit $ec
 ) > "%PS_RUNNER%"
+
+set "PY_RUNTIME_CFG=%OUT_DIR%\python_runtime.conf"
+if not exist "%PY_RUNTIME_CFG%" (
+    (
+        echo ; Substation Manager Python runtime override
+        echo ; Set absolute path to Python 3.12 executable when auto-detection fails.
+        echo ; Example: PYTHON_EXE=C:\Users\YourUser\AppData\Local\Programs\Python\Python312\python.exe
+        echo PYTHON_EXE=
+    ) > "%PY_RUNTIME_CFG%"
+)
 
 echo [4/4] Done.
 echo.
