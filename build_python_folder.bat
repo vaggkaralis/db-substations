@@ -18,7 +18,7 @@ if not exist "%OUT_ROOT%" mkdir "%OUT_ROOT%"
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
 echo [2/4] Copying project files...
-robocopy "%SRC_DIR%" "%OUT_DIR%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XD ".git" ".venv" "build" "dist" "__pycache__" ".pytest_cache" ".ruff_cache" ".vscode" "backups" "backups_auto" "user_data" /XF "*.pyc" "*.pyo" "SubstationManager.spec" "build_*.log" "pyinstaller_run.log"
+robocopy "%SRC_DIR%" "%OUT_DIR%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XD ".git" ".venv" "build" "dist" "__pycache__" ".pytest_cache" ".ruff_cache" ".vscode" "backups" "backups_auto" "user_data" "tests" "tools" "00_Assitive" ".VSCodeCounter" /XF "*.pyc" "*.pyo" "SubstationManager.spec" "build_*.log" "pyinstaller_run.log" ".coverage" "pytest*.txt" "app_crash.log" "faulthandler.log" "substation_asset_maintenance.accdb"
 set "ROBO_EXIT=%ERRORLEVEL%"
 if %ROBO_EXIT% GEQ 8 (
     echo.
@@ -27,8 +27,22 @@ if %ROBO_EXIT% GEQ 8 (
     goto :final
 )
 
+echo [2b/4] Removing non-runtime artifacts from output...
+if exist "%OUT_DIR%\00_Assitive" rmdir /s /q "%OUT_DIR%\00_Assitive"
+if exist "%OUT_DIR%\tests" rmdir /s /q "%OUT_DIR%\tests"
+if exist "%OUT_DIR%\tools" rmdir /s /q "%OUT_DIR%\tools"
+if exist "%OUT_DIR%\.VSCodeCounter" rmdir /s /q "%OUT_DIR%\.VSCodeCounter"
+if exist "%OUT_DIR%\__pycache__" rmdir /s /q "%OUT_DIR%\__pycache__"
+if exist "%OUT_DIR%\substation_asset_maintenance.accdb" del /q "%OUT_DIR%\substation_asset_maintenance.accdb"
+if exist "%OUT_DIR%\.coverage" del /q "%OUT_DIR%\.coverage"
+if exist "%OUT_DIR%\pytest_android_draft_out.txt" del /q "%OUT_DIR%\pytest_android_draft_out.txt"
+if exist "%OUT_DIR%\pytest_out.txt" del /q "%OUT_DIR%\pytest_out.txt"
+if exist "%OUT_DIR%\pytest_output.txt" del /q "%OUT_DIR%\pytest_output.txt"
+if exist "%OUT_DIR%\app_crash.log" del /q "%OUT_DIR%\app_crash.log"
+if exist "%OUT_DIR%\faulthandler.log" del /q "%OUT_DIR%\faulthandler.log"
+
 echo [3/4] Creating single-file launcher...
-set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
+set "LAUNCHER=%OUT_DIR%\00_Start_SubstationManager.bat"
 (
     echo @echo off
     echo if /I "%%~1"=="--runmain" goto :runmain
@@ -55,13 +69,14 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo :finalize
     echo if %%APP_EXIT%% EQU 0 ^(
     echo ^    echo Application exited successfully.
+    echo ^    exit /b 0
     echo ^) else ^(
     echo ^    echo Application exited with error code %%APP_EXIT%%.
     echo ^    echo See launcher log: %%LOG_FILE%%
+    echo ^    pause
+    echo ^    exit /b %%APP_EXIT%%
     echo ^)
     echo.
-    echo pause
-    echo exit /b %%APP_EXIT%%
     echo.
     echo :runmain
     echo call :main
@@ -77,7 +92,7 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo if exist "%%VENV_DIR%%\Scripts\python.exe" ^(
     echo ^    call :check_venv_py312
     echo ^    if errorlevel 1 ^(
-    echo ^        echo Existing virtual environment is not Python 3.12. Recreating...
+    echo ^        echo Existing virtual environment is not Python 3.12/3.13. Recreating...
     echo ^        rmdir /s /q "%%VENV_DIR%%"
     echo ^    ^)
     echo ^)
@@ -99,7 +114,14 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo ^        echo Failed to install dependencies.
     echo ^        exit /b 1
     echo ^    ^)
+    echo ^    call :prune_venv_runtime
+    echo ^    if errorlevel 1 exit /b 1
     echo ^    type nul ^> "%%VENV_DIR%%\.deps_ok"
+    echo ^)
+    echo if not exist "%%VENV_DIR%%\.pruned_ok" ^(
+    echo ^    call :prune_venv_runtime
+    echo ^    if errorlevel 1 exit /b 1
+    echo ^    type nul ^> "%%VENV_DIR%%\.pruned_ok"
     echo ^)
     echo.
     echo echo Launching Substation Manager...
@@ -121,18 +143,32 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo.
     echo :check_venv_py312
     echo if exist "%%VENV_DIR%%\pyvenv.cfg" ^(
-    echo ^    findstr /R /C:"^version *= *3\.12\." "%%VENV_DIR%%\pyvenv.cfg" ^>nul 2^>nul
+    echo ^    findstr /R /C:"^version *= *3\.12\." /C:"^version *= *3\.13\." "%%VENV_DIR%%\pyvenv.cfg" ^>nul 2^>nul
     echo ^    if not errorlevel 1 exit /b 0
     echo ^)
-    echo "%%VENV_DIR%%\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2]==^(3,12^) else 1)" ^>nul 2^>nul
+    echo "%%VENV_DIR%%\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2] in ^((3,12^),(3,13^)^) else 1)" ^>nul 2^>nul
     echo if not errorlevel 1 exit /b 0
     echo exit /b 1
     echo.
+    echo :prune_venv_runtime
+    echo set "SP_DIR=%%VENV_DIR%%\Lib\site-packages"
+    echo if not exist "%%SP_DIR%%" exit /b 0
+    echo echo Pruning optional package test and cache files...
+    echo if exist "%%SP_DIR%%\pandas\tests" rmdir /s /q "%%SP_DIR%%\pandas\tests"
+    echo if exist "%%SP_DIR%%\numpy\tests" rmdir /s /q "%%SP_DIR%%\numpy\tests"
+    echo if exist "%%SP_DIR%%\PIL\Tests" rmdir /s /q "%%SP_DIR%%\PIL\Tests"
+    echo if exist "%%SP_DIR%%\reportlab\tests" rmdir /s /q "%%SP_DIR%%\reportlab\tests"
+    echo if exist "%%SP_DIR%%\pythonwin" rmdir /s /q "%%SP_DIR%%\pythonwin"
+    echo if exist "%%SP_DIR%%\PyWin32.chm" del /q "%%SP_DIR%%\PyWin32.chm"
+    echo for /r "%%SP_DIR%%" %%%%D in (__pycache__^) do @if exist "%%%%D" rmdir /s /q "%%%%D"
+    echo for /r "%%SP_DIR%%" %%%%F in (*.pyc^) do @if exist "%%%%F" del /q "%%%%F"
+    echo exit /b 0
+    echo.
     echo :create_venv
     echo if defined PYTHON_EXE_OVERRIDE ^(
-    echo ^    call :check_python312 "%%PYTHON_EXE_OVERRIDE%%"
+    echo ^    call :check_python_supported "%%PYTHON_EXE_OVERRIDE%%"
     echo ^    if errorlevel 1 exit /b 1
-    echo ^    echo Creating local virtual environment with configured Python 3.12...
+    echo ^    echo Creating local virtual environment with configured Python 3.12/3.13...
     echo ^    "%%PYTHON_EXE_OVERRIDE%%" -m venv "%%VENV_DIR%%"
     echo ^    if errorlevel 1 ^(
     echo ^        echo Failed to create virtual environment.
@@ -140,27 +176,38 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo ^    ^)
     echo ^    exit /b 0
     echo ^)
+    echo py -3.13 -c "import sys" ^>nul 2^>nul
+    echo if not errorlevel 1 goto :create_venv_py313
     echo py -3.12 -c "import sys" ^>nul 2^>nul
     echo if not errorlevel 1 goto :create_venv_py312
     echo.
     echo where python ^>nul 2^>nul
     echo if errorlevel 1 ^(
-    echo ^    echo Python 3.12 was not found on this machine.
-    echo ^    echo Please install Python 3.12 and run this file again.
+    echo ^    echo Python 3.12 or 3.13 was not found on this machine.
+    echo ^    echo Please install Python 3.12 or 3.13 and run this file again.
     echo ^    exit /b 1
     echo ^)
     echo.
-    echo python -c "import sys; sys.exit(0 if sys.version_info[:2]==^(3,12^) else 1)" ^>nul 2^>nul
+    echo python -c "import sys; sys.exit(0 if sys.version_info[:2] in ^((3,12^),(3,13^)^) else 1)" ^>nul 2^>nul
     echo if errorlevel 1 ^(
-    echo ^    echo Detected system Python version is not 3.12.
-    echo ^    echo Optional fix: edit %%PY_RUNTIME_CFG%% and set PYTHON_EXE to your Python 3.12 path.
-    echo ^    echo This app currently requires Python 3.12 because of Kivy dependency compatibility.
-    echo ^    echo Install Python 3.12 and rerun this launcher.
+    echo ^    echo Detected system Python version is not 3.12 or 3.13.
+    echo ^    echo Optional fix: edit %%PY_RUNTIME_CFG%% and set PYTHON_EXE to your Python 3.12/3.13 path.
+    echo ^    echo This app currently requires Python 3.12 or 3.13 because of Kivy dependency compatibility.
+    echo ^    echo Install Python 3.12 or 3.13 and rerun this launcher.
     echo ^    exit /b 1
     echo ^)
     echo.
-    echo echo Creating local virtual environment with Python 3.12...
+    echo echo Creating local virtual environment with Python 3.12/3.13...
     echo python -m venv "%%VENV_DIR%%"
+    echo if errorlevel 1 ^(
+    echo ^    echo Failed to create virtual environment.
+    echo ^    exit /b 1
+    echo ^)
+    echo exit /b 0
+    echo.
+    echo :create_venv_py313
+    echo echo Creating local virtual environment with Python 3.13...
+    echo py -3.13 -m venv "%%VENV_DIR%%"
     echo if errorlevel 1 ^(
     echo ^    echo Failed to create virtual environment.
     echo ^    exit /b 1
@@ -176,14 +223,14 @@ set "LAUNCHER=%OUT_DIR%\Start_SubstationManager.bat"
     echo ^)
     echo exit /b 0
     echo.
-    echo :check_python312
+    echo :check_python_supported
     echo set "_PY_CMD=%%~1"
     echo if "%%_PY_CMD%%"=="" ^(
     echo ^    set "_PY_CMD=python"
     echo ^)
-    echo "%%_PY_CMD%%" -c "import sys; sys.exit(0 if sys.version_info[:2]==^(3,12^) else 1)" ^>nul 2^>nul
+    echo "%%_PY_CMD%%" -c "import sys; sys.exit(0 if sys.version_info[:2] in ^((3,12^),(3,13^)^) else 1)" ^>nul 2^>nul
     echo if errorlevel 1 ^(
-    echo ^    echo Configured Python is not version 3.12: %%_PY_CMD%%
+    echo ^    echo Configured Python is not version 3.12/3.13: %%_PY_CMD%%
     echo ^    exit /b 1
     echo ^)
     echo exit /b 0
@@ -218,8 +265,8 @@ set "PY_RUNTIME_CFG=%OUT_DIR%\python_runtime.conf"
 if not exist "%PY_RUNTIME_CFG%" (
     (
         echo ; Substation Manager Python runtime override
-        echo ; Set absolute path to Python 3.12 executable when auto-detection fails.
-        echo ; Example: PYTHON_EXE=C:\Users\YourUser\AppData\Local\Programs\Python\Python312\python.exe
+        echo ; Set absolute path to Python 3.12 or 3.13 executable when auto-detection fails.
+        echo ; Example: PYTHON_EXE=C:\Users\YourUser\AppData\Local\Programs\Python\Python313\python.exe
         echo PYTHON_EXE=
     ) > "%PY_RUNTIME_CFG%"
 )
@@ -230,7 +277,7 @@ echo Output folder:
 echo   %OUT_DIR%
 echo.
 echo End-user action:
-echo   Double-click Start_SubstationManager.bat inside that folder.
+echo   Double-click 00_Start_SubstationManager.bat inside that folder.
 echo.
 
 :final
