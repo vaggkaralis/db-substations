@@ -299,20 +299,20 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
                     hemizygos_rank = (2, hemizygos_label.casefold())
 
             if elem_type == getattr(app, "ELEM_BREAKER_YT", ""):
-                return (*hemizygos_rank, 1, elem_name)
+                return (1, hemizygos_rank, elem_name)
             if is_transformer:
-                return (*hemizygos_rank, 2, elem_name)
+                return (2, hemizygos_rank, elem_name)
             if elem_type == "Motor Drive":
-                return (*hemizygos_rank, 3, elem_name)
+                return (3, hemizygos_rank, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 1:
-                return (*hemizygos_rank, 4, elem_name)
+                return (4, hemizygos_rank, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 2:
-                return (*hemizygos_rank, 5, elem_name)
+                return (5, hemizygos_rank, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 0:
-                return (*hemizygos_rank, 6, elem_name)
+                return (6, hemizygos_rank, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 3:
-                return (*hemizygos_rank, 7, elem_name)
-            return (*hemizygos_rank, 8, elem_name)
+                return (7, hemizygos_rank, elem_name)
+            return (8, hemizygos_rank, elem_name)
 
         for group in due_groups:
             substation_name = group["substation_name"]

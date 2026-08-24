@@ -9388,29 +9388,29 @@ class SubstationApp(App):
 
                         # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV line breakers, MV capacitor breakers, rest
                         if elem_type == self.ELEM_BREAKER_YT:
-                            return (*hemizygos_rank, 1, elem_name)
+                            return (1, hemizygos_rank, elem_name)
                         elif self._is_transformer(elem_type):
-                            return (*hemizygos_rank, 2, elem_name)
+                            return (2, hemizygos_rank, elem_name)
                         elif elem_type == "Motor Drive":
-                            return (*hemizygos_rank, 3, elem_name)
+                            return (3, hemizygos_rank, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 1
                         ):  # Main breaker
-                            return (*hemizygos_rank, 4, elem_name)
+                            return (4, hemizygos_rank, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 2
                         ):  # Interconnection breaker
-                            return (*hemizygos_rank, 5, elem_name)
+                            return (5, hemizygos_rank, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 0
                         ):  # Line breaker
-                            return (*hemizygos_rank, 6, elem_name)
+                            return (6, hemizygos_rank, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 3
                         ):  # Capacitor breaker
-                            return (*hemizygos_rank, 7, elem_name)
+                            return (7, hemizygos_rank, elem_name)
                         else:
-                            return (*hemizygos_rank, 8, elem_name)
+                            return (8, hemizygos_rank, elem_name)
 
                     # Group active elements by gate
                     gates_dict = {}

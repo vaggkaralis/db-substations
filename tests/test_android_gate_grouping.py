@@ -163,9 +163,9 @@ def test_group_elements_by_gate_places_hemizygos_1_before_hemizygos_2():
 
     assert [name for name, _ in grouped] == ["ΠΥΛΗ 1"]
     assert [elem["name"] for elem in grouped[0][1]] == [
+        "HV Hemizygos 2",
         "Transformer Hemizygos 1",
         "MV Breaker Hemizygos 1",
-        "HV Hemizygos 2",
         "MV Breaker Hemizygos 2",
     ]
 
