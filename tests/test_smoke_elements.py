@@ -7,6 +7,7 @@ def test_import_elements_module_and_delegate_exists():
     mod = importlib.import_module("elements")
     # Ensure at least one safe delegate exists (doesn't require an app instance)
     assert hasattr(mod, "show_add_element_popup_delegate")
+    assert hasattr(mod, "show_add_subelement_entry_popup")
 
 
 def test_show_element_history_ignores_orphan_links(monkeypatch):

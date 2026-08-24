@@ -279,25 +279,40 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
         def _element_sort_priority(element):
             elem_type = element.get("element_type")
             elem_name = str(element.get("element_name") or "").lower()
+            hemizygos_label = str(element.get("hemizygos") or "").strip()
             is_main_switch = element.get("is_main_switch")
             is_transformer = bool(
                 hasattr(app, "_is_transformer") and app._is_transformer(elem_type)
             )
+
+            if not hemizygos_label:
+                hemizygos_rank = (2, "")
+            else:
+                match = re.search(r"(\d+)", hemizygos_label)
+                if match:
+                    try:
+                        rank = int(match.group(1))
+                        hemizygos_rank = (rank - 1, hemizygos_label.casefold())
+                    except ValueError:
+                        hemizygos_rank = (2, hemizygos_label.casefold())
+                else:
+                    hemizygos_rank = (2, hemizygos_label.casefold())
+
             if elem_type == getattr(app, "ELEM_BREAKER_YT", ""):
-                return (1, elem_name)
+                return (*hemizygos_rank, 1, elem_name)
             if is_transformer:
-                return (2, elem_name)
+                return (*hemizygos_rank, 2, elem_name)
             if elem_type == "Motor Drive":
-                return (3, elem_name)
+                return (*hemizygos_rank, 3, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 1:
-                return (4, elem_name)
+                return (*hemizygos_rank, 4, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 2:
-                return (5, elem_name)
+                return (*hemizygos_rank, 5, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 0:
-                return (6, elem_name)
+                return (*hemizygos_rank, 6, elem_name)
             if elem_type == getattr(app, "ELEM_BREAKER_MT", "") and is_main_switch == 3:
-                return (7, elem_name)
-            return (8, elem_name)
+                return (*hemizygos_rank, 7, elem_name)
+            return (*hemizygos_rank, 8, elem_name)
 
         for group in due_groups:
             substation_name = group["substation_name"]

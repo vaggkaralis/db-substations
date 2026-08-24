@@ -2366,6 +2366,7 @@ class SubstationAndroidApp(App):
     def _element_display_sort_key(self, elem):
         elem_type = str(elem.get("element_type") or "").strip()
         elem_name = str(elem.get("name") or "").strip().casefold()
+        hemizygos_label = str(elem.get("hemizygos") or "").strip()
         hv_breaker_type = getattr(
             self,
             "ELEM_BREAKER_YT",
@@ -2382,24 +2383,39 @@ class SubstationAndroidApp(App):
         except (TypeError, ValueError):
             is_main_switch = -1
 
+        def hemizygos_sort_key(label):
+            if not label:
+                return (2, "")
+            match = re.search(r"(\d+)", label)
+            if match:
+                try:
+                    rank = int(match.group(1))
+                    if rank in (1, 2):
+                        return (rank - 1, label.casefold())
+                except ValueError:
+                    pass
+            return (2, label.casefold())
+
+        hemizygos_rank = hemizygos_sort_key(hemizygos_label)
+
         # Match desktop ordering: HV breaker, transformer, motor drive,
         # MV main breaker, MV interconnection breaker, MV line breaker,
         # MV capacitor breaker, then everything else.
         if elem_type == hv_breaker_type:
-            return (1, elem_name)
+            return (*hemizygos_rank, 1, elem_name)
         if self._is_transformer(elem_type):
-            return (2, elem_name)
+            return (*hemizygos_rank, 2, elem_name)
         if elem_type == "Motor Drive":
-            return (3, elem_name)
+            return (*hemizygos_rank, 3, elem_name)
         if elem_type == mv_breaker_type and is_main_switch == 1:
-            return (4, elem_name)
+            return (*hemizygos_rank, 4, elem_name)
         if elem_type == mv_breaker_type and is_main_switch == 2:
-            return (5, elem_name)
+            return (*hemizygos_rank, 5, elem_name)
         if elem_type == mv_breaker_type and is_main_switch == 0:
-            return (6, elem_name)
+            return (*hemizygos_rank, 6, elem_name)
         if elem_type == mv_breaker_type and is_main_switch == 3:
-            return (7, elem_name)
-        return (8, elem_name)
+            return (*hemizygos_rank, 7, elem_name)
+        return (*hemizygos_rank, 8, elem_name)
 
     def _group_elements_by_gate(self, elements):
         grouped = {}

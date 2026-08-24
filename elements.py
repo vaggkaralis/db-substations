@@ -818,12 +818,238 @@ def show_manage_subelements_popup(
     popup.open()
 
 
+def show_add_subelement_entry_popup(app, parent_popup=None):
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.spinner import Spinner
+
+    from popups import show_message_popup
+
+    cursor = app.conn.cursor()
+    cursor.execute("SELECT id, name FROM substations ORDER BY name")
+    substations = cursor.fetchall()
+    if not substations:
+        show_message_popup(
+            S["TITLES"].get("ERROR", "Σφάλμα"),
+            S["MESSAGES"].get("NO_SUBSTATIONS", "Δεν υπάρχουν υποσταθμοί!"),
+        )
+        return
+
+    type_values = list(getattr(app, "TRANSFORMER_SUBELEMENT_TYPES", ["Motor Drive"]))
+    selected_type = type_values[0] if type_values else ""
+
+    popup = Popup(
+        title=S["MESSAGES"].get("ADD_SUBELEMENT_TITLE", "Προσθήκη Υποστοιχείου"),
+        size_hint=(0.82, 0.62),
+    )
+    main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    substation_map = {name: sub_id for sub_id, name in substations}
+    parent_data = {}
+
+    main_layout.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SUBELEMENT_TYPE_LABEL", "Τύπος Υποστοιχείου:"),
+            size_hint_y=None,
+            height=30,
+        )
+    )
+    type_spinner = Spinner(
+        text=selected_type, values=type_values, size_hint_y=None, height=40
+    )
+    main_layout.add_widget(type_spinner)
+
+    family_label = Label(
+        text=S["MESSAGES"].get(
+            "SUBELEMENT_PARENT_FAMILIES_LABEL",
+            "Γονικές οικογένειες",
+        )
+        + ": "
+        + ", ".join(
+            getattr(
+                app,
+                "_get_subelement_parent_families",
+                lambda _t: [
+                    S["MESSAGES"].get("TRANSFORMER_FAMILY_LABEL", "Μετασχηματιστής")
+                ],
+            )(selected_type)
+        ),
+        size_hint_y=None,
+        height=30,
+    )
+    main_layout.add_widget(family_label)
+
+    main_layout.add_widget(
+        Label(
+            text=S["MESSAGES"].get("SELECT_SUBSTATION", "Επιλέξτε Υποσταθμό:"),
+            size_hint_y=None,
+            height=30,
+        )
+    )
+    substation_spinner = Spinner(
+        text=substations[0][1],
+        values=[name for _sub_id, name in substations],
+        size_hint_y=None,
+        height=40,
+    )
+    main_layout.add_widget(substation_spinner)
+
+    main_layout.add_widget(
+        Label(
+            text=S["MESSAGES"].get(
+                "SUBELEMENT_PARENT_ELEMENT_LABEL", "Γονικό στοιχείο:"
+            ),
+            size_hint_y=None,
+            height=30,
+        )
+    )
+    parent_spinner = Spinner(text="", values=[], size_hint_y=None, height=40)
+    main_layout.add_widget(parent_spinner)
+
+    def _parent_family_label_for(selected_subelement_type):
+        helper = getattr(app, "_get_subelement_parent_families", None)
+        if callable(helper):
+            try:
+                families = [
+                    family
+                    for family in (helper(selected_subelement_type) or [])
+                    if family
+                ]
+                if families:
+                    return ", ".join(families)
+            except Exception:
+                pass
+        return S["MESSAGES"].get("TRANSFORMER_FAMILY_LABEL", "Μετασχηματιστής")
+
+    def _is_allowed_parent(elem_type, selected_subelement_type):
+        helper = getattr(app, "_is_valid_parent_for_subelement", None)
+        if callable(helper):
+            try:
+                return bool(helper(elem_type, selected_subelement_type))
+            except Exception:
+                pass
+        transformer_helper = getattr(app, "_is_transformer", None)
+        if callable(transformer_helper):
+            try:
+                return bool(transformer_helper(elem_type))
+            except Exception:
+                pass
+        text = str(elem_type or "").strip().casefold()
+        return "150/20" in text or "transform" in text or "μετασχημα" in text
+
+    def load_parents(substation_name, selected_subelement_type):
+        sub_id = substation_map.get(substation_name)
+        parent_data.clear()
+        if not sub_id:
+            parent_spinner.values = []
+            parent_spinner.text = ""
+            return
+
+        cursor.execute(
+            """
+            SELECT id, name, serial_number, gate, element_type
+            FROM elements
+            WHERE substation_id=? AND COALESCE(parent_element_id, 0)=0
+            ORDER BY name
+            """,
+            (sub_id,),
+        )
+        rows = [
+            row
+            for row in cursor.fetchall() or []
+            if _is_allowed_parent(row[4], selected_subelement_type)
+        ]
+        if not rows:
+            parent_spinner.values = []
+            parent_spinner.text = ""
+            return
+
+        parent_spinner.values = [
+            f"{name} (S/N: {serial_number or '-'}, Gate: {gate or '-'})"
+            for _id, name, serial_number, gate, _type in rows
+        ]
+        parent_spinner.text = parent_spinner.values[0]
+        for row, display in zip(rows, parent_spinner.values):
+            parent_data[display] = row
+
+    def _sync_family_hint(text):
+        family_label.text = (
+            S["MESSAGES"].get("SUBELEMENT_PARENT_FAMILIES_LABEL", "Γονικές οικογένειες")
+            + ": "
+            + _parent_family_label_for(text)
+        )
+
+    def _on_substation_change(_spinner, text):
+        load_parents(text, type_spinner.text)
+
+    def _on_type_change(_spinner, text):
+        _sync_family_hint(text)
+        load_parents(substation_spinner.text, text)
+
+    def _proceed(_instance=None):
+        if not parent_spinner.text:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get(
+                    "DGA_SELECT_TRANSFORMER_REQUIRED",
+                    "Παρακαλώ επιλέξτε ένα γονικό στοιχείο",
+                ),
+            )
+            return
+
+        row = parent_data.get(parent_spinner.text)
+        if not row:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get(
+                    "DGA_SELECT_TRANSFORMER_REQUIRED",
+                    "Παρακαλώ επιλέξτε ένα γονικό στοιχείο",
+                ),
+            )
+            return
+
+        parent_id, parent_name, _serial, _gate, _elem_type = row
+        substation_name = substation_spinner.text
+        substation_id = substation_map.get(substation_name)
+        popup.dismiss()
+        show_add_subelement_popup(
+            app,
+            parent_id,
+            parent_name,
+            substation_id,
+            substation_name,
+            preselected_type=type_spinner.text,
+        )
+
+    substation_spinner.bind(text=_on_substation_change)
+    type_spinner.bind(text=_on_type_change)
+    _sync_family_hint(type_spinner.text)
+    load_parents(substation_spinner.text, type_spinner.text)
+
+    buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
+    proceed_btn = Button(text=S["BUTTONS"].get("CONTINUE", "Συνέχεια"))
+    proceed_btn.bind(on_press=_proceed)
+    buttons.add_widget(proceed_btn)
+    cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"))
+    cancel_btn.bind(on_press=popup.dismiss)
+    buttons.add_widget(cancel_btn)
+    main_layout.add_widget(buttons)
+
+    if parent_popup:
+        parent_popup.dismiss()
+    popup.content = main_layout
+    popup.open()
+
+
 def show_add_subelement_popup(
     app,
     parent_element_id,
     parent_element_name,
     substation_id,
     substation_name,
+    preselected_type=None,
     refresh_callback=None,
 ):
     from kivy.uix.boxlayout import BoxLayout
@@ -844,7 +1070,11 @@ def show_add_subelement_popup(
     parent_row = cursor.fetchone()
     if not parent_row:
         show_message_popup(
-            S["TITLES"].get("ERROR", "Σφάλμα"), "Ο γονικός μετασχηματιστής δεν βρέθηκε."
+            S["TITLES"].get("ERROR", "Σφάλμα"),
+            S["MESSAGES"].get(
+                "PARENT_ELEMENT_NOT_FOUND",
+                "Το γονικό στοιχείο δεν βρέθηκε.",
+            ),
         )
         return
 
@@ -872,7 +1102,7 @@ def show_add_subelement_popup(
 
     layout.add_widget(
         Label(
-            text=f"Γονικός μετασχηματιστής: {parent_element_name}",
+            text=f"{S['MESSAGES'].get('SUBELEMENT_PARENT_ELEMENT_LABEL', 'Γονικό στοιχείο')}: {parent_element_name}",
             size_hint_y=None,
             height=30,
         )
@@ -880,7 +1110,10 @@ def show_add_subelement_popup(
     layout.add_widget(Label(text="Τύπος Υποστοιχείου:", size_hint_y=None, height=30))
     type_values = list(getattr(app, "TRANSFORMER_SUBELEMENT_TYPES", ["Motor Drive"]))
     type_spinner = Spinner(
-        text=type_values[0], values=type_values, size_hint_y=None, height=40
+        text=(preselected_type if preselected_type in type_values else type_values[0]),
+        values=type_values,
+        size_hint_y=None,
+        height=40,
     )
     layout.add_widget(type_spinner)
 

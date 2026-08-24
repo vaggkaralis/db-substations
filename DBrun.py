@@ -1323,6 +1323,11 @@ class SubstationApp(App):
         if _t not in _mc:
             _mc.append(_t)
     MODEL_CATEGORIES = _mc
+    SUBELEMENT_PARENT_FAMILY_MAP = {}
+    for _t in locals().get("SUBELEMENT_TYPES", []):
+        SUBELEMENT_PARENT_FAMILY_MAP[_t] = [
+            S["MESSAGES"].get("TRANSFORMER_FAMILY_LABEL", "Μετασχηματιστής")
+        ]
     MOTOR_DRIVE_TYPE = "Motor Drive"
     SURGE_ARRESTER_TYPE = "Αλεξικέραυνο"
     BREAKER_CATEGORIES_ALL = S["MESSAGES"].get(
@@ -3099,6 +3104,22 @@ class SubstationApp(App):
 
     def _is_transformer_subelement_type(self, elem_type: str) -> bool:
         return elem_type in self.TRANSFORMER_SUBELEMENT_TYPES
+
+    def _get_subelement_parent_families(self, subelement_type: str):
+        families = self.SUBELEMENT_PARENT_FAMILY_MAP.get(subelement_type)
+        if not families:
+            return [S["MESSAGES"].get("TRANSFORMER_FAMILY_LABEL", "Μετασχηματιστής")]
+        return [family for family in families if family]
+
+    def _is_valid_parent_for_subelement(
+        self, parent_elem_type: str, subelement_type: str
+    ):
+        families = self._get_subelement_parent_families(subelement_type)
+        if not families:
+            return False
+        if S["MESSAGES"].get("TRANSFORMER_FAMILY_LABEL", "Μετασχηματιστής") in families:
+            return self._is_transformer(parent_elem_type)
+        return False
 
     def _tokenize_text(self, value: str):
         """Wrapper for shared tokenize_text function."""
@@ -6511,6 +6532,23 @@ class SubstationApp(App):
     def sort_gate_labels_for_display(cls, gate_labels):
         return sorted(gate_labels, key=cls.gate_display_sort_key)
 
+    @staticmethod
+    def hemizygos_display_sort_key(hemizygos_label):
+        label = str(hemizygos_label or "").strip()
+        if not label:
+            return (2, "")
+
+        match = re.search(r"(\d+)", label)
+        if match:
+            try:
+                rank = int(match.group(1))
+                if rank in (1, 2):
+                    return (rank - 1, label.casefold())
+            except ValueError:
+                pass
+
+        return (2, label.casefold())
+
     # Utility to sort element rows for display using the requested gate order.
     @staticmethod
     def sort_element_gate_display(element_rows):
@@ -6567,6 +6605,16 @@ class SubstationApp(App):
         )
         layout.add_widget(add_element_btn)
 
+        # Add subelement button
+        add_subelement_btn = Button(
+            text=S["MESSAGES"].get("ADD_SUBELEMENT_BTN", "Προσθήκη Υποστοιχείου"),
+            size_hint_y=0.3,
+        )
+        add_subelement_btn.bind(
+            on_press=lambda x: self._show_add_subelement_from_menu(menu_popup)
+        )
+        layout.add_widget(add_subelement_btn)
+
         # Cancel button
         cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.2)
         cancel_btn.bind(on_press=menu_popup.dismiss)
@@ -6582,6 +6630,12 @@ class SubstationApp(App):
     def _show_add_element_from_menu(self, menu_popup):
         menu_popup.dismiss()
         self.show_add_element_popup(None)
+
+    def _show_add_subelement_from_menu(self, menu_popup):
+        menu_popup.dismiss()
+        from elements import show_add_subelement_entry_popup as _f
+
+        return _f(self)
 
     def show_add_substation_popup(self, instance):
         # Create popup
@@ -9328,31 +9382,35 @@ class SubstationApp(App):
                             manual_pdf,
                         ) = elem
 
+                        hemizygos_rank = SubstationApp.hemizygos_display_sort_key(
+                            hemizygos
+                        )
+
                         # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV line breakers, MV capacitor breakers, rest
                         if elem_type == self.ELEM_BREAKER_YT:
-                            return (1, elem_name)
+                            return (*hemizygos_rank, 1, elem_name)
                         elif self._is_transformer(elem_type):
-                            return (2, elem_name)
+                            return (*hemizygos_rank, 2, elem_name)
                         elif elem_type == "Motor Drive":
-                            return (3, elem_name)
+                            return (*hemizygos_rank, 3, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 1
                         ):  # Main breaker
-                            return (4, elem_name)
+                            return (*hemizygos_rank, 4, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 2
                         ):  # Interconnection breaker
-                            return (5, elem_name)
+                            return (*hemizygos_rank, 5, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 0
                         ):  # Line breaker
-                            return (6, elem_name)
+                            return (*hemizygos_rank, 6, elem_name)
                         elif (
                             elem_type == self.ELEM_BREAKER_MT and is_main_switch == 3
                         ):  # Capacitor breaker
-                            return (7, elem_name)
+                            return (*hemizygos_rank, 7, elem_name)
                         else:
-                            return (8, elem_name)
+                            return (*hemizygos_rank, 8, elem_name)
 
                     # Group active elements by gate
                     gates_dict = {}
@@ -9691,16 +9749,16 @@ class SubstationApp(App):
                             # full-width separator after the element row
                             grid.add_widget(SeparatorLine())
                 else:
-                    elem_label = Label(
-                        text=elem_text, size_hint=(0.75, None), markup=True
+                    no_elements_label = Label(
+                        text=S["MESSAGES"].get(
+                            "NO_ACTIVE_ELEMENTS_MATCH_FILTER",
+                            "Δεν βρέθηκαν ενεργά στοιχεία για τα επιλεγμένα φίλτρα.",
+                        ),
+                        size_hint_y=None,
+                        height=36,
+                        color=(0.45, 0.45, 0.45, 1),
                     )
-                    # Enable text wrapping and automatic height calculation
-                    elem_label.bind(
-                        width=lambda instance, value: setattr(
-                            instance, "text_size", (value, None)
-                        )
-                    )
-                    elem_layout.add_widget(elem_label)
+                    grid.add_widget(no_elements_label)
             empty_label = Label(text="", size_hint_y=None, height=10)
             grid.add_widget(empty_label)
 

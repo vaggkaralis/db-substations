@@ -78,6 +78,15 @@ def test_get_available_hemizygos_options():
     assert "Ημιζυγός 2" in options
 
 
+def test_hemizygos_display_sort_key_orders_defined_groups_first():
+    assert SubstationApp.hemizygos_display_sort_key(
+        "Ημιζυγός 1"
+    ) < SubstationApp.hemizygos_display_sort_key("Ημιζυγός 2")
+    assert SubstationApp.hemizygos_display_sort_key(
+        "Ημιζυγός 2"
+    ) < SubstationApp.hemizygos_display_sort_key("")
+
+
 def test_sort_gate_labels_for_display_requested_order():
     ordered = SubstationApp.sort_gate_labels_for_display(
         ["ΠΥΛΗ 2-3", "ΠΥΛΗ 2", "ΠΥΛΗ 1-2", "ΠΥΛΗ 3", "ΠΥΛΗ 1", "ΠΥΛΗ 1-3"]

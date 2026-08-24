@@ -101,3 +101,8 @@ backups/access_export/
 00_Assitive/substation asset maintenance.accdb
 backups/backups by user/
 pytest_android_draft_out.txt
+
+# Generated questionnaire DOCX files
+HEDNO_APM Workshop_Inputs_filled.docx
+HEDNO_APM Workshop_Inputs_EXEC_with_examples.docx
+HEDNO_APM_Workshop_Inputs_BOARD_STYLE.docx

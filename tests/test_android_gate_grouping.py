@@ -117,6 +117,59 @@ def test_group_elements_by_gate_sorts_gate_members_like_desktop():
     ]
 
 
+def test_group_elements_by_gate_places_hemizygos_1_before_hemizygos_2():
+    app = android_app.SubstationAndroidApp()
+    hv_breaker = android_app.S.get("MESSAGES", {}).get(
+        "ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"
+    )
+    mv_breaker = android_app.S.get("MESSAGES", {}).get(
+        "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
+    )
+
+    grouped = app._group_elements_by_gate(
+        [
+            {
+                "id": 1,
+                "gate": "ΠΥΛΗ 1",
+                "hemizygos": "Ημιζυγός 2",
+                "element_type": hv_breaker,
+                "name": "HV Hemizygos 2",
+            },
+            {
+                "id": 2,
+                "gate": "ΠΥΛΗ 1",
+                "hemizygos": "Ημιζυγός 1",
+                "element_type": "Μετασχηματιστής 150/20KV",
+                "name": "Transformer Hemizygos 1",
+            },
+            {
+                "id": 3,
+                "gate": "ΠΥΛΗ 1",
+                "hemizygos": "Ημιζυγός 1",
+                "element_type": mv_breaker,
+                "name": "MV Breaker Hemizygos 1",
+                "is_main_switch": 1,
+            },
+            {
+                "id": 4,
+                "gate": "ΠΥΛΗ 1",
+                "hemizygos": "Ημιζυγός 2",
+                "element_type": mv_breaker,
+                "name": "MV Breaker Hemizygos 2",
+                "is_main_switch": 0,
+            },
+        ]
+    )
+
+    assert [name for name, _ in grouped] == ["ΠΥΛΗ 1"]
+    assert [elem["name"] for elem in grouped[0][1]] == [
+        "Transformer Hemizygos 1",
+        "MV Breaker Hemizygos 1",
+        "HV Hemizygos 2",
+        "MV Breaker Hemizygos 2",
+    ]
+
+
 def test_load_substation_elements_renders_gate_headers(monkeypatch):
     app = android_app.SubstationAndroidApp()
     grid = android_app.GridLayout(cols=1)
