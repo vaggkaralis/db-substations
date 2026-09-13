@@ -2,6 +2,7 @@ import json
 import sqlite3
 
 from DBrun import apply_change_log_to_db
+from DBrun import _refresh_stored_maintenance_dates
 
 
 def test_ignores_unknown_columns(tmp_path):
@@ -95,3 +96,126 @@ def test_maintenance_inserts_and_updates(tmp_path):
     cur.execute("SELECT maintenance_date FROM elements WHERE id=?", (elem_id,))
     md = cur.fetchone()
     assert md and md[0] == "2026-02-08T10:00:00"
+
+
+def test_motor_drive_inherits_transformer_maintenance_date_on_refresh():
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            element_type TEXT,
+            parent_element_id INTEGER,
+            maintenance_date TEXT
+        );
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT
+        );
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER,
+            element_comments TEXT
+        );
+        CREATE TABLE substations (
+            id INTEGER PRIMARY KEY,
+            last_maintenance TEXT
+        );
+        """
+    )
+
+    cur.execute(
+        "INSERT INTO substations (id, last_maintenance) VALUES (?, ?)", (1, None)
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, parent_element_id, maintenance_date) VALUES (?, ?, ?, ?, ?)",
+        (1, 1, "Transformer 150/20KV", None, None),
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, parent_element_id, maintenance_date) VALUES (?, ?, ?, ?, ?)",
+        (2, 1, "Motor Drive", 1, "2001-01-01"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, date_time) VALUES (?, ?, ?)",
+        (10, 1, "2026-09-13"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+        (10, 1, "ok"),
+    )
+
+    _refresh_stored_maintenance_dates(cur, element_ids=[1, 2], substation_ids=[1])
+    conn.commit()
+
+    transformer_date = cur.execute(
+        "SELECT maintenance_date FROM elements WHERE id=1"
+    ).fetchone()[0]
+    motor_drive_date = cur.execute(
+        "SELECT maintenance_date FROM elements WHERE id=2"
+    ).fetchone()[0]
+
+    assert transformer_date == "2026-09-13"
+    assert motor_drive_date == "2026-09-13"
+
+
+def test_motor_drive_inherits_parent_date_retrospectively_when_stale():
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            element_type TEXT,
+            parent_element_id INTEGER,
+            maintenance_date TEXT
+        );
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT
+        );
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER,
+            element_comments TEXT
+        );
+        CREATE TABLE substations (
+            id INTEGER PRIMARY KEY,
+            last_maintenance TEXT
+        );
+        """
+    )
+
+    cur.execute(
+        "INSERT INTO substations (id, last_maintenance) VALUES (?, ?)", (1, None)
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, parent_element_id, maintenance_date) VALUES (?, ?, ?, ?, ?)",
+        (101, 1, "Transformer 150/20KV", None, None),
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, parent_element_id, maintenance_date) VALUES (?, ?, ?, ?, ?)",
+        (102, 1, "Motor Drive", 101, "1999-12-31"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, date_time) VALUES (?, ?, ?)",
+        (201, 1, "2025-05-10"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+        (201, 101, "transformer"),
+    )
+
+    _refresh_stored_maintenance_dates(cur, element_ids=[101, 102], substation_ids=[1])
+    conn.commit()
+
+    md_date = cur.execute(
+        "SELECT maintenance_date FROM elements WHERE id=102"
+    ).fetchone()[0]
+    assert md_date == "2025-05-10"

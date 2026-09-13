@@ -267,6 +267,45 @@ def _refresh_stored_maintenance_dates(cursor, *, element_ids=None, substation_id
                 (latest_substation_dates.get(substation_id), substation_id),
             )
 
+    # Motor Drive subelements inherit last maintenance from their parent
+    # transformer, even when maintenance is not directly linked to the subelement.
+    if "maintenance_date" in element_columns:
+        has_parent_col = "parent_element_id" in element_columns
+        has_type_col = "element_type" in element_columns
+        if has_parent_col and has_type_col:
+            where_parts = []
+            where_params = []
+            if unique_element_ids:
+                placeholders = ",".join(["?"] * len(unique_element_ids))
+                where_parts.append(
+                    f"(md.id IN ({placeholders}) OR md.parent_element_id IN ({placeholders}))"
+                )
+                where_params.extend(unique_element_ids)
+                where_params.extend(unique_element_ids)
+            if unique_substation_ids:
+                placeholders = ",".join(["?"] * len(unique_substation_ids))
+                where_parts.append(f"md.substation_id IN ({placeholders})")
+                where_params.extend(unique_substation_ids)
+
+            scope_sql = ""
+            if where_parts:
+                scope_sql = " AND (" + " OR ".join(where_parts) + ")"
+
+            cursor.execute(
+                f"""
+                UPDATE elements AS md
+                SET maintenance_date = (
+                    SELECT p.maintenance_date
+                    FROM elements AS p
+                    WHERE p.id = md.parent_element_id
+                )
+                WHERE LOWER(TRIM(COALESCE(md.element_type, ''))) = 'motor drive'
+                  AND md.parent_element_id IS NOT NULL
+                  {scope_sql}
+                """,
+                where_params,
+            )
+
 
 from ui.shared import (
     IconButton,
@@ -2673,8 +2712,89 @@ class SubstationApp(App):
         APP_LOGGER.info("Main UI build completed successfully")
 
     def _handle_request_close(self, *args):
+        if getattr(self, "_allow_exit_without_sync_prompt", False):
+            self._cleanup_before_exit()
+            return False
+
+        if self._should_prompt_sync_before_close():
+            self._prompt_sync_before_close()
+            return True
+
         self._cleanup_before_exit()
         return False
+
+    def _should_prompt_sync_before_close(self):
+        """Return True when user should be asked to sync before app close."""
+        if getattr(self, "_close_sync_prompt_open", False):
+            return False
+        if getattr(self, "_cleanup_completed", False):
+            return False
+        try:
+            return bool(self._sync_has_pending_work()) or bool(
+                getattr(self, "_sync_attention_needed", False)
+            )
+        except Exception:
+            return False
+
+    def _close_app_now(self):
+        """Close the app bypassing sync prompt re-entry."""
+        self._allow_exit_without_sync_prompt = True
+        self._close_after_sync = False
+
+        def _do_stop(_dt):
+            try:
+                self.stop()
+            except Exception:
+                self._cleanup_before_exit()
+                try:
+                    Window.close()
+                except Exception:
+                    pass
+
+        Clock.schedule_once(_do_stop, 0)
+
+    def _prompt_sync_before_close(self):
+        """Ask user whether to run OneDrive sync before closing the app."""
+        if getattr(self, "_close_sync_prompt_open", False):
+            return
+        self._close_sync_prompt_open = True
+
+        from reports import show_confirm
+
+        title = S["MESSAGES"].get(
+            "EXIT_SYNC_PROMPT_TITLE", "Συγχρονισμός OneDrive πριν το κλείσιμο"
+        )
+        message = S["MESSAGES"].get(
+            "EXIT_SYNC_PROMPT_MESSAGE",
+            "Εντοπίστηκαν εκκρεμείς αλλαγές συγχρονισμού στο OneDrive.\n"
+            "Θέλετε να γίνει συγχρονισμός πριν κλείσει η εφαρμογή;",
+        )
+
+        def _close_without_sync():
+            self._close_sync_prompt_open = False
+            self._close_after_sync = False
+            self._close_app_now()
+
+        def _sync_then_close():
+            self._close_sync_prompt_open = False
+            self._close_after_sync = True
+
+            if getattr(self, "_sync_in_progress", False):
+                return
+
+            self.sync_onedrive_now(
+                on_complete=lambda _payload=None, _err=None: self._close_app_now()
+            )
+
+        show_confirm(
+            title,
+            message,
+            yes_callback=_sync_then_close,
+            yes_text=S["MESSAGES"].get("SYNC_ONEDRIVE_BUTTON", "Συγχρονισμός OneDrive"),
+            no_text=S["BUTTONS"].get("NO", "Όχι"),
+            no_callback=_close_without_sync,
+            size_hint=(0.68, 0.36),
+        )
 
     def on_stop(self):
         self._cleanup_before_exit()
@@ -9237,11 +9357,19 @@ class SubstationApp(App):
 
                 # Elements section (only active elements)
                 c.execute(
-                    "SELECT DISTINCT element_type FROM elements WHERE substation_id=? AND (operating_status IS NULL OR operating_status='Ενεργή') ORDER BY element_type",
+                    "SELECT DISTINCT element_type FROM elements WHERE substation_id=? "
+                    "AND COALESCE(parent_element_id, 0)=0 "
+                    "AND (operating_status IS NULL OR operating_status='Ενεργή') "
+                    "ORDER BY element_type",
                     (sub_id,),
                 )
                 all_label = S["MESSAGES"].get("ALL_LABEL", "(Όλα)")
-                type_values = [all_label] + [row[0] for row in c.fetchall() if row[0]]
+                subelement_types = set(getattr(self, "SUBELEMENT_TYPES", []) or [])
+                type_values = [all_label] + [
+                    row[0]
+                    for row in c.fetchall()
+                    if row[0] and row[0] not in subelement_types
+                ]
                 current_type_filter = element_type_filter or all_label
                 if current_type_filter not in type_values:
                     current_type_filter = all_label
@@ -10635,7 +10763,7 @@ class SubstationApp(App):
             self._update_sync_button_status()
         return result_payload
 
-    def sync_onedrive_now(self, *_args):
+    def sync_onedrive_now(self, *_args, on_complete=None):
         """Unified OneDrive sync action: export local changes and process inbox."""
         progress_ui = None
         try:
@@ -10751,6 +10879,13 @@ class SubstationApp(App):
                         progress_ui["popup"].dismiss()
                 except Exception:
                     pass
+                try:
+                    if callable(on_complete):
+                        on_complete(result_payload, worker_error)
+                    elif getattr(self, "_close_after_sync", False):
+                        self._close_app_now()
+                except Exception:
+                    logging.exception("Failed to execute post-sync completion callback")
                 self._update_sync_button_status()
 
         def _run_manual_sync(_dt):

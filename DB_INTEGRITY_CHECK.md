@@ -88,14 +88,14 @@ python -c "from db_integrity import check_database_integrity; r = check_database
 from db_integrity import check_database_integrity
 
 # Run integrity check
-result = check_database_integrity('path/to/database.db', quick_check=False)
+result = check_database_integrity("path/to/database.db", quick_check=False)
 
 # Check results
 if result.passed:
     print("Database is healthy")
 else:
     print(f"Found {len(result.errors)} errors and {len(result.warnings)} warnings")
-    
+
 # Get detailed summary
 print(result.get_summary())
 

@@ -86,6 +86,20 @@ def _safe_int(value):
         return None
 
 
+def _count_active_model_usage(cursor, model_id):
+    """Return how many active elements/subelements use this model."""
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM elements
+        WHERE element_model_id = ?
+          AND COALESCE(TRIM(operating_status), '') != 'Ανενεργή'
+        """,
+        (model_id,),
+    )
+    return cursor.fetchone()[0] or 0
+
+
 def _canonical_transformer_filter_label():
     return "Μετασχηματιστής 150/20KV"
 
@@ -1835,8 +1849,105 @@ def _collect_model_extra_values(category, input_map):
     return values
 
 
+def _is_subelement_category(app_instance, category):
+    """Return True when a model category belongs to the subelement family."""
+    if not category:
+        return False
+    return category in list(getattr(app_instance, "TRANSFORMER_SUBELEMENT_TYPES", []))
+
+
+def _run_with_optional_loading(app_instance, work_fn, message=None):
+    """Use app loading popup helper when available; otherwise run immediately."""
+    run_with_loading = getattr(app_instance, "_run_with_loading", None)
+    if callable(run_with_loading):
+        run_with_loading(work_fn, message)
+        return
+    work_fn()
+
+
+def _fetch_active_usage_counts(cursor, model_ids):
+    """Return {model_id: active_usage_count} for the given model ids."""
+    if not model_ids:
+        return {}
+    placeholders = ",".join(["?"] * len(model_ids))
+    cursor.execute(
+        f"""
+        SELECT element_model_id, COUNT(*)
+        FROM elements
+        WHERE element_model_id IN ({placeholders})
+          AND COALESCE(TRIM(operating_status), '') != 'Ανενεργή'
+        GROUP BY element_model_id
+        """,
+        model_ids,
+    )
+    return {row[0]: int(row[1] or 0) for row in (cursor.fetchall() or [])}
+
+
+def _fetch_thessaloniki_cycle_mismatch_model_ids(cursor, model_ids):
+    """Return model ids with Thessaloniki elements whose cycle differs from model cycle."""
+    if not model_ids:
+        return set()
+    placeholders = ",".join(["?"] * len(model_ids))
+    cursor.execute(
+        f"""
+        SELECT DISTINCT e.element_model_id
+        FROM elements e
+        JOIN substations s ON e.substation_id = s.id
+        JOIN element_models em ON em.id = e.element_model_id
+        WHERE e.element_model_id IN ({placeholders})
+          AND s.is_thessaloniki = 1
+          AND COALESCE(e.maintenance_cycle, -999) != COALESCE(em.maintenance_cycle, -999)
+        """,
+        model_ids,
+    )
+    return {row[0] for row in (cursor.fetchall() or []) if row and row[0] is not None}
+
+
+def _fetch_dominant_element_power_by_model(cursor, model_ids):
+    """Return most frequent non-null element power_mva per model id."""
+    if not model_ids:
+        return {}
+    placeholders = ",".join(["?"] * len(model_ids))
+    cursor.execute(
+        f"""
+        SELECT element_model_id, power_mva, COUNT(*) AS cnt
+        FROM elements
+        WHERE element_model_id IN ({placeholders})
+          AND power_mva IS NOT NULL
+        GROUP BY element_model_id, power_mva
+        ORDER BY element_model_id ASC, cnt DESC, power_mva DESC
+        """,
+        model_ids,
+    )
+    dominant = {}
+    for model_id, power_mva, _count in cursor.fetchall() or []:
+        if model_id not in dominant:
+            dominant[model_id] = power_mva
+    return dominant
+
+
+def _get_post_save_model_management_callback(app_instance, category, parent_popup=None):
+    """Choose the right management screen after a successful model save."""
+    if _is_subelement_category(app_instance, category):
+        return lambda: show_subelement_management_popup(app_instance, parent_popup)
+    return lambda: show_models_management(app_instance)
+
+
 def show_models_management(app_instance):
     """Show model management interface"""
+
+    def _open_popup():
+        _show_models_management_popup(app_instance)
+
+    _run_with_optional_loading(
+        app_instance,
+        _open_popup,
+        S["MESSAGES"].get("LOADING_MODELS", "Φόρτωση μοντέλων..."),
+    )
+
+
+def _show_models_management_popup(app_instance):
+    """Build and open the model management popup."""
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.gridlayout import GridLayout
@@ -1849,7 +1960,13 @@ def show_models_management(app_instance):
     c.execute(
         "SELECT id, element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, manual_pdf, power_mva, onedrive_manual_link FROM element_models ORDER BY element_category, model_name"
     )
-    models = c.fetchall()
+    models = c.fetchall() or []
+    model_ids = [row[0] for row in models]
+    usage_counts_by_model = _fetch_active_usage_counts(c, model_ids)
+    thess_mismatch_model_ids = _fetch_thessaloniki_cycle_mismatch_model_ids(
+        c, model_ids
+    )
+    dominant_power_by_model = _fetch_dominant_element_power_by_model(c, model_ids)
 
     popup = Popup(
         title=S["TITLES"].get("MODELS_MANAGEMENT", "Διαχείριση Τύπων Στοιχείων"),
@@ -1885,10 +2002,7 @@ def show_models_management(app_instance):
         size_hint_x=0.25,
     )
     add_subelement_model_btn.bind(
-        on_press=lambda _x: show_subelement_management_popup(
-            app_instance,
-            popup,
-        )
+        on_press=lambda _x: show_subelement_management_popup(app_instance, popup)
     )
     action_row.add_widget(add_subelement_model_btn)
 
@@ -2039,14 +2153,9 @@ def show_models_management(app_instance):
                                 orientation="vertical",
                             )
                             header = BoxLayout(size_hint_y=None, height=30, spacing=5)
-                            try:
-                                c.execute(
-                                    "SELECT COUNT(*) FROM elements WHERE element_model_id=?",
-                                    (model_id,),
-                                )
-                                usage_count = c.fetchone()[0] or 0
-                            except Exception:
-                                usage_count = 0
+                            usage_count = int(
+                                usage_counts_by_model.get(model_id, 0) or 0
+                            )
                             header.add_widget(
                                 Label(
                                     text=f"    {model_name} ({usage_count})",
@@ -2102,30 +2211,16 @@ def show_models_management(app_instance):
                             header.add_widget(btn_box)
                             model_box.add_widget(header)
 
-                            try:
-                                c.execute(
-                                    "SELECT 1 FROM elements e JOIN substations s ON e.substation_id = s.id WHERE e.element_model_id = ? AND s.is_thessaloniki=1 AND COALESCE(e.maintenance_cycle, -999) != COALESCE((SELECT maintenance_cycle FROM element_models WHERE id=?), -999) LIMIT 1",
-                                    (model_id, model_id),
-                                )
-                                thess_star = True if c.fetchone() else False
-                            except Exception:
-                                thess_star = False
+                            thess_star = model_id in thess_mismatch_model_ids
 
                             cycle_display = f"{cycle}" if cycle is not None else "-"
                             if thess_star:
                                 cycle_display = f"{cycle_display}*"
-                            try:
-                                if power_mva is not None:
-                                    display_power = power_mva
-                                else:
-                                    c.execute(
-                                        "SELECT power_mva, COUNT(*) as cnt FROM elements WHERE element_model_id=? AND power_mva IS NOT NULL GROUP BY power_mva ORDER BY cnt DESC LIMIT 1",
-                                        (model_id,),
-                                    )
-                                    rr = c.fetchone()
-                                    display_power = rr[0] if rr else None
-                            except Exception:
-                                display_power = None
+                            display_power = (
+                                power_mva
+                                if power_mva is not None
+                                else dominant_power_by_model.get(model_id)
+                            )
                             display_power_str = (
                                 f"{display_power} MVA"
                                 if display_power is not None
@@ -2158,14 +2253,7 @@ def show_models_management(app_instance):
                             orientation="vertical",
                         )
                         header = BoxLayout(size_hint_y=None, height=30, spacing=5)
-                        try:
-                            c.execute(
-                                "SELECT COUNT(*) FROM elements WHERE element_model_id=?",
-                                (model_id,),
-                            )
-                            usage_count = c.fetchone()[0] or 0
-                        except Exception:
-                            usage_count = 0
+                        usage_count = int(usage_counts_by_model.get(model_id, 0) or 0)
                         header.add_widget(
                             Label(
                                 text=f"{model_name} ({usage_count})",
@@ -2173,18 +2261,11 @@ def show_models_management(app_instance):
                                 size_hint_x=0.45,
                             )
                         )
-                        try:
-                            if power_mva is not None:
-                                header_power = power_mva
-                            else:
-                                c.execute(
-                                    "SELECT power_mva, COUNT(*) as cnt FROM elements WHERE element_model_id=? AND power_mva IS NOT NULL GROUP BY power_mva ORDER BY cnt DESC LIMIT 1",
-                                    (model_id,),
-                                )
-                                _r = c.fetchone()
-                                header_power = _r[0] if _r else None
-                        except Exception:
-                            header_power = None
+                        header_power = (
+                            power_mva
+                            if power_mva is not None
+                            else dominant_power_by_model.get(model_id)
+                        )
                         header.add_widget(
                             Label(
                                 text=f"Ισχ.: {header_power if header_power is not None else '-'} MVA"
@@ -2236,14 +2317,7 @@ def show_models_management(app_instance):
                         btn_box.add_widget(delete_btn)
                         header.add_widget(btn_box)
                         model_box.add_widget(header)
-                        try:
-                            c.execute(
-                                "SELECT 1 FROM elements e JOIN substations s ON e.substation_id = s.id WHERE e.element_model_id = ? AND s.is_thessaloniki=1 AND COALESCE(e.maintenance_cycle, -999) != COALESCE((SELECT maintenance_cycle FROM element_models WHERE id=?), -999) LIMIT 1",
-                                (model_id, model_id),
-                            )
-                            thess_star = True if c.fetchone() else False
-                        except Exception:
-                            thess_star = False
+                        thess_star = model_id in thess_mismatch_model_ids
                         cycle_display = f"{cycle}" if cycle is not None else "-"
                         if thess_star:
                             cycle_display = f"{cycle_display}*"
@@ -2331,17 +2405,6 @@ def show_models_management(app_instance):
             _render_selected(all_option)
             return section_box
 
-        element_categories = [
-            cat
-            for cat in element_types
-            if cat in {m[1] for m in models_by_family["elements"]} or True
-        ]
-        subelement_category_list = [
-            cat
-            for cat in subelement_types
-            if cat in {m[1] for m in models_by_family["subelements"]} or True
-        ]
-
         elements_section = render_section(
             S["MESSAGES"].get("ELEMENT_MODELS_SECTION", "Μοντέλα Στοιχείων"),
             models_by_family["elements"],
@@ -2386,6 +2449,21 @@ def show_models_management(app_instance):
 
 def show_subelement_management_popup(app_instance, parent_popup=None):
     """Show a dedicated management popup for subelement models."""
+
+    def _open_popup():
+        _show_subelement_management_popup_internal(app_instance, parent_popup)
+
+    _run_with_optional_loading(
+        app_instance,
+        _open_popup,
+        S["MESSAGES"].get(
+            "LOADING_SUBELEMENT_MODELS", "Φόρτωση μοντέλων υποστοιχείων..."
+        ),
+    )
+
+
+def _show_subelement_management_popup_internal(app_instance, parent_popup=None):
+    """Build and open the dedicated popup for subelement models."""
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.gridlayout import GridLayout
@@ -2417,6 +2495,8 @@ def show_subelement_management_popup(app_instance, parent_popup=None):
         subelement_types,
     )
     models = c.fetchall() or []
+    model_ids = [row[0] for row in models]
+    prefetched_usage_counts_by_model = _fetch_active_usage_counts(c, model_ids)
     models_by_type = {}
     for model_row in models:
         models_by_type.setdefault(model_row[1], []).append(model_row)
@@ -2538,14 +2618,9 @@ def show_subelement_management_popup(app_instance, parent_popup=None):
             type_usage_total = 0
             for model_row in type_models:
                 model_id = model_row[0]
-                try:
-                    c.execute(
-                        "SELECT COUNT(*) FROM elements WHERE element_model_id=?",
-                        (model_id,),
-                    )
-                    model_usage_count = c.fetchone()[0] or 0
-                except Exception:
-                    model_usage_count = 0
+                model_usage_count = int(
+                    prefetched_usage_counts_by_model.get(model_id, 0) or 0
+                )
                 usage_counts_by_model[model_id] = model_usage_count
                 type_usage_total += model_usage_count
 
@@ -3034,7 +3109,9 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                 show_message_popup(
                     "Επιτυχία",
                     "Το μοντέλο προστέθηκε!",
-                    callback=lambda: show_models_management(app_instance),
+                    callback=_get_post_save_model_management_callback(
+                        app_instance, category_spinner.text, parent_popup
+                    ),
                 )
             else:
                 show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MODEL_ADDED"])
@@ -3440,11 +3517,14 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             },
         )
         popup.dismiss()
-        parent_popup.dismiss()
+        if parent_popup:
+            parent_popup.dismiss()
         show_message_popup(
             "Επιτυχία",
             "Το μοντέλο και όλα τα συνδεδεμένα στοιχεία ενημερώθηκαν!",
-            callback=lambda: show_models_management(app_instance),
+            callback=_get_post_save_model_management_callback(
+                app_instance, selected_category, parent_popup
+            ),
         )
 
     save_btn = Button(text="Αποθήκευση")
@@ -3693,8 +3773,7 @@ def delete_model(app_instance, model_id, parent_popup):
     c = app_instance.conn.cursor()
 
     # Check if model is in use
-    c.execute("SELECT COUNT(*) FROM elements WHERE element_model_id=?", (model_id,))
-    count = c.fetchone()[0]
+    count = _count_active_model_usage(c, model_id)
 
     if count > 0:
         show_message_popup(
@@ -3703,16 +3782,29 @@ def delete_model(app_instance, model_id, parent_popup):
         )
         return
 
+    c.execute(
+        "SELECT element_category FROM element_models WHERE id=?",
+        (model_id,),
+    )
+    model_row = c.fetchone()
+    model_category = model_row[0] if model_row else None
+
     from reports import show_confirm
 
     def confirm():
         c.execute("DELETE FROM element_models WHERE id=?", (model_id,))
         app_instance.conn.commit()
-        if parent_popup:
+        if parent_popup and hasattr(parent_popup, "dismiss"):
             parent_popup.dismiss()
         from popups import show_message_popup
 
-        show_message_popup(S["TITLES"]["SUCCESS"], S["MESSAGES"]["MODEL_DELETED"])
+        show_message_popup(
+            S["TITLES"]["SUCCESS"],
+            S["MESSAGES"]["MODEL_DELETED"],
+            callback=_get_post_save_model_management_callback(
+                app_instance, model_category, parent_popup
+            ),
+        )
 
     show_confirm(
         "Επιβεβαίωση Διαγραφής",
@@ -3748,9 +3840,6 @@ def show_model_usages(app_instance, model_id, model_name):
     except Exception:
         model_category = None
 
-    transformer_subelement_types = list(
-        getattr(app_instance, "TRANSFORMER_SUBELEMENT_TYPES", [])
-    )
     is_transformer_model = _is_transformer_model_category(model_category)
 
     # Get all elements using this model with full details
