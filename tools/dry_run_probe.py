@@ -3,12 +3,13 @@
 Does not modify DB or perform sync; read-only.
 """
 
-import os
 import json
+import os
 from datetime import datetime
-from sync_service import resolve_sync_root
-from onedrive_hybrid_storage import resolve_shared_root
+
 from config_manager import get_app_setting
+from onedrive_hybrid_storage import resolve_shared_root
+from sync_service import resolve_sync_root
 
 
 def scan_sync_payload_dir(dir_path):
@@ -26,9 +27,9 @@ def scan_sync_payload_dir(dir_path):
                 mt = os.path.getmtime(fp)
                 if mt > latest:
                     latest = mt
-            except Exception:
-                pass
-    except Exception:
+            except (OSError, TypeError, ValueError):
+                continue
+    except OSError:
         pass
     return {"count": int(count), "latest_mtime": round(float(latest), 3)}
 
@@ -39,7 +40,7 @@ def scan_actionable_pending(pending_dir, tracker_path):
     try:
         with open(tracker_path, "r", encoding="utf-8") as fh:
             tracker = json.load(fh) or {}
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         tracker = {}
     actionable_count = 0
     latest = 0.0
@@ -66,9 +67,9 @@ def scan_actionable_pending(pending_dir, tracker_path):
                 mt = os.path.getmtime(fp)
                 if mt > latest:
                     latest = mt
-            except Exception:
-                pass
-    except Exception:
+            except (OSError, TypeError, ValueError):
+                continue
+    except OSError:
         pass
     return {"count": int(actionable_count), "latest_mtime": round(float(latest), 3)}
 
@@ -81,18 +82,18 @@ def compute_probe(db_path):
     shared_root = resolve_shared_root(db_path)
     try:
         db_mtime = round(float(os.path.getmtime(db_path)), 3)
-    except Exception:
+    except (OSError, TypeError, ValueError):
         db_mtime = 0.0
     try:
         tracker_mtime = round(float(os.path.getmtime(tracker_path)), 3)
-    except Exception:
+    except (OSError, TypeError, ValueError):
         tracker_mtime = 0.0
     shared_exists = os.path.isdir(shared_root)
     try:
         shared_mtime = (
             round(float(os.path.getmtime(shared_root)), 3) if shared_exists else 0.0
         )
-    except Exception:
+    except (OSError, TypeError, ValueError):
         shared_mtime = 0.0
     shared_substation_dirs = 0
     if shared_exists:
@@ -103,7 +104,7 @@ def compute_probe(db_path):
                 if os.path.isdir(os.path.join(shared_root, name))
                 and not name.startswith("_")
             )
-        except Exception:
+        except OSError:
             shared_substation_dirs = 0
     pending_total = scan_sync_payload_dir(pending_dir)
     pending_actionable = scan_actionable_pending(pending_dir, tracker_path)
@@ -132,7 +133,7 @@ def load_saved_state(db_path):
     try:
         with open(path, "r", encoding="utf-8") as fh:
             return json.load(fh)
-    except Exception:
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return None
 
 

@@ -10,7 +10,7 @@ from importlib import import_module
 try:
     _db = import_module("DBrun")
     SubstationApp = getattr(_db, "SubstationApp")
-except Exception:
+except (ImportError, AttributeError, RuntimeError):
 
     class SubstationApp:
         def __init__(self, *args, **kwargs):

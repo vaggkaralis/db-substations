@@ -13,12 +13,13 @@ import random
 import sqlite3
 import sys
 
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 DB = sys.argv[1] if len(sys.argv) > 1 else "substations_backup.db"
 
 if not os.path.exists(DB):
-    logging.error("Database not found: %s", DB)
+    logger.error("Database not found: %s", DB)
     sys.exit(2)
 
 try:
@@ -28,7 +29,7 @@ try:
 
     ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
     ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
-except Exception:
+except (ImportError, AttributeError, KeyError, TypeError):
     # Fallback conservative sets and canonical names
     ELEM_BREAKER_YT = "Διακόπτης ΥΤ"
     ELEM_BREAKER_MT = "Διακόπτης ΜΤ"
@@ -73,7 +74,7 @@ def fetch_elements():
 
 elements = fetch_elements()
 if not elements:
-    logging.info("No elements found in database.")
+    logger.info("No elements found in database.")
     con.close()
     sys.exit(0)
 
@@ -83,7 +84,7 @@ res = cur.fetchone()
 if res and res[0]:
     try:
         max_id = int(res[0])
-    except Exception:
+    except (TypeError, ValueError):
         max_id = 0
 
 changed = 0
@@ -97,7 +98,7 @@ for row in elements:
         cur.execute("UPDATE elements SET id=? WHERE rowid=?", (new_id, rowid))
         eid = new_id
         changed += 1
-        logging.info("Assigned id=%s to element rowid=%s name=%s", new_id, rowid, name)
+        logger.info("Assigned id=%s to element rowid=%s name=%s", new_id, rowid, name)
     # Uniqueness (collect)
     if eid in assigned_ids:
         # Rare: duplicate id, assign new
@@ -106,7 +107,7 @@ for row in elements:
         cur.execute("UPDATE elements SET id=? WHERE rowid=?", (new_id, rowid))
         eid = new_id
         changed += 1
-        logging.info(
+        logger.info(
             "Reassigned duplicate id -> id=%s for element %s (rowid=%s)",
             new_id,
             name,
@@ -119,7 +120,7 @@ for row in elements:
         new_type = random.choice(allowed_element_types)
         cur.execute("UPDATE elements SET element_type=? WHERE id=?", (new_type, eid))
         changed += 1
-        logging.info(
+        logger.info(
             "Fixed element_type for id=%s from '%s' -> '%s'", eid, elem_type, new_type
         )
         elem_type = new_type
@@ -132,7 +133,7 @@ for row in elements:
             "UPDATE elements SET breaker_category=? WHERE id=?", (new_breaker, eid)
         )
         changed += 1
-        logging.info(
+        logger.info(
             "Fixed breaker_category for id=%s from '%s' -> '%s'",
             eid,
             breaker,
@@ -140,8 +141,8 @@ for row in elements:
         )
 
 con.commit()
-logging.info("Completed repairs. Total changes: %s", changed)
+logger.info("Completed repairs. Total changes: %s", changed)
 con.close()
 
 if changed == 0:
-    logging.info("No repairs needed.")
+    logger.info("No repairs needed.")
