@@ -60,7 +60,7 @@ def parse_substation_gate(full_name):
         return None, None
     try:
         gate_number = int(parts[1])
-    except Exception:
+    except ValueError:
         return parts[0], None
     return parts[0], gate_number
 
@@ -77,7 +77,7 @@ def build_access_asset_gate_maps(accdb_path):
 
     try:
         import pyodbc
-    except Exception:
+    except ImportError:
         raise RuntimeError(
             "pyodbc is required to read Access databases; install it or avoid calling this function"
         )
