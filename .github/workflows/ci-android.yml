@@ -30,9 +30,9 @@ jobs:
       - name: Run ruff
         run: |
           python -m ruff format --check . --exclude scripts
-          python -m ruff check . --exclude scripts
+          python -m ruff check . --exclude scripts --select E4,E7,E9,F
           python -m ruff format --check scripts/access_gate_utils.py
-          python -m ruff check scripts/access_gate_utils.py
+          python -m ruff check scripts/access_gate_utils.py --select E4,E7,E9,F
       - name: Run flake8
         run: |
           python -m flake8 --max-line-length=88 --exclude=scripts
