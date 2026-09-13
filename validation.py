@@ -15,9 +15,11 @@ ELEMENT_BREAKER_SUBSTR = S["MESSAGES"].get("ELEMENT_BREAKER_SUBSTR", "Διακό
 
 
 def is_interconnection_gate(gate_value):
+    if gate_value is None:
+        return False
     try:
-        return bool(gate_value and "-" in str(gate_value))
-    except Exception:
+        return "-" in str(gate_value)
+    except (TypeError, ValueError):
         return False
 
 

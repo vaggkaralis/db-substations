@@ -1,3 +1,4 @@
+import logging
 import math
 
 # Kivy imports are optional for test environments. Provide lightweight
@@ -75,6 +76,7 @@ except Exception:
 
 
 Window  # ensure Window is imported for callers that expect it
+logger = logging.getLogger(__name__)
 
 
 class IconWidget(Widget):
@@ -552,8 +554,8 @@ def autosize_button_text(
             if not hasattr(widget, "_autosize_original_text"):
                 try:
                     widget._autosize_original_text = text
-                except Exception:
-                    pass
+                except (AttributeError, RuntimeError, TypeError):
+                    logger.debug("Skipping autosize text cache setup for %r", widget)
             if break_on_space and " " in text and "\n" not in text:
                 display_text = text.replace(" ", "\n", 1)
             else:
@@ -573,15 +575,15 @@ def autosize_button_text(
                     widget.font_size = sp(size)
                     return
             widget.font_size = sp(min_sp)
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             return
 
     try:
         widget.text_size = (None, None)
         widget.halign = getattr(widget, "halign", "center")
         widget.valign = getattr(widget, "valign", "middle")
-    except Exception:
-        pass
+    except (AttributeError, TypeError, RuntimeError):
+        logger.debug("Unable to set autosize text alignment on %r", widget)
 
     # If requested, set the widget text to the broken-line display text so
     # the UI shows the line break before autosizing.
@@ -622,8 +624,8 @@ def enable_global_button_autosize(max_sp=32, min_sp=8, padding_dp=8):
                     min_sp=min_sp,
                     padding_dp=padding_dp,
                 )
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            logger.debug("Autosize patch failed for button %r", self)
 
     KivyButton.__init__ = _patched_init
     setattr(KivyButton, "_autosize_patched", True)
@@ -910,9 +912,9 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
         try:
             if hasattr(Window, "bind"):
                 Window.bind(mouse_pos=self._on_mouse_pos)
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError):
             # Mouse hover tooltips are optional and can be unavailable on Android.
-            pass
+            logger.debug("Tooltip mouse binding unavailable for %r", self)
 
     def _update_icon_size(self, *_args):
         dim = max(24, int(self.height * 0.85))
@@ -925,8 +927,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
     def _on_source(self, _inst, new_source):
         try:
             self.remove_widget(self.icon)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, ValueError):
+            logger.debug("Failed to remove icon widget from %r", self)
         if new_source:
             self.icon = Image(source=new_source, size_hint=(None, None))
             if hasattr(self.icon, "fit_mode"):
@@ -951,15 +953,15 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 if parent is not None:
                     try:
                         parent.remove_widget(self._tooltip_widget)
-                    except Exception:
-                        pass
+                    except (AttributeError, RuntimeError, ValueError):
+                        logger.debug("Failed to remove tooltip from parent widget")
                 else:
                     try:
                         Window.remove_widget(self._tooltip_widget)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except (AttributeError, RuntimeError, ValueError):
+                        logger.debug("Failed to remove tooltip from window")
+            except (AttributeError, RuntimeError, TypeError):
+                logger.debug("Unexpected tooltip detach failure for %r", self)
             self._tooltip_widget = None
 
         if type(self)._active_tooltip_owner is self:
@@ -986,14 +988,14 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             if not self.get_root_window():
                 self._hide_tooltip()
                 return
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError):
             self._hide_tooltip()
             return
 
         # convert window coords to local widget coords for collide test
         try:
             local = self.to_widget(*pos)
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             local = pos
 
         inside = self.collide_point(*local) and not getattr(self, "disabled", False)
@@ -1002,8 +1004,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             if active_owner is not None and active_owner is not self:
                 try:
                     active_owner._hide_tooltip()
-                except Exception:
-                    pass
+                except (AttributeError, RuntimeError, TypeError):
+                    logger.debug("Failed to hide active tooltip owner %r", active_owner)
 
             win_w, win_h = Window.size
 
@@ -1028,8 +1030,8 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                 # force texture update to get size
                 try:
                     lbl.texture_update()
-                except Exception:
-                    pass
+                except (AttributeError, RuntimeError, TypeError):
+                    logger.debug("Tooltip texture update failed for %r", self)
                 # give a slightly larger horizontal/vertical margin to avoid clipping
                 w = lbl.texture_size[0] + 24 if hasattr(lbl, "texture_size") else 100
                 h = lbl.texture_size[1] + 12 if hasattr(lbl, "texture_size") else 24
@@ -1046,8 +1048,10 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                     def _refresh_tooltip(dt):
                         try:
                             lbl.texture_update()
-                        except Exception:
-                            pass
+                        except (AttributeError, RuntimeError, TypeError):
+                            logger.debug(
+                                "Tooltip refresh texture update failed for %r", self
+                            )
                         w2 = (
                             lbl.texture_size[0] + 24
                             if hasattr(lbl, "texture_size")
@@ -1063,12 +1067,12 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                         lbl.pos = (x2, y2)
 
                     Clock.schedule_once(_refresh_tooltip, 0)
-                except Exception:
-                    pass
+                except (AttributeError, ImportError, RuntimeError, TypeError):
+                    logger.debug("Timer refresh unavailable for tooltip on %r", self)
                 # Add tooltip to Window to avoid affecting root layout sizing.
                 try:
                     Window.add_widget(lbl)
-                except Exception:
+                except (AttributeError, RuntimeError, TypeError, ValueError):
                     # Fallback: try an app-level overlay if Window doesn't
                     # accept widgets
                     try:
@@ -1084,12 +1088,17 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
                                     overlay = FloatLayout(size_hint=(1, 1))
                                     overlay.disabled = True
                                     root.add_widget(overlay)
-                                    setattr(root, "_tooltip_overlay", overlay)
-                                except Exception:
+                                    root._tooltip_overlay = overlay
+                                except (
+                                    AttributeError,
+                                    RuntimeError,
+                                    TypeError,
+                                    ValueError,
+                                ):
                                     overlay = None
                         if overlay:
                             overlay.add_widget(lbl)
-                    except Exception:
+                    except (AttributeError, RuntimeError, TypeError, ValueError):
                         return
 
                 self._tooltip_widget = lbl
