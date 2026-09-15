@@ -9,7 +9,7 @@ import shutil
 import webbrowser
 
 from pdf_reports import generate_sf6_leak_report
-from popups import show_message_popup
+from popups import create_popup, show_message_popup
 from report_sync import safe_generate_and_store_report
 from strings_proxy import STRINGS as S
 
@@ -224,7 +224,6 @@ def show_sf6_management_popup(
 ):
     """Show SF6 leakage management report popup (delegated from DBrun)."""
     # Import Kivy widgets lazily to avoid top-level Kivy dependency in tests
-    Popup = importlib.import_module("kivy.uix.popup").Popup
     BoxLayout = importlib.import_module("kivy.uix.boxlayout").BoxLayout
     Button = importlib.import_module("kivy.uix.button").Button
     Label = importlib.import_module("kivy.uix.label").Label
@@ -248,9 +247,10 @@ def show_sf6_management_popup(
     if not years:
         years = [str(__import__("datetime").datetime.now().year)]
 
-    popup = Popup(
-        title=S["MESSAGES"].get("SF6_MANAGEMENT_TITLE", "Διαχείριση SF6"),
-        size_hint=(0.95, 0.9),
+    popup = create_popup(
+        S["MESSAGES"].get("SF6_MANAGEMENT_TITLE", "Διαχείριση SF6"),
+        (0.95, 0.9),
+        auto_dismiss=False,
     )
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -656,7 +656,12 @@ def show_sf6_management_popup(
     _refresh_and_cache()
 
     close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
-    close_btn.bind(on_press=popup.dismiss)
+    if hasattr(app, "_dismiss_popup_and_maybe_close_child_window"):
+        close_btn.bind(
+            on_press=lambda _btn: app._dismiss_popup_and_maybe_close_child_window(popup)
+        )
+    else:
+        close_btn.bind(on_press=popup.dismiss)
     main_layout.add_widget(close_btn)
 
     popup.content = main_layout

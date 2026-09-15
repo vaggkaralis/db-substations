@@ -168,97 +168,86 @@ def show_import_menu(app, instance=None):
         from kivy.uix.label import Label
         from kivy.uix.popup import Popup
     except Exception:
-        Popup = BoxLayout = Label = Button = object
-
-    menu_popup = Popup(
-        title=S["TITLES"].get("IMPORT_MENU", "Εισαγωγή από αρχείο"),
-        size_hint=(0.6, 0.7),
-    )
-    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        return
 
     try:
-        app._add_logo_to_layout(layout, height=70)
+        from reports import export_full_db_ui
     except Exception:
-        pass
+        export_full_db_ui = None
 
+    popup = Popup(
+        title=S["TITLES"].get("IMPORT_MENU", "Εισαγωγή από αρχείο"),
+        size_hint=(0.72, 0.62),
+    )
+    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
     layout.add_widget(
         Label(
             text=S["MESSAGES"].get(
                 "IMPORT_MENU_PROMPT", "Επιλέξτε τι θέλετε να εισάγετε:"
             ),
-            size_hint_y=0.15,
+            size_hint_y=None,
+            height=40,
         )
     )
 
-    import_buttons_row = BoxLayout(
-        orientation="horizontal",
-        size_hint_y=0.19,
-        spacing=6,
-    )
+    actions = BoxLayout(orientation="vertical", spacing=8)
 
-    import_elements_btn = Button(
-        text=S["MESSAGES"].get(
-            "IMPORT_ELEMENTS_BUTTON", "Εισαγωγή Στοιχείων από Αρχείο"
+    buttons = [
+        (
+            S["MESSAGES"].get(
+                "IMPORT_ELEMENTS_BUTTON", "Εισαγωγή Στοιχείων από Αρχείο"
+            ),
+            lambda: _show_import_elements_from_menu(app, popup),
+            False,
         ),
-        size_hint_x=0.64,
-    )
-    import_elements_btn.halign = "center"
-    import_elements_btn.valign = "middle"
-    import_elements_btn.bind(
-        size=lambda inst, value: setattr(
-            inst, "text_size", (value[0] - 12, value[1] - 12)
-        )
-    )
-    import_elements_btn.bind(
-        on_press=lambda x: _show_import_elements_from_menu(app, menu_popup)
-    )
-    import_buttons_row.add_widget(import_elements_btn)
-
-    template_elements_btn = Button(
-        text=S["MESSAGES"].get(
-            "IMPORT_TEMPLATE_ELEMENTS_BUTTON", "Δημιουργία Template Εισαγωγής"
+        (
+            S["MESSAGES"].get(
+                "IMPORT_TEMPLATE_ELEMENTS_BUTTON", "Δημιουργία Template Εισαγωγής"
+            ),
+            lambda: app.create_elements_template(None),
+            True,
         ),
-        size_hint_x=0.36,
-    )
-    template_elements_btn.halign = "center"
-    template_elements_btn.valign = "middle"
-    template_elements_btn.bind(
-        size=lambda inst, value: setattr(
-            inst, "text_size", (value[0] - 10, value[1] - 12)
+        (
+            S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"),
+            lambda: _show_import_android_changes_from_menu(app, popup),
+            False,
+        ),
+    ]
+    if export_full_db_ui is not None:
+        buttons.append(
+            (
+                S["MESSAGES"].get("IMPORT_EXPORT_DB_BUTTON", "Εξαγωγή Βάσης (Excel)"),
+                lambda: export_full_db_ui(app, popup),
+                False,
+            )
         )
-    )
-    template_elements_btn.bind(on_press=app.create_elements_template)
-    import_buttons_row.add_widget(template_elements_btn)
 
-    layout.add_widget(import_buttons_row)
+    def _run_action(action, close_menu=False):
+        if close_menu:
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+        try:
+            action()
+        except Exception:
+            pass
 
-    import_android_btn = Button(
-        text=S["TITLES"].get("IMPORT_ANDROID", "Εισαγωγή αλλαγών από Android"),
-        size_hint_y=0.15,
-    )
-    import_android_btn.bind(
-        on_press=lambda x: _show_import_android_changes_from_menu(app, menu_popup)
-    )
-    layout.add_widget(import_android_btn)
-
-    try:
-        from reports import export_full_db_ui
-
-        export_db_btn = Button(
-            text=S["MESSAGES"].get("IMPORT_EXPORT_DB_BUTTON", "Εξαγωγή Βάσης (Excel)"),
-            size_hint_y=0.18,
+    for label_text, callback, close_menu in buttons:
+        action_btn = Button(text=label_text, size_hint_y=None, height=42)
+        action_btn.bind(
+            on_press=lambda _btn, cb=callback, close=close_menu: _run_action(cb, close)
         )
-        export_db_btn.bind(on_press=lambda x: export_full_db_ui(app, menu_popup))
-        layout.add_widget(export_db_btn)
-    except Exception:
-        pass
+        actions.add_widget(action_btn)
 
-    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.12)
-    cancel_btn.bind(on_press=menu_popup.dismiss)
+    layout.add_widget(actions)
+
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=42)
+    cancel_btn.bind(on_press=popup.dismiss)
     layout.add_widget(cancel_btn)
 
-    menu_popup.content = layout
-    menu_popup.open()
+    popup.content = layout
+    popup.open()
 
 
 def _show_import_substations_from_menu(app, menu_popup):

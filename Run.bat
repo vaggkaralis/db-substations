@@ -4,6 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 set "PYTHON_EXE="
+set "PYTHONW_EXE="
 set "USER_VENV_DIR="
 set "USER_VENV_PYTHON="
 
@@ -24,5 +25,15 @@ if not defined PYTHON_EXE (
 	exit /b 1
 )
 
-echo Χρήση Python από: %PYTHON_EXE%
-"%PYTHON_EXE%" DBrun.py
+for %%F in ("%PYTHON_EXE%") do set "PYTHON_DIR=%%~dpF"
+if /i "%PYTHON_EXE:~-11%"=="pythonw.exe" set "PYTHONW_EXE=%PYTHON_EXE%"
+if not defined PYTHONW_EXE if exist "%PYTHON_DIR%pythonw.exe" set "PYTHONW_EXE=%PYTHON_DIR%pythonw.exe"
+
+if defined PYTHONW_EXE (
+	echo Χρήση PythonW από: %PYTHONW_EXE%
+	"%PYTHONW_EXE%" DBrun.py
+) else (
+	echo Χρήση Python από: %PYTHON_EXE%
+	echo Προειδοποίηση: Δεν βρέθηκε pythonw.exe, εκκίνηση με python.exe.
+	"%PYTHON_EXE%" DBrun.py
+)

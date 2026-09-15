@@ -66,3 +66,14 @@ def test_resolve_startup_db_path_falls_back_to_runtime_default(monkeypatch, tmp_
 
     assert resolved == os.path.abspath(str(runtime_default))
     assert saved_paths == [os.path.abspath(str(runtime_default))]
+
+
+def test_app_reads_launch_screen_from_environment_fallback(monkeypatch):
+    monkeypatch.setattr(DBrun.sys, "argv", ["DBrun.py"])
+    monkeypatch.setenv("DBS_OPEN_SCREEN", "people_management")
+    monkeypatch.setenv("DBS_OPEN_PAYLOAD", '{"filter_name": "demo"}')
+
+    app = DBrun.SubstationApp()
+
+    assert app._launch_screen_name == "people_management"
+    assert app._launch_screen_payload == {"filter_name": "demo"}

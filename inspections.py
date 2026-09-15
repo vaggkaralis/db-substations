@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 
+from popups import create_popup, launch_app_screen
 from strings_proxy import STRINGS as S
 
 
@@ -424,18 +425,20 @@ def handle_inspection_menu(app, instance=None):
     avoid an infinite recursion when the delegate points back to the
     app method. By default it opens the inspection history view.
     """
-    # Prefer a private app implementation if provided
+    # Prefer a private app implementation if provided.
     if hasattr(app, "_show_inspection_menu"):
         return getattr(app, "_show_inspection_menu")(instance)
 
-    # Default: show a small menu offering to add a new inspection or view history.
     try:
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
-        from kivy.uix.popup import Popup
 
         title = S.get("BUTTONS", {}).get("INSPECTIONS", "Επιθεωρήσεις")
-        popup = Popup(title=title, size_hint=(0.6, 0.3))
+        popup = create_popup(
+            title,
+            (0.6, 0.3),
+            auto_dismiss=False,
+        )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
         btn_row = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=0.7)
@@ -451,6 +454,10 @@ def handle_inspection_menu(app, instance=None):
                 popup.dismiss()
             except Exception:
                 pass
+            if getattr(
+                app, "_launch_screen_name", None
+            ) != "inspection_entry" and launch_app_screen("inspection_entry"):
+                return
             if hasattr(app, "show_inspection_entry_popup"):
                 try:
                     conn = getattr(app, "conn", None)
@@ -484,6 +491,10 @@ def handle_inspection_menu(app, instance=None):
                 popup.dismiss()
             except Exception:
                 pass
+            if getattr(
+                app, "_launch_screen_name", None
+            ) != "inspection_history" and launch_app_screen("inspection_history"):
+                return None
             return handle_inspection_history(app, instance)
 
         entry_btn.bind(on_press=on_entry)
@@ -502,7 +513,6 @@ def handle_inspection_menu(app, instance=None):
         popup.content = layout
         popup.open()
     except Exception:
-        # If UI libs unavailable, fall back to calling history directly
         if hasattr(app, "show_inspection_history"):
             return getattr(app, "show_inspection_history")(instance)
 
@@ -538,6 +548,11 @@ def handle_inspection_history(app, instance=None):
     # If the app provides a private implementation, prefer that.
     if hasattr(app, "_show_inspection_history"):
         return getattr(app, "_show_inspection_history")(instance)
+
+    if getattr(
+        app, "_launch_screen_name", None
+    ) != "inspection_history" and launch_app_screen("inspection_history"):
+        return None
 
     # Otherwise, attempt a minimal summary popup (safe fallback).
     try:

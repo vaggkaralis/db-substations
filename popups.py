@@ -7,6 +7,17 @@ fallbacks so logic that depends on these helpers can run while Kivy is
 not installed.
 """
 
+import importlib
+import json
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+import uuid
+
+_LAUNCHED_CHILD_PROCESSES = []
+
 try:
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
@@ -19,7 +30,454 @@ except Exception:
     KIVY_AVAILABLE = False
 
 
+def _resolve_app_icon_path():
+    base_dir = os.path.dirname(__file__)
+    ico_candidates = [
+        os.path.join(base_dir, "deddie_logo.ico"),
+        os.path.join(base_dir, "logo_deddie.ico"),
+    ]
+    for candidate in ico_candidates:
+        try:
+            if os.path.isfile(candidate):
+                return os.path.abspath(candidate)
+        except Exception:
+            continue
+
+    png_candidates = [
+        os.path.join(base_dir, "logo_deddie.png"),
+        os.path.join(base_dir, "deddie_logo.png"),
+        os.path.join(base_dir, "res", "icons", "android_launcher.png"),
+    ]
+    for candidate in png_candidates:
+        try:
+            if os.path.isfile(candidate):
+                generated = _ensure_runtime_ico_from_png(candidate)
+                if generated:
+                    return generated
+        except Exception:
+            continue
+    return ""
+
+
+def _read_png_dimensions(png_path):
+    try:
+        with open(png_path, "rb") as handle:
+            blob = handle.read(64)
+        if len(blob) < 24 or blob[:8] != b"\x89PNG\r\n\x1a\n" or blob[12:16] != b"IHDR":
+            return None
+        width = int.from_bytes(blob[16:20], byteorder="big", signed=False)
+        height = int.from_bytes(blob[20:24], byteorder="big", signed=False)
+        if width <= 0 or height <= 0:
+            return None
+        return width, height
+    except Exception:
+        return None
+
+
+def _wrap_png_as_ico(png_path, ico_path):
+    dims = _read_png_dimensions(png_path)
+    if not dims:
+        return ""
+    width, height = dims
+    if width > 256 or height > 256:
+        return ""
+
+    with open(png_path, "rb") as handle:
+        png_bytes = handle.read()
+
+    width_byte = 0 if width == 256 else width
+    height_byte = 0 if height == 256 else height
+
+    header = struct.pack("<HHH", 0, 1, 1)
+    entry = struct.pack(
+        "<BBBBHHII",
+        width_byte,
+        height_byte,
+        0,
+        0,
+        1,
+        32,
+        len(png_bytes),
+        6 + 16,
+    )
+    with open(ico_path, "wb") as handle:
+        handle.write(header)
+        handle.write(entry)
+        handle.write(png_bytes)
+    return ico_path if os.path.isfile(ico_path) else ""
+
+
+def _ensure_runtime_ico_from_png(png_path):
+    png_path = os.path.abspath(str(png_path or "").strip())
+    if not png_path or not os.path.isfile(png_path):
+        return ""
+
+    ico_path = os.path.join(tempfile.gettempdir(), "dbsubstations_runtime_icon.ico")
+
+    try:
+        from PIL import Image as PILImage
+
+        with PILImage.open(png_path) as image:
+            rgba = image.convert("RGBA")
+            rgba.thumbnail((256, 256))
+            rgba.save(ico_path, format="ICO")
+        if os.path.isfile(ico_path):
+            return ico_path
+    except Exception:
+        pass
+
+    return _wrap_png_as_ico(png_path, ico_path)
+
+
+def _preferred_python_executable():
+    executable = os.path.abspath(sys.executable or "")
+    if not executable:
+        return sys.executable
+
+    exe_name = os.path.basename(executable).lower()
+    if exe_name == "python.exe":
+        pythonw_candidate = os.path.join(os.path.dirname(executable), "pythonw.exe")
+        if os.path.isfile(pythonw_candidate):
+            return pythonw_candidate
+    return executable
+
+
+def open_desktop_menu_window(
+    title,
+    message,
+    buttons,
+    *,
+    close_label="Close",
+    width=460,
+    height=340,
+):
+    """Open a small native desktop menu window on Windows using tkinter.
+
+    The app uses a single Kivy window, so this helper is only for the top-level
+    desktop menus that should appear as separate windows.
+    """
+    if not KIVY_AVAILABLE:
+        return False
+
+    try:
+        from kivy.clock import Clock
+    except Exception:
+        return False
+
+    normalized_buttons = list(buttons or [])
+
+    action_map = {}
+    serialized_buttons = []
+    for index, (label_text, callback) in enumerate(normalized_buttons):
+        action_id = f"action_{index}"
+        action_map[action_id] = callback
+        serialized_buttons.append({"id": action_id, "label": str(label_text)})
+
+    result_path = os.path.join(
+        tempfile.gettempdir(), f"db_substations_menu_{uuid.uuid4().hex}.json"
+    )
+
+    helper_script = r"""
+import json
+import pathlib
+import sys
+import tkinter as tk
+
+title = json.loads(sys.argv[1])
+message = json.loads(sys.argv[2])
+buttons = json.loads(sys.argv[3])
+close_label = json.loads(sys.argv[4])
+result_path = pathlib.Path(sys.argv[5])
+width = int(sys.argv[6])
+height = int(sys.argv[7])
+icon_path = json.loads(sys.argv[8]) if len(sys.argv) > 8 else ""
+
+BG = "#0f2f5f"
+PANEL = "#123a74"
+BUTTON = "#1f4e8c"
+BUTTON_ACTIVE = "#2d6ab3"
+TEXT = "#ffffff"
+SUBTEXT = "#dbe7f5"
+
+def write_result(action_id):
+    try:
+        result_path.write_text(json.dumps({"action": action_id}), encoding="utf-8")
+    except Exception:
+        pass
+
+root = tk.Tk()
+try:
+    import ctypes
+
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("HEDNO.SubstationManager")
+except Exception:
+    pass
+root.title(str(title or "Menu"))
+root.geometry(f"{width}x{height}")
+root.minsize(max(320, int(width * 0.8)), max(220, int(height * 0.8)))
+root.configure(bg=BG)
+_icon_ref = None
+try:
+    if icon_path:
+        if str(icon_path).lower().endswith(".ico"):
+            root.iconbitmap(str(icon_path))
+        else:
+            _icon_ref = tk.PhotoImage(file=str(icon_path))
+            root.iconphoto(True, _icon_ref)
+except Exception:
+    pass
+try:
+    root.attributes("-topmost", True)
+except Exception:
+    pass
+
+frame = tk.Frame(root, padx=16, pady=16, bg=BG)
+frame.pack(fill="both", expand=True)
+
+header = tk.Frame(frame, bg=PANEL, padx=14, pady=12)
+header.pack(fill="x", pady=(0, 14))
+
+title_label = tk.Label(
+    header,
+    text=str(title or "Menu"),
+    bg=PANEL,
+    fg=TEXT,
+    anchor="w",
+    font=("Segoe UI", 13, "bold"),
+)
+title_label.pack(fill="x")
+
+if message:
+    label = tk.Label(
+        frame,
+        text=str(message),
+        bg=BG,
+        fg=SUBTEXT,
+        justify="left",
+        anchor="w",
+        wraplength=max(240, int(width) - 48),
+        font=("Segoe UI", 10, "bold"),
+    )
+    label.pack(fill="x", pady=(0, 12))
+
+button_frame = tk.Frame(frame, bg=BG)
+button_frame.pack(fill="both", expand=True)
+
+def choose(action_id):
+    write_result(action_id)
+    try:
+        root.destroy()
+    except Exception:
+        pass
+
+for item in buttons:
+    tk.Button(
+        button_frame,
+        text=str(item.get("label", "")),
+        bg=BUTTON,
+        fg=TEXT,
+        activebackground=BUTTON_ACTIVE,
+        activeforeground=TEXT,
+        relief="flat",
+        bd=0,
+        padx=12,
+        pady=10,
+        command=lambda action_id=item.get("id", ""): choose(action_id),
+    ).pack(fill="x", pady=4)
+
+tk.Button(
+    frame,
+    text=str(close_label or "Close"),
+    bg="#3a5f92",
+    fg=TEXT,
+    activebackground="#5479a8",
+    activeforeground=TEXT,
+    relief="flat",
+    bd=0,
+    padx=12,
+    pady=8,
+    command=lambda: choose("__close__"),
+).pack(fill="x", pady=(10, 0))
+
+def on_close():
+    choose("__close__")
+
+root.protocol("WM_DELETE_WINDOW", on_close)
+try:
+    root.lift()
+except Exception:
+    pass
+root.after(100, lambda: root.attributes("-topmost", False) if root.winfo_exists() else None)
+root.mainloop()
+"""
+
+    command = [
+        _preferred_python_executable(),
+        "-c",
+        helper_script,
+        json.dumps(title, ensure_ascii=False),
+        json.dumps(message, ensure_ascii=False),
+        json.dumps(serialized_buttons, ensure_ascii=False),
+        json.dumps(close_label, ensure_ascii=False),
+        result_path,
+        str(int(width)),
+        str(int(height)),
+        json.dumps(_resolve_app_icon_path(), ensure_ascii=False),
+    ]
+
+    try:
+        subprocess.Popen(
+            command,
+            cwd=os.getcwd(),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        return False
+
+    def _poll_result(_dt):
+        if not os.path.exists(result_path):
+            return True
+        try:
+            with open(result_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception:
+            return True
+
+        action_id = payload.get("action")
+        try:
+            os.remove(result_path)
+        except Exception:
+            pass
+
+        callback = action_map.get(action_id)
+        if callback is not None:
+            try:
+                callback()
+            except Exception:
+                pass
+        return False
+
+    Clock.schedule_interval(_poll_result, 0.2)
+    return True
+
+
+def _resolve_app_entry_script():
+    """Return a usable app entry path for a second-process launch.
+
+    `sys.argv[0]` can be empty, a console stub, or an executable path depending on
+    how the app was launched. Prefer an actual project script or executable that
+    can re-open the app without requiring a Python interpreter wrapper.
+    """
+    candidates = []
+    argv0 = (sys.argv[0] if sys.argv else "") or ""
+    cwd = os.getcwd()
+    module_dir = os.path.dirname(__file__)
+    for candidate in [
+        os.path.join(cwd, "DBrun.py"),
+        os.path.join(cwd, "DBrun.exe"),
+        os.path.join(cwd, "dbsubstations.exe"),
+        os.path.join(module_dir, "DBrun.py"),
+        os.path.join(module_dir, "DBrun.exe"),
+        os.path.join(module_dir, "dbsubstations.exe"),
+        argv0,
+    ]:
+        if not candidate:
+            continue
+        normalized = os.path.abspath(candidate)
+        if os.path.isfile(normalized):
+            candidates.append(normalized)
+    if not candidates:
+        return None
+    return candidates[0]
+
+
+def _build_launch_command(script, screen_name, payload=None, parent_pid=None):
+    """Build a command that works for both Python scripts and bundled EXEs.
+
+    Kivy treats any flags before a ``--`` separator as its own CLI options. The
+    app-specific ``--dbs-open-*`` flags must therefore be passed after ``--`` so
+    Kivy leaves them alone and the child app can still parse them.
+    """
+    command = []
+    if script and script.lower().endswith(".exe"):
+        command.append(script)
+    else:
+        command.extend([_preferred_python_executable(), script])
+    command.append("--")
+    command.append(f"--dbs-open-screen={screen_name}")
+    if parent_pid is not None:
+        command.append(f"--dbs-parent-pid={int(parent_pid)}")
+    if payload is not None:
+        command.append(f"--dbs-open-payload={json.dumps(payload, ensure_ascii=False)}")
+    return command
+
+
+def launch_app_screen(screen_name, payload=None):
+    """Launch a second copy of the app directly into a named screen.
+
+    The current app remains open; this helper starts a new process that can
+    navigate to a dedicated screen after login.
+    """
+    try:
+        script = _resolve_app_entry_script()
+        if not script:
+            return False
+        command = _build_launch_command(
+            script,
+            screen_name,
+            payload,
+            parent_pid=os.getpid(),
+        )
+        child_proc = subprocess.Popen(
+            command,
+            cwd=os.getcwd(),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        _LAUNCHED_CHILD_PROCESSES.append(child_proc)
+        return True
+    except Exception:
+        return False
+
+
+def terminate_launched_child_processes():
+    """Best-effort shutdown of child app windows started by this process."""
+    for child_proc in list(_LAUNCHED_CHILD_PROCESSES):
+        try:
+            poll = getattr(child_proc, "poll", None)
+            if callable(poll) and poll() is not None:
+                continue
+            terminate = getattr(child_proc, "terminate", None)
+            if callable(terminate):
+                terminate()
+        except Exception:
+            continue
+
+
 if KIVY_AVAILABLE:
+
+    def create_popup(title, size_hint, **kwargs):
+        """Create a popup while tolerating Kivy versions that reject unsupported kwargs.
+
+        This project historically passed a `modal` kwarg, but the installed Kivy
+        popup API does not accept it. We silently drop unsupported arguments and
+        keep the valid ones such as `auto_dismiss`.
+        """
+        popup_module = importlib.import_module("kivy.uix.popup")
+        popup_cls = popup_module.Popup
+
+        popup_kwargs = dict(kwargs)
+        popup_kwargs.pop("modal", None)
+
+        try:
+            return popup_cls(title=title, size_hint=size_hint, **popup_kwargs)
+        except TypeError as exc:
+            msg = str(exc)
+            if (
+                "unexpected keyword argument" not in msg
+                and "positional argument" not in msg
+            ):
+                raise
+            return popup_cls(title=title, size_hint=size_hint)
 
     def show_message_popup(title: str, message: str, callback=None) -> None:
         """Show a Kivy popup with dynamic sizing based on message length."""

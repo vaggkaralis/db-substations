@@ -23,6 +23,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -54,7 +55,12 @@ from importers import (
     import_substations_from_csv,
     import_substations_from_excel,
 )
-from popups import show_message_popup
+from popups import (
+    create_popup,
+    launch_app_screen,
+    open_desktop_menu_window,
+    show_message_popup,
+)
 from settings import DB_PATH
 from strings_proxy import STRINGS as S
 from config_manager import (
@@ -1394,7 +1400,209 @@ class SubstationApp(App):
     def __init__(self, **kwargs):
         APP_LOGGER.info("Initializing SubstationApp")
         super().__init__(**kwargs)
+        self._launch_screen_name = None
+        self._launch_screen_payload = None
+        self._launch_parent_pid = None
+        for arg in sys.argv[1:]:
+            if arg.startswith("--dbs-open-screen="):
+                self._launch_screen_name = arg.split("=", 1)[1].strip() or None
+            elif arg.startswith("--dbs-parent-pid="):
+                raw_pid = arg.split("=", 1)[1].strip()
+                try:
+                    parsed_pid = int(raw_pid)
+                    self._launch_parent_pid = parsed_pid if parsed_pid > 0 else None
+                except Exception:
+                    self._launch_parent_pid = None
+            elif arg.startswith("--dbs-open-payload="):
+                raw = arg.split("=", 1)[1].strip()
+                try:
+                    self._launch_screen_payload = json.loads(raw) if raw else None
+                except Exception:
+                    self._launch_screen_payload = None
+
+        if not self._launch_screen_name:
+            env_screen = os.environ.get("DBS_OPEN_SCREEN", "").strip()
+            if env_screen:
+                self._launch_screen_name = env_screen
+
+        if self._launch_screen_payload is None:
+            env_payload = os.environ.get("DBS_OPEN_PAYLOAD", "").strip()
+            if env_payload:
+                try:
+                    self._launch_screen_payload = json.loads(env_payload)
+                except Exception:
+                    self._launch_screen_payload = None
+
+        # Set Windows taskbar identity and icon as early as possible so
+        # script launches don't keep Python branding in the taskbar.
+        try:
+            if sys.platform == "win32":
+                import ctypes
+
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "HEDNO.SubstationManager"
+                )
+        except Exception:
+            pass
+
+        try:
+            startup_icon = self._resolve_app_icon_path()
+            if startup_icon:
+                self.icon = startup_icon
+        except Exception:
+            pass
+
         APP_LOGGER.info("SubstationApp initialized successfully")
+
+    def _open_launch_screen_after_login(self, *args, **kwargs):
+        screen_name = self._launch_screen_name
+        payload = self._launch_screen_payload or {}
+        if not screen_name:
+            self._build_main_ui()
+            return
+
+        if not self._ensure_launch_session_ready():
+            return
+
+        if screen_name == "models_management":
+            self.show_models_management(None)
+        elif screen_name == "people_management":
+            self.show_people_management(None)
+        elif screen_name == "sf6_management":
+            self.show_sf6_management_popup(None)
+        elif screen_name == "isolation_requests":
+            self.show_isolation_requests(None)
+        elif screen_name == "maintenance_form":
+            self.show_maintenance_menu(parent_popup=None)
+        elif screen_name == "maintenance_history":
+            self.show_maintenance_history(None)
+        elif screen_name == "latest_maintenances":
+            self.show_latest_maintenances(parent_popup=None)
+        elif screen_name == "undone_maintenances":
+            self.show_undone_maintenances(parent_popup=None)
+        elif screen_name == "measurements_history":
+            self.show_measurements_history(parent_popup=None)
+        elif screen_name == "due_maint_substations":
+            self.show_due_substations_popup(parent_popup=None)
+        elif screen_name == "inspection_history":
+            self.show_inspection_history(None)
+        elif screen_name == "inspection_entry":
+            self.show_inspection_entry_popup(
+                None,
+                preselected_substation_name=payload.get("substation_name"),
+            )
+        elif screen_name == "substations_view":
+            self._display_substations(
+                payload.get("filter_name"),
+                element_type_filter=payload.get("element_type_filter"),
+                gate_filter=payload.get("gate_filter"),
+            )
+        else:
+            self._build_main_ui()
+
+    def _is_parent_process_alive(self):
+        parent_pid = getattr(self, "_launch_parent_pid", None)
+        if not parent_pid:
+            return True
+        try:
+            if os.name == "nt":
+                import ctypes
+
+                kernel32 = ctypes.windll.kernel32
+                desired_access = 0x1000 | 0x00100000
+                handle = kernel32.OpenProcess(desired_access, False, int(parent_pid))
+                if not handle:
+                    return False
+                try:
+                    exit_code = ctypes.c_ulong()
+                    if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                        return False
+                    return exit_code.value == 259
+                finally:
+                    kernel32.CloseHandle(handle)
+
+            os.kill(int(parent_pid), 0)
+            return True
+        except Exception:
+            return False
+
+    def _start_parent_exit_watcher(self):
+        if not getattr(self, "_launch_parent_pid", None):
+            return
+        if getattr(self, "_parent_watch_event", None) is not None:
+            return
+
+        def _watch_parent(_dt):
+            if self._is_parent_process_alive():
+                return True
+            APP_LOGGER.info("Parent process exited; closing child window")
+            self._allow_exit_without_sync_prompt = True
+            Clock.schedule_once(lambda *_: self.stop(), 0)
+            return False
+
+        self._parent_watch_event = Clock.schedule_interval(_watch_parent, 1.0)
+
+    def _dismiss_popup_and_maybe_close_child_window(
+        self,
+        popup,
+        *,
+        close_child_window=True,
+    ):
+        try:
+            if popup is not None:
+                popup.dismiss()
+        except Exception:
+            pass
+
+        if not close_child_window:
+            return
+        if not getattr(self, "_launch_screen_name", None):
+            return
+
+        try:
+            self._allow_exit_without_sync_prompt = True
+        except Exception:
+            pass
+        try:
+            self.stop()
+        except Exception:
+            pass
+
+    def _ensure_launch_session_ready(self):
+        """Ensure minimal runtime state exists for launched child windows.
+
+        Child windows can skip the login popup when a user session already
+        exists. In that startup path, `_build_main_ui` is not called, so core
+        runtime state like `self.conn` must be initialized here.
+        """
+        if getattr(self, "conn", None) is not None:
+            return True
+
+        try:
+            selected_db_path = self._resolve_startup_db_path()
+            APP_LOGGER.info(
+                "Initializing launch-screen DB connection: %s", selected_db_path
+            )
+            self.conn = init_db(selected_db_path)
+            self.db_path = os.path.abspath(selected_db_path)
+            self._normalize_legacy_maintenance_types(commit=False)
+            self._refresh_all_stored_maintenance_dates(commit=True)
+
+            if not hasattr(self, "_pending_changes"):
+                self._pending_changes = []
+            if not hasattr(self, "_sync_attention_needed"):
+                self._sync_attention_needed = False
+            return True
+        except Exception as exc:
+            APP_LOGGER.exception(
+                "Failed to initialize launch-screen session state", exc_info=True
+            )
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                f"Αδυναμία φόρτωσης δεδομένων εκκίνησης:\n{exc}",
+            )
+            self.stop()
+            return False
 
     def _format_elem_type(self, elem_type, is_main_switch):
         """Return element type with breaker subtype in parentheses for breakers.
@@ -1966,6 +2174,7 @@ class SubstationApp(App):
         self.title = S["MESSAGES"].get("APP_TITLE", "Υποσταθμοί ΔΕΔΔΗΕ ΔΕΕΔ/ΚΣΜΘ/ΤΕΙ")
         APP_LOGGER.info("Building desktop UI")
         self._apply_theme()
+        self._apply_window_icon()
         try:
             APP_LOGGER.info(
                 "STARTUP INFO - Window.size=%s dpi=%s cwd=%s",
@@ -1991,6 +2200,141 @@ class SubstationApp(App):
         Clock.schedule_once(self._finish_build, 0)
         APP_LOGGER.info("Scheduled deferred finish_build")
         return self.root_layout
+
+    def _resolve_app_icon_path(self):
+        base_dir = os.path.dirname(__file__)
+        icon_candidates = [
+            os.path.join(base_dir, "deddie_logo.ico"),
+            os.path.join(base_dir, "logo_deddie.ico"),
+            os.path.join(base_dir, "logo_deddie.png"),
+            os.path.join(base_dir, "deddie_logo.png"),
+            os.path.join(base_dir, "res", "icons", "android_launcher.png"),
+        ]
+        for candidate in icon_candidates:
+            try:
+                if os.path.isfile(candidate):
+                    return candidate
+            except Exception:
+                continue
+        return ""
+
+    def _apply_window_icon(self):
+        try:
+            icon_path = self._resolve_app_icon_path()
+            if not icon_path:
+                return
+            Window.set_icon(icon_path)
+            self.icon = icon_path
+            self._apply_windows_taskbar_icon(icon_path)
+            APP_LOGGER.info("Applied app window icon: %s", icon_path)
+        except Exception:
+            logging.exception("Failed to set app window icon")
+
+    def _resolve_windows_icon_file(self, icon_path):
+        normalized = str(icon_path or "").strip()
+        if not normalized:
+            return ""
+        if normalized.lower().endswith(".ico") and os.path.isfile(normalized):
+            return normalized
+
+        try:
+            from PIL import Image as PILImage
+
+            generated_ico = os.path.join(tempfile.gettempdir(), "dbsubstations_app.ico")
+            with PILImage.open(normalized) as image:
+                rgba = image.convert("RGBA")
+                rgba.thumbnail((256, 256))
+                rgba.save(generated_ico, format="ICO")
+            if os.path.isfile(generated_ico):
+                return generated_ico
+        except Exception:
+            pass
+
+        return ""
+
+    def _get_window_hwnd(self):
+        try:
+            for attr_name in ("_hwnd", "_window_handle"):
+                handle = int(getattr(Window, attr_name, 0) or 0)
+                if handle:
+                    return handle
+        except Exception:
+            pass
+
+        try:
+            info = Window._get_window_info()
+            if isinstance(info, dict):
+                for key in ("window", "hwnd", "window_handle"):
+                    handle = int(info.get(key) or 0)
+                    if handle:
+                        return handle
+            elif isinstance(info, (tuple, list)):
+                for value in info:
+                    try:
+                        handle = int(value or 0)
+                    except Exception:
+                        handle = 0
+                    if handle:
+                        return handle
+        except Exception:
+            pass
+
+        return 0
+
+    def _apply_windows_taskbar_icon(self, icon_path):
+        if sys.platform != "win32":
+            return
+
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "HEDNO.SubstationManager"
+            )
+        except Exception:
+            pass
+
+        ico_path = self._resolve_windows_icon_file(icon_path)
+        if not ico_path:
+            return
+
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
+            IMAGE_ICON = 1
+            LR_LOADFROMFILE = 0x0010
+
+            hicon = user32.LoadImageW(
+                0,
+                ico_path,
+                IMAGE_ICON,
+                0,
+                0,
+                LR_LOADFROMFILE,
+            )
+            if not hicon:
+                return
+
+            def _apply_once(_dt=None):
+                try:
+                    hwnd = self._get_window_hwnd()
+                    if not hwnd:
+                        return False
+                    user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
+                    user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
+                    return True
+                except Exception:
+                    return False
+
+            if not _apply_once(0):
+                Clock.schedule_once(_apply_once, 0.15)
+                Clock.schedule_once(_apply_once, 0.6)
+        except Exception:
+            logging.exception("Failed to apply Windows taskbar icon")
 
     def _check_db_compatibility(self):
         """Check if the database version is compatible with the app version.
@@ -2155,7 +2499,9 @@ class SubstationApp(App):
             APP_LOGGER.info("First-time setup is required")
             self._show_first_use_setup_wizard(
                 on_complete=lambda: self.show_login_popup(
-                    on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
+                    on_login_success=lambda: Clock.schedule_once(
+                        self._open_launch_screen_after_login, 0
+                    )
                 )
             )
             return
@@ -2171,10 +2517,22 @@ class SubstationApp(App):
         if not self._check_db_integrity():
             APP_LOGGER.error("Database integrity check failed")
             return
+        # For child windows opened with a specific launch target, reuse the
+        # persisted user session and open the requested screen directly.
+        if self._launch_screen_name and get_current_user():
+            APP_LOGGER.info(
+                "Launch-screen startup detected with existing session; skipping login popup"
+            )
+            self._start_parent_exit_watcher()
+            Clock.schedule_once(self._open_launch_screen_after_login, 0)
+            return
+
         # Always show login popup at startup (will pre-select last user)
         APP_LOGGER.info("Showing startup login popup")
         self.show_login_popup(
-            on_login_success=lambda: Clock.schedule_once(self._build_main_ui, 0)
+            on_login_success=lambda: Clock.schedule_once(
+                self._open_launch_screen_after_login, 0
+            )
         )
 
     def _needs_first_time_setup(self) -> bool:
@@ -2691,9 +3049,17 @@ class SubstationApp(App):
         APP_LOGGER.info("Starting startup sync cycle")
         self._run_startup_sync_cycle()
         try:
-            Clock.schedule_once(self._prompt_startup_report_review_if_needed, 0.75)
+            self._set_startup_review_interaction_block(
+                True,
+                message=S["MESSAGES"].get(
+                    "STARTUP_EMAIL_REVIEW_LOADING",
+                    "Έλεγχος για εκκρεμή e-mail αναφορών/απομονώσεων...",
+                ),
+            )
+            Clock.schedule_once(self._run_startup_report_review_with_gate, 0.75)
         except Exception:
             logging.exception("Failed to schedule startup report review")
+            self._set_startup_review_interaction_block(False)
         try:
             interval_minutes = int(get_app_setting("sync_auto_cycle_minutes", 15))
         except Exception:
@@ -2725,6 +3091,10 @@ class SubstationApp(App):
 
     def _should_prompt_sync_before_close(self):
         """Return True when user should be asked to sync before app close."""
+        # Child windows launched from the main app should close immediately
+        # without showing the global OneDrive sync prompt.
+        if getattr(self, "_launch_screen_name", None):
+            return False
         if getattr(self, "_close_sync_prompt_open", False):
             return False
         if getattr(self, "_cleanup_completed", False):
@@ -2803,6 +3173,12 @@ class SubstationApp(App):
         if getattr(self, "_cleanup_completed", False):
             return
         self._cleanup_completed = True
+        try:
+            from popups import terminate_launched_child_processes
+
+            terminate_launched_child_processes()
+        except Exception:
+            pass
         try:
             # Export pending changes before closing
             self._export_pending_changes(show_popup=True)
@@ -3033,6 +3409,11 @@ class SubstationApp(App):
         return _m(self, ui)
 
     def show_due_substations_popup(self, parent_popup=None):
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "due_maint_substations" and launch_app_screen("due_maint_substations"):
+            return
+
         from maintenance import show_due_substations_popup as _m
 
         ui = {
@@ -3042,7 +3423,12 @@ class SubstationApp(App):
             "Button": Button,
             "show_message_popup": show_message_popup,
         }
-        return _m(self, ui, parent_popup=parent_popup)
+        return self._run_with_loading(
+            lambda: _m(self, ui, parent_popup=parent_popup),
+            S["MESSAGES"].get(
+                "LOADING_DUE_SUBSTATIONS", "Φόρτωση ληξιπρόθεσμων στοιχείων..."
+            ),
+        )
 
     def _show_import_maintenance_email_dialog(self, parent_popup=None):
         from maintenance import _show_import_maintenance_email_dialog as _m
@@ -3427,7 +3813,7 @@ class SubstationApp(App):
     def _open_isolation_from_email_payload(
         self,
         payload,
-        status="Requested",
+        status="Accepted",
         after_save_callback=None,
     ):
         from isolation_ui import import_isolation_request_from_payload as _f
@@ -3521,7 +3907,7 @@ class SubstationApp(App):
         return True
 
     def _import_isolation_from_email_file(
-        self, file_path, status="Requested", after_save_callback=None
+        self, file_path, status="Accepted", after_save_callback=None
     ):
         from isolation_ui import import_isolation_request_from_eml as _f
 
@@ -3584,8 +3970,11 @@ class SubstationApp(App):
                 )
                 return
             popup.dismiss()
+            payload_with_context = dict(payload or {})
+            payload_with_context["_manual_substation_selection"] = True
             self._open_maintenance_from_email_payload(
-                payload, forced_substation=spinner.text
+                payload_with_context,
+                forced_substation=spinner.text,
             )
 
         def add_new_substation():
@@ -3687,8 +4076,11 @@ class SubstationApp(App):
                 )
                 return
             popup.dismiss()
+            payload_with_context = dict(payload or {})
+            payload_with_context["_manual_substation_selection"] = True
             self._open_maintenance_from_email_payload(
-                payload, forced_substation=substation_name
+                payload_with_context,
+                forced_substation=substation_name,
             )
 
         buttons = BoxLayout(size_hint_y=None, height=40, spacing=10)
@@ -3786,9 +4178,10 @@ class SubstationApp(App):
             )
         )
 
-        popup = Popup(
-            title=S["MESSAGES"].get("APP_INFO_TITLE", "Πληροφορίες Εφαρμογής"),
-            size_hint=(0.7, 0.6),
+        popup = create_popup(
+            S["MESSAGES"].get("APP_INFO_TITLE", "Πληροφορίες Εφαρμογής"),
+            (0.7, 0.6),
+            auto_dismiss=False,
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -3888,8 +4281,10 @@ class SubstationApp(App):
         """Show settings popup for language selection, database path, and user logout."""
         from sync_service import resolve_sync_root, resolve_backup_root
 
-        popup = Popup(
-            title=S["TITLES"].get("SETTINGS", "Ρυθμίσεις"), size_hint=(0.6, 0.6)
+        popup = create_popup(
+            S["TITLES"].get("SETTINGS", "Ρυθμίσεις"),
+            (0.6, 0.6),
+            auto_dismiss=False,
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -4744,6 +5139,11 @@ class SubstationApp(App):
         return _f(self, year, substation_filter=substation_filter)
 
     def show_sf6_management_popup(self, instance=None):
+        launched = False
+        if getattr(self, "_launch_screen_name", None) != "sf6_management":
+            launched = bool(launch_app_screen("sf6_management"))
+        if launched:
+            return None
         from reports import show_sf6_management_popup as _f
 
         return _f(self, instance)
@@ -4875,6 +5275,11 @@ class SubstationApp(App):
 
     def show_people_management(self, instance=None):
         # Delegate to PeopleManager (extracted to people.py)
+        launched = False
+        if getattr(self, "_launch_screen_name", None) != "people_management":
+            launched = bool(launch_app_screen("people_management"))
+        if launched:
+            return None
         if not hasattr(self, "people_manager"):
             try:
                 from people import PeopleManager
@@ -5797,7 +6202,12 @@ class SubstationApp(App):
         buttons_layout.add_widget(save_btn)
 
         cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
-        cancel_btn.bind(on_press=popup.dismiss)
+        cancel_btn.bind(
+            on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
+                popup,
+                close_child_window=True,
+            )
+        )
         buttons_layout.add_widget(cancel_btn)
 
         main_layout.add_widget(buttons_layout)
@@ -6518,7 +6928,11 @@ class SubstationApp(App):
             next_btn.bind(on_press=_next)
             load_more_btn.bind(on_press=_load_more)
             sort_spinner.bind(text=_on_sort_change)
-            close.bind(on_press=lambda _btn: popup.dismiss())
+            close.bind(
+                on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
+                    popup
+                )
+            )
 
             # initial render
             _render()
@@ -6699,60 +7113,58 @@ class SubstationApp(App):
         return _f(self, menu_popup)
 
     def show_add_menu(self, instance):
-        # Show intermediate menu for adding substation or element
-        menu_popup = Popup(title=S["MESSAGES"]["ADD_MENU_TITLE"], size_hint=(0.6, 0.4))
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        self._add_logo_to_layout(layout, height=70)
-
-        layout.add_widget(
-            Label(text=S["MESSAGES"]["CHOOSE_WHAT_TO_ADD"], size_hint_y=0.3)
+        open_desktop_menu_window(
+            S["MESSAGES"]["ADD_MENU_TITLE"],
+            S["MESSAGES"]["CHOOSE_WHAT_TO_ADD"],
+            [
+                (
+                    S["MESSAGES"]["ADD_SUBSTATION_BTN"],
+                    lambda: self.show_add_substation_popup(None),
+                ),
+                (
+                    S["MESSAGES"]["ADD_ELEMENT_BTN"],
+                    lambda: self.show_add_element_popup(None),
+                ),
+                (
+                    S["MESSAGES"].get("ADD_SUBELEMENT_BTN", "Προσθήκη Υποστοιχείου"),
+                    lambda: __import__("elements").show_add_subelement_entry_popup(
+                        self
+                    ),
+                ),
+            ],
+            close_label=S["BUTTONS"]["CANCEL"],
+            width=520,
+            height=320,
         )
-
-        # Add substation button
-        add_substation_btn = Button(
-            text=S["MESSAGES"]["ADD_SUBSTATION_BTN"], size_hint_y=0.3
-        )
-        add_substation_btn.bind(
-            on_press=lambda x: self._show_add_substation_from_menu(menu_popup)
-        )
-        layout.add_widget(add_substation_btn)
-
-        # Add element button
-        add_element_btn = Button(text=S["MESSAGES"]["ADD_ELEMENT_BTN"], size_hint_y=0.3)
-        add_element_btn.bind(
-            on_press=lambda x: self._show_add_element_from_menu(menu_popup)
-        )
-        layout.add_widget(add_element_btn)
-
-        # Add subelement button
-        add_subelement_btn = Button(
-            text=S["MESSAGES"].get("ADD_SUBELEMENT_BTN", "Προσθήκη Υποστοιχείου"),
-            size_hint_y=0.3,
-        )
-        add_subelement_btn.bind(
-            on_press=lambda x: self._show_add_subelement_from_menu(menu_popup)
-        )
-        layout.add_widget(add_subelement_btn)
-
-        # Cancel button
-        cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=0.2)
-        cancel_btn.bind(on_press=menu_popup.dismiss)
-        layout.add_widget(cancel_btn)
-
-        menu_popup.content = layout
-        menu_popup.open()
 
     def _show_add_substation_from_menu(self, menu_popup):
-        menu_popup.dismiss()
+        try:
+            menu_popup.dismiss()
+        except Exception:
+            try:
+                menu_popup.destroy()
+            except Exception:
+                pass
         self.show_add_substation_popup(None)
 
     def _show_add_element_from_menu(self, menu_popup):
-        menu_popup.dismiss()
+        try:
+            menu_popup.dismiss()
+        except Exception:
+            try:
+                menu_popup.destroy()
+            except Exception:
+                pass
         self.show_add_element_popup(None)
 
     def _show_add_subelement_from_menu(self, menu_popup):
-        menu_popup.dismiss()
+        try:
+            menu_popup.dismiss()
+        except Exception:
+            try:
+                menu_popup.destroy()
+            except Exception:
+                pass
         from elements import show_add_subelement_entry_popup as _f
 
         return _f(self)
@@ -7060,9 +7472,10 @@ class SubstationApp(App):
             return
 
         # Create selection popup
-        selection_popup = Popup(
-            title=S["MESSAGES"].get("VIEW_SELECTION_TITLE", "Επιλογή Προβολής"),
-            size_hint=(0.62, 0.52),
+        selection_popup = create_popup(
+            S["MESSAGES"].get("VIEW_SELECTION_TITLE", "Επιλογή Προβολής"),
+            (0.62, 0.52),
+            auto_dismiss=False,
         )
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -7211,6 +7624,11 @@ class SubstationApp(App):
             selection_popup.dismiss()
             if parent_popup:
                 parent_popup.open()
+            else:
+                self._dismiss_popup_and_maybe_close_child_window(
+                    None,
+                    close_child_window=True,
+                )
 
         for i in range(total_positions):
             if i < len(all_substations):
@@ -7243,6 +7661,12 @@ class SubstationApp(App):
 
     def _show_all_substations(self, selection_popup):
         selection_popup.dismiss()
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "substations_view" and launch_app_screen(
+            "substations_view", {"filter_name": None}
+        ):
+            return
         self._run_with_loading(
             lambda: self._display_substations(None),
             S["MESSAGES"].get("LOADING_SUBSTATIONS", "Φόρτωση υποσταθμών..."),
@@ -7250,6 +7674,12 @@ class SubstationApp(App):
 
     def _show_specific_substation_from_window(self, substation_name, selection_popup):
         selection_popup.dismiss()
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "substations_view" and launch_app_screen(
+            "substations_view", {"filter_name": substation_name}
+        ):
+            return
         self._display_substations(substation_name)
 
     def _show_loading_popup(self, message=None):
@@ -8013,6 +8443,74 @@ class SubstationApp(App):
             )
         return items
 
+    def _set_startup_review_interaction_block(self, enabled, message=None):
+        popup = getattr(self, "_startup_review_gate_popup", None)
+        if enabled:
+            if popup is not None and getattr(popup, "_window", None):
+                return
+            gate_popup = Popup(
+                title=S["MESSAGES"].get(
+                    "STARTUP_EMAIL_REVIEW_LOADING_TITLE", "Έλεγχος Εκκίνησης"
+                ),
+                size_hint=(0.55, 0.24),
+                auto_dismiss=False,
+                separator_height=1,
+            )
+            layout = BoxLayout(orientation="vertical", padding=12, spacing=8)
+            layout.add_widget(
+                Label(
+                    text=message
+                    or S["MESSAGES"].get(
+                        "STARTUP_EMAIL_REVIEW_LOADING",
+                        "Έλεγχος για εκκρεμή e-mail αναφορών/απομονώσεων...",
+                    ),
+                    halign="center",
+                    valign="middle",
+                )
+            )
+            gate_popup.content = layout
+            self._startup_review_gate_popup = gate_popup
+            gate_popup.bind(
+                on_dismiss=lambda *_args: setattr(
+                    self, "_startup_review_gate_popup", None
+                )
+            )
+            gate_popup.open()
+            return
+
+        if popup is not None:
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+        self._startup_review_gate_popup = None
+
+    def _run_startup_report_review_with_gate(self, *_args):
+        blocking_popups = [
+            getattr(self, "_startup_sync_prompt_popup", None),
+            getattr(self, "_startup_progress_popup", None),
+        ]
+        if any(
+            popup is not None and getattr(popup, "_window", None)
+            for popup in blocking_popups
+        ):
+            Clock.schedule_once(self._run_startup_report_review_with_gate, 0.75)
+            return
+
+        try:
+            shown = self._prompt_startup_report_review_if_needed(
+                reschedule_on_blocking=False
+            )
+            if shown:
+                # Startup review popup is itself modal, so it now owns blocking.
+                self._set_startup_review_interaction_block(False)
+                return
+
+            self._set_startup_review_interaction_block(False)
+        except Exception:
+            logging.exception("Failed to run gated startup report review")
+            self._set_startup_review_interaction_block(False)
+
     @staticmethod
     def _normalize_startup_review_items(pending_items):
         normalized_items = []
@@ -8041,7 +8539,9 @@ class SubstationApp(App):
             normalized_items.append(candidate)
         return normalized_items
 
-    def _prompt_startup_report_review_if_needed(self, *_args):
+    def _prompt_startup_report_review_if_needed(
+        self, *_args, reschedule_on_blocking=True
+    ):
         existing_popup = getattr(self, "_startup_report_review_popup", None)
         if existing_popup is not None and getattr(existing_popup, "_window", None):
             return True
@@ -8054,7 +8554,8 @@ class SubstationApp(App):
             popup is not None and getattr(popup, "_window", None)
             for popup in blocking_popups
         ):
-            Clock.schedule_once(self._prompt_startup_report_review_if_needed, 0.75)
+            if reschedule_on_blocking:
+                Clock.schedule_once(self._prompt_startup_report_review_if_needed, 0.75)
             return False
 
         deferred_paths = set(
@@ -8175,6 +8676,36 @@ class SubstationApp(App):
             if matched:
                 return matched
             return self._find_substation_in_text(body, substations)
+
+        def _resolve_substation_for_filename(file_path, review_kind="maintenance"):
+            file_name = os.path.basename(str(file_path or "")).strip()
+            if not file_name:
+                return None
+            file_stub = os.path.splitext(file_name)[0]
+            if review_kind == "isolation" and match_isolation_substation:
+                try:
+                    iso_match = match_isolation_substation(self, file_stub, substations)
+                except Exception:
+                    iso_match = None
+                if iso_match:
+                    return iso_match
+            matched = self._find_substation_in_text(file_stub, substations)
+            if matched:
+                return matched
+            if infer_substation_from_email:
+                try:
+                    inferred = infer_substation_from_email(
+                        self.conn,
+                        subject=file_stub,
+                        body="",
+                        date_time_value="",
+                        received_at="",
+                    )
+                except Exception:
+                    inferred = None
+                if inferred:
+                    return inferred.get("id"), inferred.get("name")
+            return None
 
         def _merge_instance_email_metadata(existing_metadata, incoming_metadata):
             existing = existing_metadata if isinstance(existing_metadata, dict) else {}
@@ -8340,6 +8871,11 @@ class SubstationApp(App):
                     current_payload,
                     review_kind,
                 )
+                if not current_substation_match:
+                    current_substation_match = _resolve_substation_for_filename(
+                        item.get("file_path"),
+                        review_kind,
+                    )
                 current_date_label = _format_email_comment_date_label(
                     current_received_value
                 )
@@ -8659,12 +9195,42 @@ class SubstationApp(App):
             if instance["review_kind"] == "isolation":
                 self._open_isolation_from_email_payload(
                     payload,
-                    status="Requested",
+                    status="Accepted",
                     after_save_callback=_after_save,
                 )
             else:
+                forced_substation_name = None
+                try:
+                    substation_match = instance.get("substation_match")
+                    if (
+                        isinstance(substation_match, (tuple, list))
+                        and len(substation_match) >= 2
+                    ):
+                        forced_substation_name = substation_match[1]
+                except Exception:
+                    forced_substation_name = None
+                if not forced_substation_name:
+                    try:
+                        fallback_match = _resolve_substation_for_filename(
+                            (items[0] if items else {}).get("file_path"),
+                            "maintenance",
+                        )
+                        if (
+                            isinstance(fallback_match, (tuple, list))
+                            and len(fallback_match) >= 2
+                        ):
+                            forced_substation_name = fallback_match[1]
+                    except Exception:
+                        forced_substation_name = None
+
+                payload_to_import = dict(payload or {})
+                payload_to_import["_startup_review_force_new_maintenance"] = True
+                payload_to_import["_force_bypass_matching"] = True
+                if forced_substation_name:
+                    payload_to_import["_manual_substation_selection"] = True
                 self._open_maintenance_from_email_payload(
-                    payload,
+                    payload_to_import,
+                    forced_substation=forced_substation_name,
                     after_save_callback=_after_save,
                     after_cancel_callback=_after_cancel,
                 )
@@ -9903,7 +10469,11 @@ class SubstationApp(App):
         buttons_bottom_layout.add_widget(add_substation_btn)
 
         close_btn = Button(text=S["BUTTONS"]["CLOSE"])
-        close_btn.bind(on_press=popup.dismiss)
+        close_btn.bind(
+            on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
+                popup
+            )
+        )
         buttons_bottom_layout.add_widget(close_btn)
 
         main_layout.add_widget(buttons_bottom_layout)
@@ -10235,12 +10805,15 @@ class SubstationApp(App):
 
     def create_elements_template(self, instance):
         success, message = create_elements_template(os.path.dirname(__file__))
-        title = (
-            S["MESSAGES"].get("TEMPLATE_ELEMENTS_TITLE", "Template Στοιχείων")
-            if success
-            else S["TITLES"]["ERROR"]
-        )
-        show_message_popup(title, message)
+        if success:
+            title = S["MESSAGES"].get("TEMPLATE_ELEMENTS_TITLE", "Template Στοιχείων")
+            show_message_popup(
+                title,
+                f"Η δημιουργία του template ολοκληρώθηκε επιτυχώς.\n\nΑποθήκευση στο αρχείο:\n{message}",
+            )
+            return
+
+        show_message_popup(S["TITLES"]["ERROR"], message)
 
     def show_import_substations_dialog(self, instance_or_parent_popup):
         from imports import show_import_substations_dialog as _f
@@ -15063,6 +15636,19 @@ class SubstationApp(App):
         c.execute("SELECT id, name FROM substations ORDER BY name")
         substations = c.fetchall()
 
+        # Safety guard: manual email import flows must always start a new
+        # maintenance entry, even if a caller accidentally forwards an id.
+        try:
+            if (
+                maintenance_id
+                and isinstance(prefill_data, dict)
+                and prefill_data.get("_diag_origin") == "email_ui_prefill"
+                and prefill_data.get("_force_new_from_email_import")
+            ):
+                maintenance_id = None
+        except Exception:
+            pass
+
         if not substations:
             show_message_popup(
                 S["TITLES"]["ERROR"],
@@ -15141,6 +15727,11 @@ class SubstationApp(App):
         existing_elements_data = {}
         responsible_person_id = None
         prefill_data = prefill_data or {}
+        force_new_email_context = bool(
+            isinstance(prefill_data, dict)
+            and prefill_data.get("_diag_origin") == "email_ui_prefill"
+            and prefill_data.get("_force_new_from_email_import")
+        )
         prefill_attachment_paths = dedupe_attachment_paths(
             prefill_data.get("attachment_paths") or []
         )
@@ -15594,12 +16185,13 @@ class SubstationApp(App):
             refresh_isolation_links(sub_name)
             load_elements(sub_name)  # Reload elements when substation changes
             refresh_substation_context()
-            self._maybe_show_incomplete_maintenance_reminder_for_substation_selection(
-                sub_name,
-                substation_map,
-                maintenance_id=maintenance_id,
-                reminded_substation_ids=reminded_substation_ids,
-            )
+            if not force_new_email_context:
+                self._maybe_show_incomplete_maintenance_reminder_for_substation_selection(
+                    sub_name,
+                    substation_map,
+                    maintenance_id=maintenance_id,
+                    reminded_substation_ids=reminded_substation_ids,
+                )
             try:
                 refresh_workflow_summary()
             except Exception:
@@ -20359,7 +20951,11 @@ class SubstationApp(App):
         cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"), size_hint_x=0.5)
 
         def _cancel_maintenance_editor(_instance=None):
-            popup.dismiss()
+            should_close_child_window = not callable(after_cancel_callback)
+            self._dismiss_popup_and_maybe_close_child_window(
+                popup,
+                close_child_window=should_close_child_window,
+            )
             if callable(after_cancel_callback):
                 try:
                     after_cancel_callback()
@@ -20388,7 +20984,7 @@ class SubstationApp(App):
         _update_save_button_state()
         popup.open()
 
-        if auto_prompt_substation_selection:
+        if auto_prompt_substation_selection and not force_new_email_context:
             initial_substation_id = substation_map.get(initial_substation)
             shown = self._show_substation_incomplete_maintenance_reminder(
                 initial_substation_id,
@@ -20588,7 +21184,21 @@ class SubstationApp(App):
                 return
             opened_form["done"] = True
             popup.dismiss()
-            self.show_maintenance_menu(maintenance_id=maintenance_row.get("id"))
+
+            def _reopen_reminder():
+                Clock.schedule_once(
+                    lambda _dt: self._show_substation_incomplete_maintenance_reminder(
+                        substation_id,
+                        substation_name,
+                        on_close=on_close,
+                    ),
+                    0,
+                )
+
+            self.show_maintenance_menu(
+                maintenance_id=maintenance_row.get("id"),
+                after_cancel_callback=_reopen_reminder,
+            )
 
         for index, row in enumerate(incomplete_maintenances or [], start=1):
             card = BoxLayout(
@@ -22376,6 +22986,10 @@ class SubstationApp(App):
 
     def show_maintenance_history(self, instance, _deferred=False):
         """Show maintenance history – prompt user to pick a substation first."""
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "maintenance_history" and launch_app_screen("maintenance_history"):
+            return
         c = self.conn.cursor()
         c.execute("""
             SELECT s.id, s.name, COUNT(m.id) AS maint_count
@@ -22427,6 +23041,10 @@ class SubstationApp(App):
         `maintenance` table, which includes imported/synchronized entries from
         different users/devices.
         """
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "latest_maintenances" and launch_app_screen("latest_maintenances"):
+            return
         if parent_popup:
             try:
                 parent_popup.dismiss()
@@ -22555,7 +23173,11 @@ class SubstationApp(App):
         close_btn = Button(
             text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
         )
-        close_btn.bind(on_press=popup.dismiss)
+        close_btn.bind(
+            on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
+                popup
+            )
+        )
         main_layout.add_widget(close_btn)
 
         popup.content = main_layout
@@ -22567,6 +23189,10 @@ class SubstationApp(App):
 
     def show_undone_maintenances(self, parent_popup=None):
         """Show maintenances saved as incomplete with their pending tasks."""
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "undone_maintenances" and launch_app_screen("undone_maintenances"):
+            return
         if parent_popup:
             try:
                 parent_popup.dismiss()
@@ -22882,10 +23508,21 @@ class SubstationApp(App):
                 size=(34, 34),
                 tooltip=S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"),
             )
+
+            def _reopen_undone_view():
+                Clock.schedule_once(
+                    lambda _dt: self.show_undone_maintenances(parent_popup=None),
+                    0,
+                )
+
             edit_btn.bind(
                 on_press=lambda _inst, mid=row_data["id"]: (
                     popup.dismiss(),
-                    self.show_maintenance_menu(maintenance_id=mid),
+                    self.show_maintenance_menu(
+                        maintenance_id=mid,
+                        after_save_callback=_reopen_undone_view,
+                        after_cancel_callback=_reopen_undone_view,
+                    ),
                 )
             )
 
@@ -23058,7 +23695,11 @@ class SubstationApp(App):
         close = Button(
             text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
         )
-        close.bind(on_press=popup.dismiss)
+        close.bind(
+            on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
+                popup
+            )
+        )
         main_layout.add_widget(close)
         popup.content = main_layout
         _refresh()
@@ -23886,19 +24527,24 @@ class SubstationApp(App):
 
                 def make_edit_handler(m_id, p, maint_type, elements):
                     if not _is_dga_maintenance_type(maint_type):
-                        return lambda x: self.show_maintenance_menu(
-                            None,
-                            substation_name,
-                            p,
-                            m_id,
-                            lambda: self.show_substation_maintenance_history(
+
+                        def _reopen_history_view():
+                            self.show_substation_maintenance_history(
                                 substation_id,
                                 substation_name,
                                 parent_display_popup,
                                 current_element_filter.get("id"),
                                 current_element_filter.get("name"),
                                 include_maintenance_ids=include_maintenance_ids,
-                            ),
+                            )
+
+                        return lambda x: self.show_maintenance_menu(
+                            None,
+                            substation_name,
+                            p,
+                            m_id,
+                            _reopen_history_view,
+                            _reopen_history_view,
                         )
                     return lambda x: self._open_dga_maintenance_editor(m_id)
 
@@ -24398,7 +25044,11 @@ class SubstationApp(App):
 
         # Close button
         close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=45)
-        close_btn.bind(on_press=popup.dismiss)
+        close_btn.bind(
+            on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
+                popup
+            )
+        )
         main_layout.add_widget(close_btn)
 
         popup.content = main_layout
@@ -27275,6 +27925,18 @@ class SubstationApp(App):
         - Checkbox to show only failed/problematic DGA measurements
         - Icon-only buttons: open folder, view report, edit, delete
         """
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "measurements_history" and launch_app_screen("measurements_history"):
+            return
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        from kivy.uix.checkbox import CheckBox
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
+
         c = self.conn.cursor()
         # Load distinct substations for filter
         c.execute("SELECT id, name FROM substations ORDER BY name")
@@ -27293,14 +27955,6 @@ class SubstationApp(App):
             ORDER BY dm.measurement_date DESC, dm.created_at DESC
             """)
         rows = c.fetchall()
-
-        Popup = globals().get("Popup")
-        BoxLayout = globals().get("BoxLayout")
-        GridLayout = globals().get("GridLayout")
-        ScrollView = globals().get("ScrollView")
-        Label = globals().get("Label")
-        _Spinner = globals().get("Spinner")
-        CheckBox = globals().get("CheckBox")
 
         popup = Popup(
             title=S["MESSAGES"].get(
@@ -27322,13 +27976,11 @@ class SubstationApp(App):
             )
         )
 
-        select_substation_btn = globals().get("Button")(
+        select_substation_btn = Button(
             text=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"),
             size_hint_x=0.25,
         )
-        all_btn = globals().get("Button")(
-            text=S["MESSAGES"].get("ALL_LABEL", "(All)"), size_hint_x=0.15
-        )
+        all_btn = Button(text=S["MESSAGES"].get("ALL_LABEL", "(All)"), size_hint_x=0.15)
         controls.add_widget(selected_substation_label)
         controls.add_widget(select_substation_btn)
         controls.add_widget(all_btn)
@@ -27534,8 +28186,12 @@ class SubstationApp(App):
         main.add_widget(scroll)
 
         bottom = BoxLayout(size_hint_y=None, height=44, spacing=8)
-        close_btn = globals().get("Button")(text=S["BUTTONS"].get("CLOSE", "Close"))
-        close_btn.bind(on_press=popup.dismiss)
+        close_btn = Button(text=S["BUTTONS"].get("CLOSE", "Close"))
+        close_btn.bind(
+            on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
+                popup
+            )
+        )
         bottom.add_widget(close_btn)
         main.add_widget(bottom)
 
@@ -27783,6 +28439,11 @@ class SubstationApp(App):
     def show_isolation_requests(self, instance=None):
         from isolation_ui import show_isolation_requests as _f
 
+        if getattr(
+            self, "_launch_screen_name", None
+        ) != "isolation_requests" and launch_app_screen("isolation_requests"):
+            return
+
         return _f(self, instance)
 
     def show_add_isolation_request(self, parent_popup):
@@ -27797,6 +28458,11 @@ class SubstationApp(App):
 
     def show_models_management(self, instance):
         """Show model management interface"""
+        launched = False
+        if getattr(self, "_launch_screen_name", None) != "models_management":
+            launched = bool(launch_app_screen("models_management"))
+        if launched:
+            return None
         show_models_management(self)
 
 

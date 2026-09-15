@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import struct
 import tempfile
 import textwrap
 import time
@@ -70,6 +71,16 @@ EXCLUDED_MODULES = [
     "gi.repository",
     "picamera",
     "enchant",
+]
+ICON_ICO_CANDIDATES = [
+    "deddie_logo.ico",
+    "logo_deddie.ico",
+    "res/icons/deddie_logo.ico",
+]
+ICON_PNG_CANDIDATES = [
+    "logo_deddie.png",
+    "deddie_logo.png",
+    "res/icons/android_launcher.png",
 ]
 
 
@@ -139,6 +150,7 @@ def build_pyinstaller_args(
     staging_parent_dir: Path,
     workpath_dir: Path,
     specpath_dir: Path,
+    icon_path: Path | None,
 ) -> list[str]:
     args = [
         "DBrun.py",
@@ -148,7 +160,6 @@ def build_pyinstaller_args(
         "--noconfirm",
         "--clean",
         "--log-level=WARN",
-        "--icon=NONE",
         f"--distpath={staging_parent_dir}",
         f"--workpath={workpath_dir}",
         f"--specpath={specpath_dir}",
@@ -156,10 +167,95 @@ def build_pyinstaller_args(
         "--contents-directory=runtime",
         f"--version-file={version_info_path}",
     ]
+    if icon_path and icon_path.exists():
+        args.append(f"--icon={icon_path}")
+    else:
+        args.append("--icon=NONE")
     args.extend(f"--hidden-import={module_name}" for module_name in HIDDEN_IMPORTS)
     args.extend(f"--exclude-module={module_name}" for module_name in EXCLUDED_MODULES)
     args.extend(build_add_data_args())
     return args
+
+
+def _read_png_dimensions(png_path: Path) -> tuple[int, int] | None:
+    try:
+        with png_path.open("rb") as handle:
+            blob = handle.read(64)
+        if len(blob) < 24:
+            return None
+        if blob[:8] != b"\x89PNG\r\n\x1a\n":
+            return None
+        if blob[12:16] != b"IHDR":
+            return None
+        width = int.from_bytes(blob[16:20], byteorder="big", signed=False)
+        height = int.from_bytes(blob[20:24], byteorder="big", signed=False)
+        if width <= 0 or height <= 0:
+            return None
+        return width, height
+    except OSError:
+        return None
+
+
+def _wrap_png_as_ico(png_path: Path, ico_path: Path) -> bool:
+    png_size = _read_png_dimensions(png_path)
+    if not png_size:
+        return False
+    width, height = png_size
+    if width > 256 or height > 256:
+        return False
+
+    png_bytes = png_path.read_bytes()
+    width_byte = 0 if width == 256 else width
+    height_byte = 0 if height == 256 else height
+
+    header = struct.pack("<HHH", 0, 1, 1)
+    directory_entry = struct.pack(
+        "<BBBBHHII",
+        width_byte,
+        height_byte,
+        0,
+        0,
+        1,
+        32,
+        len(png_bytes),
+        6 + 16,
+    )
+    ico_path.write_bytes(header + directory_entry + png_bytes)
+    return True
+
+
+def _create_ico_from_png(png_path: Path, ico_path: Path) -> bool:
+    try:
+        from PIL import Image  # type: ignore
+
+        with Image.open(png_path) as image:
+            rgba = image.convert("RGBA")
+            rgba.thumbnail((256, 256))
+            rgba.save(
+                ico_path,
+                format="ICO",
+                sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+            )
+        return True
+    except Exception:
+        return _wrap_png_as_ico(png_path, ico_path)
+
+
+def prepare_windows_icon(temp_dir_path: Path) -> Path | None:
+    for rel_path in ICON_ICO_CANDIDATES:
+        candidate = SCRIPT_DIR / rel_path
+        if candidate.exists():
+            return candidate
+
+    for rel_path in ICON_PNG_CANDIDATES:
+        png_candidate = SCRIPT_DIR / rel_path
+        if not png_candidate.exists():
+            continue
+        generated_icon = temp_dir_path / "generated_deddie_icon.ico"
+        if _create_ico_from_png(png_candidate, generated_icon):
+            return generated_icon
+
+    return None
 
 
 def clean_old_outputs() -> None:
@@ -267,6 +363,7 @@ def main() -> None:
         workpath_dir = temp_dir_path / "build"
         specpath_dir = temp_dir_path / "spec"
         version_info_path = temp_dir_path / "windows_version_info.txt"
+        icon_path = prepare_windows_icon(temp_dir_path)
         version_info_path.write_text(
             build_version_info_text(version),
             encoding="utf-8",
@@ -277,6 +374,7 @@ def main() -> None:
                 staging_parent_dir,
                 workpath_dir,
                 specpath_dir,
+                icon_path,
             )
         )
         deploy_staged_bundle(staging_dir)

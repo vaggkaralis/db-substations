@@ -20,7 +20,7 @@ from onedrive_hybrid_storage import ensure_isolation_request_storage
 from popups import ask_open_file, show_message_popup
 from strings_proxy import STRINGS as S
 
-_STATUS_VALUES = ["Requested", "Accepted", "Cancelled"]
+_STATUS_VALUES = ["Accepted", "Cancelled"]
 _DEFAULT_IMPORTED_STATUS = "Accepted"
 _ISOLATION_EMAIL_TEMPLATE_SETTING_KEY = "isolation_email_template_path"
 _ISOLATION_EMAIL_TEMPLATE_CACHE = {
@@ -28,6 +28,31 @@ _ISOLATION_EMAIL_TEMPLATE_CACHE = {
     "mtime": 0.0,
     "payload": None,
 }
+
+
+def _normalize_isolation_status(status, default=_DEFAULT_IMPORTED_STATUS):
+    status_text = str(status or "").strip()
+    if status_text == "Cancelled":
+        return "Cancelled"
+    if status_text == "Accepted":
+        return "Accepted"
+    return default
+
+
+def _normalize_isolation_statuses_in_db(app):
+    try:
+        c = app.conn.cursor()
+        c.execute(
+            """
+            UPDATE isolation_requests
+            SET status='Accepted'
+            WHERE status IS NULL OR TRIM(status)='' OR status NOT IN ('Accepted', 'Cancelled')
+            """
+        )
+        if c.rowcount:
+            app.conn.commit()
+    except Exception:
+        pass
 
 
 def _extract_email_addresses(raw_header_value):
@@ -589,6 +614,8 @@ def show_isolation_requests(app, instance=None):
 
     font_kwargs = app._get_ui_font_kwargs()
 
+    _normalize_isolation_statuses_in_db(app)
+
     popup = Popup(title="Αιτήσεις Απομόνωσης", size_hint=(0.95, 0.95))
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
@@ -618,9 +645,7 @@ def show_isolation_requests(app, instance=None):
 
     legend_layout = BoxLayout(size_hint_y=0.08, spacing=10, padding=[10, 5])
     legend_layout.add_widget(Label(text="", size_hint_x=0.25, **font_kwargs))
-    legend_layout.add_widget(
-        Label(text="● Αιτήθηκε", size_hint_x=0.22, color=(1, 0.85, 0, 1), **font_kwargs)
-    )
+    legend_layout.add_widget(Label(text="", size_hint_x=0.22, **font_kwargs))
     legend_layout.add_widget(
         Label(
             text="● Εγκρίθηκε",
@@ -784,9 +809,10 @@ def show_isolation_requests(app, instance=None):
                     status,
                     _notes,
                 ) in requests_by_day[current_day]:
-                    if status == "Accepted":
+                    normalized_status = _normalize_isolation_status(status)
+                    if normalized_status == "Accepted":
                         color = (0.2, 0.8, 0.2, 1)
-                    elif status == "Cancelled":
+                    elif normalized_status == "Cancelled":
                         color = (0.8, 0.2, 0.2, 1)
                     else:
                         color = (0.8, 0.8, 0.2, 1)
@@ -846,7 +872,13 @@ def show_isolation_requests(app, instance=None):
     load_calendar()
 
     close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.08)
-    close_btn.bind(on_press=popup.dismiss)
+    close_btn.bind(
+        on_press=lambda _btn: (
+            app._dismiss_popup_and_maybe_close_child_window(popup)
+            if hasattr(app, "_dismiss_popup_and_maybe_close_child_window")
+            else popup.dismiss()
+        )
+    )
     main_layout.add_widget(close_btn)
     popup.content = main_layout
     popup.open()
@@ -1070,7 +1102,7 @@ def _show_isolation_request_form(
     content.add_widget(duration_row)
 
     content.add_widget(Label(text="Κατάσταση:", size_hint_y=None, height=30, bold=True))
-    status_default = (
+    status_default = _normalize_isolation_status(
         request_record[5]
         if request_record
         else prefill_data.get("status") or _DEFAULT_IMPORTED_STATUS
@@ -1438,7 +1470,7 @@ def _show_isolation_request_form(
             if checkbox.active
         ]
         notes_value = notes_input.text.strip()
-        status_value = status_spinner.text
+        status_value = _normalize_isolation_status(status_spinner.text)
         selected_attachment = attachment_input.text.strip()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         send_email_enabled = bool(

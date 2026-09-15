@@ -86,6 +86,25 @@ def _safe_int(value):
         return None
 
 
+def _dismiss_popup_and_close_child(app_instance, popup, close_child_window=True):
+    try:
+        popup.dismiss()
+    except Exception:
+        pass
+
+    # When model management is opened as a dedicated child app window,
+    # closing its main popup should close that child window too.
+    if close_child_window and getattr(app_instance, "_launch_screen_name", None):
+        try:
+            app_instance._allow_exit_without_sync_prompt = True
+        except Exception:
+            pass
+        try:
+            app_instance.stop()
+        except Exception:
+            pass
+
+
 def _count_active_model_usage(cursor, model_id):
     """Return how many active elements/subelements use this model."""
     cursor.execute(
@@ -2440,7 +2459,9 @@ def _show_models_management_popup(app_instance):
 
     # Close button
     close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=0.1)
-    close_btn.bind(on_press=popup.dismiss)
+    close_btn.bind(
+        on_press=lambda *_: _dismiss_popup_and_close_child(app_instance, popup)
+    )
     main_layout.add_widget(close_btn)
 
     popup.content = main_layout
@@ -2761,9 +2782,29 @@ def _show_subelement_management_popup_internal(app_instance, parent_popup=None):
     scroll.add_widget(grid)
     main_layout.add_widget(scroll)
 
-    close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=44)
-    close_btn.bind(on_press=popup.dismiss)
-    main_layout.add_widget(close_btn)
+    bottom_actions = BoxLayout(size_hint_y=None, height=44, spacing=8)
+
+    if parent_popup is not None:
+        back_btn = Button(text=S["BUTTONS"].get("BACK", "Πίσω"))
+        back_btn.bind(
+            on_press=lambda *_: _dismiss_popup_and_close_child(
+                app_instance,
+                popup,
+                close_child_window=False,
+            )
+        )
+        bottom_actions.add_widget(back_btn)
+
+    close_btn = Button(text=S["BUTTONS"]["CLOSE"])
+    close_btn.bind(
+        on_press=lambda *_: _dismiss_popup_and_close_child(
+            app_instance,
+            popup,
+            close_child_window=(parent_popup is None),
+        )
+    )
+    bottom_actions.add_widget(close_btn)
+    main_layout.add_widget(bottom_actions)
 
     popup.content = main_layout
     popup.open()

@@ -235,7 +235,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             substation_id INTEGER NOT NULL,
             start_datetime TEXT NOT NULL,
             end_datetime TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'Requested',
+            status TEXT NOT NULL DEFAULT 'Accepted',
             notes TEXT,
             request_file_path TEXT,
             storage_folder_path TEXT,

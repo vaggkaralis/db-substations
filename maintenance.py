@@ -6,6 +6,7 @@ import threading
 from datetime import datetime, timedelta
 
 from import_diagnostics import log_import_diagnostic
+from popups import launch_app_screen
 from strings_proxy import STRINGS as S
 
 
@@ -62,6 +63,7 @@ def _load_due_elements_grouped_by_substation(app):
         FROM elements e
         JOIN substations s ON s.id = e.substation_id
         LEFT JOIN element_models em ON em.id = e.element_model_id
+        WHERE e.operating_status IS NULL OR TRIM(e.operating_status) != 'Ανενεργή'
         ORDER BY s.name COLLATE NOCASE ASC, e.name COLLATE NOCASE ASC
         """
     )
@@ -96,9 +98,6 @@ def _load_due_elements_grouped_by_substation(app):
             model_installation_space,
             element_installation_space,
         ) = row
-
-        if operating_status and str(operating_status).strip() == "Ανενεργή":
-            continue
 
         maintenance_cycle = None
         if element_cycle and int(element_cycle) > 0:
@@ -338,232 +337,257 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
                 padding=(16, 0, 0, 4),
             )
             details_panel.bind(minimum_height=details_panel.setter("height"))
+            details_built = {"done": False}
 
-            gates_dict = {}
-            for elem in elements:
-                gate_key = elem.get("gate") or S["MESSAGES"].get(
+            def _build_details_once(
+                panel=details_panel,
+                items=elements,
+                sid=substation_id,
+                sname=substation_name,
+                state=details_built,
+            ):
+                if state["done"]:
+                    return
+
+                gates_dict = {}
+                for elem in items:
+                    gate_key = elem.get("gate") or S["MESSAGES"].get(
+                        "UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"
+                    )
+                    gates_dict.setdefault(gate_key, []).append(elem)
+
+                for gate_key in list(gates_dict.keys()):
+                    gates_dict[gate_key].sort(key=_element_sort_priority)
+
+                gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+                unreg = S["MESSAGES"].get(
                     "UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)"
                 )
-                gates_dict.setdefault(gate_key, []).append(elem)
+                prefixed = [
+                    g for g in gates_dict.keys() if str(g).startswith(gate_prefix)
+                ]
+                non_prefixed = [
+                    g
+                    for g in gates_dict.keys()
+                    if not str(g).startswith(gate_prefix) and g != unreg
+                ]
+                if hasattr(app, "sort_gate_labels_for_display"):
+                    sorted_gates = list(app.sort_gate_labels_for_display(prefixed))
+                else:
+                    sorted_gates = sorted(prefixed)
+                sorted_gates.extend(sorted(non_prefixed))
+                if unreg in gates_dict:
+                    sorted_gates.append(unreg)
 
-            for gate_key in list(gates_dict.keys()):
-                gates_dict[gate_key].sort(key=_element_sort_priority)
-
-            gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
-            unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
-            prefixed = [g for g in gates_dict.keys() if str(g).startswith(gate_prefix)]
-            non_prefixed = [
-                g
-                for g in gates_dict.keys()
-                if not str(g).startswith(gate_prefix) and g != unreg
-            ]
-            if hasattr(app, "sort_gate_labels_for_display"):
-                sorted_gates = list(app.sort_gate_labels_for_display(prefixed))
-            else:
-                sorted_gates = sorted(prefixed)
-            sorted_gates.extend(sorted(non_prefixed))
-            if unreg in gates_dict:
-                sorted_gates.append(unreg)
-
-            row_counter = 1
-            for gate_name in sorted_gates:
-                gate_elements = gates_dict.get(gate_name) or []
-                gate_header = Label(
-                    text=f"{gate_name} ({len(gate_elements)} στοιχεία)",
-                    size_hint_y=None,
-                    height=30,
-                    bold=True,
-                    color=(0.2, 0.6, 1, 1),
-                )
-                details_panel.add_widget(gate_header)
-
-                for elem in gate_elements:
-                    elem_type = elem.get("element_type") or "-"
-                    if (
-                        hasattr(app, "BREAKER_ELEMENT_TYPES")
-                        and elem_type in app.BREAKER_ELEMENT_TYPES
-                        and hasattr(app, "_format_elem_type")
-                    ):
-                        elem_type_display = app._format_elem_type(
-                            elem_type, elem.get("is_main_switch")
-                        )
-                    else:
-                        elem_type_display = elem_type
-
-                    breaker_info = (
-                        f" | {elem['breaker_category']}"
-                        if elem.get("breaker_category")
-                        else ""
+                row_counter = 1
+                for gate_name in sorted_gates:
+                    gate_elements = gates_dict.get(gate_name) or []
+                    gate_header = Label(
+                        text=f"{gate_name} ({len(gate_elements)} στοιχεία)",
+                        size_hint_y=None,
+                        height=30,
+                        bold=True,
+                        color=(0.2, 0.6, 1, 1),
                     )
-                    manufacture_info = (
-                        f" | Έτος: {elem['manufacture_year']}"
-                        if elem.get("manufacture_year")
-                        and elem.get("manufacture_year") != "-"
-                        else ""
-                    )
-                    power_mva = elem.get("power_mva")
-                    power_display = f"{power_mva} MVA" if power_mva else "-"
+                    panel.add_widget(gate_header)
 
-                    elem_text = (
-                        f"{row_counter}. [b][size=18]{elem['element_name']}[/size][/b] - "
-                        f"{elem_type_display}{breaker_info}\\n"
-                        f"   S/N: {elem['serial_number']}{manufacture_info}\\n"
-                        f"   Κατ.: {elem['manufacturer']} | Μοντ.: {elem['model']} | "
-                        f"Χώρος: {elem['installation_space']} | Τάση: {elem['voltage_level']} | "
-                        f"Ισχ.: {power_display}\\n"
-                        f"   Κύκλος: {elem['maintenance_cycle']} έτη | "
-                        f"Τελ. Συντ.: {elem['maintenance_date']} | "
-                        f"[color=ff0000][b]Επόμενη: {elem['next_due']}[/b][/color]"
-                    )
-
-                    elem_row = BoxLayout(size_hint_y=None, height=88, spacing=5)
-
-                    tags_layout = BoxLayout(
-                        orientation="horizontal",
-                        size_hint_x=None,
-                        width=(74 if str(elem.get("hemizygos") or "").strip() else 36),
-                        spacing=2,
-                    )
-
-                    hemizygos = str(elem.get("hemizygos") or "").strip()
-                    if callable(add_gate_tag_if_missing):
-                        add_gate_tag_if_missing(tags_layout, gate_name)
-                    else:
-                        gate_badge = Button(
-                            text=str(gate_name),
-                            size_hint_y=None,
-                            height=36,
-                            disabled=True,
-                            background_normal="",
-                            background_color=_fallback_gate_color(gate_name),
-                            color=(1, 1, 1, 1),
-                        )
-                        tags_layout.add_widget(gate_badge)
-
-                    if hemizygos:
-                        if callable(add_hemizygos_tag_if_missing):
-                            add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+                    for elem in gate_elements:
+                        elem_type = elem.get("element_type") or "-"
+                        if (
+                            hasattr(app, "BREAKER_ELEMENT_TYPES")
+                            and elem_type in app.BREAKER_ELEMENT_TYPES
+                            and hasattr(app, "_format_elem_type")
+                        ):
+                            elem_type_display = app._format_elem_type(
+                                elem_type, elem.get("is_main_switch")
+                            )
                         else:
-                            hemi_badge = Button(
-                                text=hemizygos,
+                            elem_type_display = elem_type
+
+                        breaker_info = (
+                            f" | {elem['breaker_category']}"
+                            if elem.get("breaker_category")
+                            else ""
+                        )
+                        manufacture_info = (
+                            f" | Έτος: {elem['manufacture_year']}"
+                            if elem.get("manufacture_year")
+                            and elem.get("manufacture_year") != "-"
+                            else ""
+                        )
+                        power_mva = elem.get("power_mva")
+                        power_display = f"{power_mva} MVA" if power_mva else "-"
+
+                        elem_text = (
+                            f"{row_counter}. [b][size=18]{elem['element_name']}[/size][/b] - "
+                            f"{elem_type_display}{breaker_info}\\n"
+                            f"   S/N: {elem['serial_number']}{manufacture_info}\\n"
+                            f"   Κατ.: {elem['manufacturer']} | Μοντ.: {elem['model']} | "
+                            f"Χώρος: {elem['installation_space']} | Τάση: {elem['voltage_level']} | "
+                            f"Ισχ.: {power_display}\\n"
+                            f"   Κύκλος: {elem['maintenance_cycle']} έτη | "
+                            f"Τελ. Συντ.: {elem['maintenance_date']} | "
+                            f"[color=ff0000][b]Επόμενη: {elem['next_due']}[/b][/color]"
+                        )
+
+                        elem_row = BoxLayout(size_hint_y=None, height=88, spacing=5)
+
+                        tags_layout = BoxLayout(
+                            orientation="horizontal",
+                            size_hint_x=None,
+                            width=(
+                                74 if str(elem.get("hemizygos") or "").strip() else 36
+                            ),
+                            spacing=2,
+                        )
+
+                        hemizygos = str(elem.get("hemizygos") or "").strip()
+                        if callable(add_gate_tag_if_missing):
+                            add_gate_tag_if_missing(tags_layout, gate_name)
+                        else:
+                            gate_badge = Button(
+                                text=str(gate_name),
                                 size_hint_y=None,
                                 height=36,
                                 disabled=True,
                                 background_normal="",
-                                background_color=(0.33, 0.45, 0.65, 1),
+                                background_color=_fallback_gate_color(gate_name),
                                 color=(1, 1, 1, 1),
                             )
-                            tags_layout.add_widget(hemi_badge)
-                    elem_row.add_widget(tags_layout)
+                            tags_layout.add_widget(gate_badge)
 
-                    elem_label = Label(
-                        text=elem_text,
-                        markup=True,
-                        halign="left",
-                        valign="top",
-                        size_hint=(0.76, None),
-                        height=88,
-                    )
-                    elem_label.bind(
-                        width=lambda inst, val: setattr(inst, "text_size", (val, None))
-                    )
-                    elem_row.add_widget(elem_label)
-
-                    elem_type_raw = elem.get("element_type") or ""
-                    is_transformer = bool(
-                        hasattr(app, "_is_transformer")
-                        and app._is_transformer(elem_type_raw)
-                    )
-                    button_slots = 4 + (1 if is_transformer else 0)
-                    slot_size = 1.0 / float(button_slots)
-                    btn_box = BoxLayout(
-                        size_hint_x=(0.30 if is_transformer else 0.24),
-                        spacing=6,
-                    )
-
-                    history_btn = _make_action_btn(
-                        "maintenance",
-                        "Ιστ.",
-                        (0.4, 0.6, 0.8, 1),
-                    )
-                    history_btn.size_hint_x = slot_size
-                    history_btn.bind(
-                        on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], p=popup: (
-                            app.show_element_maintenance_history(eid, ename, p)
-                            if hasattr(app, "show_element_maintenance_history")
-                            else None
-                        )
-                    )
-                    btn_box.add_widget(history_btn)
-
-                    view_btn = _make_action_btn(
-                        "eye",
-                        "Πρ.",
-                        getattr(app, "theme", {}).get("text", (0.12, 0.12, 0.12, 1)),
-                    )
-                    view_btn.size_hint_x = slot_size
-                    view_btn.bind(
-                        on_press=lambda _x, eid=elem["element_id"]: (
-                            app._show_element_quick_view(eid)
-                            if hasattr(app, "_show_element_quick_view")
-                            else None
-                        )
-                    )
-                    btn_box.add_widget(view_btn)
-
-                    if is_transformer:
-                        subelements_btn = _make_action_btn(
-                            "subelements",
-                            "Υποσ.",
-                            getattr(app, "theme", {}).get("primary", (0.2, 0.6, 1, 1)),
-                        )
-                        subelements_btn.size_hint_x = slot_size
-                        subelements_btn.bind(
-                            on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], sid=substation_id, sname=substation_name, p=popup: (
-                                app.show_manage_subelements_popup(
-                                    eid, ename, sid, sname, p
+                        if hemizygos:
+                            if callable(add_hemizygos_tag_if_missing):
+                                add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+                            else:
+                                hemi_badge = Button(
+                                    text=hemizygos,
+                                    size_hint_y=None,
+                                    height=36,
+                                    disabled=True,
+                                    background_normal="",
+                                    background_color=(0.33, 0.45, 0.65, 1),
+                                    color=(1, 1, 1, 1),
                                 )
-                                if hasattr(app, "show_manage_subelements_popup")
+                                tags_layout.add_widget(hemi_badge)
+                        elem_row.add_widget(tags_layout)
+
+                        elem_label = Label(
+                            text=elem_text,
+                            markup=True,
+                            halign="left",
+                            valign="top",
+                            size_hint=(0.76, None),
+                            height=88,
+                        )
+                        elem_label.bind(
+                            width=lambda inst, val: setattr(
+                                inst, "text_size", (val, None)
+                            )
+                        )
+                        elem_row.add_widget(elem_label)
+
+                        elem_type_raw = elem.get("element_type") or ""
+                        is_transformer = bool(
+                            hasattr(app, "_is_transformer")
+                            and app._is_transformer(elem_type_raw)
+                        )
+                        button_slots = 4 + (1 if is_transformer else 0)
+                        slot_size = 1.0 / float(button_slots)
+                        btn_box = BoxLayout(
+                            size_hint_x=(0.30 if is_transformer else 0.24),
+                            spacing=6,
+                        )
+
+                        history_btn = _make_action_btn(
+                            "maintenance",
+                            "Ιστ.",
+                            (0.4, 0.6, 0.8, 1),
+                        )
+                        history_btn.size_hint_x = slot_size
+                        history_btn.bind(
+                            on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], p=popup: (
+                                app.show_element_maintenance_history(eid, ename, p)
+                                if hasattr(app, "show_element_maintenance_history")
                                 else None
                             )
                         )
-                        btn_box.add_widget(subelements_btn)
+                        btn_box.add_widget(history_btn)
 
-                    edit_btn = _make_action_btn(
-                        "edit",
-                        "Επ.",
-                        getattr(app, "theme", {}).get("primary", (0.2, 0.6, 1, 1)),
-                    )
-                    edit_btn.size_hint_x = slot_size
-                    edit_btn.bind(
-                        on_press=lambda _x, eid=elem["element_id"], sid=substation_id, sname=substation_name, p=popup: (
-                            app.show_edit_element_popup(eid, sid, p, sname)
-                            if hasattr(app, "show_edit_element_popup")
-                            else None
+                        view_btn = _make_action_btn(
+                            "eye",
+                            "Πρ.",
+                            getattr(app, "theme", {}).get(
+                                "text", (0.12, 0.12, 0.12, 1)
+                            ),
                         )
-                    )
-                    btn_box.add_widget(edit_btn)
-
-                    delete_btn = _make_action_btn(
-                        "delete",
-                        "Δι.",
-                        (1, 0.0, 0.0, 1),
-                    )
-                    delete_btn.size_hint_x = slot_size
-                    delete_btn.bind(
-                        on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], sid=substation_id, sname=substation_name, p=popup: (
-                            app.confirm_delete_element(eid, ename, sid, p, sname)
-                            if hasattr(app, "confirm_delete_element")
-                            else None
+                        view_btn.size_hint_x = slot_size
+                        view_btn.bind(
+                            on_press=lambda _x, eid=elem["element_id"]: (
+                                app._show_element_quick_view(eid)
+                                if hasattr(app, "_show_element_quick_view")
+                                else None
+                            )
                         )
-                    )
-                    btn_box.add_widget(delete_btn)
+                        btn_box.add_widget(view_btn)
 
-                    elem_row.add_widget(btn_box)
-                    details_panel.add_widget(elem_row)
+                        if is_transformer:
+                            subelements_btn = _make_action_btn(
+                                "subelements",
+                                "Υποσ.",
+                                getattr(app, "theme", {}).get(
+                                    "primary", (0.2, 0.6, 1, 1)
+                                ),
+                            )
+                            subelements_btn.size_hint_x = slot_size
+                            subelements_btn.bind(
+                                on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], p=popup: (
+                                    app.show_manage_subelements_popup(
+                                        eid, ename, sid, sname, p
+                                    )
+                                    if hasattr(app, "show_manage_subelements_popup")
+                                    else None
+                                )
+                            )
+                            btn_box.add_widget(subelements_btn)
 
-                    details_panel.add_widget(Label(text="", size_hint_y=None, height=1))
-                    row_counter += 1
+                        edit_btn = _make_action_btn(
+                            "edit",
+                            "Επ.",
+                            getattr(app, "theme", {}).get("primary", (0.2, 0.6, 1, 1)),
+                        )
+                        edit_btn.size_hint_x = slot_size
+                        edit_btn.bind(
+                            on_press=lambda _x, eid=elem["element_id"], p=popup: (
+                                app.show_edit_element_popup(eid, sid, p, sname)
+                                if hasattr(app, "show_edit_element_popup")
+                                else None
+                            )
+                        )
+                        btn_box.add_widget(edit_btn)
+
+                        delete_btn = _make_action_btn(
+                            "delete",
+                            "Δι.",
+                            (1, 0.0, 0.0, 1),
+                        )
+                        delete_btn.size_hint_x = slot_size
+                        delete_btn.bind(
+                            on_press=lambda _x, eid=elem["element_id"], ename=elem["element_name"], p=popup: (
+                                app.confirm_delete_element(eid, ename, sid, p, sname)
+                                if hasattr(app, "confirm_delete_element")
+                                else None
+                            )
+                        )
+                        btn_box.add_widget(delete_btn)
+
+                        elem_row.add_widget(btn_box)
+                        panel.add_widget(elem_row)
+
+                        panel.add_widget(Label(text="", size_hint_y=None, height=1))
+                        row_counter += 1
+
+                state["done"] = True
 
             def _toggle_details(
                 _btn,
@@ -573,10 +597,12 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
                 btn=header_btn,
                 name=substation_name,
                 count=len(elements),
+                build_fn=_build_details_once,
             ):
                 state["open"] = not state["open"]
                 expanded = state["open"]
                 if expanded:
+                    build_fn()
                     if panel.parent is None:
                         section_layout.add_widget(panel)
                 elif panel.parent is section_layout:
@@ -589,12 +615,24 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
     scroll.add_widget(rows)
     root.add_widget(scroll)
 
+    def _close_due_popup(_instance=None):
+        dismiss_and_maybe_close = getattr(
+            app, "_dismiss_popup_and_maybe_close_child_window", None
+        )
+        if callable(dismiss_and_maybe_close):
+            dismiss_and_maybe_close(popup, close_child_window=True)
+            return
+        try:
+            popup.dismiss()
+        except Exception:
+            pass
+
     close_btn = Button(
         text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"),
         size_hint_y=None,
         height=48,
     )
-    close_btn.bind(on_press=popup.dismiss)
+    close_btn.bind(on_press=_close_due_popup)
     root.add_widget(close_btn)
 
     popup.content = root
@@ -608,210 +646,157 @@ def show_maintenance_menu_popup(app, ui):
     Label = ui["Label"]
     Button = ui["Button"]
 
-    menu_popup = Popup(
+    popup = Popup(
         title=S["MESSAGES"].get("MAINTENANCE_BUTTON", "Συντηρήσεις"),
-        size_hint=(0.6, 0.55),
+        size_hint=(0.72, 0.62),
     )
     layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-    try:
-        app._add_logo_to_layout(layout, height=70)
-    except Exception:
-        pass
-
     layout.add_widget(
         Label(
             text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"),
             size_hint_y=None,
-            height=45,
+            height=40,
         )
     )
 
-    add_btn = Button(
-        text=S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"),
-        size_hint_y=None,
-        height=60,
-    )
+    actions = BoxLayout(orientation="vertical", spacing=8)
 
-    def _on_add(_instance=None):
+    def _run_and_close(action):
         try:
-            app.show_maintenance_menu(parent_popup=menu_popup)
+            popup.dismiss()
         except Exception:
-            try:
-                import traceback
-
-                tb = traceback.format_exc()
-                log_path = os.path.join(
-                    os.path.dirname(__file__), "maintenance_error.log"
-                )
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(
-                            f"[{datetime.now().isoformat()}] Error opening maintenance form:\n{tb}\n"
-                        )
-                except Exception:
-                    pass
-                ui.get("show_message_popup", lambda *a, **k: None)(
-                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
-                    f"Σφάλμα κατά το άνοιγμα φόρμας συντήρησης. Δείτε log: {log_path}",
-                )
-            except Exception:
-                pass
-
-    add_btn.bind(on_press=_on_add)
-    layout.add_widget(add_btn)
-
-    import_email_btn = Button(
-        text=S["MESSAGES"].get(
-            "IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"
-        ),
-        size_hint_y=None,
-        height=60,
-    )
-
-    def _on_import_email(_instance=None):
+            pass
         try:
-            app._show_import_maintenance_email_dialog(menu_popup)
-        except Exception as exc:
-            try:
-                ui.get("show_message_popup", lambda *a, **k: None)(
-                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
-                    f"Σφάλμα κατά την εισαγωγή από e-mail:\n{exc}",
-                )
-            except Exception:
-                pass
+            action()
+        except Exception:
+            pass
 
-    import_email_btn.bind(on_press=_on_import_email)
-    layout.add_widget(import_email_btn)
+    def _launch_or_fallback(screen_name, fallback_action):
+        if getattr(
+            app, "_launch_screen_name", None
+        ) != screen_name and launch_app_screen(screen_name):
+            return
+        fallback_action()
 
-    # Export maintenances (Excel)
-    try:
-        export_fn = ui.get("export_maintenances_per_substation")
-        if export_fn:
-            export_maint_btn = Button(
-                text=S["MESSAGES"].get(
+    buttons = [
+        (
+            S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"),
+            lambda: _launch_or_fallback(
+                "maintenance_form",
+                lambda: app.show_maintenance_menu(parent_popup=None),
+            ),
+        ),
+        (
+            S["MESSAGES"].get(
+                "IMPORT_MAINT_FROM_EMAIL", "Εισαγωγή συντήρησης από e-mail"
+            ),
+            lambda: app._show_import_maintenance_email_dialog(None),
+        ),
+    ]
+
+    export_fn = ui.get("export_maintenances_per_substation")
+    if export_fn:
+        buttons.append(
+            (
+                S["MESSAGES"].get(
                     "EXPORT_MAINTENANCES_EXCEL", "Εξαγωγή Συντηρήσεων (Excel)"
                 ),
-                size_hint_y=None,
-                height=60,
+                lambda: export_fn(app.conn),
             )
-            export_maint_btn.bind(
-                on_press=lambda x: (menu_popup.dismiss(), export_fn(app.conn))
-            )
-            layout.add_widget(export_maint_btn)
-    except Exception:
-        pass
+        )
 
-    def _open_history_choice(_instance=None):
-        # present chooser between full history and undone maintenances
-        choice_popup = Popup(
+    def _open_history_choice():
+        history_popup = Popup(
             title=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
-            size_hint=(0.5, 0.35),
+            size_hint=(0.68, 0.52),
         )
-        ch_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        info = Label(
-            text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"),
-            size_hint_y=None,
-            height=30,
-        )
-        ch_layout.add_widget(info)
-
-        btns = BoxLayout(orientation="vertical", spacing=8)
-        complete_btn = Button(
-            text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
-            size_hint_y=None,
-            height=50,
-        )
-        undone_btn = Button(
-            text=S["MESSAGES"].get(
-                "UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"
-            ),
-            size_hint_y=None,
-            height=50,
-        )
-        latest_btn = Button(
-            text=S["MESSAGES"].get(
-                "LATEST_MAINTENANCES_LABEL", "Τελευταίες 10 Συντηρήσεις"
-            ),
-            size_hint_y=None,
-            height=50,
+        history_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        history_layout.add_widget(
+            Label(
+                text=S["MESSAGES"].get("SELECT_ACTION_PROMPT", "Επιλέξτε ενέργεια:"),
+                size_hint_y=None,
+                height=40,
+            )
         )
 
-        def _on_complete(_btn):
-            choice_popup.dismiss()
-            menu_popup.dismiss()
-            app.show_maintenance_history(None)
+        history_actions = BoxLayout(orientation="vertical", spacing=8)
 
-        def _on_undone(_btn):
-            choice_popup.dismiss()
-            menu_popup.dismiss()
-            app.show_undone_maintenances(parent_popup=menu_popup)
-
-        def _on_latest(_btn):
-            choice_popup.dismiss()
-            menu_popup.dismiss()
-            app.show_latest_maintenances(parent_popup=menu_popup)
-
-        complete_btn.bind(on_press=_on_complete)
-        undone_btn.bind(on_press=_on_undone)
-        latest_btn.bind(on_press=_on_latest)
-        btns.add_widget(complete_btn)
-        btns.add_widget(undone_btn)
-        btns.add_widget(latest_btn)
-        ch_layout.add_widget(btns)
-        choice_popup.content = ch_layout
-        choice_popup.open()
-
-    history_btn = Button(
-        text=S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
-        size_hint_y=None,
-        height=60,
-    )
-
-    def _on_history(_instance=None):
-        try:
-            _open_history_choice()
-        except Exception as exc:
+        def _history_action(action):
             try:
-                ui.get("show_message_popup", lambda *a, **k: None)(
-                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
-                    f"Σφάλμα κατά το άνοιγμα ιστορικού συντηρήσεων:\n{exc}",
-                )
+                history_popup.dismiss()
             except Exception:
                 pass
+            action()
 
-    history_btn.bind(on_press=_on_history)
-    layout.add_widget(history_btn)
+        history_buttons = [
+            (
+                S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
+                lambda: _launch_or_fallback(
+                    "maintenance_history", lambda: app.show_maintenance_history(None)
+                ),
+            ),
+            (
+                S["MESSAGES"].get("UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"),
+                lambda: _launch_or_fallback(
+                    "undone_maintenances",
+                    lambda: app.show_undone_maintenances(parent_popup=None),
+                ),
+            ),
+            (
+                S["MESSAGES"].get(
+                    "LATEST_MAINTENANCES_LABEL", "Τελευταίες 10 Συντηρήσεις"
+                ),
+                lambda: _launch_or_fallback(
+                    "latest_maintenances",
+                    lambda: app.show_latest_maintenances(parent_popup=None),
+                ),
+            ),
+        ]
 
-    # Measurements history (global) - opens a list of measurement instances
-    meas_btn = Button(
-        text=S["MESSAGES"].get("MEASUREMENTS_HISTORY_LABEL", "Ιστορικό Μετρήσεων"),
-        size_hint_y=None,
-        height=60,
+        for label_text, callback in history_buttons:
+            action_btn = Button(text=label_text, size_hint_y=None, height=42)
+            action_btn.bind(on_press=lambda _btn, cb=callback: _history_action(cb))
+            history_actions.add_widget(action_btn)
+
+        history_layout.add_widget(history_actions)
+        history_cancel_btn = Button(
+            text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=42
+        )
+        history_cancel_btn.bind(on_press=history_popup.dismiss)
+        history_layout.add_widget(history_cancel_btn)
+
+        history_popup.content = history_layout
+        history_popup.open()
+
+    buttons.append(
+        (
+            S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
+            _open_history_choice,
+        )
+    )
+    buttons.append(
+        (
+            S["MESSAGES"].get("MEASUREMENTS_HISTORY_LABEL", "Ιστορικό Μετρήσεων"),
+            lambda: _launch_or_fallback(
+                "measurements_history",
+                lambda: app.show_measurements_history(parent_popup=None),
+            ),
+        )
     )
 
-    def _on_meas(_instance=None):
-        try:
-            menu_popup.dismiss()
-            app.show_measurements_history(parent_popup=menu_popup)
-        except Exception as exc:
-            try:
-                ui.get("show_message_popup", lambda *a, **k: None)(
-                    S.get("TITLES", {}).get("ERROR", "Σφάλμα"),
-                    f"Σφάλμα κατά το άνοιγμα ιστορικού μετρήσεων:\n{exc}",
-                )
-            except Exception:
-                pass
+    for label_text, callback in buttons:
+        action_btn = Button(text=label_text, size_hint_y=None, height=42)
+        action_btn.bind(on_press=lambda _btn, cb=callback: _run_and_close(cb))
+        actions.add_widget(action_btn)
 
-    meas_btn.bind(on_press=_on_meas)
-    layout.add_widget(meas_btn)
+    layout.add_widget(actions)
 
-    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=60)
-    cancel_btn.bind(on_press=menu_popup.dismiss)
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"], size_hint_y=None, height=42)
+    cancel_btn.bind(on_press=popup.dismiss)
     layout.add_widget(cancel_btn)
 
-    menu_popup.content = layout
-    menu_popup.open()
+    popup.content = layout
+    popup.open()
 
 
 def show_due_substations_popup(app, ui, parent_popup=None):
@@ -1187,16 +1172,24 @@ def _import_maintenance_from_email_file(app, ui, file_path):
 def _show_import_maintenance_pdf_dialog(app, ui, parent_popup=None):
     ui = _make_ui_dict(ui)
     ask_open_file = ui["ask_open_file"]
+    Popup = ui["Popup"]
+    BoxLayout = ui["BoxLayout"]
+    Label = ui["Label"]
+    TextInput = ui["TextInput"]
+    FileChooserListView = ui["FileChooserListView"]
+    Button = ui["Button"]
     show_message_popup = ui["show_message_popup"]
 
+    allow_fallback = False
     try:
         fp = ask_open_file(
             title="Select .pdf file", filetypes=(("PDF files", "*.pdf"),)
         )
     except ImportError:
+        allow_fallback = True
         fp = None
     except Exception:
-        fp = None
+        return
 
     if fp:
         try:
@@ -1207,10 +1200,89 @@ def _show_import_maintenance_pdf_dialog(app, ui, parent_popup=None):
         app._import_maintenance_from_pdf_file(fp)
         return
 
-    show_message_popup(
-        "Σφάλμα",
-        "Δεν ήταν δυνατή η εμφάνιση επιλογέα αρχείων. Χρησιμοποιήστε το --file από γραμμή εντολών.",
-    )
+    # User cancelled the native picker; treat as no-op.
+    if not allow_fallback:
+        return
+
+    popup = Popup(title="Εισαγωγή Συντήρησης από PDF", size_hint=(0.9, 0.9))
+    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    path_label = Label(text="Διαδρομή αρχείου (.pdf):", size_hint_y=0.1)
+    layout.add_widget(path_label)
+
+    path_row = BoxLayout(orientation="horizontal", size_hint_y=0.12, spacing=8)
+    path_input = TextInput(hint_text="Διαδρομή αρχείου .pdf", multiline=False)
+
+    def _choose_file_native(_instance=None):
+        try:
+            selected = ask_open_file(
+                title="Select .pdf file", filetypes=(("PDF files", "*.pdf"),)
+            )
+        except ImportError:
+            show_message_popup(
+                "Σφάλμα",
+                "Δεν είναι δυνατή η εμφάνιση εγγενούς διαλόγου αρχείων. Χρησιμοποιήστε τον επιλεγέα της εφαρμογής.",
+            )
+            return
+        except Exception:
+            return
+
+        if selected:
+            path_input.text = selected
+
+    choose_btn = Button(text="Επιλογή αρχείου...", size_hint_x=None, width=180)
+    choose_btn.bind(on_press=_choose_file_native)
+
+    path_row.add_widget(path_input)
+    path_row.add_widget(choose_btn)
+    layout.add_widget(path_row)
+
+    layout.add_widget(Label(text="Ή επιλέξτε από τη λίστα:", size_hint_y=0.1))
+    chooser = FileChooserListView(filters=["*.pdf"], path=os.path.dirname(__file__))
+    layout.add_widget(chooser)
+
+    buttons_layout = BoxLayout(size_hint_y=0.12, spacing=10)
+
+    def import_pdf_file():
+        file_path = (
+            path_input.text.strip()
+            if path_input.text.strip()
+            else (chooser.selection[0] if chooser.selection else None)
+        )
+
+        if not file_path:
+            show_message_popup(
+                "Σφάλμα", "Παρακαλώ εισάγετε διαδρομή ή επιλέξτε αρχείο!"
+            )
+            return
+
+        if not os.path.exists(file_path):
+            show_message_popup("Σφάλμα", "Το αρχείο δεν βρέθηκε!")
+            return
+
+        if not file_path.lower().endswith(".pdf"):
+            show_message_popup("Σφάλμα", "Παρακαλώ επιλέξτε αρχείο PDF.")
+            return
+
+        popup.dismiss()
+        if parent_popup:
+            try:
+                parent_popup.dismiss()
+            except Exception:
+                pass
+        app._import_maintenance_from_pdf_file(file_path)
+
+    import_btn = Button(text="Εισαγωγή")
+    import_btn.bind(on_press=lambda _x: import_pdf_file())
+    buttons_layout.add_widget(import_btn)
+
+    cancel_btn = Button(text=S["BUTTONS"]["CANCEL"])
+    cancel_btn.bind(on_press=popup.dismiss)
+    buttons_layout.add_widget(cancel_btn)
+
+    layout.add_widget(buttons_layout)
+    popup.content = layout
+    popup.open()
 
 
 def _import_maintenance_from_pdf_file(app, ui, file_path):
@@ -1579,6 +1651,7 @@ def _find_matching_open_maintenance_candidate(
     date_time_value: str,
     payload=None,
     incoming_isolation_request_id=None,
+    incoming_element_ids=None,
     isolation_matcher=None,
 ):
     incoming_date = _extract_calendar_date(date_time_value)
@@ -1608,6 +1681,26 @@ def _find_matching_open_maintenance_candidate(
     best_reuse_score = None
     best_prompt_candidate = None
     best_prompt_score = None
+    incoming_element_ids_set = {
+        int(elem_id) for elem_id in (incoming_element_ids or []) if elem_id is not None
+    }
+
+    candidate_element_ids_map = {}
+
+    def _get_candidate_element_ids(maintenance_id):
+        if maintenance_id in candidate_element_ids_map:
+            return candidate_element_ids_map[maintenance_id]
+        c2 = app.conn.cursor()
+        c2.execute(
+            "SELECT element_id FROM maintenance_elements WHERE maintenance_id=?",
+            (maintenance_id,),
+        )
+        element_ids = {
+            int(row[0]) for row in (c2.fetchall() or []) if row and row[0] is not None
+        }
+        candidate_element_ids_map[maintenance_id] = element_ids
+        return element_ids
+
     for (
         maintenance_id,
         maintenance_date_time,
@@ -1651,6 +1744,21 @@ def _find_matching_open_maintenance_candidate(
         if is_completed is not False:
             adjusted_score -= 5
 
+        candidate_element_ids = _get_candidate_element_ids(maintenance_id)
+        overlapping_element_ids = incoming_element_ids_set & candidate_element_ids
+        has_disjoint_detected_elements = bool(
+            incoming_element_ids_set
+            and candidate_element_ids
+            and not overlapping_element_ids
+        )
+
+        isolation_is_ambiguous = bool(
+            incoming_isolation_request_id and not candidate_isolation_request_id
+        )
+
+        if overlapping_element_ids:
+            adjusted_score += min(len(overlapping_element_ids), 3)
+
         candidate = {
             "maintenance_id": maintenance_id,
             "maintenance_date_time": maintenance_date_time,
@@ -1659,14 +1767,24 @@ def _find_matching_open_maintenance_candidate(
             "same_thread": bool(match_info.get("same_thread")),
             "within_ongoing_window": bool(match_info.get("within_ongoing_window")),
             "effective_gap": match_info.get("effective_gap"),
-            "decision": "reuse"
-            if match_info.get("same_thread")
+            "candidate_element_ids": sorted(candidate_element_ids),
+            "incoming_element_ids": sorted(incoming_element_ids_set),
+            "overlap_element_ids": sorted(overlapping_element_ids),
+            "has_disjoint_detected_elements": has_disjoint_detected_elements,
+            "isolation_is_ambiguous": isolation_is_ambiguous,
+        }
+
+        can_auto_reuse = bool(
+            match_info.get("same_thread")
             or (
                 incoming_isolation_request_id
                 and candidate_isolation_request_id == incoming_isolation_request_id
             )
-            else "prompt",
-        }
+        )
+        if has_disjoint_detected_elements or isolation_is_ambiguous:
+            can_auto_reuse = False
+
+        candidate["decision"] = "reuse" if can_auto_reuse else "prompt"
 
         if candidate["decision"] == "reuse":
             if best_reuse_score is None or adjusted_score > best_reuse_score:
@@ -1700,11 +1818,40 @@ def _show_existing_maintenance_import_choice_popup(
     maintenance_date = str(match_candidate.get("maintenance_date_time") or "").strip()
     gap_days = match_candidate.get("effective_gap")
     gap_label = f"Απόσταση: {gap_days} ημέρες." if isinstance(gap_days, int) else ""
+    incoming_iso = match_candidate.get("incoming_isolation_request_id")
+    candidate_iso = match_candidate.get("candidate_isolation_request_id")
+    overlap_count = len(match_candidate.get("overlap_element_ids") or [])
+    disjoint_elements = bool(match_candidate.get("has_disjoint_detected_elements"))
+    iso_ambiguous = bool(match_candidate.get("isolation_is_ambiguous"))
+
+    context_lines = []
+    if incoming_iso or candidate_iso:
+        context_lines.append(
+            f"Απομόνωση εισαγωγής: #{incoming_iso or '-'} | Απομόνωση υπάρχουσας: #{candidate_iso or '-'}"
+        )
+    if disjoint_elements:
+        context_lines.append(
+            "Τα ανιχνευμένα στοιχεία του νέου e-mail δεν ταυτίζονται με τα στοιχεία της υπάρχουσας συντήρησης."
+        )
+    elif overlap_count:
+        context_lines.append(
+            f"Κοινά ανιχνευμένα στοιχεία με υπάρχουσα συντήρηση: {overlap_count}."
+        )
+    if iso_ambiguous:
+        context_lines.append(
+            "Η νέα συντήρηση έχει απομόνωση, αλλά η υπάρχουσα δεν έχει σαφή αντιστοίχιση απομόνωσης."
+        )
+
+    context_text = "\n".join(context_lines)
+    if context_text:
+        context_text = f"\n\n{context_text}"
+
     message = (
         "Βρέθηκε πρόσφατη ανοιχτή συντήρηση για τον ίδιο υποσταθμό.\n\n"
         f"Υποσταθμός: {substation_name}\n"
         f"Υπάρχουσα συντήρηση: {maintenance_date or '-'}\n"
-        f"{gap_label}\n\n"
+        f"{gap_label}"
+        f"{context_text}\n\n"
         "Αν πρόκειται για συνέχεια της ίδιας εργασίας, συνδέστε το e-mail στην υπάρχουσα συντήρηση. "
         "Αν πρόκειται για νέα περίπτωση, δημιουργήστε νέα συντήρηση."
     ).strip()
@@ -1752,6 +1899,13 @@ def open_maintenance_from_email_payload(
     sender_email = payload.get("sender_email", "")
     received_at = payload.get("received_at", "")
     attachment_paths = payload.get("attachment_paths", []) or []
+    manual_substation_selection = bool(
+        payload.get("_manual_substation_selection") or forced_substation
+    )
+    force_new_from_startup_review = bool(
+        payload.get("_startup_review_force_new_maintenance")
+    )
+    force_bypass_matching = bool(payload.get("_force_bypass_matching"))
 
     try:
         from maintenance_email_importer import (
@@ -1907,6 +2061,10 @@ def open_maintenance_from_email_payload(
         ),
         "_email_comment_preformatted": bool(payload.get("_email_comment_preformatted")),
         "pending_tasks_text": "Ανοιχτή Συντήρηση",
+        "_manual_substation_selection": bool(manual_substation_selection),
+        "_force_new_from_email_import": bool(
+            manual_substation_selection or force_new_from_startup_review
+        ),
     }
 
     prev = _get_previous_maintenance_defaults(app, substation_id, date_time_value)
@@ -1918,8 +2076,9 @@ def open_maintenance_from_email_payload(
         #     prefill["crew_ids"] = prev.get("crew_ids")
         if not prefill["maintenance_type"] and prev.get("maintenance_type"):
             prefill["maintenance_type"] = prev.get("maintenance_type")
-        if not prefill["overall_comments"] and prev.get("overall_comments"):
-            prefill["overall_comments"] = prev.get("overall_comments")
+        # Never copy previous maintenance free-text comments into a new
+        # email-import maintenance. If the incoming email body is empty,
+        # keep comments empty instead of reusing last week's text.
 
     email_import_metadata = _extract_email_import_metadata(payload)
 
@@ -1929,79 +2088,90 @@ def open_maintenance_from_email_payload(
         date_time_value,
         payload=payload,
         incoming_isolation_request_id=linked_isolation_request_id,
+        incoming_element_ids=element_ids,
         isolation_matcher=find_matching_isolation_request_id,
     )
 
-    def _open_existing_maintenance():
-        existing_prefill = dict(prefill)
-        existing_prefill["_wizard_stage"] = "elements"
-        existing_prefill["email_import_metadata"] = email_import_metadata
+    def _open_existing_maintenance(_instance=None):
+        existing_prefill = {
+            **prefill,
+            "email_import_metadata": email_import_metadata,
+            "_wizard_stage": "elements",
+        }
         app.show_maintenance_menu(
             preselected_substation_name=substation_name,
             parent_popup=None,
-            maintenance_id=open_maintenance_match["maintenance_id"],
+            maintenance_id=open_maintenance_match.get("maintenance_id"),
             after_save_callback=after_save_callback,
             after_cancel_callback=after_cancel_callback,
             prefill_data=existing_prefill,
         )
 
-    def _open_new_maintenance():
-        new_prefill = {
-            **prefill,
-            "email_import_metadata": email_import_metadata,
-        }
-        if not new_prefill["responsible_id"]:
-            app._prompt_responsible_selection(people, new_prefill)
+    def _open_new_maintenance(_instance=None):
+        if not prefill["responsible_id"]:
+            app._prompt_responsible_selection(people, prefill)
             return
-
         app.show_maintenance_menu(
             preselected_substation_name=substation_name,
             parent_popup=None,
             maintenance_id=None,
             after_save_callback=after_save_callback,
             after_cancel_callback=after_cancel_callback,
-            prefill_data=new_prefill,
+            prefill_data={
+                **prefill,
+                "email_import_metadata": email_import_metadata,
+            },
         )
 
+    if force_bypass_matching:
+        _open_new_maintenance()
+        return
+
+    # Manual/forced substation choice must always start a new maintenance entry.
+    # This prevents accidental linking to a previous open maintenance when
+    # substation auto-detection failed and the user selected manually.
+    if manual_substation_selection or force_new_from_startup_review:
+        _open_new_maintenance()
+        return
+
     if open_maintenance_match:
-        if open_maintenance_match["decision"] == "reuse":
+        decision = open_maintenance_match.get("decision")
+        if decision == "reuse":
             _open_existing_maintenance()
             return
 
-        prompt_choice = getattr(app, "_prompt_existing_maintenance_import_choice", None)
-        if callable(prompt_choice):
-            prompt_choice(
+        prompt_handler = getattr(
+            app, "_prompt_existing_maintenance_import_choice", None
+        )
+        if callable(prompt_handler):
+            prompt_handler(
                 match_candidate=open_maintenance_match,
-                prefill_data=dict(prefill),
+                prefill_data={
+                    **prefill,
+                    "email_import_metadata": email_import_metadata,
+                },
                 open_existing=_open_existing_maintenance,
                 open_new=_open_new_maintenance,
             )
             return
 
-        if _show_existing_maintenance_import_choice_popup(
+        popup_shown = _show_existing_maintenance_import_choice_popup(
             ui,
             substation_name=substation_name,
             match_candidate=open_maintenance_match,
             on_link_existing=_open_existing_maintenance,
             on_create_new=_open_new_maintenance,
-        ):
+        )
+        if popup_shown:
+            return
+
+        # In manual/forced substation flows, never silently fall back to linking
+        # last week's maintenance if the choice popup cannot be shown.
+        if manual_substation_selection:
+            _open_new_maintenance()
             return
 
         _open_existing_maintenance()
         return
 
-    if not prefill["responsible_id"]:
-        app._prompt_responsible_selection(people, prefill)
-        return
-
-    app.show_maintenance_menu(
-        preselected_substation_name=substation_name,
-        parent_popup=None,
-        maintenance_id=None,
-        after_save_callback=after_save_callback,
-        after_cancel_callback=after_cancel_callback,
-        prefill_data={
-            **prefill,
-            "email_import_metadata": email_import_metadata,
-        },
-    )
+    _open_new_maintenance()

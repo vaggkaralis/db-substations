@@ -1,6 +1,8 @@
 import json
 import sqlite3
 
+import maintenance as maintenance_module
+
 from database import init_db
 from email_text_utils import tokens_match
 from maintenance import (
@@ -315,6 +317,71 @@ def test_open_maintenance_from_email_payload_does_not_fallback_previous_elements
     assert prefill["incomplete_elements"] == set()
 
 
+def test_open_maintenance_from_email_payload_does_not_fallback_previous_comments_when_body_empty():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Διακόπτης ΜΤ", "Ρ-601A", "Κενού"),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, overall_comments, responsible_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (99, 1, "Prev", "2026-06-01 08:00", "OLD_WEEK_COMMENT", 5),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    payload = {
+        "subject": "Συντήρηση 08.06.2026",
+        "body": "",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-06-08T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    prefill = captured["kwargs"]["prefill_data"]
+    assert prefill["overall_comments"] == ""
+
+
 def test_open_maintenance_from_email_payload_reuses_unfinished_workflow_without_pending_row():
     conn = init_db(":memory:")
     conn.row_factory = sqlite3.Row
@@ -558,6 +625,123 @@ def test_find_matching_open_maintenance_candidate_prompts_for_ten_day_heuristic(
     assert match["decision"] == "prompt"
 
 
+def test_find_matching_open_maintenance_candidate_prompts_for_disjoint_elements_even_same_thread():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.executemany(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        [
+            (202, 1, "Διακόπτης ΜΤ", "R-202", "Κενού"),
+            (203, 1, "Διακόπτης ΜΤ", "R-203", "Κενού"),
+        ],
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "email_import": {
+                        "subject_roots": ["work order"],
+                        "received_dates": ["2026-05-06"],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+        (42, 203, ""),
+    )
+    conn.commit()
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+    match = _find_matching_open_maintenance_candidate(
+        FakeApp(),
+        1,
+        "2026-05-07 11:27",
+        payload={
+            "subject": "Re: Work Order 07.05.2026",
+            "body": "new work for element 202",
+            "received_at": "2026-05-07T11:27:30+00:00",
+        },
+        incoming_isolation_request_id=None,
+        incoming_element_ids={202},
+        isolation_matcher=find_matching_isolation_request_id,
+    )
+
+    assert match is not None
+    assert match["maintenance_id"] == 42
+    assert match["decision"] == "prompt"
+    assert match["has_disjoint_detected_elements"] is True
+
+
+def test_find_matching_open_maintenance_candidate_prompts_when_incoming_isolation_is_ambiguous():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (202, 1, "Διακόπτης ΜΤ", "R-202", "Κενού"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "email_import": {
+                        "subject_roots": ["work order"],
+                        "received_dates": ["2026-05-06"],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+        (42, 202, ""),
+    )
+    conn.commit()
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+    match = _find_matching_open_maintenance_candidate(
+        FakeApp(),
+        1,
+        "2026-05-07 11:27",
+        payload={
+            "subject": "Re: Work Order 07.05.2026",
+            "body": "same thread update",
+            "received_at": "2026-05-07T11:27:30+00:00",
+        },
+        incoming_isolation_request_id=99,
+        incoming_element_ids={202},
+        isolation_matcher=find_matching_isolation_request_id,
+    )
+
+    assert match is not None
+    assert match["maintenance_id"] == 42
+    assert match["decision"] == "prompt"
+    assert match["isolation_is_ambiguous"] is True
+
+
 def test_open_maintenance_from_email_payload_starts_new_instance_when_isolation_changes():
     conn = init_db(":memory:")
     conn.row_factory = sqlite3.Row
@@ -734,6 +918,434 @@ def test_open_maintenance_from_email_payload_prompts_user_for_ambiguous_recent_m
     assert "menu" not in captured
 
 
+def test_open_maintenance_from_email_payload_manual_substation_selection_starts_new():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "email_import": {
+                        "subject_roots": ["work order"],
+                        "received_dates": ["2026-05-06"],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def _prompt_existing_maintenance_import_choice(
+            self, *, match_candidate, prefill_data, open_existing, open_new
+        ):
+            raise AssertionError("Manual selection should bypass reuse prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["menu"] = kwargs
+
+    payload = {
+        "subject": "Re: Work Order 07.05.2026",
+        "body": "follow-up work",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+        "_manual_substation_selection": True,
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload, forced_substation="S1")
+
+    assert captured["menu"]["maintenance_id"] is None
+    assert "_wizard_stage" not in captured["menu"]["prefill_data"]
+    assert captured["menu"]["prefill_data"]["_force_new_from_email_import"] is True
+
+
+def test_open_maintenance_from_email_payload_forced_substation_starts_new():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "email_import": {
+                        "subject_roots": ["work order"],
+                        "received_dates": ["2026-05-06"],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def _prompt_existing_maintenance_import_choice(
+            self, *, match_candidate, prefill_data, open_existing, open_new
+        ):
+            raise AssertionError("Forced substation should bypass reuse prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["menu"] = kwargs
+
+    payload = {
+        "subject": "Re: Work Order 07.05.2026",
+        "body": "follow-up work",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload, forced_substation="S1")
+
+    assert captured["menu"]["maintenance_id"] is None
+    assert "_wizard_stage" not in captured["menu"]["prefill_data"]
+    assert captured["menu"]["prefill_data"]["_force_new_from_email_import"] is True
+
+
+def test_open_maintenance_from_email_payload_startup_review_forces_new():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "email_import": {
+                        "subject_roots": ["work order"],
+                        "received_dates": ["2026-05-06"],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def _prompt_existing_maintenance_import_choice(
+            self, *, match_candidate, prefill_data, open_existing, open_new
+        ):
+            raise AssertionError("Startup review should bypass reuse prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["menu"] = kwargs
+
+    payload = {
+        "subject": "Re: Work Order 07.05.2026",
+        "body": "follow-up work",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+        "_startup_review_force_new_maintenance": True,
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    assert captured["menu"]["maintenance_id"] is None
+    assert "_wizard_stage" not in captured["menu"]["prefill_data"]
+    assert captured["menu"]["prefill_data"]["_force_new_from_email_import"] is True
+
+
+def test_open_maintenance_from_email_payload_force_bypass_matching_opens_new():
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "email_import": {
+                        "subject_roots": ["work order"],
+                        "received_dates": ["2026-05-06"],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    conn.commit()
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def _prompt_existing_maintenance_import_choice(
+            self, *, match_candidate, prefill_data, open_existing, open_new
+        ):
+            raise AssertionError("Bypass flag should avoid prompt/reuse branch")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["menu"] = kwargs
+
+    payload = {
+        "subject": "Re: Work Order 07.05.2026",
+        "body": "follow-up work",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+        "_force_bypass_matching": True,
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload)
+
+    assert captured["menu"]["maintenance_id"] is None
+    assert "_wizard_stage" not in captured["menu"]["prefill_data"]
+
+
+def test_manual_forced_substation_popup_fallback_opens_new_not_existing(monkeypatch):
+    conn = init_db(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE people ADD COLUMN surname TEXT")
+    cur.execute("INSERT INTO substations (id, name) VALUES (?, ?)", (1, "S1"))
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (10, 1, "Μετασχηματιστής 150/20KV", "ΜΣ1", ""),
+    )
+    cur.execute(
+        "INSERT INTO people (id, name, role, active, email) VALUES (?, ?, ?, ?, ?)",
+        (5, "Tester", "technician", 1, "tester@example.com"),
+    )
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, name, date_time, data_json) VALUES (?, ?, ?, ?, ?)",
+        (
+            42,
+            1,
+            "Existing maintenance",
+            "2026-05-06 11:27",
+            json.dumps(
+                {
+                    "email_import": {
+                        "subject_roots": ["work order"],
+                        "received_dates": ["2026-05-06"],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    conn.commit()
+
+    # Simulate UI popup not available/shown so fallback branch is exercised.
+    monkeypatch.setattr(
+        maintenance_module,
+        "_show_existing_maintenance_import_choice_popup",
+        lambda *_args, **_kwargs: False,
+    )
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self):
+            self.conn = conn
+
+        def _find_substation_in_text(self, *_args, **_kwargs):
+            return (1, "S1")
+
+        def _match_person_by_sender(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared sender matcher")
+
+        def _find_people_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared people matcher")
+
+        def _find_elements_in_body(self, *_args, **_kwargs):
+            raise AssertionError("Should use shared element matcher")
+
+        def _prompt_substation_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected substation prompt")
+
+        def _prompt_add_elements_then_continue(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected add-elements prompt")
+
+        def _prompt_responsible_selection(self, *_args, **_kwargs):
+            raise AssertionError("Unexpected responsible prompt")
+
+        def show_maintenance_menu(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    payload = {
+        "subject": "Re: Work Order 07.05.2026",
+        "body": "follow-up work",
+        "sender_name": "Tester",
+        "sender_email": "tester@example.com",
+        "received_at": "2026-05-07T11:27:30+00:00",
+        "attachment_paths": [],
+    }
+
+    open_maintenance_from_email_payload(FakeApp(), {}, payload, forced_substation="S1")
+
+    assert captured["kwargs"]["maintenance_id"] is None
+    assert "_wizard_stage" not in captured["kwargs"]["prefill_data"]
+
+
 def test_find_matching_isolation_request_id_prefers_exact_overlap():
     conn = init_db(":memory:")
     conn.row_factory = sqlite3.Row
@@ -756,7 +1368,7 @@ def test_find_matching_isolation_request_id_prefers_exact_overlap():
                 1,
                 "2026-04-27 08:00",
                 "2026-04-27 18:00",
-                "Requested",
+                "Accepted",
                 "2026-04-26",
                 "2026-04-26",
             ),

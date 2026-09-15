@@ -433,7 +433,7 @@ def test_apply_change_log_to_db_updates_isolation_request_elements(tmp_path):
             sub_id,
             "2026-03-01 08:00:00",
             "2026-03-01 12:00:00",
-            "Requested",
+            "Accepted",
             "initial",
             "2026-03-01 07:00:00",
             "2026-03-01 07:00:00",

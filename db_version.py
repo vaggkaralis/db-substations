@@ -21,6 +21,7 @@ DB_COMPATIBILITY = {
     "0.6.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "0.7.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "1.0.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
+    "1.1.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "2.0.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "2.1.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
     "3.0.0": {"min_db": "1.0.0", "max_db": "1.0.0"},
@@ -66,7 +67,7 @@ def get_app_version_string() -> str:
     Returns:
         Version string (e.g., '0.4.0')
     """
-    return os.environ.get("APP_VERSION", "1.0.0")
+    return os.environ.get("APP_VERSION", "1.1.0")
 
 
 def get_db_version_string() -> str:

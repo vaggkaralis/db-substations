@@ -129,3 +129,48 @@ def test_delete_model_returns_to_subelement_menu_for_subelement_category(monkeyp
     callback = message_call[2]["callback"]
     callback()
     assert calls[-1] == ("subelements", app, parent_popup)
+
+
+def test_launch_app_screen_falls_back_to_project_entry_script(monkeypatch):
+    mod = importlib.import_module("popups")
+    command = {}
+
+    monkeypatch.setattr(sys, "argv", [r"C:\\Python\\python.exe"])
+    monkeypatch.setattr(
+        mod.subprocess,
+        "Popen",
+        lambda cmd, cwd=None, creationflags=0, env=None: (
+            command.setdefault("args", (cmd, cwd, creationflags, env)) or object()
+        ),
+    )
+    monkeypatch.setattr(
+        "config_manager.get_current_user",
+        lambda: None,
+        raising=False,
+    )
+
+    assert mod.launch_app_screen("models_management") is True
+    launched_cmd = command["args"][0]
+    assert launched_cmd[0].lower().endswith(("python.exe", "pythonw.exe"))
+    assert launched_cmd[1].lower().endswith("dbrun.py")
+    assert "--" in launched_cmd[2:]
+    assert "--dbs-open-screen=models_management" in launched_cmd[3:]
+
+
+def test_launch_app_screen_spawns_second_window_when_user_is_logged_in(monkeypatch):
+    mod = importlib.import_module("popups")
+    called = []
+
+    monkeypatch.setattr(
+        "config_manager.get_current_user",
+        lambda: {"id": 4, "name": "Tester", "role": "user"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        mod.subprocess,
+        "Popen",
+        lambda *args, **kwargs: called.append((args, kwargs)) or object(),
+    )
+
+    assert mod.launch_app_screen("people_management") is True
+    assert len(called) == 1

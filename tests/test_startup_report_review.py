@@ -199,7 +199,7 @@ def test_startup_review_popup_routes_isolation_items_to_isolation_import(
     app = object.__new__(DBrun.SubstationApp)
     app.conn = _DummyConn()
 
-    def _open_isolation(payload, status="Requested", after_save_callback=None):
+    def _open_isolation(payload, status="Accepted", after_save_callback=None):
         captured["isolation_payload"] = payload
         captured["status"] = status
         captured["after_save_callback"] = after_save_callback
@@ -233,7 +233,7 @@ def test_startup_review_popup_routes_isolation_items_to_isolation_import(
     review_button.trigger("on_press")
 
     assert captured.get("maintenance_called") is not True
-    assert captured["status"] == "Requested"
+    assert captured["status"] == "Accepted"
     assert captured["isolation_payload"]["attachment_paths"] == ["req.xlsx"]
     assert callable(captured["after_save_callback"])
 
@@ -688,12 +688,12 @@ def test_isolation_payload_import_forwards_after_save_callback(monkeypatch):
     isolation_ui.import_isolation_request_from_payload(
         object(),
         {"body": "body text", "attachment_paths": ["req.xlsx"]},
-        status="Requested",
+        status="Cancelled",
         after_save_callback=callback,
     )
 
     assert captured["raw_text"] == "body text"
-    assert captured["status"] == "Requested"
+    assert captured["status"] == "Cancelled"
     assert captured["attachment_paths"] == ["req.xlsx"]
     assert captured["after_save_callback"] is callback
 

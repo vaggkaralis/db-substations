@@ -43,11 +43,34 @@ def test_inspection_delegates_call_app_methods(monkeypatch):
     assert calls["details"] == 555
 
 
+def test_create_popup_ignores_unsupported_modal_kwarg(monkeypatch):
+    import importlib
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None, **kwargs):
+            self.title = title
+            self.size_hint = size_hint
+            self.kwargs = kwargs
+
+    module = importlib.import_module("kivy.uix.popup")
+    monkeypatch.setattr(module, "Popup", DummyPopup)
+
+    from popups import create_popup
+
+    popup = create_popup("Title", (0.5, 0.5), modal=False, auto_dismiss=False)
+
+    assert popup.title == "Title"
+    assert popup.size_hint == (0.5, 0.5)
+    assert popup.kwargs == {"auto_dismiss": False}
+
+
 def test_handle_inspection_menu_entry_uses_substation_chooser(monkeypatch):
     import inspections
     import kivy.uix.boxlayout as kivy_boxlayout
     import kivy.uix.button as kivy_button
     import kivy.uix.popup as kivy_popup
+
+    monkeypatch.setattr(inspections, "launch_app_screen", lambda _screen: False)
 
     captured = {}
 

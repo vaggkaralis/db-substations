@@ -353,7 +353,14 @@ class PeopleManager:
         main_layout.add_widget(list_scroll)
 
         close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
-        close_btn.bind(on_press=popup.dismiss)
+        if hasattr(self.app, "_dismiss_popup_and_maybe_close_child_window"):
+            close_btn.bind(
+                on_press=lambda _btn: (
+                    self.app._dismiss_popup_and_maybe_close_child_window(popup)
+                )
+            )
+        else:
+            close_btn.bind(on_press=popup.dismiss)
         main_layout.add_widget(close_btn)
 
         popup.content = main_layout
