@@ -136,6 +136,7 @@ def test_launch_app_screen_falls_back_to_project_entry_script(monkeypatch):
     command = {}
 
     monkeypatch.setattr(sys, "argv", [r"C:\\Python\\python.exe"])
+    monkeypatch.setattr(sys, "executable", r"C:\\Python\\python.exe")
     monkeypatch.setattr(
         mod.subprocess,
         "Popen",
