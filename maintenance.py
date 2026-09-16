@@ -731,9 +731,7 @@ def show_maintenance_menu_popup(app, ui):
         history_buttons = [
             (
                 S["MESSAGES"].get("MAINT_HISTORY_LABEL", "Ιστορικό Συντηρήσεων"),
-                lambda: _launch_or_fallback(
-                    "maintenance_history", lambda: app.show_maintenance_history(None)
-                ),
+                lambda: app.show_maintenance_history(None),
             ),
             (
                 S["MESSAGES"].get("UNDONE_MAINTENANCES_LABEL", "Εκκρεμείς Συντηρήσεις"),
@@ -1781,6 +1779,26 @@ def _find_matching_open_maintenance_candidate(
                 and candidate_isolation_request_id == incoming_isolation_request_id
             )
         )
+
+        # Allow safe automatic reuse for immediate day-to-day continuation
+        # imports even when explicit thread headers are missing.
+        effective_gap = match_info.get("effective_gap")
+        is_next_day_continuation = (
+            isinstance(effective_gap, int)
+            and 0 <= effective_gap <= 1
+            and bool(match_info.get("within_ongoing_window"))
+        )
+        has_element_alignment = bool(overlapping_element_ids) or (
+            not incoming_element_ids_set or not candidate_element_ids
+        )
+        if (
+            not can_auto_reuse
+            and is_completed is False
+            and is_next_day_continuation
+            and has_element_alignment
+        ):
+            can_auto_reuse = True
+
         if has_disjoint_detected_elements or isolation_is_ambiguous:
             can_auto_reuse = False
 
@@ -1899,8 +1917,12 @@ def open_maintenance_from_email_payload(
     sender_email = payload.get("sender_email", "")
     received_at = payload.get("received_at", "")
     attachment_paths = payload.get("attachment_paths", []) or []
+    allow_matching_with_forced_substation = bool(
+        payload.get("_allow_matching_with_forced_substation")
+    )
     manual_substation_selection = bool(
-        payload.get("_manual_substation_selection") or forced_substation
+        payload.get("_manual_substation_selection")
+        or (forced_substation and not allow_matching_with_forced_substation)
     )
     force_new_from_startup_review = bool(
         payload.get("_startup_review_force_new_maintenance")

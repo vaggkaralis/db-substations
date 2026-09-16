@@ -1522,14 +1522,20 @@ def _normalize_storage_row_paths(
     existing_instance: str | None,
     existing_media: str | None,
     existing_reports: str | None,
+    prefer_existing_paths: bool = True,
 ) -> dict[str, str]:
     canonical_instance = os.path.join(maintenance_root, instance_name)
     canonical_reports = canonical_instance
     canonical_media = os.path.join(canonical_instance, _DIR_MEDIA)
 
-    existing_instance = _remap_legacy_shared_root(existing_instance, shared_root)
-    existing_media = _remap_legacy_shared_root(existing_media, shared_root)
-    existing_reports = _remap_legacy_shared_root(existing_reports, shared_root)
+    if not prefer_existing_paths:
+        existing_instance = None
+        existing_media = None
+        existing_reports = None
+    else:
+        existing_instance = _remap_legacy_shared_root(existing_instance, shared_root)
+        existing_media = _remap_legacy_shared_root(existing_media, shared_root)
+        existing_reports = _remap_legacy_shared_root(existing_reports, shared_root)
 
     use_existing_instance = False
     if existing_instance:
@@ -2014,6 +2020,8 @@ def ensure_maintenance_folders(
     attachment_paths: Iterable[str] | None = None,
     persist_storage_rows: bool = False,
     db_path: str | None = None,
+    prefer_existing_paths: bool = True,
+    migrate_existing_instance: bool = True,
 ) -> dict:
     base = ensure_substation_structure(conn, substation_id, db_path=db_path)
     substation_root = base["substation_root"]
@@ -2066,6 +2074,8 @@ def ensure_maintenance_folders(
 
     created_rows = []
     media_targets = []
+    migrated_instance_folders = 0
+    migrated_instance_details = []
 
     for bucket in gate_buckets:
         gate_rel = _gate_relative_path(bucket)
@@ -2107,7 +2117,36 @@ def ensure_maintenance_folders(
             existing_instance=existing.get("instance_folder"),
             existing_media=existing.get("media_folder"),
             existing_reports=existing.get("reports_folder"),
+            prefer_existing_paths=prefer_existing_paths,
         )
+
+        if not prefer_existing_paths and migrate_existing_instance:
+            old_instance = _remap_legacy_shared_root(
+                existing.get("instance_folder"), shared_root
+            )
+            new_instance = normalized_paths["instance_folder"]
+            if (
+                old_instance
+                and new_instance
+                and os.path.normcase(os.path.abspath(old_instance))
+                != os.path.normcase(os.path.abspath(new_instance))
+                and os.path.isdir(old_instance)
+                and not os.path.exists(new_instance)
+            ):
+                try:
+                    os.makedirs(os.path.dirname(new_instance), exist_ok=True)
+                    shutil.move(old_instance, new_instance)
+                    migrated_instance_folders += 1
+                    migrated_instance_details.append(
+                        {
+                            "from": old_instance,
+                            "to": new_instance,
+                            "gate_key": gate_key,
+                        }
+                    )
+                except Exception:
+                    pass
+
         instance_root = normalized_paths["instance_folder"]
         reports_root = normalized_paths["reports_folder"]
         media_root = normalized_paths["media_folder"]
@@ -2196,6 +2235,8 @@ def ensure_maintenance_folders(
         "copied_media_count": copied_media,
         "copied_reports_count": copied_reports,
         "instance_name": instance_name,
+        "migrated_instance_folders": migrated_instance_folders,
+        "migrated_instance_details": migrated_instance_details,
     }
 
 

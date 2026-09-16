@@ -3,6 +3,9 @@ import sqlite3
 from model_management import (
     ELEM_BREAKER_MT,
     ELEM_BREAKER_YT,
+    _deduplicate_manufacturer_list,
+    _is_sf6_breaker_category,
+    _match_breaker_category_option,
     _element_type_filter_options,
     get_model_management_statistics,
     search_elements,
@@ -39,6 +42,7 @@ def _setup_db():
             id INTEGER PRIMARY KEY,
             substation_id INTEGER,
             element_model_id INTEGER,
+            parent_element_id INTEGER,
             element_type TEXT,
             name TEXT,
             serial_number TEXT,
@@ -83,16 +87,17 @@ def _setup_db():
     cur.executemany(
         """
         INSERT INTO elements (
-            id, substation_id, element_model_id, element_type, name, serial_number, maintenance_date,
+            id, substation_id, element_model_id, parent_element_id, element_type, name, serial_number, maintenance_date,
             manufacturer, installation_space, operating_status, maintenance_cycle,
             breaker_category, manufacture_year, is_main_switch
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
                 1,
                 1,
                 1,
+                None,
                 ELEM_BREAKER_MT,
                 "MV OIL OLD",
                 "SN1",
@@ -109,6 +114,7 @@ def _setup_db():
                 2,
                 2,
                 2,
+                None,
                 ELEM_BREAKER_MT,
                 "MV SF6 CENTRAL",
                 "SN2",
@@ -125,6 +131,7 @@ def _setup_db():
                 3,
                 3,
                 3,
+                None,
                 ELEM_BREAKER_YT,
                 "HV SF6",
                 "SN3",
@@ -141,6 +148,7 @@ def _setup_db():
                 4,
                 3,
                 4,
+                None,
                 "Μετασχηματιστής 150/20KV",
                 "TR 1",
                 "SN4",
@@ -157,6 +165,7 @@ def _setup_db():
                 5,
                 1,
                 1,
+                None,
                 ELEM_BREAKER_MT,
                 "MV VACUUM",
                 "SN5",
@@ -281,13 +290,56 @@ def test_model_management_statistics_collects_expected_graph_data():
     assert stats["pies"]["age_transformers"] == [("21-30", 1)]
     assert stats["bars"]["manufacturer_count_models"] == {
         ELEM_BREAKER_MT: [("ABB", 2)],
-        ELEM_BREAKER_YT: [("Siemens", 1)],
+        ELEM_BREAKER_YT: [("SIEMENS", 1)],
         "Μετασχηματιστής 150/20KV": [("GE", 1)],
     }
     assert stats["bars"]["most_used_models_per_category"][ELEM_BREAKER_MT] == [
         ("MV-100", 1),
         ("MV-200", 1),
     ]
+
+
+def test_model_management_statistics_counts_elements_and_section_sums_match_totals():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO elements (
+            id, substation_id, element_model_id, element_type, name, serial_number, maintenance_date,
+            manufacturer, installation_space, operating_status, maintenance_cycle,
+            breaker_category, manufacture_year, is_main_switch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            6,
+            2,
+            1,
+            ELEM_BREAKER_MT,
+            "MV OIL EXTRA",
+            "SN6",
+            "2024-01-01",
+            "ABB",
+            "OUT",
+            "Ενεργή",
+            "6",
+            "Ελαίου",
+            "2005",
+            0,
+        ),
+    )
+    conn.commit()
+
+    stats = get_model_management_statistics(app)
+
+    mv_total = stats["totals"]["elements_by_category"][ELEM_BREAKER_MT]
+    manufacturer_mv = stats["bars"]["manufacturer_count_models"][ELEM_BREAKER_MT]
+    models_mv = stats["bars"]["most_used_models_per_category"][ELEM_BREAKER_MT]
+
+    assert mv_total == 3
+    assert manufacturer_mv == [("ABB", 3)]
+    assert sum(value for _label, value in manufacturer_mv) == mv_total
+    assert sum(value for _label, value in models_mv) == mv_total
 
 
 def test_model_management_statistics_respects_distance_and_inactive_filters():
@@ -311,3 +363,239 @@ def test_model_management_statistics_respects_distance_and_inactive_filters():
         ("Ελαίου", 1),
         ("Κενού", 1),
     ]
+
+
+def test_model_management_statistics_motor_drive_counts_unique_parents_and_canonical_abb():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+    cur = conn.cursor()
+
+    cur.executemany(
+        "INSERT INTO element_models (id, element_category, model_name, manufacturer) VALUES (?, ?, ?, ?)",
+        [
+            (10, "Motor Drive", "MD-A", "ABB"),
+            (11, "Motor Drive", "MD-B", "ΑΒΒ"),
+        ],
+    )
+
+    # One active transformer in the fixture has id=4. Add two MD rows under it
+    # with confusable manufacturer spellings; stats should count a single active MD.
+    cur.executemany(
+        """
+        INSERT INTO elements (
+            id, substation_id, element_model_id, parent_element_id, element_type, name, serial_number,
+            maintenance_date, manufacturer, installation_space, operating_status,
+            maintenance_cycle, breaker_category, manufacture_year, is_main_switch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                101,
+                3,
+                10,
+                4,
+                "Motor Drive",
+                "MD 1",
+                "MD1",
+                "2024-01-01",
+                "ABB",
+                "IN",
+                "Ενεργή",
+                "6",
+                "",
+                "2017",
+                0,
+            ),
+            (
+                102,
+                3,
+                11,
+                4,
+                "Motor Drive",
+                "MD 2",
+                "MD2",
+                "2024-01-01",
+                "ΑΒΒ",
+                "IN",
+                "Ενεργή",
+                "6",
+                "",
+                "2018",
+                0,
+            ),
+        ],
+    )
+    conn.commit()
+
+    stats = get_model_management_statistics(app)
+
+    assert stats["totals"]["elements_by_category"]["Motor Drive"] == 1
+    assert stats["bars"]["manufacturer_count_models"]["Motor Drive"] == [("ABB", 1)]
+
+
+def test_model_management_statistics_transformer_manufacturer_collapses_confusable_abb():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+    cur = conn.cursor()
+
+    cur.executemany(
+        "INSERT INTO element_models (id, element_category, model_name, manufacturer) VALUES (?, ?, ?, ?)",
+        [
+            (20, "Μετασχηματιστής 150/20KV", "TR-ABB-1", "ABB"),
+            (21, "Μετασχηματιστής 150/20KV", "TR-ABB-2", "ΑΒΒ"),
+        ],
+    )
+    cur.executemany(
+        """
+        INSERT INTO elements (
+            id, substation_id, element_model_id, parent_element_id, element_type, name, serial_number,
+            maintenance_date, manufacturer, installation_space, operating_status,
+            maintenance_cycle, breaker_category, manufacture_year, is_main_switch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                201,
+                1,
+                20,
+                None,
+                "Μετασχηματιστής 150/20KV",
+                "TR ABB 1",
+                "TRA1",
+                "2024-01-01",
+                "ABB",
+                "OUT",
+                "Ενεργή",
+                "6",
+                "",
+                "2012",
+                0,
+            ),
+            (
+                202,
+                2,
+                21,
+                None,
+                "Μετασχηματιστής 150/20KV",
+                "TR ABB 2",
+                "TRA2",
+                "2024-01-01",
+                "ΑΒΒ",
+                "OUT",
+                "Ενεργή",
+                "6",
+                "",
+                "2013",
+                0,
+            ),
+        ],
+    )
+    conn.commit()
+
+    stats = get_model_management_statistics(app)
+    tr_key = "Μετασχηματιστής 150/20KV"
+    manufacturers = stats["bars"]["manufacturer_count_models"][tr_key]
+
+    assert manufacturers == [("ABB", 2), ("GE", 1)]
+
+
+def test_model_management_statistics_motor_drive_ignores_non_transformer_or_inactive_parents():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+    cur = conn.cursor()
+
+    cur.execute(
+        "INSERT INTO element_models (id, element_category, model_name, manufacturer) VALUES (?, ?, ?, ?)",
+        (30, "Motor Drive", "MD-X", "ABB"),
+    )
+
+    # Linked to active transformer id=4 -> counted.
+    cur.execute(
+        """
+        INSERT INTO elements (
+            id, substation_id, element_model_id, parent_element_id, element_type, name, serial_number,
+            maintenance_date, manufacturer, installation_space, operating_status,
+            maintenance_cycle, breaker_category, manufacture_year, is_main_switch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            301,
+            3,
+            30,
+            4,
+            "Motor Drive",
+            "MD active parent",
+            "MD301",
+            "2024-01-01",
+            "ABB",
+            "IN",
+            "Ενεργή",
+            "6",
+            "",
+            "2017",
+            0,
+        ),
+    )
+
+    # Linked to inactive non-transformer id=5 -> ignored.
+    cur.execute(
+        """
+        INSERT INTO elements (
+            id, substation_id, element_model_id, parent_element_id, element_type, name, serial_number,
+            maintenance_date, manufacturer, installation_space, operating_status,
+            maintenance_cycle, breaker_category, manufacture_year, is_main_switch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            302,
+            1,
+            30,
+            5,
+            "Motor Drive",
+            "MD inactive parent",
+            "MD302",
+            "2024-01-01",
+            "ABB",
+            "IN",
+            "Ενεργή",
+            "6",
+            "",
+            "2017",
+            0,
+        ),
+    )
+    conn.commit()
+
+    stats = get_model_management_statistics(app)
+
+    assert stats["totals"]["elements_by_category"]["Motor Drive"] == 1
+
+
+def test_is_sf6_breaker_category_accepts_legacy_variants_only():
+    assert _is_sf6_breaker_category("SF6")
+    assert _is_sf6_breaker_category(" sf 6 ")
+    assert _is_sf6_breaker_category("SF6-400")
+    assert _is_sf6_breaker_category("Hexafluoride")
+
+    assert not _is_sf6_breaker_category("Πτωχού Ελαίου")
+    assert not _is_sf6_breaker_category("Ελαίου")
+    assert not _is_sf6_breaker_category("Κενού")
+
+
+def test_match_breaker_category_option_is_case_and_accent_tolerant():
+    options = ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"]
+
+    assert _match_breaker_category_option("πτωχου ελαιου", options) == "Πτωχού Ελαίου"
+    assert _match_breaker_category_option("  sf 6  ", options) == "SF6"
+    assert _match_breaker_category_option("ΚΕΝΟΥ", options) == "Κενού"
+
+
+def test_deduplicate_manufacturer_list_collapses_confusable_abb_entries():
+    # Second entry uses Greek Beta characters that look like Latin B.
+    confusable_abb = "AΒΒ"
+    values = _deduplicate_manufacturer_list(
+        [" ABB ", confusable_abb, "Abb", "SIEMENS", "Siemens"]
+    )
+
+    assert values.count("ABB") == 1
+    assert values.count("SIEMENS") == 1

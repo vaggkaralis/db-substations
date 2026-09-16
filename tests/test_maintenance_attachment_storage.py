@@ -88,3 +88,55 @@ def test_imported_maintenance_attachments_copy_once_to_primary_instance_folder(
         (100,),
     ).fetchone()[0]
     assert report_rows == 0
+
+
+def test_ensure_maintenance_folders_can_rebuild_paths_from_current_elements(tmp_path):
+    db_path = tmp_path / "test.db"
+    conn = init_db(str(db_path))
+    _seed_multi_element_maintenance_fixture(conn)
+
+    initial = ensure_maintenance_folders(
+        conn,
+        maintenance_id=100,
+        substation_id=1,
+        maintenance_name="Older Maintenance",
+        maintenance_type="Ετήσια",
+        date_time="2026-03-25 08:00:00",
+        element_ids=[17],
+        attachment_paths=[],
+        persist_storage_rows=True,
+        db_path=str(db_path),
+    )
+    initial_path = initial["primary_media_folder"]
+    assert initial_path
+
+    conn.execute("DELETE FROM maintenance_elements WHERE maintenance_id=?", (100,))
+    conn.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+        (100, 14, "fixed assignment"),
+    )
+    conn.commit()
+
+    rebuilt = ensure_maintenance_folders(
+        conn,
+        maintenance_id=100,
+        substation_id=1,
+        maintenance_name="Older Maintenance",
+        maintenance_type="Ετήσια",
+        date_time="2026-03-25 08:00:00",
+        element_ids=[14],
+        attachment_paths=[],
+        persist_storage_rows=True,
+        db_path=str(db_path),
+        prefer_existing_paths=False,
+        migrate_existing_instance=False,
+    )
+    rebuilt_path = rebuilt["primary_media_folder"]
+    assert rebuilt_path
+    assert rebuilt_path != initial_path
+
+    db_instance_paths = conn.execute(
+        "SELECT instance_folder FROM maintenance_storage_paths WHERE maintenance_id=?",
+        (100,),
+    ).fetchall()
+    assert rebuilt_path in [row[0] for row in db_instance_paths]

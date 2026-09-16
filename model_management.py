@@ -3,8 +3,11 @@ Model Management UI Functions for Element Models
 """
 
 import os
+import shutil
+import unicodedata
 import webbrowser
 from datetime import date
+from functools import lru_cache
 
 from breaker_model_utils import infer_breaker_model_values
 from popups import ask_open_file, show_message_popup
@@ -87,10 +90,25 @@ def _safe_int(value):
 
 
 def _dismiss_popup_and_close_child(app_instance, popup, close_child_window=True):
+    delegated_helper = getattr(
+        app_instance, "_dismiss_popup_and_maybe_close_child_window", None
+    )
+    if callable(delegated_helper):
+        try:
+            delegated_helper(popup, close_child_window=close_child_window)
+            return
+        except Exception:
+            pass
+
     try:
-        popup.dismiss()
+        from kivy.clock import Clock
+
+        Clock.schedule_once(lambda *_: popup.dismiss(), 0)
     except Exception:
-        pass
+        try:
+            popup.dismiss()
+        except Exception:
+            pass
 
     # When model management is opened as a dedicated child app window,
     # closing its main popup should close that child window too.
@@ -100,9 +118,14 @@ def _dismiss_popup_and_close_child(app_instance, popup, close_child_window=True)
         except Exception:
             pass
         try:
-            app_instance.stop()
+            from kivy.clock import Clock
+
+            Clock.schedule_once(lambda *_: app_instance.stop(), 0)
         except Exception:
-            pass
+            try:
+                app_instance.stop()
+            except Exception:
+                pass
 
 
 def _count_active_model_usage(cursor, model_id):
@@ -141,6 +164,29 @@ def _normalize_element_type_filter_value(value):
     if _is_transformer_filter_value(text):
         return _canonical_transformer_filter_label()
     return text
+
+
+def _normalize_breaker_category_value(value):
+    text = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    text = "".join(ch for ch in text if ch.isalnum())
+    return text
+
+
+def _is_sf6_breaker_category(value):
+    normalized = _normalize_breaker_category_value(value)
+    return normalized.startswith("sf6") or normalized == "hexafluoride"
+
+
+def _match_breaker_category_option(raw_value, options):
+    if not raw_value:
+        return ""
+    normalized_raw = _normalize_breaker_category_value(raw_value)
+    if not normalized_raw:
+        return ""
+    for option in list(options or []):
+        if _normalize_breaker_category_value(option) == normalized_raw:
+            return option
+    return ""
 
 
 def _get_breaker_role_options():
@@ -368,6 +414,515 @@ def _increment_count(target, key, amount=1):
     target[key] = int(target.get(key, 0) or 0) + amount
 
 
+def _normalize_manufacturer_key(value):
+    text = unicodedata.normalize("NFKD", str(value or "")).strip().casefold()
+    text = "".join(ch for ch in text if ch.isalnum())
+    return text
+
+
+def _normalize_manufacturer_registry_key(value):
+    text = _normalize_manufacturer_key(value)
+    # Handle common Greek/Latin lookalikes so visually identical names collapse.
+    confusable_map = str.maketrans(
+        {
+            "α": "a",
+            "β": "b",
+            "γ": "g",
+            "δ": "d",
+            "ε": "e",
+            "η": "h",
+            "ι": "i",
+            "κ": "k",
+            "μ": "m",
+            "ν": "n",
+            "ο": "o",
+            "ρ": "p",
+            "τ": "t",
+            "υ": "y",
+            "χ": "x",
+            "ω": "w",
+        }
+    )
+    return text.translate(confusable_map)
+
+
+def _manufacturer_logo_basename(manufacturer):
+    aliases = {
+        "siemens": "siemens",
+        "abb": "abb",
+        "schneider": "schneider",
+        "schneiderelectric": "schneider",
+        "ge": "ge",
+        "generalelectric": "ge",
+        "hitachi": "hitachi",
+        "hitachienergy": "hitachi",
+        "alstom": "alstom",
+        "areva": "areva",
+        "mitsubishi": "mitsubishi",
+        "eaton": "eaton",
+    }
+    normalized = _normalize_manufacturer_registry_key(manufacturer)
+    if not normalized:
+        return ""
+    return aliases.get(normalized, normalized)
+
+
+def _canonical_manufacturer_display(manufacturer):
+    text = " ".join(str(manufacturer or "").split())
+    if not text:
+        return ""
+    key = _manufacturer_logo_basename(text)
+    display_aliases = {
+        "abb": "ABB",
+        "siemens": "SIEMENS",
+        "schneider": "Schneider",
+        "ge": "GE",
+        "hitachi": "Hitachi",
+        "alstom": "Alstom",
+        "areva": "Areva",
+        "mitsubishi": "Mitsubishi",
+        "eaton": "Eaton",
+    }
+    return display_aliases.get(key, text)
+
+
+def _deduplicate_manufacturer_list(manufacturers):
+    grouped = {}
+    for raw_name in list(manufacturers or []):
+        candidate = " ".join(str(raw_name or "").split())
+        if not candidate:
+            continue
+        key = _manufacturer_logo_basename(
+            candidate
+        ) or _normalize_manufacturer_registry_key(candidate)
+        if not key:
+            continue
+        canonical = _canonical_manufacturer_display(candidate)
+        existing = grouped.get(key)
+        if not existing:
+            grouped[key] = canonical
+            continue
+        # Prefer shorter and upper-case stable forms (e.g. ABB over Abb).
+        existing_score = (len(existing), 0 if existing == existing.upper() else 1)
+        candidate_score = (len(canonical), 0 if canonical == canonical.upper() else 1)
+        if candidate_score < existing_score:
+            grouped[key] = canonical
+    return sorted(grouped.values(), key=lambda item: item.casefold())
+
+
+@lru_cache(maxsize=256)
+def _resolve_builtin_manufacturer_logo_path(manufacturer):
+    base_name = _manufacturer_logo_basename(manufacturer)
+    if not base_name:
+        return ""
+
+    base_dir = os.path.dirname(__file__)
+    search_dirs = [
+        os.path.join(base_dir, "res", "manufacturer_logos"),
+        os.path.join(base_dir, "res", "icons", "manufacturer_logos"),
+        os.path.join(base_dir, "res", "logos"),
+        os.path.join(base_dir, "res", "icons"),
+    ]
+    exts = (".png", ".jpg", ".jpeg", ".webp")
+
+    for folder in search_dirs:
+        for ext in exts:
+            candidate = os.path.join(folder, f"{base_name}{ext}")
+            if os.path.isfile(candidate):
+                return candidate
+    return ""
+
+
+def _get_custom_manufacturer_logo_dir(app_instance=None):
+    app_data_dir = ""
+    try:
+        app_data_dir = str(getattr(app_instance, "user_data_dir", "") or "").strip()
+    except Exception:
+        app_data_dir = ""
+
+    if not app_data_dir:
+        try:
+            from config_manager import APP_DATA_DIR as _APP_DATA_DIR
+
+            app_data_dir = str(_APP_DATA_DIR or "").strip()
+        except Exception:
+            app_data_dir = ""
+
+    if not app_data_dir:
+        app_data_dir = os.path.join(os.path.dirname(__file__), "user_data")
+
+    return os.path.join(app_data_dir, "manufacturer_logos")
+
+
+def _resolve_manufacturer_logo_path(manufacturer, app_instance=None):
+    base_name = _manufacturer_logo_basename(manufacturer)
+    if not base_name:
+        return ""
+
+    custom_dir = _get_custom_manufacturer_logo_dir(app_instance)
+    return _resolve_custom_manufacturer_logo_path(
+        base_name, custom_dir
+    ) or _resolve_builtin_manufacturer_logo_path(manufacturer)
+
+
+@lru_cache(maxsize=512)
+def _resolve_custom_manufacturer_logo_path(base_name, custom_dir):
+    if not base_name or not custom_dir:
+        return ""
+    exts = (".png", ".jpg", ".jpeg", ".webp")
+    for ext in exts:
+        custom_candidate = os.path.join(custom_dir, f"{base_name}{ext}")
+        if os.path.isfile(custom_candidate):
+            return custom_candidate
+    return ""
+
+
+def _manufacturer_initials(manufacturer):
+    words = [part for part in str(manufacturer or "").replace("/", " ").split() if part]
+    if not words:
+        return "?"
+    if len(words) == 1:
+        cleaned = "".join(ch for ch in words[0] if ch.isalnum())
+        return (cleaned[:3] or "?").upper()
+    return (words[0][:1] + words[1][:1]).upper()
+
+
+def _manufacturer_fallback_style(manufacturer):
+    style_map = {
+        "abb": {"label": "ABB", "bg": (0.85, 0.08, 0.10, 1), "fg": (1, 1, 1, 1)},
+        "siemens": {
+            "label": "SIE",
+            "bg": (0.00, 0.60, 0.62, 1),
+            "fg": (1, 1, 1, 1),
+        },
+        "ge": {"label": "GE", "bg": (0.00, 0.37, 0.67, 1), "fg": (1, 1, 1, 1)},
+        "schneider": {
+            "label": "SE",
+            "bg": (0.00, 0.62, 0.38, 1),
+            "fg": (1, 1, 1, 1),
+        },
+        "hitachi": {
+            "label": "HT",
+            "bg": (0.60, 0.00, 0.10, 1),
+            "fg": (1, 1, 1, 1),
+        },
+        "alstom": {
+            "label": "ALS",
+            "bg": (0.09, 0.32, 0.72, 1),
+            "fg": (1, 1, 1, 1),
+        },
+        "areva": {
+            "label": "ARV",
+            "bg": (0.97, 0.48, 0.07, 1),
+            "fg": (1, 1, 1, 1),
+        },
+        "mitsubishi": {
+            "label": "MHI",
+            "bg": (0.83, 0.09, 0.16, 1),
+            "fg": (1, 1, 1, 1),
+        },
+        "eaton": {
+            "label": "EAT",
+            "bg": (0.00, 0.28, 0.62, 1),
+            "fg": (1, 1, 1, 1),
+        },
+    }
+    key = _manufacturer_logo_basename(manufacturer)
+    if key in style_map:
+        return style_map[key]
+
+    fallback_label = _manufacturer_initials(manufacturer)
+    base_colors = [
+        (0.16, 0.48, 0.72, 1),
+        (0.87, 0.44, 0.20, 1),
+        (0.28, 0.65, 0.33, 1),
+        (0.70, 0.24, 0.30, 1),
+        (0.55, 0.43, 0.75, 1),
+        (0.36, 0.52, 0.58, 1),
+    ]
+    norm = _normalize_manufacturer_key(manufacturer)
+    color = (
+        base_colors[sum(ord(ch) for ch in norm) % len(base_colors)]
+        if norm
+        else base_colors[0]
+    )
+    return {"label": fallback_label, "bg": color, "fg": (1, 1, 1, 1)}
+
+
+def _build_manufacturer_logo_widget(manufacturer, size=(34, 20), app_instance=None):
+    from kivy.graphics import Color, Line, RoundedRectangle
+    from kivy.uix.image import Image
+    from kivy.uix.label import Label
+
+    logo_path = _resolve_manufacturer_logo_path(manufacturer, app_instance)
+    if logo_path:
+        image = Image(source=logo_path, size_hint=(None, None), size=size)
+        if hasattr(image, "fit_mode"):
+            image.fit_mode = "contain"
+        return image
+
+    style = _manufacturer_fallback_style(manufacturer)
+    badge = Label(
+        text=f"[b]{style['label']}[/b]",
+        markup=True,
+        size_hint=(None, None),
+        size=size,
+        halign="center",
+        valign="middle",
+        color=style["fg"],
+        font_size="11sp",
+    )
+    badge.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+
+    with badge.canvas.before:
+        badge._bg_color = Color(*style["bg"])
+        badge._bg_rect = RoundedRectangle(pos=badge.pos, size=badge.size, radius=[4])
+        badge._border_color = Color(1, 1, 1, 0.55)
+        badge._border = Line(rounded_rectangle=(0, 0, 0, 0, 4), width=1.0)
+
+    def _sync_badge_bg(*_args):
+        badge._bg_rect.pos = badge.pos
+        badge._bg_rect.size = badge.size
+        badge._border.rounded_rectangle = (*badge.pos, *badge.size, 4)
+
+    badge.bind(pos=_sync_badge_bg, size=_sync_badge_bg)
+    _sync_badge_bg()
+    return badge
+
+
+def _build_color_tag(text, bg_rgba, *, fg_rgba=(1, 1, 1, 1), size=(54, 22)):
+    from kivy.graphics import Color, RoundedRectangle
+    from kivy.uix.label import Label
+
+    label = Label(
+        text=f"[b]{text}[/b]",
+        markup=True,
+        size_hint=(None, None),
+        size=size,
+        halign="center",
+        valign="middle",
+        color=fg_rgba,
+        font_size="12sp",
+    )
+
+    with label.canvas.before:
+        label._tag_bg = Color(*bg_rgba)
+        label._tag_rect = RoundedRectangle(pos=label.pos, size=label.size, radius=[6])
+
+    def _sync(_instance, _value):
+        label._tag_rect.pos = label.pos
+        label._tag_rect.size = label.size
+        label.text_size = label.size
+
+    label.bind(pos=_sync, size=_sync)
+    return label
+
+
+def _normalized_token_text(value):
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return text.strip().lower()
+
+
+def _element_type_tag_for_category(category):
+    raw_text = str(category or "").strip()
+    norm = _normalized_token_text(raw_text)
+    if raw_text == ELEM_BREAKER_YT:
+        return ("HVCB", (0.13, 0.34, 0.79, 1))
+    if raw_text == ELEM_BREAKER_MT:
+        return ("MVCB", (0.00, 0.60, 0.50, 1))
+    if raw_text == MOTOR_DRIVE_CATEGORY or ("motor" in norm and "drive" in norm):
+        return ("MD", (0.56, 0.34, 0.78, 1))
+    if "μετασχ" in norm:
+        return ("PT", (0.73, 0.40, 0.11, 1))
+    if "πυκνω" in norm:
+        return ("CAP", (0.58, 0.36, 0.76, 1))
+    compact = "".join(ch for ch in raw_text if ch.isalnum())
+    return ((compact[:3] or "GEN").upper(), (0.40, 0.43, 0.49, 1))
+
+
+def _breaker_type_tag(breaker_category):
+    norm = _normalized_token_text(breaker_category)
+    if not norm:
+        return ("N/A", (0.44, 0.44, 0.44, 1))
+    compact = "".join(ch for ch in norm if ch.isalnum())
+    if compact.startswith("sf6") or compact == "hexafluoride":
+        return ("SF6", (0.00, 0.49, 0.86, 1))
+    if "κεν" in norm or "vac" in norm:
+        return ("VAC", (0.17, 0.62, 0.24, 1))
+    if ("πτωχ" in norm and "ελαι" in norm) or "pooroil" in compact:
+        return ("POIL", (0.78, 0.29, 0.14, 1))
+    if "ελαι" in norm or "oil" in norm:
+        return ("OIL", (0.85, 0.44, 0.10, 1))
+    if "air" in norm or "αερ" in norm:
+        return ("AIR", (0.37, 0.44, 0.53, 1))
+    label = "".join(ch for ch in str(breaker_category or "").upper() if ch.isalnum())
+    return ((label[:5] or "BRK"), (0.32, 0.49, 0.67, 1))
+
+
+def _subelement_type_tag(subelement_type):
+    text = str(subelement_type or "").strip()
+    if not text:
+        return ("SUB", (0.42, 0.42, 0.42, 1))
+    norm = _normalized_token_text(text)
+    if "motor" in norm and "drive" in norm:
+        return ("MD", (0.56, 0.34, 0.78, 1))
+    words = [part for part in text.replace("-", " ").replace("_", " ").split() if part]
+    if len(words) >= 2:
+        label = f"{words[0][:1]}{words[1][:1]}".upper()
+    else:
+        compact = "".join(ch for ch in text if ch.isalnum())
+        label = (compact[:3] or "SUB").upper()
+    palette = [
+        (0.52, 0.35, 0.72, 1),
+        (0.20, 0.53, 0.72, 1),
+        (0.70, 0.39, 0.22, 1),
+        (0.30, 0.58, 0.36, 1),
+    ]
+    seed = sum(ord(ch) for ch in text.casefold()) if text else 0
+    return (label, palette[seed % len(palette)])
+
+
+def _installation_location_tag(installation_space):
+    norm = _normalized_token_text(installation_space)
+    if not norm:
+        return ("N/A", (0.45, 0.45, 0.45, 1))
+    compact = "".join(ch for ch in norm if ch.isalnum())
+
+    indoor_tokens = (
+        "indoor",
+        "indoors",
+        "inside",
+        "indoorequipment",
+        "internal",
+        "κλειστ",
+        "εσωτερ",
+        "εντος",
+        "εντοσ",
+    )
+    outdoor_tokens = (
+        "outdoor",
+        "outdoors",
+        "outdor",
+        "outdoorequipment",
+        "outside",
+        "external",
+        "exterior",
+        "υπαιθρ",
+        "εξωτερ",
+        "ανοιχτ",
+        "εκτος",
+        "εκτοσ",
+    )
+
+    if any(token in norm or token in compact for token in indoor_tokens):
+        return ("IN", (0.27, 0.44, 0.79, 1))
+    if any(token in norm or token in compact for token in outdoor_tokens):
+        return ("OUT", (0.16, 0.58, 0.36, 1))
+    return ("N/A", (0.45, 0.45, 0.45, 1))
+
+
+def _build_model_context_tags(
+    category,
+    breaker_category=None,
+    *,
+    installation_space=None,
+    manufacturer=None,
+    app_instance=None,
+):
+    from kivy.uix.boxlayout import BoxLayout
+
+    tags_box = BoxLayout(size_hint_x=0.30, spacing=4)
+    if manufacturer is not None:
+        tags_box.add_widget(
+            _build_manufacturer_logo_widget(
+                manufacturer,
+                size=(32, 20),
+                app_instance=app_instance,
+            )
+        )
+    elem_label, elem_bg = _element_type_tag_for_category(category)
+    tags_box.add_widget(_build_color_tag(elem_label, elem_bg, size=(52, 22)))
+
+    if category in (ELEM_BREAKER_MT, ELEM_BREAKER_YT):
+        breaker_label, breaker_bg = _breaker_type_tag(breaker_category)
+        tags_box.add_widget(_build_color_tag(breaker_label, breaker_bg, size=(52, 22)))
+
+    location_label, location_bg = _installation_location_tag(installation_space)
+    tags_box.add_widget(_build_color_tag(location_label, location_bg, size=(52, 22)))
+    return tags_box
+
+
+def _build_subelement_context_tags(
+    subelement_type,
+    *,
+    installation_space=None,
+    manufacturer=None,
+    app_instance=None,
+):
+    from kivy.uix.boxlayout import BoxLayout
+
+    tags_box = BoxLayout(size_hint_x=0.28, spacing=4)
+    if manufacturer is not None:
+        tags_box.add_widget(
+            _build_manufacturer_logo_widget(
+                manufacturer,
+                size=(32, 20),
+                app_instance=app_instance,
+            )
+        )
+    sub_label, sub_bg = _subelement_type_tag(subelement_type)
+    tags_box.add_widget(_build_color_tag(sub_label, sub_bg, size=(56, 22)))
+    location_label, location_bg = _installation_location_tag(installation_space)
+    tags_box.add_widget(_build_color_tag(location_label, location_bg, size=(52, 22)))
+    return tags_box
+
+
+def _copy_custom_manufacturer_logo(app_instance, manufacturer, source_path):
+    source = str(source_path or "").strip()
+    if not source or not os.path.isfile(source):
+        raise ValueError("Το αρχείο λογοτύπου δεν βρέθηκε.")
+
+    base_name = _manufacturer_logo_basename(manufacturer)
+    if not base_name:
+        raise ValueError("Επιλέξτε έγκυρο κατασκευαστή.")
+
+    ext = os.path.splitext(source)[1].lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise ValueError("Υποστηρίζονται μόνο PNG, JPG, JPEG, WEBP.")
+
+    target_dir = _get_custom_manufacturer_logo_dir(app_instance)
+    os.makedirs(target_dir, exist_ok=True)
+    for old_ext in (".png", ".jpg", ".jpeg", ".webp"):
+        old_path = os.path.join(target_dir, f"{base_name}{old_ext}")
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except Exception:
+                pass
+
+    target_path = os.path.join(target_dir, f"{base_name}{ext}")
+    shutil.copy2(source, target_path)
+    return target_path
+
+
+def _remove_custom_manufacturer_logo(app_instance, manufacturer):
+    base_name = _manufacturer_logo_basename(manufacturer)
+    if not base_name:
+        return False
+    target_dir = _get_custom_manufacturer_logo_dir(app_instance)
+    removed = False
+    for ext in (".png", ".jpg", ".jpeg", ".webp"):
+        candidate = os.path.join(target_dir, f"{base_name}{ext}")
+        if os.path.isfile(candidate):
+            try:
+                os.remove(candidate)
+                removed = True
+            except Exception:
+                pass
+    return removed
+
+
 def _sorted_count_items(counts):
     return sorted(
         [(label, value) for label, value in (counts or {}).items() if value],
@@ -392,6 +947,7 @@ def _filtered_elements_for_statistics(
             e.manufacture_year,
             e.operating_status,
             s.base_distance_km,
+            e.parent_element_id,
             e.element_model_id,
             em.model_name,
             COALESCE(em.manufacturer, e.manufacturer, '-') AS model_manufacturer,
@@ -453,7 +1009,7 @@ def get_model_management_statistics(
     distance_relation=None,
     distance_limit_km=None,
     element_scope=None,
-    top_n_models=5,
+    top_n_models=None,
 ):
     rows = _filtered_elements_for_statistics(
         app_instance,
@@ -468,9 +1024,11 @@ def get_model_management_statistics(
     transformer_ages = {label: 0 for label in _age_bucket_labels()}
     hv_breaker_ages = {label: 0 for label in _age_bucket_labels()}
     mv_breaker_ages = {label: 0 for label in _age_bucket_labels()}
-    manufacturer_models_by_category = {}
-    seen_models = set()
+    manufacturer_elements_by_category = {}
     model_usage_by_category = {}
+    elements_by_category = {}
+    pending_motor_drive_rows = []
+    active_transformer_ids = set()
 
     for (
         _elem_id,
@@ -479,6 +1037,7 @@ def get_model_management_statistics(
         manufacture_year,
         _operating_status,
         _base_distance_km,
+        parent_element_id,
         element_model_id,
         model_name,
         model_manufacturer,
@@ -502,37 +1061,77 @@ def get_model_management_statistics(
                 mv_breaker_ages[age_bucket] += 1
 
         if _is_transformer_filter_value(element_type):
+            elem_id_int = _safe_int(_elem_id)
+            if elem_id_int is not None:
+                active_transformer_ids.add(elem_id_int)
             age_bucket = _age_bucket_for_year(manufacture_year)
             if age_bucket:
                 transformer_ages[age_bucket] += 1
 
-        model_key = (
-            element_model_id
-            if element_model_id is not None
-            else (model_category, model_name, model_manufacturer)
+        category_key = _normalize_element_type_filter_value(
+            model_category or element_type
         )
-        if model_name and model_key not in seen_models:
-            seen_models.add(model_key)
-            category_key = _normalize_element_type_filter_value(
-                model_category or element_type
+        if category_key == MOTOR_DRIVE_CATEGORY:
+            pending_motor_drive_rows.append(
+                {
+                    "element_id": _safe_int(_elem_id),
+                    "parent_element_id": _safe_int(parent_element_id),
+                    "model_name": model_name,
+                    "manufacturer": model_manufacturer,
+                }
             )
-            category_manufacturers = manufacturer_models_by_category.setdefault(
-                category_key, {}
-            )
-            _increment_count(category_manufacturers, model_manufacturer or "-")
+            continue
+
+        _increment_count(elements_by_category, category_key)
+
+        category_manufacturers = manufacturer_elements_by_category.setdefault(
+            category_key, {}
+        )
+        canonical_manufacturer = (
+            _canonical_manufacturer_display(model_manufacturer or "-") or "-"
+        )
+        _increment_count(category_manufacturers, canonical_manufacturer)
 
         if model_name:
-            category_key = _normalize_element_type_filter_value(
-                model_category or element_type
-            )
             category_usage = model_usage_by_category.setdefault(category_key, {})
             _increment_count(category_usage, model_name)
 
-    most_used_models = {
-        category: _sorted_count_items(counts)[: max(1, int(top_n_models or 5))]
-        for category, counts in model_usage_by_category.items()
-        if _sorted_count_items(counts)
-    }
+    if pending_motor_drive_rows:
+        seen_parents = set()
+        category_key = MOTOR_DRIVE_CATEGORY
+        category_manufacturers = manufacturer_elements_by_category.setdefault(
+            category_key, {}
+        )
+        category_usage = model_usage_by_category.setdefault(category_key, {})
+
+        for row in pending_motor_drive_rows:
+            parent_id = row.get("parent_element_id")
+            if parent_id is None:
+                # Keep stats aligned with transformer fleet: ignore unlinked MD rows.
+                continue
+            if parent_id not in active_transformer_ids:
+                continue
+            if parent_id in seen_parents:
+                continue
+            seen_parents.add(parent_id)
+
+            _increment_count(elements_by_category, category_key)
+            canonical_manufacturer = (
+                _canonical_manufacturer_display(row.get("manufacturer") or "-") or "-"
+            )
+            _increment_count(category_manufacturers, canonical_manufacturer)
+            if row.get("model_name"):
+                _increment_count(category_usage, row["model_name"])
+
+    most_used_models = {}
+    for category, counts in model_usage_by_category.items():
+        sorted_items = _sorted_count_items(counts)
+        if not sorted_items:
+            continue
+        if top_n_models is None:
+            most_used_models[category] = sorted_items
+        else:
+            most_used_models[category] = sorted_items[: max(1, int(top_n_models))]
 
     return {
         "rows_count": len(rows),
@@ -546,10 +1145,13 @@ def get_model_management_statistics(
         "bars": {
             "manufacturer_count_models": {
                 category: _sorted_count_items(counts)
-                for category, counts in manufacturer_models_by_category.items()
+                for category, counts in manufacturer_elements_by_category.items()
                 if _sorted_count_items(counts)
             },
             "most_used_models_per_category": most_used_models,
+        },
+        "totals": {
+            "elements_by_category": elements_by_category,
         },
     }
 
@@ -688,13 +1290,14 @@ def show_model_statistics_popup(app_instance, parent_popup=None):
     def _make_pie_chart_section(title, items):
         if not items:
             return None
+        section_total = sum(value for _label, value in items)
         container = BoxLayout(
             orientation="vertical", size_hint_y=None, spacing=6, padding=4
         )
         container.bind(minimum_height=container.setter("height"))
         container.add_widget(
             Label(
-                text=f"[b]{title}[/b]",
+                text=f"[b]{title} (#{section_total})[/b]",
                 markup=True,
                 size_hint_y=None,
                 height=28,
@@ -980,16 +1583,23 @@ def show_model_statistics_popup(app_instance, parent_popup=None):
         container.add_widget(body)
         return container
 
-    def _make_bar_chart_section(title, items):
+    def _make_bar_chart_section(
+        title, items, *, show_manufacturer_logo=False, title_total=None
+    ):
         if not items:
             return None
+        section_total = int(
+            title_total
+            if title_total is not None
+            else sum(value for _label, value in items)
+        )
         container = BoxLayout(
             orientation="vertical", size_hint_y=None, spacing=6, padding=4
         )
         container.bind(minimum_height=container.setter("height"))
         container.add_widget(
             Label(
-                text=f"[b]{title}[/b]",
+                text=f"[b]{title} (#{section_total})[/b]",
                 markup=True,
                 size_hint_y=None,
                 height=28,
@@ -1001,9 +1611,28 @@ def show_model_statistics_popup(app_instance, parent_popup=None):
         max_value = max(value for _label, value in items) or 1
         for index, (label, value) in enumerate(items):
             row = BoxLayout(size_hint_y=None, height=26, spacing=6)
-            row.add_widget(
-                Label(text=label, size_hint_x=0.35, halign="left", valign="middle")
-            )
+            left_box = BoxLayout(size_hint_x=0.35, spacing=3)
+            if show_manufacturer_logo:
+                left_box.add_widget(
+                    _build_manufacturer_logo_widget(
+                        label,
+                        size=(34, 20),
+                        app_instance=app_instance,
+                    )
+                )
+                left_box.add_widget(
+                    Label(
+                        text=label,
+                        size_hint_x=1,
+                        halign="left",
+                        valign="middle",
+                    )
+                )
+            else:
+                left_box.add_widget(
+                    Label(text=label, size_hint_x=1, halign="left", valign="middle")
+                )
+            row.add_widget(left_box)
             bar_widget = Widget(size_hint_x=0.55)
 
             def _draw_bar(
@@ -1052,12 +1681,17 @@ def show_model_statistics_popup(app_instance, parent_popup=None):
             if section is not None:
                 charts_grid.add_widget(section)
 
+        category_totals = (stats_payload.get("totals") or {}).get(
+            "elements_by_category"
+        ) or {}
         for category, items in (
             (stats_payload.get("bars") or {}).get("manufacturer_count_models") or {}
         ).items():
             manufacturer_section = _make_bar_chart_section(
-                f"Κατασκευαστές Μοντέλων - {category}",
+                f"Κατασκευαστές Στοιχείων - {category}",
                 items,
+                show_manufacturer_logo=True,
+                title_total=category_totals.get(category),
             )
             if manufacturer_section is not None:
                 charts_grid.add_widget(manufacturer_section)
@@ -1066,7 +1700,9 @@ def show_model_statistics_popup(app_instance, parent_popup=None):
             (stats_payload.get("bars") or {}).get("most_used_models_per_category") or {}
         ).items():
             section = _make_bar_chart_section(
-                f"Πιο χρησιμοποιημένα μοντέλα - {category}", items
+                f"Πιο χρησιμοποιημένα μοντέλα - {category}",
+                items,
+                title_total=category_totals.get(category),
             )
             if section is not None:
                 charts_grid.add_widget(section)
@@ -1952,6 +2588,180 @@ def _get_post_save_model_management_callback(app_instance, category, parent_popu
     return lambda: show_models_management(app_instance)
 
 
+def _show_manufacturer_logo_manager_popup(
+    app_instance, parent_popup=None, on_updated=None
+):
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
+    from kivy.uix.spinner import Spinner
+
+    popup = Popup(
+        title="Λογότυπα Κατασκευαστών",
+        size_hint=(0.78, 0.56),
+    )
+    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    c = app_instance.conn.cursor()
+    c.execute(
+        """
+        SELECT DISTINCT TRIM(COALESCE(manufacturer, '')) AS m
+        FROM element_models
+        WHERE TRIM(COALESCE(manufacturer, '')) != ''
+        ORDER BY m
+        """
+    )
+    model_manufacturers = [row[0] for row in (c.fetchall() or []) if row and row[0]]
+
+    c.execute(
+        """
+        SELECT DISTINCT TRIM(COALESCE(manufacturer, '')) AS m
+        FROM elements
+        WHERE TRIM(COALESCE(manufacturer, '')) != ''
+        ORDER BY m
+        """
+    )
+    element_manufacturers = [row[0] for row in (c.fetchall() or []) if row and row[0]]
+
+    manufacturers = _deduplicate_manufacturer_list(
+        model_manufacturers + element_manufacturers
+    )
+    if not manufacturers:
+        manufacturers = ["SIEMENS", "ABB", "GE"]
+
+    row = BoxLayout(size_hint_y=None, height=40, spacing=8)
+    row.add_widget(Label(text="Κατασκευαστής:", size_hint_x=0.30))
+    manufacturer_spinner = Spinner(
+        text=manufacturers[0],
+        values=manufacturers,
+        size_hint_x=0.70,
+    )
+    row.add_widget(manufacturer_spinner)
+    layout.add_widget(row)
+
+    preview_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+    logo_holder = BoxLayout(size_hint=(None, None), size=(48, 28))
+    preview_row.add_widget(logo_holder)
+    source_label = Label(text="", halign="left", valign="middle")
+    source_label.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+    preview_row.add_widget(source_label)
+    layout.add_widget(preview_row)
+
+    def _refresh_preview(*_args):
+        manufacturer = manufacturer_spinner.text
+        logo_holder.clear_widgets()
+        logo_holder.add_widget(
+            _build_manufacturer_logo_widget(
+                manufacturer,
+                size=(44, 24),
+                app_instance=app_instance,
+            )
+        )
+        resolved = _resolve_manufacturer_logo_path(manufacturer, app_instance)
+        custom_dir = os.path.abspath(_get_custom_manufacturer_logo_dir(app_instance))
+        if resolved and os.path.abspath(resolved).startswith(custom_dir):
+            source_label.text = f"Πηγή: custom ({os.path.basename(resolved)})"
+        elif resolved:
+            source_label.text = f"Πηγή: app ({os.path.basename(resolved)})"
+        else:
+            source_label.text = "Πηγή: badge fallback"
+
+    manufacturer_spinner.bind(text=_refresh_preview)
+
+    buttons_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+
+    def _import_logo(_instance=None):
+        selected_manufacturer = manufacturer_spinner.text
+        selected_file = ask_open_file(
+            title=f"Λογότυπο για {selected_manufacturer}",
+            filetypes=(
+                ("Image files", "*.png *.jpg *.jpeg *.webp"),
+                ("All files", "*.*"),
+            ),
+        )
+        if not selected_file:
+            return
+        try:
+            output_path = _copy_custom_manufacturer_logo(
+                app_instance,
+                selected_manufacturer,
+                selected_file,
+            )
+            _resolve_builtin_manufacturer_logo_path.cache_clear()
+            _resolve_custom_manufacturer_logo_path.cache_clear()
+            _refresh_preview()
+            if callable(on_updated):
+                on_updated()
+            show_message_popup(
+                "Επιτυχία",
+                f"Αποθηκεύτηκε λογότυπο:\n{output_path}",
+            )
+        except Exception as exc:
+            show_message_popup("Σφάλμα", str(exc))
+
+    import_btn = Button(text="Εισαγωγή/Αντικατάσταση")
+    import_btn.bind(on_press=_import_logo)
+    buttons_row.add_widget(import_btn)
+
+    def _remove_logo(_instance=None):
+        selected_manufacturer = manufacturer_spinner.text
+        removed = _remove_custom_manufacturer_logo(app_instance, selected_manufacturer)
+        _resolve_builtin_manufacturer_logo_path.cache_clear()
+        _resolve_custom_manufacturer_logo_path.cache_clear()
+        _refresh_preview()
+        if callable(on_updated):
+            on_updated()
+        if removed:
+            show_message_popup("Επιτυχία", "Το custom λογότυπο αφαιρέθηκε.")
+        else:
+            show_message_popup("Ενημέρωση", "Δεν βρέθηκε custom λογότυπο.")
+
+    remove_btn = Button(text="Αφαίρεση custom")
+    remove_btn.bind(on_press=_remove_logo)
+    buttons_row.add_widget(remove_btn)
+
+    def _open_custom_folder(_instance=None):
+        folder = _get_custom_manufacturer_logo_dir(app_instance)
+        os.makedirs(folder, exist_ok=True)
+        try:
+            if os.name == "nt":
+                os.startfile(folder)
+            elif os.name == "posix":
+                webbrowser.open(folder)
+        except Exception:
+            pass
+
+    open_folder_btn = Button(text="Άνοιγμα φακέλου")
+    open_folder_btn.bind(on_press=_open_custom_folder)
+    buttons_row.add_widget(open_folder_btn)
+
+    layout.add_widget(buttons_row)
+
+    tip = Label(
+        text=(
+            "Το όνομα του λογοτύπου χαρτογραφείται αυτόματα ανά κατασκευαστή. "
+            "Τα custom λογότυπα έχουν προτεραιότητα σε όλα τα lists/statistics."
+        ),
+        size_hint_y=None,
+        height=54,
+        halign="left",
+        valign="top",
+    )
+    tip.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+    layout.add_widget(tip)
+
+    close_btn = Button(
+        text=S["BUTTONS"].get("CLOSE", "Κλείσιμο"), size_hint_y=None, height=42
+    )
+    close_btn.bind(on_press=popup.dismiss)
+    layout.add_widget(close_btn)
+
+    popup.content = layout
+    _refresh_preview()
+    popup.open()
+
+
 def show_models_management(app_instance):
     """Show model management interface"""
 
@@ -2005,7 +2815,7 @@ def _show_models_management_popup(app_instance):
         text=S["MESSAGES"].get(
             "ADD_ELEMENT_MODEL_BTN", "+ Προσθήκη Μοντέλου Στοιχείου"
         ),
-        size_hint_x=0.25,
+        size_hint_x=0.20,
     )
     add_element_model_btn.bind(
         on_press=lambda x: show_add_model_popup(
@@ -2018,7 +2828,7 @@ def _show_models_management_popup(app_instance):
 
     add_subelement_model_btn = Button(
         text=S["MESSAGES"].get("MANAGE_SUBELEMENTS_BTN", "Διαχείριση Υποστοιχείων"),
-        size_hint_x=0.25,
+        size_hint_x=0.20,
     )
     add_subelement_model_btn.bind(
         on_press=lambda _x: show_subelement_management_popup(app_instance, popup)
@@ -2027,17 +2837,30 @@ def _show_models_management_popup(app_instance):
 
     search_btn = Button(
         text=S["MESSAGES"].get("SEARCH_ELEMENTS_BUTTON", "Αναζήτηση Στοιχείων"),
-        size_hint_x=0.25,
+        size_hint_x=0.20,
     )
     search_btn.bind(on_press=lambda _x: show_element_search_popup(app_instance, popup))
     action_row.add_widget(search_btn)
 
     stats_btn = Button(
         text=S["MESSAGES"].get("MODEL_STATS_BUTTON", "Στατιστικά"),
-        size_hint_x=0.25,
+        size_hint_x=0.20,
     )
     stats_btn.bind(on_press=lambda _x: show_model_statistics_popup(app_instance, popup))
     action_row.add_widget(stats_btn)
+
+    logos_btn = Button(
+        text="Λογότυπα Κατασκευαστών",
+        size_hint_x=0.20,
+    )
+    logos_btn.bind(
+        on_press=lambda _x: _show_manufacturer_logo_manager_popup(
+            app_instance,
+            popup,
+            on_updated=render_models,
+        )
+    )
+    action_row.add_widget(logos_btn)
     main_layout.add_widget(action_row)
 
     info_label = Label(
@@ -2058,6 +2881,18 @@ def _show_models_management_popup(app_instance):
     def render_models(selected_category=None):
         grid.clear_widgets()
         all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+        manual_exists_cache = {}
+
+        def _has_local_manual(path):
+            if not path:
+                return False
+            cached = manual_exists_cache.get(path)
+            if cached is not None:
+                return cached
+            exists = os.path.exists(path)
+            manual_exists_cache[path] = exists
+            return exists
+
         models_by_family = {
             "elements": [m for m in models if m[1] not in subelement_types],
             "subelements": [m for m in models if m[1] in subelement_types],
@@ -2176,13 +3011,28 @@ def _show_models_management_popup(app_instance):
                                 usage_counts_by_model.get(model_id, 0) or 0
                             )
                             header.add_widget(
-                                Label(
-                                    text=f"    {model_name} ({usage_count})",
-                                    bold=True,
-                                    size_hint_x=0.55,
+                                _build_model_context_tags(
+                                    category,
+                                    breaker_cat,
+                                    installation_space=space,
+                                    manufacturer=manufacturer,
+                                    app_instance=app_instance,
                                 )
                             )
-                            btn_box = BoxLayout(size_hint_x=0.45, spacing=5)
+                            model_label_box = BoxLayout(size_hint_x=0.28, spacing=3)
+                            model_label_box.add_widget(
+                                Label(
+                                    text=f"{model_name} ({usage_count})",
+                                    bold=True,
+                                    size_hint_x=1,
+                                    halign="left",
+                                    valign="middle",
+                                    shorten=True,
+                                    shorten_from="right",
+                                )
+                            )
+                            header.add_widget(model_label_box)
+                            btn_box = BoxLayout(size_hint_x=0.42, spacing=5)
                             list_btn = Button(
                                 text=S["BUTTONS"]["LIST"], size_hint_x=0.25
                             )
@@ -2194,8 +3044,7 @@ def _show_models_management_popup(app_instance):
                             btn_box.add_widget(list_btn)
                             manual_label = (
                                 S["MESSAGES"].get("MANUAL_LABEL", "Manual")
-                                if (manual_pdf and os.path.exists(manual_pdf))
-                                or onedrive_manual_link
+                                if _has_local_manual(manual_pdf) or onedrive_manual_link
                                 else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                             )
                             manual_btn = Button(text=manual_label, size_hint_x=0.25)
@@ -2274,12 +3123,27 @@ def _show_models_management_popup(app_instance):
                         header = BoxLayout(size_hint_y=None, height=30, spacing=5)
                         usage_count = int(usage_counts_by_model.get(model_id, 0) or 0)
                         header.add_widget(
+                            _build_model_context_tags(
+                                category,
+                                breaker_cat,
+                                installation_space=space,
+                                manufacturer=manufacturer,
+                                app_instance=app_instance,
+                            )
+                        )
+                        model_label_box = BoxLayout(size_hint_x=0.20, spacing=3)
+                        model_label_box.add_widget(
                             Label(
                                 text=f"{model_name} ({usage_count})",
                                 bold=True,
-                                size_hint_x=0.45,
+                                size_hint_x=1,
+                                halign="left",
+                                valign="middle",
+                                shorten=True,
+                                shorten_from="right",
                             )
                         )
+                        header.add_widget(model_label_box)
                         header_power = (
                             power_mva
                             if power_mva is not None
@@ -2293,7 +3157,7 @@ def _show_models_management_popup(app_instance):
                                 size_hint_x=0.10,
                             )
                         )
-                        btn_box = BoxLayout(size_hint_x=0.45, spacing=5)
+                        btn_box = BoxLayout(size_hint_x=0.40, spacing=5)
                         list_btn = Button(text=S["BUTTONS"]["LIST"], size_hint_x=0.25)
                         list_btn.bind(
                             on_press=lambda _x, mid=model_id, mname=model_name: (
@@ -2303,8 +3167,7 @@ def _show_models_management_popup(app_instance):
                         btn_box.add_widget(list_btn)
                         manual_label = (
                             S["MESSAGES"].get("MANUAL_LABEL", "Manual")
-                            if (manual_pdf and os.path.exists(manual_pdf))
-                            or onedrive_manual_link
+                            if _has_local_manual(manual_pdf) or onedrive_manual_link
                             else S["MESSAGES"].get("ADD_MANUAL", "Προσθήκη Manual")
                         )
                         manual_btn = Button(text=manual_label, size_hint_x=0.25)
@@ -2421,7 +3284,12 @@ def _show_models_management_popup(app_instance):
             section_filter_spinner.bind(
                 text=lambda _spinner, text: _render_selected(text)
             )
-            _render_selected(all_option)
+            default_filter = all_option
+            # Large datasets render much faster when a single category is shown first.
+            if len(all_models_subset) > 120 and allowed_categories:
+                default_filter = allowed_categories[0]
+            section_filter_spinner.text = default_filter
+            _render_selected(default_filter)
             return section_box
 
         elements_section = render_section(
@@ -2704,16 +3572,30 @@ def _show_subelement_management_popup_internal(app_instance, parent_popup=None):
                 header_row = BoxLayout(size_hint_y=None, height=30, spacing=5)
                 usage_count = usage_counts_by_model.get(model_id, 0)
                 header_row.add_widget(
+                    _build_subelement_context_tags(
+                        category,
+                        installation_space=space,
+                        manufacturer=manufacturer,
+                        app_instance=app_instance,
+                    )
+                )
+                model_label_box = BoxLayout(size_hint_x=0.28, spacing=3)
+                model_label_box.add_widget(
                     Label(
                         text=f"{model_name} (σε χρήση: {usage_count})",
                         bold=True,
-                        size_hint_x=0.46,
+                        size_hint_x=1,
+                        halign="left",
+                        valign="middle",
+                        shorten=True,
+                        shorten_from="right",
                     )
                 )
+                header_row.add_widget(model_label_box)
                 header_row.add_widget(
                     Label(
                         text=f"Γονέας: {family_name}",
-                        size_hint_x=0.18,
+                        size_hint_x=0.08,
                     )
                 )
                 btn_box = BoxLayout(size_hint_x=0.36, spacing=4)
@@ -2973,7 +3855,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             idx = layout.children.index(model_name_input)
             layout.add_widget(breaker_spinner, index=idx)
             layout.add_widget(breaker_label, index=idx + 1)
-            if breaker_spinner.text == "SF6":
+            if _is_sf6_breaker_category(breaker_spinner.text):
                 layout.add_widget(sf6_capacity_input, index=idx)
                 layout.add_widget(sf6_capacity_label, index=idx + 1)
 
@@ -2983,10 +3865,10 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         if sf6_capacity_label in layout.children:
             layout.remove_widget(sf6_capacity_label)
             layout.remove_widget(sf6_capacity_input)
-        if (
-            category_spinner.text in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
-            and breaker_spinner.text == "SF6"
-        ):
+        if category_spinner.text in [
+            ELEM_BREAKER_MT,
+            ELEM_BREAKER_YT,
+        ] and _is_sf6_breaker_category(breaker_spinner.text):
             idx = layout.children.index(model_name_input)
             layout.add_widget(sf6_capacity_input, index=idx)
             layout.add_widget(sf6_capacity_label, index=idx + 1)
@@ -3049,7 +3931,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         )
 
         sf6_capacity_val = None
-        if breaker_cat == "SF6":
+        if _is_sf6_breaker_category(breaker_cat):
             if not sf6_capacity_input.text.strip():
                 show_message_popup(
                     "Σφάλμα",
@@ -3357,17 +4239,21 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 selected_category
             )
             breaker_spinner.values = breaker_categories
-            if breaker_spinner.text not in breaker_categories:
+            matched_breaker_cat = _match_breaker_category_option(
+                breaker_cat,
+                breaker_categories,
+            )
+            if matched_breaker_cat:
+                breaker_spinner.text = matched_breaker_cat
+            elif breaker_spinner.text not in breaker_categories:
                 breaker_spinner.text = (
-                    breaker_cat
-                    if breaker_cat in breaker_categories
-                    else (breaker_categories[0] if breaker_categories else "SF6")
+                    breaker_categories[0] if breaker_categories else "SF6"
                 )
 
             insert_at = layout.children.index(extra_fields_box)
             layout.add_widget(breaker_spinner, index=insert_at)
             layout.add_widget(breaker_label, index=insert_at + 1)
-            if breaker_spinner.text == "SF6":
+            if _is_sf6_breaker_category(breaker_spinner.text):
                 layout.add_widget(sf6_capacity_input, index=insert_at)
                 layout.add_widget(sf6_capacity_label, index=insert_at + 1)
 
@@ -3385,10 +4271,10 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         if sf6_capacity_label in layout.children:
             layout.remove_widget(sf6_capacity_label)
             layout.remove_widget(sf6_capacity_input)
-        if (
-            category_spinner.text in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
-            and text == "SF6"
-        ):
+        if category_spinner.text in [
+            ELEM_BREAKER_MT,
+            ELEM_BREAKER_YT,
+        ] and _is_sf6_breaker_category(text):
             insert_at = layout.children.index(extra_fields_box)
             layout.add_widget(sf6_capacity_input, index=insert_at)
             layout.add_widget(sf6_capacity_label, index=insert_at + 1)
@@ -3452,10 +4338,10 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         )
 
         sf6_capacity_val = None
-        if (
-            selected_category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
-            and breaker_cat_val == "SF6"
-        ):
+        if selected_category in [
+            ELEM_BREAKER_MT,
+            ELEM_BREAKER_YT,
+        ] and _is_sf6_breaker_category(breaker_cat_val):
             if not sf6_capacity_input or not sf6_capacity_input.text.strip():
                 show_message_popup(
                     "Σφάλμα",

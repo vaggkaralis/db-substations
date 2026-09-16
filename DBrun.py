@@ -1475,7 +1475,20 @@ class SubstationApp(App):
         elif screen_name == "maintenance_form":
             self.show_maintenance_menu(parent_popup=None)
         elif screen_name == "maintenance_history":
-            self.show_maintenance_history(None)
+            selected_sub_id = payload.get("substation_id")
+            selected_sub_name = payload.get("substation_name")
+            if selected_sub_id is not None and selected_sub_name:
+                try:
+                    selected_sub_id = int(selected_sub_id)
+                except Exception:
+                    selected_sub_id = None
+            if selected_sub_id is not None and selected_sub_name:
+                self.show_substation_maintenance_history(
+                    selected_sub_id,
+                    selected_sub_name,
+                )
+            else:
+                self.show_maintenance_history(None)
         elif screen_name == "latest_maintenances":
             self.show_latest_maintenances(parent_popup=None)
         elif screen_name == "undone_maintenances":
@@ -1549,8 +1562,24 @@ class SubstationApp(App):
         close_child_window=True,
     ):
         try:
+            from kivy.clock import Clock
+        except Exception:
+            Clock = None
+
+        try:
             if popup is not None:
-                popup.dismiss()
+                try:
+                    # Detach heavy widget trees first so close clicks remain responsive.
+                    popup.content = None
+                except Exception:
+                    pass
+                try:
+                    if Clock is not None:
+                        Clock.schedule_once(lambda *_: popup.dismiss(), 0)
+                    else:
+                        popup.dismiss()
+                except Exception:
+                    popup.dismiss()
         except Exception:
             pass
 
@@ -1564,9 +1593,15 @@ class SubstationApp(App):
         except Exception:
             pass
         try:
-            self.stop()
+            if Clock is not None:
+                Clock.schedule_once(lambda *_: self.stop(), 0)
+            else:
+                self.stop()
         except Exception:
-            pass
+            try:
+                self.stop()
+            except Exception:
+                pass
 
     def _ensure_launch_session_ready(self):
         """Ensure minimal runtime state exists for launched child windows.
@@ -2189,6 +2224,10 @@ class SubstationApp(App):
         Window.bind(on_key_down=self._handle_tab_navigation)
         Window.bind(on_request_close=self._handle_request_close)
         try:
+            Window.bind(on_focus=self._on_window_focus_change)
+        except Exception:
+            pass
+        try:
             Window.bind(on_drop_file=self._handle_window_drop_file)
         except Exception:
             pass
@@ -2200,6 +2239,36 @@ class SubstationApp(App):
         Clock.schedule_once(self._finish_build, 0)
         APP_LOGGER.info("Scheduled deferred finish_build")
         return self.root_layout
+
+    def _on_window_focus_change(self, _window, focused):
+        """Refresh sync state when returning from child windows/external edits."""
+        if not focused:
+            return
+        try:
+            from kivy.clock import Clock
+        except Exception:
+            Clock = None
+
+        token = int(getattr(self, "_sync_focus_refresh_token", 0) or 0) + 1
+        self._sync_focus_refresh_token = token
+
+        def _refresh_if_current(_dt, expected=token):
+            if int(getattr(self, "_sync_focus_refresh_token", 0) or 0) != expected:
+                return
+            try:
+                self._update_sync_button_status()
+            except Exception:
+                pass
+
+        if Clock is None:
+            _refresh_if_current(0)
+            return
+
+        # Child windows can export pending changes with a short debounce.
+        # Run immediate + delayed refreshes to avoid stale green status.
+        Clock.schedule_once(_refresh_if_current, 0)
+        Clock.schedule_once(_refresh_if_current, 0.9)
+        Clock.schedule_once(_refresh_if_current, 2.0)
 
     def _resolve_app_icon_path(self):
         base_dir = os.path.dirname(__file__)
@@ -7701,6 +7770,32 @@ class SubstationApp(App):
         loading_popup.open()
         return loading_popup
 
+    def _show_strict_blocking_popup(self, message=None):
+        """Show a modal popup that cannot be dismissed until explicitly released."""
+        blocking_popup = Popup(
+            title=S["MESSAGES"].get("LOADING", "Φόρτωση..."),
+            size_hint=(0.42, 0.22),
+            auto_dismiss=False,
+        )
+        layout = BoxLayout(orientation="vertical", padding=12, spacing=10)
+        layout.add_widget(
+            Label(
+                text=message or S["MESSAGES"].get("LOADING", "Φόρτωση..."),
+                halign="center",
+                valign="middle",
+            )
+        )
+        blocking_popup.content = layout
+
+        state = {"allow_dismiss": False}
+
+        def _guard_dismiss(_instance):
+            return not state["allow_dismiss"]
+
+        blocking_popup.bind(on_dismiss=_guard_dismiss)
+        blocking_popup.open()
+        return blocking_popup, state
+
     def _run_with_loading(self, work_fn, message=None):
         """Render a loading popup first, then run work_fn on the next UI frame."""
         loading_popup = self._show_loading_popup(message)
@@ -9224,10 +9319,7 @@ class SubstationApp(App):
                         forced_substation_name = None
 
                 payload_to_import = dict(payload or {})
-                payload_to_import["_startup_review_force_new_maintenance"] = True
-                payload_to_import["_force_bypass_matching"] = True
-                if forced_substation_name:
-                    payload_to_import["_manual_substation_selection"] = True
+                payload_to_import["_allow_matching_with_forced_substation"] = True
                 self._open_maintenance_from_email_payload(
                     payload_to_import,
                     forced_substation=forced_substation_name,
@@ -22984,12 +23076,24 @@ class SubstationApp(App):
             on_close=_open_form,
         )
 
-    def show_maintenance_history(self, instance, _deferred=False):
+    def show_maintenance_history(
+        self,
+        instance,
+        _deferred=False,
+        preselected_substation_id=None,
+        preselected_substation_name=None,
+    ):
         """Show maintenance history – prompt user to pick a substation first."""
-        if getattr(
-            self, "_launch_screen_name", None
-        ) != "maintenance_history" and launch_app_screen("maintenance_history"):
+        if preselected_substation_id is not None and preselected_substation_name:
+            self.show_substation_maintenance_history(
+                int(preselected_substation_id),
+                preselected_substation_name,
+            )
             return
+
+        launched_from_child = (
+            getattr(self, "_launch_screen_name", None) == "maintenance_history"
+        )
         c = self.conn.cursor()
         c.execute("""
             SELECT s.id, s.name, COUNT(m.id) AS maint_count
@@ -23023,6 +23127,15 @@ class SubstationApp(App):
             if selected is None:
                 return
             sub_id, actual_sub_name = selected
+            if not launched_from_child:
+                if launch_app_screen(
+                    "maintenance_history",
+                    {
+                        "substation_id": sub_id,
+                        "substation_name": actual_sub_name,
+                    },
+                ):
+                    return
             self.show_substation_maintenance_history(sub_id, actual_sub_name)
 
         self._show_substation_selection_window_with_callback(
@@ -24471,6 +24584,18 @@ class SubstationApp(App):
                     .get("MAINTENANCE_HEADER", "{type}: {name}")
                     .format(type=maint_type_display, name=display_name)
                 )
+                element_names = [
+                    str(elem[2] or "").strip()
+                    for elem in (elements or [])
+                    if elem and len(elem) > 2 and str(elem[2] or "").strip()
+                ]
+                if element_names:
+                    shown_names = element_names[:4]
+                    extra_count = max(0, len(element_names) - len(shown_names))
+                    suffix = ", ".join(shown_names)
+                    if extra_count:
+                        suffix = f"{suffix}, +{extra_count}"
+                    header_title = f"{header_title} ({suffix})"
                 if is_incomplete:
                     header_title = (
                         f"[color=ff3333][b]{S['MESSAGES'].get('MARK_INCOMPLETE_LABEL', 'Δεν ολοκληρώθηκε')}[/b][/color]  "
@@ -24574,6 +24699,22 @@ class SubstationApp(App):
                 def make_view_handler(m_id):
                     return lambda x: self.show_maintenance_full_report(m_id, popup)
 
+                def make_rebuild_folder_handler(m_id):
+                    def _reopen_history_view():
+                        self.show_substation_maintenance_history(
+                            substation_id,
+                            substation_name,
+                            parent_display_popup,
+                            current_element_filter.get("id"),
+                            current_element_filter.get("name"),
+                            include_maintenance_ids=include_maintenance_ids,
+                        )
+
+                    return lambda _x: self._confirm_rebuild_maintenance_storage_paths(
+                        m_id,
+                        on_complete=_reopen_history_view,
+                    )
+
                 # Folder button (only if link exists) — immediately to the left of the eye button
                 header_folder_link = onedrive_media_folder_link
                 if not header_folder_link and _is_dga_maintenance_type(
@@ -24602,6 +24743,12 @@ class SubstationApp(App):
                     icon_type="eye",
                     icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
                     size=(35, 35),
+                )
+                rebuild_btn = IconOnlyButton(
+                    icon_type="settings",
+                    icon_color=(0.90, 0.55, 0.12, 1),
+                    size=(35, 35),
+                    tooltip="Διόρθωση φακέλου",
                 )
                 # Edit button
                 edit_btn = IconOnlyButton(
@@ -24633,6 +24780,7 @@ class SubstationApp(App):
                         maint_id, popup, maintenance_type, elements
                     )
                 )
+                rebuild_btn.bind(on_press=make_rebuild_folder_handler(maint_id))
                 view_btn.bind(on_press=make_view_handler(maint_id))
                 checklist_handler = make_checklist_handler(
                     maint_id, maintenance_type, preparation_checklist_json
@@ -24643,6 +24791,7 @@ class SubstationApp(App):
                 if folder_btn:
                     header.add_widget(folder_btn)
                 header.add_widget(view_btn)
+                header.add_widget(rebuild_btn)
                 header.add_widget(edit_btn)
                 if checklist_handler is not None:
                     header.add_widget(checklist_btn)
@@ -25053,6 +25202,314 @@ class SubstationApp(App):
 
         popup.content = main_layout
         popup.open()
+
+    def _confirm_rebuild_maintenance_storage_paths(
+        self, maintenance_id, on_complete=None
+    ):
+        from reports import show_confirm
+
+        message = (
+            "Θέλετε να διορθωθεί ο φάκελος της συντήρησης με βάση τα τρέχοντα στοιχεία;\n\n"
+            "Θα ενημερωθεί το path ανοίγματος στον desktop."
+        )
+
+        show_confirm(
+            S["MESSAGES"].get("CONFIRM_TITLE", "Επιβεβαίωση"),
+            message,
+            yes_callback=lambda: self._rebuild_maintenance_storage_paths(
+                maintenance_id,
+                on_complete=on_complete,
+            ),
+            yes_text="Διόρθωση",
+            no_text=S["BUTTONS"].get("CANCEL", "Ακύρωση"),
+        )
+
+    def _move_maintenance_folder_contents(self, source_folder, target_folder):
+        moved_files = []
+        source_removed = False
+
+        if not source_folder or not os.path.isdir(source_folder):
+            return moved_files, source_removed
+
+        os.makedirs(target_folder, exist_ok=True)
+        for name in os.listdir(source_folder):
+            src_path = os.path.join(source_folder, name)
+            dst_path = os.path.join(target_folder, name)
+            if os.path.exists(dst_path):
+                stem, ext = os.path.splitext(name)
+                counter = 1
+                while True:
+                    candidate = f"{stem}_moved_{counter}{ext}"
+                    dst_path = os.path.join(target_folder, candidate)
+                    if not os.path.exists(dst_path):
+                        break
+                    counter += 1
+            shutil.move(src_path, dst_path)
+            moved_files.append({"from": src_path, "to": dst_path})
+
+        try:
+            if not os.listdir(source_folder):
+                os.rmdir(source_folder)
+                source_removed = True
+        except Exception:
+            source_removed = False
+
+        return moved_files, source_removed
+
+    def _rebuild_maintenance_storage_paths_impl(self, conn, maintenance_id):
+        c = conn.cursor()
+        previous_primary_link = None
+        c.execute(
+            """
+            SELECT substation_id, name, maintenance_type, date_time,
+                   onedrive_media_folder_link
+            FROM maintenance
+            WHERE id=?
+            """,
+            (maintenance_id,),
+        )
+        row = c.fetchone()
+        if not row:
+            raise ValueError(
+                S["MESSAGES"].get("MAINTENANCE_NOT_FOUND", "Η συντήρηση δεν βρέθηκε.")
+            )
+
+        if isinstance(row, (tuple, list)):
+            (
+                substation_id,
+                maintenance_name,
+                maintenance_type,
+                date_time,
+                previous_primary_link,
+            ) = row
+        else:
+            substation_id = row["substation_id"]
+            maintenance_name = row["name"]
+            maintenance_type = row["maintenance_type"]
+            date_time = row["date_time"]
+            previous_primary_link = row["onedrive_media_folder_link"]
+
+        c.execute(
+            "SELECT gate_key, instance_folder FROM maintenance_storage_paths "
+            "WHERE maintenance_id=?",
+            (maintenance_id,),
+        )
+        previous_rows = c.fetchall() or []
+        previous_instances = []
+        for prow in previous_rows:
+            if isinstance(prow, (tuple, list)):
+                previous_instances.append(prow[1])
+            else:
+                previous_instances.append(prow["instance_folder"])
+
+        c.execute(
+            "SELECT element_id FROM maintenance_elements "
+            "WHERE maintenance_id=? ORDER BY element_id",
+            (maintenance_id,),
+        )
+        element_rows = c.fetchall() or []
+        element_ids = [
+            r[0] if isinstance(r, (tuple, list)) else r["element_id"]
+            for r in element_rows
+            if r is not None
+        ]
+
+        if not element_ids:
+            raise ValueError(
+                "Η συντήρηση δεν έχει επιλεγμένα στοιχεία για δημιουργία φακέλου."
+            )
+
+        folder_result = ensure_maintenance_folders(
+            conn,
+            maintenance_id=maintenance_id,
+            substation_id=substation_id,
+            maintenance_name=maintenance_name,
+            maintenance_type=maintenance_type,
+            date_time=date_time,
+            element_ids=element_ids,
+            attachment_paths=[],
+            persist_storage_rows=True,
+            db_path=self.db_path,
+            prefer_existing_paths=False,
+            migrate_existing_instance=True,
+        )
+
+        primary_media_folder = folder_result.get("primary_media_folder")
+        if not primary_media_folder:
+            raise ValueError("Δεν ήταν δυνατός ο υπολογισμός νέου φακέλου συντήρησης.")
+
+        os.makedirs(primary_media_folder, exist_ok=True)
+
+        migrated_details = list(folder_result.get("migrated_instance_details") or [])
+        deleted_old_folders = []
+        current_instance_folders = {
+            str(row.get("instance_folder") or "")
+            for row in (folder_result.get("folders") or [])
+            if isinstance(row, dict)
+        }
+        norm_current = {
+            os.path.normcase(os.path.abspath(path))
+            for path in current_instance_folders
+            if path
+        }
+        norm_primary = os.path.normcase(os.path.abspath(primary_media_folder))
+
+        for old_folder in previous_instances:
+            if not old_folder:
+                continue
+            try:
+                norm_old = os.path.normcase(os.path.abspath(old_folder))
+            except Exception:
+                continue
+            if norm_old == norm_primary or norm_old in norm_current:
+                continue
+            moved_files, removed_folder = self._move_maintenance_folder_contents(
+                old_folder,
+                primary_media_folder,
+            )
+            if moved_files:
+                migrated_details.append(
+                    {
+                        "from": old_folder,
+                        "to": primary_media_folder,
+                        "moved_items": len(moved_files),
+                    }
+                )
+            if removed_folder:
+                deleted_old_folders.append(old_folder)
+
+        valid_gate_keys = [
+            row.get("gate_key")
+            for row in (folder_result.get("folders") or [])
+            if isinstance(row, dict) and row.get("gate_key")
+        ]
+        if valid_gate_keys:
+            placeholders = ",".join("?" for _ in valid_gate_keys)
+            c.execute(
+                "DELETE FROM maintenance_storage_paths "
+                "WHERE maintenance_id=? AND gate_key NOT IN ("
+                f"{placeholders})",
+                (maintenance_id, *valid_gate_keys),
+            )
+
+        c.execute(
+            "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
+            (primary_media_folder, maintenance_id),
+        )
+        conn.commit()
+
+        return {
+            "maintenance_id": maintenance_id,
+            "previous_primary_link": previous_primary_link,
+            "primary_media_folder": primary_media_folder,
+            "migrated_details": migrated_details,
+            "deleted_old_folders": deleted_old_folders,
+        }
+
+    def _rebuild_maintenance_storage_paths(self, maintenance_id, on_complete=None):
+        loading_popup, loading_state = self._show_strict_blocking_popup(
+            S["MESSAGES"].get(
+                "REBUILD_MAINTENANCE_FOLDERS_LOADING",
+                "Γίνεται διόρθωση φακέλου συντήρησης...",
+            )
+        )
+
+        def _finish(payload, error):
+            try:
+                loading_state["allow_dismiss"] = True
+                loading_popup.dismiss()
+            except Exception:
+                pass
+
+            if error is not None:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Αποτυχία διόρθωσης φακέλου συντήρησης:\n{error}",
+                )
+                return
+
+            new_path = payload.get("primary_media_folder") or "-"
+            old_path = payload.get("previous_primary_link") or "-"
+            moved_rows = payload.get("migrated_details") or []
+            deleted_folders = payload.get("deleted_old_folders") or []
+
+            self._append_change_log(
+                "update",
+                "maintenance",
+                {
+                    "id": maintenance_id,
+                    "onedrive_media_folder_link": payload.get("primary_media_folder"),
+                },
+            )
+
+            success_message = (
+                "Η διόρθωση φακέλου ολοκληρώθηκε επιτυχώς.\n"
+                f"Νέο path: {new_path}\n"
+                f"Παλαιό path: {old_path}"
+            )
+            if moved_rows:
+                success_message += f"\nΜετακινήσεις: {len(moved_rows)}"
+                for moved in moved_rows:
+                    from_path = moved.get("from") or "-"
+                    to_path = moved.get("to") or "-"
+                    moved_items = moved.get("moved_items")
+                    if moved_items is None:
+                        success_message += (
+                            f"\nΜετακίνηση φακέλου:\n{from_path}\n->\n{to_path}"
+                        )
+                    else:
+                        success_message += (
+                            f"\nΜεταφορά αρχείων ({moved_items}):\n"
+                            f"{from_path}\n->\n{to_path}"
+                        )
+            else:
+                success_message += "\nΔεν βρέθηκαν αρχεία για μεταφορά."
+
+            if deleted_folders:
+                success_message += (
+                    f"\nΔιαγράφηκαν παλιοί φάκελοι: {len(deleted_folders)}"
+                )
+                for folder_path in deleted_folders:
+                    success_message += f"\n- {folder_path}"
+            else:
+                success_message += "\nΔεν διαγράφηκαν παλιοί φάκελοι."
+
+            if callable(on_complete):
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                    success_message,
+                    callback=on_complete,
+                )
+            else:
+                show_message_popup(
+                    S["TITLES"].get("SUCCESS", "Επιτυχία"), success_message
+                )
+
+        def _worker():
+            worker_conn = None
+            payload = None
+            worker_error = None
+            try:
+                worker_conn = init_db(self.db_path)
+                payload = self._rebuild_maintenance_storage_paths_impl(
+                    worker_conn,
+                    maintenance_id,
+                )
+            except Exception as exc:
+                worker_error = exc
+            finally:
+                try:
+                    if worker_conn is not None:
+                        worker_conn.close()
+                except Exception:
+                    pass
+                Clock.schedule_once(lambda _dt: _finish(payload, worker_error), 0)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def show_maintenance_full_report(self, maintenance_id, parent_popup=None):
         """Show a read-only full maintenance report for one maintenance instance."""
