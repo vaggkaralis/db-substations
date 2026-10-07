@@ -1,4 +1,5 @@
 import os
+import sqlite3
 
 import DBrun
 
@@ -336,6 +337,503 @@ def test_startup_review_popup_uses_isolation_match_for_isolation_title(
     texts = _collect_texts(captured["opened_popup"].content)
     assert any("ΙΑΣΜΟΣ" in text for text in texts)
     assert not any("ΘΕΣΣΑΛΟΝΙΚΗ III" in text for text in texts)
+
+
+def test_startup_review_popup_prefers_filename_substation_when_isolation_payload_conflicts(
+    monkeypatch, tmp_path
+):
+    import isolation_importer
+
+    captured = {}
+
+    class DummyWidget:
+        def __init__(self, *args, **kwargs):
+            self.children = []
+            self.text = kwargs.get("text", "")
+            self._callbacks = {}
+
+        def add_widget(self, widget):
+            self.children.append(widget)
+
+        def bind(self, **kwargs):
+            self._callbacks.update(kwargs)
+
+        def setter(self, attr_name):
+            return lambda _instance, value: setattr(self, attr_name, value)
+
+        def remove_widget(self, widget):
+            if widget in self.children:
+                self.children.remove(widget)
+
+    class DummyLabel(DummyWidget):
+        width = 100
+
+    class DummyButton(DummyWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.disabled = False
+
+    class DummyPopup(DummyWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.title = kwargs.get("title")
+            self.size_hint = kwargs.get("size_hint")
+            self.auto_dismiss = kwargs.get("auto_dismiss", True)
+            self.content = None
+            captured["popup"] = self
+
+        def open(self):
+            captured["opened_popup"] = self
+
+        def dismiss(self):
+            callback = self._callbacks.get("on_dismiss")
+            if callback:
+                callback(self)
+
+    monkeypatch.setattr(DBrun, "BoxLayout", DummyWidget)
+    monkeypatch.setattr(DBrun, "GridLayout", DummyWidget)
+    monkeypatch.setattr(DBrun, "ScrollView", DummyWidget)
+    monkeypatch.setattr(DBrun, "Label", DummyLabel)
+    monkeypatch.setattr(DBrun, "Button", DummyButton)
+    monkeypatch.setattr(DBrun, "Popup", DummyPopup)
+    monkeypatch.setattr(DBrun, "Widget", DummyWidget)
+    monkeypatch.setattr(
+        DBrun,
+        "parse_eml_file",
+        lambda _path: {
+            "subject": "",
+            "sender_name": "Operator",
+            "received_at": "2026-05-05T09:00:00+00:00",
+            "body": "Κείμενο με παραπλανητικό token Θεσσαλονίκη.",
+            "attachment_paths": [],
+        },
+    )
+
+    def _fake_match(_app, text, _substations):
+        normalized = (text or "").upper()
+        if "ΚΟΜΟΤΗΝΗΣ" in normalized:
+            return (56, "ΚΟΜΟΤΗΝΗ")
+        if "ΘΕΣΣΑΛΟΝΙΚ" in normalized:
+            return (26, "ΘΕΣΣΑΛΟΝΙΚΗ III (ΑΓ.ΔΗΜΗΤΡΙΟΣ)")
+        return None
+
+    monkeypatch.setattr(isolation_importer, "match_substation", _fake_match)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = _DummyConn([(56, "ΚΟΜΟΤΗΝΗ"), (26, "ΘΕΣΣΑΛΟΝΙΚΗ III (ΑΓ.ΔΗΜΗΤΡΙΟΣ)")])
+    app._find_substation_in_text = lambda _text, _substations: None
+    app._open_isolation_from_email_payload = lambda *args, **kwargs: None
+    app._open_maintenance_from_email_payload = lambda *args, **kwargs: None
+
+    isolation_file = tmp_path / "ΑΠΟΜΟΝΩΣΗ Μ_Σ Νο2   Υ_Σ ΚΟΜΟΤΗΝΗΣ.eml"
+    isolation_file.write_text("eml", encoding="utf-8")
+
+    shown = app._show_startup_report_review_popup(
+        [
+            {
+                "kind": "isolation",
+                "source_folder": "isolations",
+                "file_path": str(isolation_file),
+            }
+        ]
+    )
+
+    assert shown is True
+    texts = _collect_texts(captured["opened_popup"].content)
+    assert any("ΚΟΜΟΤΗΝΗ" in text for text in texts)
+    assert not any("ΘΕΣΣΑΛΟΝΙΚΗ III" in text for text in texts)
+
+
+def test_detect_startup_review_status_marks_imported_and_changed_isolation():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            7,
+            12,
+            "2026-10-05 08:00",
+            "2026-10-08 17:00",
+            "Απομόνωση Υ/Σ ΙΑΣΜΟΣ για 5-8/10/2026",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "subject": "Αίτημα απομόνωσης",
+            "body": "Υ/Σ ΙΑΣΜΟΣ 5-9/10/2026 ώρα 08:00 έως 17:00",
+            "received_at": "2026-10-09T09:00:00+00:00",
+        },
+        (12, "ΙΑΣΜΟΣ"),
+    )
+
+    assert status["already_imported"] is True
+    assert status["changes_detected"] is True
+    assert "Already imported" in status["status_badges"][0]
+    assert "Changed" in status["status_badges"][1]
+
+
+def test_detect_startup_review_status_does_not_mark_same_substation_different_isolation():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            9,
+            17,
+            "2026-10-07 08:00",
+            "2026-10-07 17:00",
+            "Απομόνωση Κομοτήνης για Μ/Σ Νο1",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "subject": "FW_ ΑΠΟΜΟΝωση Μ_Σ Νο2 Υ_Σ ΚΟΜΟΤηνη",
+            "body": "Αίτηση απομόνωσης για Μ/Σ Νο2",
+            "received_at": "2026-10-07T09:00:00+00:00",
+        },
+        (17, "ΚΟΜΟΤΗΝη"),
+    )
+
+    assert status["already_imported"] is False
+    assert status["status_badges"] == []
+
+
+def test_detect_startup_review_status_does_not_mark_previous_week_same_substation_isolation():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            11,
+            21,
+            "2026-10-04 08:00",
+            "2026-10-04 17:00",
+            "Απομόνωση Μ/Σ Νο1 - Ζύγοι Νο1 Υ/Σ Σχολαρίου",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "subject": "ΑΠΟΜΟΝωση Μ_Σ Νο1 - ΖΥΓΟΙ Νο1 Υ_Σ Σχολαρίου",
+            "body": "Αίτηση απομόνωσης για Μ/Σ Νο1",
+            "received_at": "2026-10-11T09:00:00+00:00",
+        },
+        (21, "Σχολαρίου"),
+    )
+
+    assert status["already_imported"] is False
+    assert status["status_badges"] == []
+
+
+def test_detect_startup_review_status_marks_same_isolation_with_matching_number_and_date():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            12,
+            56,
+            "2026-10-12 09:00",
+            "2026-10-15 14:00",
+            "Καλημέρα σας, παρακαλούμε για την απομόνωση του Μ/Σ Νο2 του Υ/Σ Κομοτηνής από Δευτέρα 12/10/2026 και ώρα 09:00.",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "subject": "ΑΠΟΜΟΝΩΣΗ Μ_Σ Νο2 Υ_Σ ΚΟΜΟΤΗΝΗΣ",
+            "body": "Αίτηση απομόνωσης για Μ/Σ Νο2, Δευτέρα 12/10/2026 ώρα 09:00 έως Πέμπτη 15/10/2026 ώρα 14:00",
+            "received_at": "2026-10-12T09:00:00+00:00",
+        },
+        (56, "ΚΟΜΟΤΗΝΗ"),
+    )
+
+    assert status["already_imported"] is True
+    assert status["changes_detected"] is False
+    assert status["status_badges"][0] == "Already imported"
+
+
+def test_detect_startup_review_status_marks_same_isolation_without_date_when_request_number_matches():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            13,
+            56,
+            "2026-10-12 09:00",
+            "2026-10-15 14:00",
+            "ΑΠΟΜΟΝΩΣΗ Μ_Σ Νο2 Υ_Σ ΚΟΜΟΤΗΝΗΣ",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "subject": "ΑΠΟΜΟΝΩΣΗ Μ_Σ Νο2 Υ_Σ ΚΟΜΟΤΗΝΗΣ",
+            "body": "",
+            "received_at": "",
+        },
+        (56, "ΚΟΜΟΤΗΝΗ"),
+    )
+
+    assert status["already_imported"] is True
+    assert status["changes_detected"] is False
+    assert status["status_badges"][0] == "Already imported"
+
+
+def test_detect_startup_review_status_marks_same_isolation_from_source_file_name_when_payload_is_empty():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            14,
+            56,
+            "2026-10-12 09:00",
+            "2026-10-15 14:00",
+            "Καλημέρα σας, παρακαλούμε για την απομόνωση του Μ/Σ Νο2 του Υ/Σ Κομοτηνής, Δευτέρα 12/10/2026 09:00.",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "source_file_name": "ΑΠΟΜΟΝΩΣΗ Μ_Σ Νο2 Υ_Σ ΚΟΜΟΤΗΝΗΣ",
+            "subject": "",
+            "body": "",
+            "received_at": "",
+        },
+        (56, "ΚΟΜΟΤΗΝΗ"),
+    )
+
+    assert status["already_imported"] is True
+    assert status["changes_detected"] is False
+    assert status["status_badges"][0] == "Already imported"
+
+
+def test_detect_startup_review_status_marks_same_isolation_when_email_contains_day_month_only():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            15,
+            56,
+            "2026-10-12 09:00",
+            "2026-10-15 14:00",
+            "Απομόνωση Μ/Σ Νο2 Υ/Σ Κομοτηνής",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "subject": "",
+            "body": "Παρακαλούμε για απομόνωση Μ/Σ Νο2 Υ/Σ Κομοτηνής από 12/10 ώρα 09:00 έως 15/10 ώρα 14:00",
+            "received_at": "",
+        },
+        (56, "ΚΟΜΟΤΗΝΗ"),
+    )
+
+    assert status["already_imported"] is True
+    assert status["changes_detected"] is False
+    assert status["status_badges"][0] == "Already imported"
+
+
+def test_detect_startup_review_status_matches_confusable_identifier_tokens():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE isolation_requests (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            start_datetime TEXT,
+            end_datetime TEXT,
+            notes TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO isolation_requests (id, substation_id, start_datetime, end_datetime, notes, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            16,
+            52,
+            "2026-10-12 09:00",
+            "2026-10-14 14:00",
+            "Απομόνωση Μ/Σ No1 - Ζυγοί No1 Υ/Σ Σχολαρίου",
+            "{}",
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "isolation",
+        {
+            "subject": "",
+            "body": "Αίτηση απομόνωσης για Μ/Σ nο1 και Ζυγούς nο1 Υ/Σ Σχολαρίου από 12/10/2026 09:00 έως 14/10/2026 14:00",
+            "received_at": "",
+        },
+        (52, "ΣΧΟΛΑΡΙΟΥ (ΘΕΣΣΑΛΟΝΙΚΗ VI)"),
+    )
+
+    assert status["already_imported"] is True
+    assert status["changes_detected"] is False
+    assert status["status_badges"][0] == "Already imported"
+
+
+def test_detect_startup_review_status_marks_existing_maintenance_report():
+    app = object.__new__(DBrun.SubstationApp)
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT,
+            data_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO maintenance (id, substation_id, date_time, data_json) VALUES (?, ?, ?, ?)",
+        (
+            5,
+            3,
+            "2026-05-06 09:00:00",
+            '{"email_import": {"subject_roots": ["συντήρηση μσι υ/σ νάουσας"], "received_dates": ["2026-05-06"]}}',
+        ),
+    )
+    conn.commit()
+    app.conn = conn
+
+    status = app._detect_startup_review_record_status(
+        "maintenance",
+        {
+            "subject": "Συντήρηση ΜΣι Υ/Σ Νάουσα",
+            "body": "Παρακαλώ ελέγξτε τη συντήρηση.",
+            "received_at": "2026-05-06T09:15:00+00:00",
+        },
+        (3, "Νάουσα"),
+    )
+
+    assert status["already_imported"] is True
+    assert status["changes_detected"] is False
+    assert "Already imported" in status["status_badges"][0]
 
 
 def test_startup_review_popup_groups_maintenance_attachments_and_reopens_on_cancel(

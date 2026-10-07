@@ -1603,6 +1603,40 @@ class SubstationApp(App):
             except Exception:
                 pass
 
+    def _dismiss_popup_and_restore_parent(
+        self,
+        popup,
+        *,
+        parent_display_popup=None,
+        close_child_window=True,
+    ):
+        """Dismiss a popup and either restore the parent view or close the child window."""
+        if popup is not None:
+            try:
+                popup.content = None
+            except Exception:
+                pass
+            try:
+                popup.dismiss()
+            except Exception:
+                pass
+
+        if parent_display_popup is not None:
+            try:
+                parent_display_popup.open()
+            except Exception:
+                try:
+                    parent_display_popup.dismiss()
+                except Exception:
+                    pass
+            return
+
+        if close_child_window:
+            self._dismiss_popup_and_maybe_close_child_window(
+                None,
+                close_child_window=True,
+            )
+
     def _ensure_launch_session_ready(self):
         """Ensure minimal runtime state exists for launched child windows.
 
@@ -8686,6 +8720,484 @@ class SubstationApp(App):
         )
         return False
 
+    def _detect_startup_review_record_status(
+        self, review_kind, payload, substation_match
+    ):
+        """Return whether a pending import already exists and whether it changed."""
+        status = {
+            "already_imported": False,
+            "changes_detected": False,
+            "status_badges": [],
+        }
+
+        def _normalize_text(value):
+            text = str(value or "")
+            return (
+                re.sub(r"\s+", " ", re.sub(r"[^\wΑ-Ωα-ω0-9]+", " ", text))
+                .strip()
+                .lower()
+            )
+
+        def _parse_date_like(value):
+            if value is None:
+                return None
+            text = str(value).strip()
+            if not text:
+                return None
+            for fmt in (
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d",
+                "%d/%m/%Y %H:%M",
+                "%d/%m/%Y",
+                "%d-%m-%Y %H:%M",
+                "%d-%m-%Y",
+                "%d.%m.%Y %H:%M",
+                "%d.%m.%Y",
+                "%d/%m %H:%M",
+                "%d/%m",
+                "%d-%m %H:%M",
+                "%d-%m",
+            ):
+                try:
+                    return datetime.strptime(text, fmt).date()
+                except ValueError:
+                    pass
+            iso_text = text.replace("Z", "+00:00")
+            try:
+                return datetime.fromisoformat(iso_text).date()
+            except ValueError:
+                pass
+
+            for pattern in (
+                r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})",
+                r"(\d{4}-\d{2}-\d{2})",
+                r"(\d{1,2}[./-]\d{1,2})",
+            ):
+                match = re.search(pattern, text)
+                if not match:
+                    continue
+                candidate = match.group(1)
+                for fmt in (
+                    "%d/%m/%Y",
+                    "%d-%m-%Y",
+                    "%d.%m.%Y",
+                    "%d/%m",
+                    "%d-%m",
+                    "%d.%m",
+                ):
+                    try:
+                        return datetime.strptime(candidate, fmt).date()
+                    except ValueError:
+                        pass
+            return None
+
+        def _align_yearless_date(
+            parsed_date, primary_reference=None, secondary_reference=None
+        ):
+            if not parsed_date:
+                return parsed_date
+            if parsed_date.year != 1900:
+                return parsed_date
+            ref = primary_reference or secondary_reference
+            if not ref:
+                return parsed_date
+            try:
+                return parsed_date.replace(year=ref.year)
+            except ValueError:
+                return parsed_date
+
+        def _subject_tokens(value, substation_name=None):
+            cleaned = _normalize_text(value)
+            if not cleaned:
+                return set()
+            excluded = {
+                "απομονωση",
+                "απομονωσην",
+                "απομονωσεις",
+                "απομονωσησ",
+                "απομονωσης",
+                "αιτηση",
+                "αιτημα",
+                "ειδοποιηση",
+                "υπογραφη",
+                "παρακαλω",
+                "σκοπος",
+                "σκοποσ",
+                "ωρα",
+                "εως",
+                "μεχρι",
+                "σημερα",
+                "σήμερα",
+                "αυριο",
+                "μεθαυριο",
+            }
+            tokens = set()
+            for token in cleaned.split():
+                if len(token) <= 2:
+                    continue
+                if token.isdigit():
+                    continue
+                if re.fullmatch(r"\d{1,2}", token):
+                    continue
+                if re.fullmatch(r"\d{4}", token):
+                    continue
+                if token in excluded:
+                    continue
+                if substation_name and token == _normalize_text(substation_name):
+                    continue
+                tokens.add(token)
+            return tokens
+
+        def _extract_specific_identifiers(value):
+            tokens = set()
+            text = str(value or "")
+            compact = re.sub(r"[\s_/\\.-]+", " ", text).lower()
+            confusable_map = str.maketrans(
+                {
+                    "ο": "o",
+                    "ν": "n",
+                    "μ": "m",
+                    "σ": "s",
+                    "ς": "s",
+                }
+            )
+            for token in compact.split():
+                token = token.strip(".,;:()[]{}\"'")
+                if not token:
+                    continue
+                normalized_token = token.translate(confusable_map)
+                if token in {"ms", "μσ", "υσ", "ys", "σ", "mv", "m/v"}:
+                    continue
+                if normalized_token in {"ms", "ys", "s", "mv", "m/v"}:
+                    continue
+                if token.isdigit() or normalized_token.isdigit():
+                    continue
+                if re.fullmatch(r"\d{1,2}", token) or re.fullmatch(
+                    r"\d{1,2}", normalized_token
+                ):
+                    continue
+                if re.fullmatch(r"\d{4}", token) or re.fullmatch(
+                    r"\d{4}", normalized_token
+                ):
+                    continue
+                if re.fullmatch(r"[a-zα-ω]{1,3}", token) or re.fullmatch(
+                    r"[a-z]{1,3}", normalized_token
+                ):
+                    continue
+                if re.search(r"\d", normalized_token) and re.search(r"[a-zα-ω]", token):
+                    if re.search(r"[a-zα-ω]{2,}", token):
+                        tokens.add(normalized_token)
+                        continue
+                if re.search(r"\d", normalized_token) and re.search(
+                    r"[a-z]", normalized_token
+                ):
+                    if re.search(r"[a-z]{2,}", normalized_token):
+                        tokens.add(normalized_token)
+                        continue
+                fallback_num = re.search(r"\d{1,3}$", normalized_token)
+                if fallback_num and re.search(r"\D", normalized_token):
+                    tokens.add(f"num:{fallback_num.group(0)}")
+            return tokens
+
+        def _looks_like_same_record(
+            subject, body, candidate_text, substation_name=None
+        ):
+            if not subject and not body:
+                return False
+            incoming_specific = _extract_specific_identifiers(
+                subject
+            ) | _extract_specific_identifiers(body)
+            candidate_specific = _extract_specific_identifiers(candidate_text)
+            if (
+                incoming_specific
+                and candidate_specific
+                and not (incoming_specific & candidate_specific)
+            ):
+                return False
+
+            subject_tokens = _subject_tokens(subject, substation_name)
+            body_tokens = _subject_tokens(body, substation_name)
+            candidate_tokens = _subject_tokens(candidate_text, substation_name)
+            if not subject_tokens and not body_tokens and not candidate_tokens:
+                return bool(not incoming_specific and not candidate_specific)
+            combined = subject_tokens | body_tokens
+            if not combined:
+                return False
+            shared_tokens = candidate_tokens & combined
+            if not shared_tokens:
+                return False
+            if len(shared_tokens) >= 2:
+                return True
+            return bool(
+                candidate_tokens
+                and len(candidate_tokens) <= 2
+                and len(shared_tokens) == 1
+            )
+
+        def _collect_row_candidates(conn, substation_id):
+            if not conn or substation_id is None:
+                return []
+            cursor = conn.cursor()
+            if review_kind == "isolation":
+                try:
+                    columns = [
+                        row[1]
+                        for row in (
+                            cursor.execute(
+                                "PRAGMA table_info(isolation_requests)"
+                            ).fetchall()
+                            or []
+                        )
+                    ]
+                except Exception:
+                    columns = []
+                select_cols = ["id", "start_datetime", "end_datetime"]
+                if not columns or "notes" in columns:
+                    select_cols.append("notes")
+                if "data_json" in columns:
+                    select_cols.append("data_json")
+                query = (
+                    "SELECT "
+                    + ", ".join(select_cols)
+                    + " FROM isolation_requests WHERE substation_id=? ORDER BY start_datetime DESC, id DESC"
+                )
+                try:
+                    rows = cursor.execute(query, (substation_id,)).fetchall() or []
+                except Exception:
+                    return []
+                return [tuple(row) for row in rows]
+
+            try:
+                columns = [
+                    row[1]
+                    for row in (
+                        cursor.execute("PRAGMA table_info(maintenance)").fetchall()
+                        or []
+                    )
+                ]
+            except Exception:
+                columns = []
+            select_cols = ["id", "date_time"]
+            if "name" in columns:
+                select_cols.append("name")
+            if "overall_comments" in columns:
+                select_cols.append("overall_comments")
+            if "data_json" in columns:
+                select_cols.append("data_json")
+            query = (
+                "SELECT "
+                + ", ".join(select_cols)
+                + " FROM maintenance WHERE substation_id=? ORDER BY date_time DESC, id DESC"
+            )
+            try:
+                rows = cursor.execute(query, (substation_id,)).fetchall() or []
+            except Exception:
+                return []
+            return [tuple(row) for row in rows]
+
+        source_file_name = str((payload or {}).get("source_file_name") or "")
+        subject = str((payload or {}).get("subject") or source_file_name or "")
+        body = str((payload or {}).get("body") or source_file_name or "")
+        received_at = str((payload or {}).get("received_at") or "")
+        incoming_date = (
+            _parse_date_like(received_at)
+            or _parse_date_like(subject)
+            or _parse_date_like(body)
+        )
+
+        if isinstance(substation_match, (tuple, list)):
+            substation_id = (
+                int(substation_match[0]) if str(substation_match[0]).strip() else None
+            )
+        else:
+            substation_id = None
+
+        if substation_id is None:
+            if review_kind == "maintenance":
+                status["status_badges"] = []
+            return status
+
+        for row in _collect_row_candidates(self.conn, substation_id):
+            if review_kind == "isolation":
+                values = dict(
+                    zip(
+                        ["id", "start_datetime", "end_datetime", "notes", "data_json"],
+                        row,
+                    )
+                )
+                start_dt = values.get("start_datetime")
+                end_dt = values.get("end_datetime")
+                notes = values.get("notes") or ""
+                candidate_text = f"{notes or ''} {start_dt or ''} {end_dt or ''} {values.get('data_json') or ''}"
+                existing_start = _parse_date_like(start_dt)
+                existing_end = _parse_date_like(end_dt)
+                if existing_start is None and existing_end is None:
+                    continue
+                incoming_cmp_date = _align_yearless_date(
+                    incoming_date,
+                    existing_start,
+                    existing_end,
+                )
+
+                same_window = False
+                if incoming_cmp_date and (
+                    existing_start == incoming_cmp_date
+                    or existing_end == incoming_cmp_date
+                ):
+                    same_window = True
+                elif incoming_cmp_date and existing_start and existing_end:
+                    same_window = bool(
+                        (existing_start <= incoming_cmp_date <= existing_end)
+                        or (
+                            incoming_cmp_date <= existing_end
+                            and incoming_cmp_date >= existing_start
+                        )
+                    )
+
+                incoming_specific = _extract_specific_identifiers(
+                    subject
+                ) | _extract_specific_identifiers(body)
+                candidate_specific = _extract_specific_identifiers(candidate_text)
+                if (
+                    incoming_specific
+                    and candidate_specific
+                    and not (incoming_specific & candidate_specific)
+                ):
+                    continue
+
+                text_match = _looks_like_same_record(
+                    subject,
+                    body,
+                    candidate_text,
+                    (
+                        substation_match[1]
+                        if isinstance(substation_match, (tuple, list))
+                        else None
+                    ),
+                )
+
+                nearby_date = False
+                if incoming_cmp_date and existing_start:
+                    nearby_date = abs((existing_start - incoming_cmp_date).days) <= 5
+                if incoming_cmp_date and existing_end:
+                    nearby_date = (
+                        nearby_date or abs((existing_end - incoming_cmp_date).days) <= 5
+                    )
+
+                date_evidence = same_window or nearby_date
+                shared_specific = bool(
+                    incoming_specific
+                    and candidate_specific
+                    and (incoming_specific & candidate_specific)
+                )
+                strong_identity_match = text_match or shared_specific
+                if incoming_cmp_date is not None:
+                    if not date_evidence:
+                        continue
+                elif not strong_identity_match:
+                    continue
+                # Same substation + same date window is strong evidence even when the
+                # raw text is sparse or the subject/body were abbreviated. Keep the
+                # false-positive guard by rejecting conflicting specific identifiers
+                # for different requests on the same substation.
+                if incoming_date is None and not strong_identity_match:
+                    continue
+                if (
+                    not text_match
+                    and incoming_specific
+                    and candidate_specific
+                    and not (incoming_specific & candidate_specific)
+                ):
+                    continue
+                status["already_imported"] = True
+                if incoming_cmp_date and nearby_date and not same_window:
+                    status["changes_detected"] = True
+                break
+            else:
+                values = dict(
+                    zip(
+                        ["id", "date_time", "name", "overall_comments", "data_json"],
+                        row,
+                    )
+                )
+                candidate_received_at = values.get("date_time")
+                candidate_name = values.get("name") or ""
+                candidate_comments = values.get("overall_comments") or ""
+                candidate_data = values.get("data_json") or ""
+                candidate_text = (
+                    f"{candidate_name or ''} {candidate_comments or ''} "
+                    f"{candidate_received_at or ''} {candidate_data or ''}"
+                )
+                candidate_date = _parse_date_like(candidate_received_at)
+                if candidate_date is None and incoming_date is None:
+                    continue
+                incoming_cmp_date = _align_yearless_date(incoming_date, candidate_date)
+
+                same_day = False
+                if incoming_cmp_date and candidate_date:
+                    same_day = candidate_date == incoming_cmp_date
+
+                incoming_specific = _extract_specific_identifiers(
+                    subject
+                ) | _extract_specific_identifiers(body)
+                candidate_specific = _extract_specific_identifiers(candidate_text)
+                if (
+                    incoming_specific
+                    and candidate_specific
+                    and not (incoming_specific & candidate_specific)
+                ):
+                    continue
+
+                text_match = _looks_like_same_record(
+                    subject,
+                    body,
+                    candidate_text,
+                    (
+                        substation_match[1]
+                        if isinstance(substation_match, (tuple, list))
+                        else None
+                    ),
+                )
+
+                nearby_date = False
+                if incoming_date and candidate_date:
+                    nearby_date = abs((candidate_date - incoming_date).days) <= 5
+
+                date_evidence = same_day or nearby_date
+                if incoming_date or candidate_date:
+                    if not text_match and not date_evidence:
+                        continue
+                    if text_match and not date_evidence:
+                        continue
+                elif not text_match:
+                    continue
+                if (
+                    not text_match
+                    and incoming_specific
+                    and candidate_specific
+                    and not (incoming_specific & candidate_specific)
+                ):
+                    continue
+                status["already_imported"] = True
+                if candidate_date and incoming_date and candidate_date != incoming_date:
+                    status["changes_detected"] = (
+                        abs((candidate_date - incoming_cmp_date).days) <= 5
+                    )
+                break
+
+        if status["already_imported"]:
+            status["status_badges"] = (
+                ["Already imported", "Changed"]
+                if status["changes_detected"]
+                else ["Already imported"]
+            )
+        elif status["changes_detected"]:
+            status["status_badges"] = ["Changed"]
+        else:
+            status["status_badges"] = []
+        return status
+
     def _show_startup_report_review_popup(self, pending_files):
         from popups import show_message_popup
         from maintenance import (
@@ -8933,6 +9445,20 @@ class SubstationApp(App):
                 subject_value = payload.get("subject") or "-"
                 received_value = payload.get("received_at") or "-"
 
+            if payload is None:
+                payload = {}
+            file_stem = os.path.splitext(os.path.basename(str(file_path or "")))[
+                0
+            ].strip()
+            if (
+                review_kind == "isolation"
+                and file_stem
+                and not (payload.get("subject") or payload.get("body"))
+            ):
+                payload = dict(payload)
+                payload["source_file_name"] = file_stem
+                payload["subject"] = file_stem
+                payload["body"] = file_stem
             payloads_to_prepare = [payload]
             if review_kind == "isolation" and payload and split_isolation_email_payload:
                 try:
@@ -8966,11 +9492,19 @@ class SubstationApp(App):
                     current_payload,
                     review_kind,
                 )
-                if not current_substation_match:
-                    current_substation_match = _resolve_substation_for_filename(
-                        item.get("file_path"),
-                        review_kind,
-                    )
+                filename_substation_match = _resolve_substation_for_filename(
+                    item.get("file_path"),
+                    review_kind,
+                )
+                if (
+                    review_kind == "isolation"
+                    and filename_substation_match
+                    and current_substation_match
+                    and filename_substation_match[0] != current_substation_match[0]
+                ):
+                    current_substation_match = filename_substation_match
+                elif not current_substation_match:
+                    current_substation_match = filename_substation_match
                 current_date_label = _format_email_comment_date_label(
                     current_received_value
                 )
@@ -9074,6 +9608,11 @@ class SubstationApp(App):
 
         for instance in grouped_instances:
             instance["payload"] = _build_grouped_payload(instance)
+            instance["status"] = self._detect_startup_review_record_status(
+                instance.get("review_kind"),
+                instance.get("payload"),
+                instance.get("substation_match"),
+            )
 
         layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
         summary_label = Label(
@@ -9116,11 +9655,20 @@ class SubstationApp(App):
                 )
             else:
                 label_suffix = ""
-            return f"{first_item.get('item_label', '-')}: {substation_name} | {count_text}{label_suffix}"
+            badge_text = ""
+            status = instance.get("status") or {}
+            badges = list(status.get("status_badges") or [])
+            if badges:
+                badge_text = " | " + " • ".join(badges)
+            return f"{first_item.get('item_label', '-')}: {substation_name} | {count_text}{badge_text}{label_suffix}"
 
         def _instance_details(instance):
             items = instance.get("items") or []
             lines = [f"Πηγή: sync_root/{instance.get('source_folder') or '-'}"]
+            status = instance.get("status") or {}
+            status_badges = list(status.get("status_badges") or [])
+            if status_badges:
+                lines.append(f"Κατάσταση: {' • '.join(status_badges)}")
             if len(items) > 1:
                 lines.append(
                     "Ημερομηνίες: "
@@ -10098,10 +10646,10 @@ class SubstationApp(App):
 
                 # Fetch model data from element_models table
                 query = """
-                          SELECT e.id, e.element_type, e.name, e.serial_number, e.maintenance_date, 
+                          SELECT e.id, e.element_model_id, e.element_type, e.name, e.serial_number, e.maintenance_date,
                               e.voltage_level, e.power_mva, e.manufacturer, e.manufacture_year, e.gate, e.hemizygos, e.is_main_switch,
                            em.breaker_category, em.model_name, em.manufacturer as model_manufacturer,
-                           e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.power_mva as model_power_mva, em.installation_space, e.operating_status, em.manual_pdf
+                           e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle, em.power_mva as model_power_mva, em.installation_space, e.operating_status, em.manual_pdf, em.onedrive_manual_link
                     FROM elements e 
                     LEFT JOIN element_models em ON e.element_model_id = em.id 
                     WHERE e.substation_id=? AND COALESCE(e.parent_element_id, 0)=0
@@ -10122,10 +10670,10 @@ class SubstationApp(App):
 
                 # Split into active and inactive
                 active_elements = [
-                    e for e in all_elements if not e[19] or e[19] == "Ενεργή"
+                    e for e in all_elements if not e[20] or e[20] == "Ενεργή"
                 ]
                 inactive_elements = [
-                    e for e in all_elements if e[19] and e[19] == "Ανενεργή"
+                    e for e in all_elements if e[20] and e[20] == "Ανενεργή"
                 ]
 
                 c.execute(
@@ -10146,6 +10694,7 @@ class SubstationApp(App):
                     def get_element_priority(elem):
                         (
                             elem_id,
+                            element_model_id,
                             elem_type,
                             elem_name,
                             serial_number,
@@ -10166,6 +10715,7 @@ class SubstationApp(App):
                             installation_space,
                             operating_status,
                             manual_pdf,
+                            model_onedrive_manual_link,
                         ) = elem
 
                         hemizygos_rank = SubstationApp.hemizygos_display_sort_key(
@@ -10203,6 +10753,7 @@ class SubstationApp(App):
                     for elem in active_elements:
                         (
                             elem_id,
+                            element_model_id,
                             elem_type,
                             elem_name,
                             serial_number,
@@ -10223,6 +10774,7 @@ class SubstationApp(App):
                             installation_space,
                             operating_status,
                             manual_pdf,
+                            model_onedrive_manual_link,
                         ) = elem
 
                         gate_key = gate if gate else get_unreg()
@@ -10265,6 +10817,7 @@ class SubstationApp(App):
                         for j, elem in enumerate(gate_elements, 1):
                             (
                                 elem_id,
+                                element_model_id,
                                 elem_type,
                                 elem_name,
                                 serial_number,
@@ -10285,6 +10838,7 @@ class SubstationApp(App):
                                 installation_space,
                                 operating_status,
                                 manual_pdf,
+                                model_onedrive_manual_link,
                             ) = elem
 
                             maintenance_cycle = None
@@ -10389,6 +10943,20 @@ class SubstationApp(App):
                                 )
                             )
 
+                            manual_available = bool(
+                                (manual_pdf and os.path.exists(manual_pdf))
+                                or (
+                                    model_onedrive_manual_link
+                                    and (
+                                        model_onedrive_manual_link.startswith("http://")
+                                        or model_onedrive_manual_link.startswith(
+                                            "https://"
+                                        )
+                                    )
+                                )
+                            )
+                            model_usage_available = bool(element_model_id)
+
                             # Add separator line after each element
                             from kivy.uix.widget import Widget
                             from kivy.graphics import Color, Rectangle
@@ -10431,25 +10999,27 @@ class SubstationApp(App):
 
                             is_transformer = self._is_transformer(elem_type)
                             button_slots = 4 + (1 if is_transformer else 0)
-                            if manual_pdf and os.path.exists(manual_pdf):
+                            if manual_available:
+                                button_slots += 1
+                            if model_usage_available:
                                 button_slots += 1
                             slot_size = 1.0 / float(button_slots)
 
-                            # Button container (icon-only buttons: manual, history, view, subelements, edit, delete)
+                            # Button container (icon-only buttons: manual, history, usage, view, subelements, edit, delete)
                             btn_box = BoxLayout(
                                 size_hint_x=(0.3 if is_transformer else 0.25),
                                 spacing=6,
                             )
 
-                            # Add manual button if manual_pdf exists
-                            if manual_pdf and os.path.exists(manual_pdf):
+                            # Add manual button if a model manual is available
+                            if manual_available:
                                 manual_btn = IconOnlyButton(
                                     icon_type="book", icon_color=(0.8, 0.4, 0, 1)
                                 )
                                 manual_btn.size_hint_x = slot_size
                                 manual_btn.bind(
-                                    on_press=lambda x, mp=manual_pdf: (
-                                        self._open_model_manual(mp)
+                                    on_press=lambda x, mp=manual_pdf, link=model_onedrive_manual_link: (
+                                        self._open_element_manual(mp, link)
                                     )
                                 )
                                 btn_box.add_widget(manual_btn)
@@ -10465,6 +11035,20 @@ class SubstationApp(App):
                                 )
                             )
                             btn_box.add_widget(history_btn)
+
+                            if model_usage_available:
+                                usage_btn = IconOnlyButton(
+                                    icon_type="models",
+                                    icon_color=(0.24, 0.55, 0.42, 1),
+                                    tooltip="Που χρησιμοποιείται το μοντέλο",
+                                )
+                                usage_btn.size_hint_x = slot_size
+                                usage_btn.bind(
+                                    on_press=lambda x, mid=element_model_id, mname=model_name or elem_name: (
+                                        self._show_model_usage_popup(mid, mname)
+                                    )
+                                )
+                                btn_box.add_widget(usage_btn)
 
                             view_btn = IconOnlyButton(
                                 icon_type="eye",
@@ -17141,7 +17725,7 @@ class SubstationApp(App):
         _register_wizard_widget(2, comments_scroll)
 
         # Completed / Incomplete marker (toggle button) + tasks left input
-        # Default: incomplete (Δεν ολοκηρώθηκε) — user can toggle to completed
+        # Default: incomplete (Δεν ολοκληρώθηκε) — user can toggle to completed
         tasks_default_text = (
             globals().get("pending_tasks_text_default", "")
             if "pending_tasks_text_default" in globals()
@@ -17190,7 +17774,7 @@ class SubstationApp(App):
 
         # Inner button is kept transparent so the container's color shows
         completion_btn = Button(
-            text=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Δεν ολοκηρώθηκε"),
+            text=S["MESSAGES"].get("MARK_COMPLETE_LABEL", "Δεν ολοκληρώθηκε"),
             size_hint=(1, None),
             height=40,
             background_normal="",
@@ -17238,7 +17822,7 @@ class SubstationApp(App):
                         pass
                 else:
                     completion_btn.text = S["MESSAGES"].get(
-                        "MARK_INCOMPLETE_LABEL", "Δεν ολοκηρώθηκε"
+                        "MARK_INCOMPLETE_LABEL", "Δεν ολοκληρώθηκε"
                     )
                     try:
                         if (
@@ -20343,7 +20927,7 @@ class SubstationApp(App):
                 )
                 yes_btn.bind(on_press=_on_mark_complete)
                 no_btn = Button(
-                    text=S["MESSAGES"].get("MARK_INCOMPLETE_LABEL", "Δεν ολοκηρώθηκε")
+                    text=S["MESSAGES"].get("MARK_INCOMPLETE_LABEL", "Δεν ολοκληρώθηκε")
                 )
                 no_btn.bind(on_press=_on_confirm_incomplete)
                 btn_row.add_widget(yes_btn)
@@ -25194,8 +25778,10 @@ class SubstationApp(App):
         # Close button
         close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=45)
         close_btn.bind(
-            on_press=lambda _btn: self._dismiss_popup_and_maybe_close_child_window(
-                popup
+            on_press=lambda _btn: self._dismiss_popup_and_restore_parent(
+                popup,
+                parent_display_popup=parent_display_popup,
+                close_child_window=(parent_display_popup is None),
             )
         )
         main_layout.add_widget(close_btn)
@@ -25967,6 +26553,48 @@ class SubstationApp(App):
                     "OPEN_MANUAL_ERROR", "Αποτυχία ανοίγματος εγχειριδίου:\n"
                 ),
             )
+
+    def _open_element_manual(self, manual_path=None, onedrive_url=None):
+        """Open a model manual from either a local file or OneDrive link."""
+        if manual_path and os.path.exists(manual_path):
+            return self._open_model_manual(manual_path)
+
+        link = (onedrive_url or "").strip()
+        if link:
+            normalized = link.replace("\\", "/")
+            if normalized.startswith("http://") or normalized.startswith("https://"):
+                try:
+                    import webbrowser
+
+                    webbrowser.open(normalized)
+                    return True
+                except Exception:
+                    pass
+
+        show_message_popup(
+            S["TITLES"]["ERROR"],
+            S["MESSAGES"].get("MANUAL_NOT_FOUND", "Το εγχειρίδιο δεν βρέθηκε!"),
+        )
+        return False
+
+    def _show_model_usage_popup(self, model_id, model_name):
+        """Open the same model-usage popup used in the model management screen."""
+        if not model_id:
+            return False
+        try:
+            from model_management import show_model_usages
+
+            show_model_usages(self, model_id, model_name or "")
+            return True
+        except Exception:
+            show_message_popup(
+                S["TITLES"]["ERROR"],
+                S["MESSAGES"].get(
+                    "MODEL_USAGE_ERROR",
+                    "Αδυναμία εμφάνισης των άλλων χρήσεων του μοντέλου.",
+                ),
+            )
+            return False
 
     def show_maintenance_element_details(
         self, maintenance_id, element_id, element_name
@@ -28888,10 +29516,17 @@ class SubstationApp(App):
 
         self.conn.commit()
 
-        # Close both popups - maintenance history and parent display
-        parent_popup.dismiss()
-        if parent_display_popup:
-            parent_display_popup.dismiss()
+        try:
+            parent_popup.dismiss()
+        except Exception:
+            pass
+
+        if substation_id is not None and substation_name:
+            self.show_substation_maintenance_history(
+                substation_id,
+                substation_name,
+                parent_display_popup=parent_display_popup,
+            )
 
     def show_isolation_requests(self, instance=None):
         from isolation_ui import show_isolation_requests as _f
