@@ -132,3 +132,120 @@ def test_show_substation_history_does_not_warn_for_assigned_gate_values(monkeypa
     assert [row[0] for row in rows] == [11]
 
     conn.close()
+
+
+def test_maintenance_history_close_restores_parent_popup():
+    mod = importlib.import_module("DBrun")
+
+    popup = types.SimpleNamespace(dismissed=False)
+    popup.dismiss = lambda: setattr(popup, "dismissed", True)
+    parent = types.SimpleNamespace(opened=False)
+    parent.open = lambda: setattr(parent, "opened", True)
+
+    calls = {"child_close": 0}
+
+    def fake_child_close(*args, **kwargs):
+        calls["child_close"] += 1
+
+    app = types.SimpleNamespace(
+        _dismiss_popup_and_maybe_close_child_window=fake_child_close,
+        _allow_exit_without_sync_prompt=False,
+    )
+
+    mod.SubstationApp._dismiss_popup_and_restore_parent(
+        app,
+        popup,
+        parent_display_popup=parent,
+        close_child_window=False,
+    )
+
+    assert popup.dismissed is True
+    assert parent.opened is True
+    assert calls["child_close"] == 0
+
+
+def test_delete_maintenance_for_substation_reopens_history_view():
+    mod = importlib.import_module("DBrun")
+
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE elements (id INTEGER PRIMARY KEY, substation_id INTEGER, name TEXT);
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            name TEXT,
+            date_time TEXT,
+            responsible_id INTEGER,
+            overall_comments TEXT,
+            maintenance_type TEXT,
+            onedrive_media_folder_link TEXT,
+            preparation_checklist_json TEXT,
+            data_json TEXT
+        );
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER,
+            element_comments TEXT,
+            insulation_closed_fa_ground TEXT,
+            insulation_closed_fb_ground TEXT,
+            insulation_closed_fc_ground TEXT,
+            contact_resistance_fa_fa TEXT,
+            contact_resistance_fb_fb TEXT,
+            contact_resistance_fc_fc TEXT,
+            operations_count TEXT
+        );
+        CREATE TABLE maintenance_storage_paths (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            instance_folder TEXT
+        );
+        INSERT INTO substations (id, name) VALUES (1, 'S1');
+        INSERT INTO maintenance (id, substation_id, name, date_time) VALUES (7, 1, 'T1', '2024-01-15');
+        INSERT INTO maintenance_elements (maintenance_id, element_id) VALUES (7, 11);
+        INSERT INTO elements (id, substation_id, name) VALUES (11, 1, 'Q1');
+        """
+    )
+
+    history_events = []
+    parent_popup = types.SimpleNamespace(
+        dismiss=lambda: history_events.append("history_dismiss")
+    )
+    parent_display_popup = types.SimpleNamespace(
+        open=lambda: history_events.append("parent_open"),
+        dismiss=lambda: history_events.append("parent_dismiss"),
+    )
+
+    def fake_refresh(**kwargs):
+        history_events.append("refresh")
+
+    def fake_reopen(*args, **kwargs):
+        history_events.append(
+            f"reopen:{args[0]}:{args[1]}:{kwargs.get('parent_display_popup') is parent_display_popup}"
+        )
+
+    app = types.SimpleNamespace(
+        conn=conn,
+        _refresh_maintenance_dates_for_scope=fake_refresh,
+        _append_change_log=lambda *args, **kwargs: history_events.append("log"),
+        show_substation_maintenance_history=fake_reopen,
+    )
+
+    mod.SubstationApp.delete_maintenance_for_substation(
+        app,
+        7,
+        parent_popup,
+        1,
+        "S1",
+        parent_display_popup,
+    )
+
+    assert "history_dismiss" in history_events
+    assert "parent_dismiss" not in history_events
+    assert "reopen:1:S1:True" in history_events
+    assert "refresh" in history_events
+
+    conn.close()

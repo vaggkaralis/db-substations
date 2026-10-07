@@ -68,6 +68,21 @@ def _normalize_pdf_file(path: str) -> bool:
 def _reset_windows_acl(path: str) -> bool:
     if os.name != "nt":
         return True
+
+    no_window_kwargs = {}
+    try:
+        no_window_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    except Exception:
+        no_window_kwargs = {}
+
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        no_window_kwargs["startupinfo"] = startupinfo
+    except Exception:
+        pass
+
     try:
         completed = subprocess.run(
             ["icacls", str(path), "/inheritance:e"],
@@ -77,6 +92,7 @@ def _reset_windows_acl(path: str) -> bool:
             errors="replace",
             timeout=30,
             check=False,
+            **no_window_kwargs,
         )
         if completed.returncode != 0:
             logging.debug(
@@ -92,6 +108,7 @@ def _reset_windows_acl(path: str) -> bool:
             errors="replace",
             timeout=30,
             check=False,
+            **no_window_kwargs,
         )
         if completed.returncode != 0:
             logging.debug(
