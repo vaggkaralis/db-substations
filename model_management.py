@@ -673,17 +673,21 @@ def _build_manufacturer_logo_widget(manufacturer, size=(34, 20), app_instance=No
         font_size="11sp",
     )
     badge.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+    badge_pos = getattr(badge, "pos", (0, 0))
+    badge_size = getattr(badge, "size", size)
 
     with badge.canvas.before:
         badge._bg_color = Color(*style["bg"])
-        badge._bg_rect = RoundedRectangle(pos=badge.pos, size=badge.size, radius=[4])
+        badge._bg_rect = RoundedRectangle(pos=badge_pos, size=badge_size, radius=[4])
         badge._border_color = Color(1, 1, 1, 0.55)
         badge._border = Line(rounded_rectangle=(0, 0, 0, 0, 4), width=1.0)
 
     def _sync_badge_bg(*_args):
-        badge._bg_rect.pos = badge.pos
-        badge._bg_rect.size = badge.size
-        badge._border.rounded_rectangle = (*badge.pos, *badge.size, 4)
+        current_pos = getattr(badge, "pos", (0, 0))
+        current_size = getattr(badge, "size", size)
+        badge._bg_rect.pos = current_pos
+        badge._bg_rect.size = current_size
+        badge._border.rounded_rectangle = (*current_pos, *current_size, 4)
 
     badge.bind(pos=_sync_badge_bg, size=_sync_badge_bg)
     _sync_badge_bg()
@@ -704,15 +708,19 @@ def _build_color_tag(text, bg_rgba, *, fg_rgba=(1, 1, 1, 1), size=(54, 22)):
         color=fg_rgba,
         font_size="12sp",
     )
+    label_pos = getattr(label, "pos", (0, 0))
+    label_size = getattr(label, "size", size)
 
     with label.canvas.before:
         label._tag_bg = Color(*bg_rgba)
-        label._tag_rect = RoundedRectangle(pos=label.pos, size=label.size, radius=[6])
+        label._tag_rect = RoundedRectangle(pos=label_pos, size=label_size, radius=[6])
 
     def _sync(_instance, _value):
-        label._tag_rect.pos = label.pos
-        label._tag_rect.size = label.size
-        label.text_size = label.size
+        current_pos = getattr(label, "pos", (0, 0))
+        current_size = getattr(label, "size", size)
+        label._tag_rect.pos = current_pos
+        label._tag_rect.size = current_size
+        label.text_size = current_size
 
     label.bind(pos=_sync, size=_sync)
     return label
