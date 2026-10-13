@@ -1,3 +1,23 @@
+class _CanvasGroup:
+    def __init__(self):
+        self._items = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def clear(self):
+        self._items.clear()
+
+    def add(self, item):
+        self._items.append(item)
+
+    def __iter__(self):
+        return iter(self._items)
+
+
 class Widget:
     def __init__(self, *a, **k):
         self.children = []
@@ -6,6 +26,11 @@ class Widget:
         self.height = 0
         self.size_hint = (1, 1)
         self.size_hint_y = None
+        self.opacity = 1
+        self.disabled = False
+        self.canvas = _CanvasGroup()
+        self.canvas.before = _CanvasGroup()
+        self.canvas.after = _CanvasGroup()
 
     def add_widget(self, widget, index=None):
         widget.parent = self

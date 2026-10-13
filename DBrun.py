@@ -10886,10 +10886,13 @@ class SubstationApp(App):
                                     " [color=ff0000][b][ΑΝΕΝΕΡΓΟ][/b][/color]"
                                 )
 
-                            # Create element text with multiple lines for better readability
-                            # Add breaker subtype text for circuit breakers.
+                            # Create element text with multiple lines for better readability.
+                            # Keep the raw element type/category values for the tag generator,
+                            # but use the display-formatted type for the visible name text.
+                            raw_elem_type = elem_type
+                            display_elem_type = elem_type
                             if elem_type in self.BREAKER_ELEMENT_TYPES:
-                                elem_type = self._format_elem_type(
+                                display_elem_type = self._format_elem_type(
                                     elem_type, is_main_switch
                                 )
 
@@ -10912,64 +10915,141 @@ class SubstationApp(App):
                             child_count = child_counts_by_parent.get(elem_id, 0)
                             child_info = (
                                 f" | Υποστοιχεία: {child_count}"
-                                if self._is_transformer(elem_type) and child_count
+                                if self._is_transformer(raw_elem_type) and child_count
                                 else ""
                             )
-                            elem_text = f"   {j}. [b][size=18]{elem_name}[/size][/b] - {elem_type}{breaker_info}{inactive_marker}\n      S/N: {serial_number or '-'}{manufacture_info}\n      Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}{child_info}\n      Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
-
-                            # Create a horizontal layout for element and buttons
+                            elem_first_line = f"{j}. [b][size=18]{elem_name}[/size][/b] - {display_elem_type}{breaker_info}{inactive_marker}"
+                            elem_rest_lines = (
+                                f"S/N: {serial_number or '-'}{manufacture_info}\n"
+                                f"Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}{child_info}\n"
+                                f"Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
+                            )
+                            # Create a horizontal layout for element content and buttons
                             elem_layout = BoxLayout(size_hint_y=None, spacing=5)
                             elem_layout.bind(
                                 minimum_height=elem_layout.setter("height")
                             )
 
-                            tags_layout = BoxLayout(
-                                orientation="horizontal",
-                                size_hint_x=None,
-                                spacing=2,
-                            )
-                            tags_layout.width = 74 if hemizygos else 36
-                            add_gate_tag_if_missing(tags_layout, gate_name)
-                            add_hemizygos_tag_if_missing(tags_layout, hemizygos)
-
-                            # Add model context tags (element type, breaker type, location)
                             try:
-                                from model_management import _build_model_context_tags
+                                left_gate_column = BoxLayout(
+                                    orientation="vertical",
+                                    size_hint=(None, None),
+                                    width=36,
+                                    height=56,
+                                    spacing=1,
+                                    padding=(0, 0, 0, 0),
+                                )
+                                add_gate_tag_if_missing(left_gate_column, gate_name)
+                                add_hemizygos_tag_if_missing(
+                                    left_gate_column, hemizygos
+                                )
 
-                                model_tags_box = _build_model_context_tags(
-                                    elem_type,
-                                    breaker_category=breaker_category,
-                                    installation_space=installation_space or "-",
-                                    manufacturer=manufacturer,
-                                    app_instance=self,
+                                content_block = GridLayout(
+                                    cols=2,
+                                    rows=2,
+                                    size_hint=(1, None),
+                                    spacing=(6, 2),
+                                    padding=(0, 0, 0, 0),
+                                    row_default_height=24,
+                                )
+                                content_block.bind(
+                                    minimum_height=content_block.setter("height")
+                                )
+
+                                first_line_label = Label(
+                                    text=elem_first_line,
+                                    size_hint=(1, None),
+                                    height=24,
+                                    markup=True,
+                                    halign="left",
+                                    valign="middle",
+                                    padding_x=0,
+                                    padding_y=0,
+                                )
+                                first_line_label.bind(
+                                    width=lambda instance, value: setattr(
+                                        instance, "text_size", (value, None)
+                                    ),
+                                    texture_size=lambda instance, value: setattr(
+                                        instance, "height", max(24, value[1] + 2)
+                                    ),
+                                )
+                                first_line_label.col_span = 2
+
+                                try:
+                                    from model_management import (
+                                        _build_model_context_tags,
+                                    )
+
+                                    model_tags_box = _build_model_context_tags(
+                                        raw_elem_type,
+                                        breaker_category=breaker_category,
+                                        installation_space=installation_space or "-",
+                                        manufacturer=manufacturer,
+                                        app_instance=self,
+                                    )
+                                    if model_tags_box:
+                                        model_tags_box.size_hint_x = None
+                                        model_tags_box.size_hint_y = None
+                                        model_tags_box.height = 22
+                                        model_tags_box.width = 176
+                                except Exception:
+                                    import traceback
+
+                                    traceback.print_exc()
+                                    model_tags_box = None
+
+                                content_block.add_widget(first_line_label)
+                                if model_tags_box:
+                                    content_block.add_widget(model_tags_box)
+                                detail_label = Label(
+                                    text=elem_rest_lines,
+                                    size_hint=(1, None),
+                                    markup=True,
+                                    halign="left",
+                                    valign="middle",
+                                    padding_x=0,
+                                    padding_y=0,
+                                )
+                                detail_label.bind(
+                                    width=lambda instance, value: setattr(
+                                        instance, "text_size", (value, None)
+                                    ),
+                                    texture_size=lambda instance, value: setattr(
+                                        instance, "height", max(26, value[1] + 4)
+                                    ),
                                 )
                                 if model_tags_box:
-                                    # Override size hints from _build_model_context_tags
-                                    model_tags_box.size_hint_x = None
-                                    model_tags_box.size_hint_y = None
-                                    model_tags_box.height = 50
-                                    model_tags_box.width = (
-                                        220  # Enough space for all tags
-                                    )
-                                    tags_layout.add_widget(model_tags_box)
-                                    # Adjust tags_layout width to accommodate model tags
-                                    tags_layout.width = (74 if hemizygos else 36) + 220
-                            except Exception as e:
+                                    content_block.add_widget(detail_label)
+                                else:
+                                    content_block.add_widget(detail_label)
+
+                                row_with_gate = BoxLayout(
+                                    orientation="horizontal",
+                                    size_hint=(1, None),
+                                    spacing=5,
+                                    padding=(0, 0, 0, 0),
+                                )
+                                row_with_gate.bind(
+                                    minimum_height=row_with_gate.setter("height")
+                                )
+                                row_with_gate.add_widget(left_gate_column)
+                                row_with_gate.add_widget(content_block)
+                                left_gate_column.height = max(56, content_block.height)
+                                elem_layout.add_widget(row_with_gate)
+                            except Exception:
                                 import traceback
 
                                 traceback.print_exc()
-
-                            elem_layout.add_widget(tags_layout)
-
-                            elem_label = Label(
-                                text=elem_text, size_hint=(0.75, None), markup=True
-                            )
-                            # Enable text wrapping and automatic height calculation
-                            elem_label.bind(
-                                width=lambda instance, value: setattr(
-                                    instance, "text_size", (value, None)
+                                fallback_label = Label(
+                                    text=f"{j}. {elem_name}",
+                                    size_hint_y=None,
+                                    height=32,
+                                    markup=True,
+                                    halign="left",
+                                    valign="middle",
                                 )
-                            )
+                                elem_layout.add_widget(fallback_label)
 
                             manual_available = bool(
                                 (manual_pdf and os.path.exists(manual_pdf))
@@ -11022,10 +11102,9 @@ class SubstationApp(App):
                                     except Exception:
                                         pass
 
-                            elem_layout.add_widget(elem_label)
                             # Note: separator will be added to the parent `grid` after the element row
 
-                            is_transformer = self._is_transformer(elem_type)
+                            is_transformer = self._is_transformer(raw_elem_type)
                             button_slots = 4 + (1 if is_transformer else 0)
                             if manual_available:
                                 button_slots += 1
@@ -13986,13 +14065,7 @@ class SubstationApp(App):
         layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
 
         # Add tags section at the top
-        from model_management import (
-            _build_model_context_tags,
-            _build_color_tag,
-            _breaker_type_tag,
-            _installation_location_tag,
-            _element_type_tag_for_category,
-        )
+        from model_management import _build_model_context_tags
 
         tags_box = _build_model_context_tags(
             elem_type,
@@ -19104,24 +19177,30 @@ class SubstationApp(App):
                         f" | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id or 'N/A'})"
                     )
 
-                    # Element container - initially just checkbox and label
+                    # Element row: keep gate tag on the left, the first line flush at the
+                    # top, then put model tags under it and continue the detail text to the right.
                     elem_box = BoxLayout(
                         size_hint_y=None, spacing=5, orientation="vertical"
                     )
                     elem_box.bind(minimum_height=elem_box.setter("height"))
 
-                    # Checkbox and name (always visible)
-                    checkbox_layout = BoxLayout(size_hint_y=None, height=50, spacing=5)
-                    tags_layout = BoxLayout(
-                        orientation="horizontal",
-                        size_hint_x=None,
-                        spacing=2,
+                    left_gate_column = BoxLayout(
+                        orientation="vertical",
+                        size_hint=(None, None),
+                        width=74 if hemizygos else 36,
+                        height=64,
+                        spacing=1,
+                        padding=(0, 0, 0, 0),
                     )
-                    tags_layout.width = 74 if hemizygos else 36
-                    add_gate_tag_if_missing(tags_layout, gate or gate_name)
-                    add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+                    add_gate_tag_if_missing(left_gate_column, gate or gate_name)
+                    add_hemizygos_tag_if_missing(left_gate_column, hemizygos)
 
-                    # Add model context tags (element type, breaker type, location)
+                    detail_display = (
+                        f"S/N: {serial_number or '-'}\n"
+                        f"Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id or 'N/A'})"
+                    )
+
+                    model_tags_box = None
                     try:
                         from model_management import _build_model_context_tags
 
@@ -19133,46 +19212,106 @@ class SubstationApp(App):
                             app_instance=self,
                         )
                         if model_tags_box:
-                            # Override size hints from _build_model_context_tags
-                            model_tags_box.size_hint_x = None
-                            model_tags_box.size_hint_y = None
-                            model_tags_box.height = 50
-                            model_tags_box.width = 220  # Enough space for all tags
-                            tags_layout.add_widget(model_tags_box)
-                            # Adjust tags_layout width to accommodate model tags
-                            tags_layout.width = (74 if hemizygos else 36) + 220
-                    except Exception as e:
+                            model_tags_box.size_hint = (None, None)
+                            model_tags_box.height = 22
+                            model_tags_box.width = 176
+                    except Exception:
                         import traceback
 
                         traceback.print_exc()
 
-                    checkbox_layout.add_widget(tags_layout)
-                    checkbox = CheckBox(
-                        size_hint_x=0.08,
-                        color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
-                    )
-                    checkbox_layout.add_widget(checkbox)
-
-                    elem_label = Label(
-                        text=elem_display,
-                        size_hint_x=0.92,
+                    content_row = BoxLayout(
+                        orientation="horizontal",
                         size_hint_y=None,
-                        height=50,
+                        height=64,
+                        spacing=8,
+                        padding=(0, 0, 0, 0),
+                    )
+                    content_stack = BoxLayout(
+                        orientation="vertical",
+                        size_hint_x=1,
+                        spacing=2,
+                        padding=(0, 0, 0, 0),
+                    )
+
+                    first_line_label = Label(
+                        text=elem_display,
+                        size_hint=(1, None),
+                        height=22,
                         markup=True,
                         halign="left",
                         valign="middle",
                     )
-                    elem_label.bind(
+                    first_line_label.bind(
                         width=lambda inst, val: setattr(
                             inst, "text_size", (max(0, val - 6), None)
                         ),
                         texture_size=lambda inst, val: setattr(
-                            inst, "height", max(50, val[1] + 8)
+                            inst, "height", max(22, val[1] + 2)
                         ),
                     )
-                    checkbox_layout.add_widget(elem_label)
-                    self._bind_row_height_to_children(checkbox_layout, min_height=50)
-                    elem_box.add_widget(checkbox_layout)
+                    content_stack.add_widget(first_line_label)
+
+                    if model_tags_box:
+                        info_row = BoxLayout(
+                            orientation="horizontal",
+                            size_hint=(1, None),
+                            height=22,
+                            spacing=6,
+                            padding=(0, 0, 0, 0),
+                        )
+                        model_tags_box.size_hint_y = None
+                        model_tags_box.size_hint_x = None
+                        info_row.add_widget(model_tags_box)
+
+                        detail_label = Label(
+                            text=detail_display,
+                            size_hint_x=1,
+                            size_hint_y=None,
+                            height=22,
+                            markup=True,
+                            halign="left",
+                            valign="middle",
+                        )
+                        detail_label.bind(
+                            width=lambda inst, val: setattr(
+                                inst, "text_size", (max(0, val), None)
+                            ),
+                            texture_size=lambda inst, val: setattr(
+                                inst, "height", max(22, val[1] + 2)
+                            ),
+                        )
+                        info_row.add_widget(detail_label)
+                        content_stack.add_widget(info_row)
+                    else:
+                        detail_label = Label(
+                            text=detail_display,
+                            size_hint=(1, None),
+                            height=22,
+                            markup=True,
+                            halign="left",
+                            valign="middle",
+                        )
+                        detail_label.bind(
+                            width=lambda inst, val: setattr(
+                                inst, "text_size", (max(0, val - 6), None)
+                            ),
+                            texture_size=lambda inst, val: setattr(
+                                inst, "height", max(22, val[1] + 2)
+                            ),
+                        )
+                        content_stack.add_widget(detail_label)
+
+                    checkbox = CheckBox(
+                        size_hint_x=0.08,
+                        color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
+                    )
+
+                    content_row.add_widget(left_gate_column)
+                    content_row.add_widget(content_stack)
+                    content_row.add_widget(checkbox)
+                    self._bind_row_height_to_children(content_row, min_height=64)
+                    elem_box.add_widget(content_row)
 
                     # Per-element holders stored in element_widgets to avoid sharing
                     element_widgets.setdefault(elem_id, {})
@@ -20539,12 +20678,14 @@ class SubstationApp(App):
                     row_container.add_widget(SeparatorLine())
                     gate_body.add_widget(row_container)
 
-                    # Update existing element_widgets entry instead of overwriting
+                    # Update existing element_widgets entry instead of overwriting.
+                    # The visible label is the first-line summary label created above;
+                    # keep that reference stable for downstream row manipulation.
                     element_widgets.setdefault(elem_id, {})
                     element_widgets[elem_id].update(
                         {
                             "checkbox": checkbox,
-                            "label": elem_label,
+                            "label": first_line_label,
                             "display": elem_display,
                             "comments": element_widgets[elem_id].get("comments"),
                             "measurements": element_widgets[elem_id].get(

@@ -16,3 +16,8 @@ class Ellipse:
 class Line:
     def __init__(self, *a, **k):
         pass
+
+
+class RoundedRectangle:
+    def __init__(self, *a, **k):
+        pass
