@@ -10931,6 +10931,34 @@ class SubstationApp(App):
                             tags_layout.width = 74 if hemizygos else 36
                             add_gate_tag_if_missing(tags_layout, gate_name)
                             add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+
+                            # Add model context tags (element type, breaker type, location)
+                            try:
+                                from model_management import _build_model_context_tags
+
+                                model_tags_box = _build_model_context_tags(
+                                    elem_type,
+                                    breaker_category=breaker_category,
+                                    installation_space=installation_space or "-",
+                                    manufacturer=manufacturer,
+                                    app_instance=self,
+                                )
+                                if model_tags_box:
+                                    # Override size hints from _build_model_context_tags
+                                    model_tags_box.size_hint_x = None
+                                    model_tags_box.size_hint_y = None
+                                    model_tags_box.height = 50
+                                    model_tags_box.width = (
+                                        220  # Enough space for all tags
+                                    )
+                                    tags_layout.add_widget(model_tags_box)
+                                    # Adjust tags_layout width to accommodate model tags
+                                    tags_layout.width = (74 if hemizygos else 36) + 220
+                            except Exception as e:
+                                import traceback
+
+                                traceback.print_exc()
+
                             elem_layout.add_widget(tags_layout)
 
                             elem_label = Label(
@@ -13852,7 +13880,7 @@ class SubstationApp(App):
 
         c = self.conn.cursor()
         c.execute(
-            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, e.operations_count, e.vector_group, em.power_mva AS model_power_mva, em.installation_space AS model_installation_space, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
+            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, e.operations_count, e.vector_group, e.breaker_category, em.power_mva AS model_power_mva, em.installation_space AS model_installation_space, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
             (element_id,),
         )
         row = c.fetchone()
@@ -13863,7 +13891,7 @@ class SubstationApp(App):
             )
             return
 
-        if len(row) == 14:
+        if len(row) == 15:
             (
                 name,
                 elem_type,
@@ -13876,6 +13904,25 @@ class SubstationApp(App):
                 substation_id,
                 operations_count,
                 vector_group,
+                breaker_category,
+                model_power_mva,
+                model_installation_space,
+                manual_pdf,
+            ) = row
+        elif len(row) == 14:
+            (
+                name,
+                elem_type,
+                serial_number,
+                power_mva,
+                manufacturer,
+                manufacture_year,
+                installation_space,
+                maintenance_date,
+                substation_id,
+                operations_count,
+                vector_group,
+                breaker_category,
                 model_power_mva,
                 model_installation_space,
                 manual_pdf,
@@ -13897,9 +13944,10 @@ class SubstationApp(App):
                 manual_pdf,
             ) = row
             vector_group = None
+            breaker_category = None
         else:
             raise ValueError(
-                f"Unexpected quick-view row shape: expected 13 or 14 columns, got {len(row)}"
+                f"Unexpected quick-view row shape: expected 13, 14, or 15 columns, got {len(row)}"
             )
 
         # Check if transformer (150/20 kV)
@@ -13936,6 +13984,27 @@ class SubstationApp(App):
             )
 
         layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        # Add tags section at the top
+        from model_management import (
+            _build_model_context_tags,
+            _build_color_tag,
+            _breaker_type_tag,
+            _installation_location_tag,
+            _element_type_tag_for_category,
+        )
+
+        tags_box = _build_model_context_tags(
+            elem_type,
+            breaker_category=breaker_category,
+            installation_space=effective_installation_space,
+            manufacturer=manufacturer,
+            app_instance=self,
+        )
+        tags_box.size_hint_y = None
+        tags_box.height = 32
+        layout.add_widget(tags_box)
+
         for line in lines:
             layout.add_widget(Label(text=line, size_hint_y=None, height=28))
 
@@ -18689,7 +18758,7 @@ class SubstationApp(App):
                 """
                                                                         SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.hemizygos, e.is_main_switch,
                                              e.breaker_category, e.manufacturer, e.model, e.operations_count,
-                                             em.manufacturer as model_manufacturer, em.model_name, e.operating_status, em.oil_weight_kg
+                                             em.manufacturer as model_manufacturer, em.model_name, e.operating_status, em.oil_weight_kg, e.installation_space
                                 FROM elements e
                                 LEFT JOIN element_models em ON e.element_model_id = em.id
                                 WHERE e.substation_id=?
@@ -18765,6 +18834,7 @@ class SubstationApp(App):
                     model_name,
                     _operating_status,
                     _oil_weight_kg,
+                    installation_space,
                 ) = elem
 
                 # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
@@ -18812,6 +18882,7 @@ class SubstationApp(App):
                     model_name,
                     _operating_status,
                     _oil_weight_kg,
+                    _installation_space,
                 ) = elem
 
                 gate_key = gate if gate else get_unreg()
@@ -18860,6 +18931,7 @@ class SubstationApp(App):
                             _model_name,
                             _operating_status,
                             _oil_weight_kg,
+                            _installation_space,
                         ) in gate_rows:
                             widgets = element_widgets.get(gate_elem_id)
                             checkbox_widget = (
@@ -19010,6 +19082,7 @@ class SubstationApp(App):
                     model_name,
                     operating_status,
                     oil_weight_kg,
+                    installation_space,
                 ) in gate_elements:
                     # Determine if this is a circuit breaker for showing measurement fields
                     is_breaker = elem_type in self.BREAKER_ELEMENT_TYPES
@@ -19047,6 +19120,32 @@ class SubstationApp(App):
                     tags_layout.width = 74 if hemizygos else 36
                     add_gate_tag_if_missing(tags_layout, gate or gate_name)
                     add_hemizygos_tag_if_missing(tags_layout, hemizygos)
+
+                    # Add model context tags (element type, breaker type, location)
+                    try:
+                        from model_management import _build_model_context_tags
+
+                        model_tags_box = _build_model_context_tags(
+                            elem_type,
+                            breaker_category=breaker_category,
+                            installation_space=installation_space or "-",
+                            manufacturer=manufacturer,
+                            app_instance=self,
+                        )
+                        if model_tags_box:
+                            # Override size hints from _build_model_context_tags
+                            model_tags_box.size_hint_x = None
+                            model_tags_box.size_hint_y = None
+                            model_tags_box.height = 50
+                            model_tags_box.width = 220  # Enough space for all tags
+                            tags_layout.add_widget(model_tags_box)
+                            # Adjust tags_layout width to accommodate model tags
+                            tags_layout.width = (74 if hemizygos else 36) + 220
+                    except Exception as e:
+                        import traceback
+
+                        traceback.print_exc()
+
                     checkbox_layout.add_widget(tags_layout)
                     checkbox = CheckBox(
                         size_hint_x=0.08,
