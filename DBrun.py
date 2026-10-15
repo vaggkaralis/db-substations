@@ -1013,6 +1013,27 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
 
     cur = conn.cursor()
 
+    def _coerce_sqlite_row_id(value):
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if value.is_integer():
+                return int(value)
+            return None
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned or cleaned.lower() in {"null", "none"}:
+                return None
+            try:
+                return int(cleaned)
+            except (TypeError, ValueError):
+                return None
+        return None
+
     # Fetch table columns for maintenance_elements and maintenance so we can
     # store extra/unmapped fields into `data_json` to avoid losing data.
     try:
@@ -1049,9 +1070,18 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
 
             # Special handling for maintenance rows which may embed elements
             if table == "maintenance":
-                maintenance_id = data.get("id")
+                data = dict(data or {})
+                android_temp_id = data.get("id")
+                maintenance_id = _coerce_sqlite_row_id(android_temp_id)
+                if android_temp_id is not None and maintenance_id is None:
+                    data["android_temp_id"] = str(android_temp_id)
+                    data.pop("id", None)
+                    logging.info(
+                        "apply_change_log_to_db: ignoring non-integer maintenance id %r",
+                        android_temp_id,
+                    )
                 if op == "delete":
-                    if not maintenance_id:
+                    if maintenance_id is None:
                         continue
                     cur.execute(
                         "SELECT substation_id FROM maintenance WHERE id=?",
@@ -1085,7 +1115,7 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                     continue
 
                 if op == "update":
-                    if not maintenance_id:
+                    if maintenance_id is None:
                         continue
                     cur.execute(
                         "SELECT substation_id FROM maintenance WHERE id=?",
@@ -1254,7 +1284,12 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                         logging.exception("Error checking maintenance fingerprint")
 
                 if existing_id is None:
-                    # No existing row found; perform insert
+                    # No existing row found; perform insert. Ignore Android-style
+                    # temporary ids such as "android-179..." because SQLite uses
+                    # INTEGER PRIMARY KEY for maintenance.id.
+                    maint_keys = [
+                        k for k in data.keys() if k in maint_cols and k != "id"
+                    ]
                     if not maint_keys:
                         # Nothing to insert
                         conn.commit()
@@ -16700,16 +16735,19 @@ class SubstationApp(App):
             )
             for row in c.fetchall():
                 extra_measurements = {}
+                saved_toggle_state = False
                 if row[32]:
                     try:
                         decoded_data = json.loads(row[32])
-                        if isinstance(decoded_data, dict):
-                            extra_measurements = decoded_data
+                        extra_measurements, saved_toggle_state = (
+                            self._decode_saved_measurement_payload(decoded_data)
+                        )
                     except Exception:
                         extra_measurements = {}
+                        saved_toggle_state = False
 
                 has_saved_measurements = bool(
-                    extra_measurements.get("measurements_enabled")
+                    saved_toggle_state or extra_measurements.get("measurements_enabled")
                 ) or any(
                     self._has_meaningful_measurement_value(value)
                     for key, value in extra_measurements.items()
@@ -20742,6 +20780,15 @@ class SubstationApp(App):
             if not maintenance_id and prefill_data.get("element_ids"):
                 prefill_elements = set(prefill_data.get("element_ids"))
                 incomplete_elements = set(prefill_data.get("incomplete_elements") or [])
+                import_map = {}
+                for item in prefill_data.get("elements") or []:
+                    if not isinstance(item, dict):
+                        continue
+                    elem_id = item.get("element_id") or item.get("id")
+                    if elem_id is not None:
+                        import_map[elem_id] = self._normalize_prefill_element_payload(
+                            item
+                        )
                 for elem_id in prefill_elements:
                     if elem_id not in element_widgets:
                         continue
@@ -20752,6 +20799,32 @@ class SubstationApp(App):
                         widgets[
                             "label"
                         ].text = f"[color=ff3333]{widgets['display']}[/color]"
+                    data = import_map.get(elem_id)
+                    if not data:
+                        continue
+                    widgets["comments"].text = data.get("element_comments", "")
+                    measurement_toggle = widgets.get("measurements_toggle")
+                    if measurement_toggle is not None:
+                        has_payload = bool(
+                            data.get("measurements_enabled")
+                            or self._has_meaningful_measurement_value(
+                                data.get("extra_measurements")
+                            )
+                            or any(
+                                self._has_meaningful_measurement_value(value)
+                                for key, value in data.items()
+                                if key
+                                not in ("element_comments", "measurements_enabled")
+                            )
+                        )
+                        measurement_toggle.active = has_payload
+                    measurements = widgets.get("measurements") or {}
+                    extra_measurements = data.get("extra_measurements") or {}
+                    if extra_measurements:
+                        self._apply_serialized_measurement_value(
+                            measurements,
+                            extra_measurements,
+                        )
 
             if maintenance_id and prefill_data.get("element_ids"):
                 prefill_elements = set(prefill_data.get("element_ids") or [])
@@ -23200,6 +23273,16 @@ class SubstationApp(App):
             if "extra_measurements" not in normalized:
                 normalized["extra_measurements"] = nested_measurements
 
+        alias_map = {
+            "operations_count": "ops_count",
+            "sf6_leakage": "sf6_leakage_kg",
+            "legacy_measurements": "extra_measurements",
+            "measurements": "extra_measurements",
+        }
+        for source_key, target_key in alias_map.items():
+            if source_key in normalized and target_key not in normalized:
+                normalized[target_key] = normalized[source_key]
+
         if "extra_measurements" in normalized and isinstance(
             normalized.get("extra_measurements"), dict
         ):
@@ -23208,12 +23291,104 @@ class SubstationApp(App):
                 normalized.get("measurements"), dict
             ):
                 normalized["extra_measurements"] = normalized["measurements"]
+            extra_measurements = normalized["extra_measurements"] or {}
+            for source_key, target_key in alias_map.items():
+                if (
+                    source_key in extra_measurements
+                    and target_key not in extra_measurements
+                ):
+                    extra_measurements[target_key] = extra_measurements[source_key]
+            normalized["extra_measurements"] = extra_measurements
+            for key, value in (extra_measurements or {}).items():
+                normalized.setdefault(key, value)
             return normalized
 
         if isinstance(normalized.get("measurements"), dict):
             normalized["extra_measurements"] = normalized["measurements"]
 
         return normalized
+
+    def _normalize_prefill_element_payload(self, payload):
+        if not isinstance(payload, dict):
+            return {
+                "element_comments": "",
+                "measurements_enabled": False,
+                "extra_measurements": {},
+            }
+
+        normalized = self._normalize_form_measurement_payload(payload)
+        extra_measurements = normalized.get("extra_measurements")
+        if not isinstance(extra_measurements, dict):
+            extra_measurements = normalized
+
+        extra_measurements = dict(extra_measurements or {})
+        saved_toggle_state = bool(normalized.get("measurements_enabled"))
+        if "measurements_enabled" in extra_measurements and isinstance(
+            extra_measurements["measurements_enabled"], bool
+        ):
+            saved_toggle_state = bool(extra_measurements["measurements_enabled"])
+        elif saved_toggle_state:
+            extra_measurements["measurements_enabled"] = True
+
+        normalized_payload = {
+            "element_comments": (
+                payload.get("element_comments") or payload.get("comments") or ""
+            ),
+            "measurements_enabled": saved_toggle_state,
+            "extra_measurements": extra_measurements,
+        }
+        for key in (
+            "ins_closed_fa",
+            "ins_closed_fa_unit",
+            "ins_closed_fb",
+            "ins_closed_fb_unit",
+            "ins_closed_fc",
+            "ins_closed_fc_unit",
+            "ins_open_fa",
+            "ins_open_fa_unit",
+            "ins_open_fb",
+            "ins_open_fb_unit",
+            "ins_open_fc",
+            "ins_open_fc_unit",
+            "cont_fa",
+            "cont_fb",
+            "cont_fc",
+            "ops_count",
+            "sf6_leakage_kg",
+            "sf6_leak_methodology",
+            "sf6",
+            "vidar",
+        ):
+            if key in normalized:
+                normalized_payload[key] = normalized[key]
+        if "sf6" not in normalized_payload and isinstance(normalized.get("sf6"), dict):
+            normalized_payload["sf6"] = normalized["sf6"]
+        if "vidar" not in normalized_payload and isinstance(
+            normalized.get("vidar"), dict
+        ):
+            normalized_payload["vidar"] = normalized["vidar"]
+        if "ops_count" not in normalized_payload and "operations_count" in normalized:
+            normalized_payload["ops_count"] = normalized["operations_count"]
+
+        return normalized_payload
+
+    def _decode_saved_measurement_payload(self, payload):
+        if not isinstance(payload, dict):
+            return {}, False
+
+        normalized = self._normalize_form_measurement_payload(payload)
+        extra_measurements = normalized.get("extra_measurements")
+        if not isinstance(extra_measurements, dict):
+            extra_measurements = normalized
+
+        extra_measurements = dict(extra_measurements or {})
+        saved_toggle_state = normalized.get("measurements_enabled")
+        if (
+            saved_toggle_state is not None
+            and "measurements_enabled" not in extra_measurements
+        ):
+            extra_measurements["measurements_enabled"] = saved_toggle_state
+        return extra_measurements, bool(saved_toggle_state)
 
     def _apply_serialized_measurement_value(self, widget, value):
         if widget is None or value is None:
@@ -23754,8 +23929,9 @@ class SubstationApp(App):
         if extra_measurements_json:
             try:
                 decoded_data = json.loads(extra_measurements_json)
-                if isinstance(decoded_data, dict):
-                    extra_measurements = decoded_data
+                extra_measurements, _ = self._decode_saved_measurement_payload(
+                    decoded_data
+                )
             except Exception:
                 extra_measurements = {}
 
@@ -27002,8 +27178,9 @@ class SubstationApp(App):
         if extra_measurements_json:
             try:
                 decoded_data = json.loads(extra_measurements_json)
-                if isinstance(decoded_data, dict):
-                    extra_measurements = decoded_data
+                extra_measurements, _ = self._decode_saved_measurement_payload(
+                    decoded_data
+                )
             except Exception:
                 extra_measurements = {}
 

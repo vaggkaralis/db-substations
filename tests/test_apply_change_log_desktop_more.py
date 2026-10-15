@@ -170,6 +170,99 @@ def test_maintenance_update_keeps_element_measurement_payload(tmp_path):
     assert payload["sf6"]["sf6_n2_fa"] == "15"
 
 
+def test_android_temp_ids_are_ignored_when_inserting_maintenance(tmp_path):
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE substations (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            location TEXT
+        );
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            element_type TEXT,
+            name TEXT,
+            breaker_category TEXT,
+            maintenance_date TEXT
+        );
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT,
+            maintenance_type TEXT,
+            user_name TEXT,
+            overall_comments TEXT
+        );
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER,
+            element_comments TEXT,
+            data_json TEXT
+        );
+        """
+    )
+    cur.execute(
+        "INSERT INTO substations (id, name, location) VALUES (?, ?, ?)",
+        (17, "S1", "L1"),
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, element_type, name, breaker_category) VALUES (?, ?, ?, ?, ?)",
+        (599, 17, "Διακόπτης ΜΤ", "Elem1", "SF6"),
+    )
+    changelog = tmp_path / "android-temp-id.jsonl"
+    changelog.write_text(
+        json.dumps(
+            {
+                "operation": "insert",
+                "table": "maintenance",
+                "data": {
+                    "id": "android-1792030236330",
+                    "substation_id": 17,
+                    "date_time": "2026-10-15 08:09",
+                    "overall_comments": "",
+                    "maintenance_type": "Βλάβη",
+                    "elements": [
+                        {
+                            "element_id": 599,
+                            "element_comments": "συντήρηση",
+                            "ins_closed_fa": 100.0,
+                            "ins_closed_fb": 110.0,
+                            "ops_count": 345,
+                            "sf6": {"sf6_n2_fa": "15"},
+                        }
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    apply_change_log_to_db(conn, str(changelog))
+
+    maintenance_row = cur.execute(
+        "SELECT id, substation_id, date_time FROM maintenance WHERE substation_id=?",
+        (17,),
+    ).fetchone()
+    assert maintenance_row is not None
+    maintenance_id = maintenance_row[0]
+
+    element_row = cur.execute(
+        "SELECT data_json FROM maintenance_elements WHERE maintenance_id=? AND element_id=?",
+        (maintenance_id, 599),
+    ).fetchone()
+    assert element_row is not None
+    payload = json.loads(element_row[0])
+    assert payload["ins_closed_fa"] == 100.0
+    assert payload["ops_count"] == 345
+    assert payload["sf6"]["sf6_n2_fa"] == "15"
+
+
 def test_motor_drive_inherits_transformer_maintenance_date_on_refresh():
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()

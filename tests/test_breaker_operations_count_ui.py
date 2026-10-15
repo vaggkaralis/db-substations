@@ -227,6 +227,55 @@ def test_preserve_existing_measurement_payload_keeps_toggle_state():
     assert preserved["extra_measurements"]["measurements_enabled"] is True
 
 
+def test_decode_saved_measurement_payload_handles_android_nested_measurements():
+    app = object.__new__(DBrun.SubstationApp)
+
+    extra_measurements, saved_toggle = app._decode_saved_measurement_payload(
+        {
+            "measurements_enabled": True,
+            "measurements": {"ins_closed_fa": 6.7, "ops_count": 9},
+        }
+    )
+
+    assert saved_toggle is True
+    assert extra_measurements["measurements_enabled"] is True
+    assert extra_measurements["ins_closed_fa"] == 6.7
+    assert extra_measurements["ops_count"] == 9
+
+
+def test_normalize_prefill_element_payload_restores_android_comments_and_measurements():
+    app = object.__new__(DBrun.SubstationApp)
+
+    normalized = app._normalize_prefill_element_payload(
+        {
+            "element_comments": "συντήρηση",
+            "measurements_enabled": True,
+            "measurements": {"ins_closed_fa": 6.7, "ops_count": 9},
+            "operations_count": 11,
+        }
+    )
+
+    assert normalized["element_comments"] == "συντήρηση"
+    assert normalized["measurements_enabled"] is True
+    assert normalized["extra_measurements"]["ins_closed_fa"] == 6.7
+    assert normalized["ops_count"] == 9
+
+
+def test_normalize_form_measurement_payload_maps_legacy_android_aliases():
+    app = object.__new__(DBrun.SubstationApp)
+
+    normalized = app._normalize_form_measurement_payload(
+        {
+            "operations_count": 11,
+            "measurements": {"ins_closed_fa": 6.7, "sf6_leakage": 2.2},
+        }
+    )
+
+    assert normalized["ops_count"] == 11
+    assert normalized["extra_measurements"]["sf6_leakage_kg"] == 2.2
+    assert normalized["ins_closed_fa"] == 6.7
+
+
 def test_format_measurement_details_payload_formats_nested_values():
     app = object.__new__(DBrun.SubstationApp)
 

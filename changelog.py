@@ -192,6 +192,7 @@ def import_android_changes_from_file(app, file_path):
             if e.get("element_id") or e.get("id")
         ]
         prefill["element_ids"] = element_ids
+        prefill["elements"] = elems
         prefill["incomplete_elements"] = set(element_ids)
         prefill["attachment_paths"] = []
         prefill["_diag_origin"] = "android_change_log"
@@ -388,6 +389,7 @@ def import_android_changes_from_file(app, file_path):
             prefill["maintenance_type"] = data.get("maintenance_type")
             prefill["date_time"] = data.get("date_time")
             prefill["overall_comments"] = data.get("overall_comments")
+            prefill["elements"] = data.get("elements") or []
             prefill["element_ids"] = [
                 e.get("element_id") or e.get("id")
                 for e in (data.get("elements") or [])
