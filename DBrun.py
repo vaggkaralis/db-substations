@@ -774,6 +774,20 @@ def oil_weight_kg_to_liters(
     return oil_weight_val / density_val
 
 
+def get_model_oil_capacity_liters(model_meta):
+    if not isinstance(model_meta, dict):
+        return None
+    for key in ("oil_capacity_l", "oil_capacity", "oil_quantity_l"):
+        value = model_meta.get(key)
+        try:
+            liters = float(value)
+        except (TypeError, ValueError):
+            continue
+        if liters >= 0:
+            return liters
+    return oil_weight_kg_to_liters(model_meta.get("oil_weight_kg"))
+
+
 def summarize_oil_requirement(
     total_liters,
     barrel_volume_l=DEFAULT_OIL_DRUM_VOLUME_L,
@@ -18442,13 +18456,15 @@ class SubstationApp(App):
             for elem_id, widgets in selected_rows:
                 meta = widgets.get("meta") or {}
                 row_info = oil_planning_row_widgets.get(elem_id)
-                source_liters = oil_weight_kg_to_liters(meta.get("oil_weight_kg"))
+                source_liters = get_model_oil_capacity_liters(meta)
                 source_weight = meta.get("oil_weight_kg")
-                source_text = (
-                    f"Μοντέλο: {_format_local_decimal(source_weight)} kg ~ {_format_local_decimal(source_liters)} L"
-                    if source_liters is not None
-                    else "Χωρίς τιμή μοντέλου - εισάγετε λίτρα"
-                )
+                oil_capacity_l = meta.get("oil_capacity_l")
+                if source_liters is not None and oil_capacity_l is not None:
+                    source_text = f"Μοντέλο: {_format_local_decimal(oil_capacity_l)} L"
+                elif source_liters is not None and source_weight is not None:
+                    source_text = f"Μοντέλο: {_format_local_decimal(source_weight)} kg ~ {_format_local_decimal(source_liters)} L"
+                else:
+                    source_text = "Χωρίς τιμή μοντέλου - εισάγετε λίτρα"
                 if not row_info:
                     row_box = BoxLayout(
                         orientation="vertical",
@@ -18922,7 +18938,7 @@ class SubstationApp(App):
                 """
                                                                         SELECT e.id, e.element_type, e.name, e.serial_number, e.gate, e.hemizygos, e.is_main_switch,
                                              e.breaker_category, e.manufacturer, e.model, e.operations_count,
-                                             em.manufacturer as model_manufacturer, em.model_name, e.operating_status, em.oil_weight_kg, e.installation_space
+                                             em.manufacturer as model_manufacturer, em.model_name, e.operating_status, em.oil_weight_kg, em.oil_capacity_l, e.installation_space
                                 FROM elements e
                                 LEFT JOIN element_models em ON e.element_model_id = em.id
                                 WHERE e.substation_id=?
@@ -18998,6 +19014,7 @@ class SubstationApp(App):
                     model_name,
                     _operating_status,
                     _oil_weight_kg,
+                    _oil_capacity_l,
                     installation_space,
                 ) = elem
 
@@ -19046,6 +19063,7 @@ class SubstationApp(App):
                     model_name,
                     _operating_status,
                     _oil_weight_kg,
+                    _oil_capacity_l,
                     _installation_space,
                 ) = elem
 
@@ -19095,6 +19113,7 @@ class SubstationApp(App):
                             _model_name,
                             _operating_status,
                             _oil_weight_kg,
+                            _oil_capacity_l,
                             _installation_space,
                         ) in gate_rows:
                             widgets = element_widgets.get(gate_elem_id)
@@ -19246,6 +19265,7 @@ class SubstationApp(App):
                     model_name,
                     operating_status,
                     oil_weight_kg,
+                    oil_capacity_l,
                     installation_space,
                 ) in gate_elements:
                     # Determine if this is a circuit breaker for showing measurement fields
@@ -19400,6 +19420,7 @@ class SubstationApp(App):
                         "is_breaker": is_breaker,
                         "is_transformer": self._is_transformer(elem_type),
                         "oil_weight_kg": oil_weight_kg,
+                        "oil_capacity_l": oil_capacity_l,
                         "operations_count": operations_count,
                         "last_operations_count": (
                             last_ops_map.get(elem_id)
@@ -19439,9 +19460,14 @@ class SubstationApp(App):
                         # Additional diagnostics: print transformer-detection result
                         # transformer detection logging removed
 
+                        oil_breaker_categories = {"Ελαίου", "Πτωχού Ελαίου"}
                         is_hv_oil = (
                             elem_type == self.ELEM_BREAKER_YT
-                            and breaker_category == "Ελαίου"
+                            and breaker_category in oil_breaker_categories
+                        )
+                        is_mv_oil_breaker = (
+                            elem_type == self.ELEM_BREAKER_MT
+                            and breaker_category in oil_breaker_categories
                         )
                         is_hv_sf6 = (
                             elem_type == self.ELEM_BREAKER_YT
@@ -20128,6 +20154,31 @@ class SubstationApp(App):
                             always_visible_measurement_widgets.extend(
                                 [ops_header, ops_layout_legacy]
                             )
+                            if is_mv_oil_breaker:
+                                oil_quantity_input = self._create_measurement_input(
+                                    hint_text="L",
+                                    size_hint_x=0.18,
+                                    multiline=False,
+                                )
+                                oil_quantity_input.bind(
+                                    text=lambda inst, val: (
+                                        setattr(
+                                            inst,
+                                            "text",
+                                            self._normalize_decimal_numeric_text(val),
+                                        )
+                                        if val and "," in val
+                                        else None
+                                    )
+                                )
+                                self._add_labeled_measurement_row(
+                                    details_container,
+                                    "Ποσότητα λαδιού (L):",
+                                    oil_quantity_input,
+                                    label_size_hint_x=0.42,
+                                )
+                                measurements["oil_quantity_l"] = oil_quantity_input
+
                             details_container.add_widget(
                                 Label(
                                     text=S["MESSAGES"].get(
@@ -23586,7 +23637,7 @@ class SubstationApp(App):
     def _measurement_detail_label(self, key):
         label_map = {
             "oil_condition": "Κατάσταση λαδιού",
-            "oil_quantity_l": "Ποσότητα λαδιού",
+            "oil_quantity_l": "Ποσότητα λαδιού (L)",
             "oil_changed": "Αλλαγή λαδιών",
             "sync_timing": "Έλεγχος ταυτοχρονισμού",
             "open": "O",
@@ -27169,41 +27220,40 @@ class SubstationApp(App):
             )
             return
 
-        (
-            element_comments,
-            ins_closed_fa,
-            ins_closed_fa_unit,
-            ins_closed_fb,
-            ins_closed_fb_unit,
-            ins_closed_fc,
-            ins_closed_fc_unit,
-            ins_open_fa,
-            ins_open_fa_unit,
-            ins_open_fb,
-            ins_open_fb_unit,
-            ins_open_fc,
-            ins_open_fc_unit,
-            cont_fa,
-            cont_fb,
-            cont_fc,
-            ops_count,
-            sf6_leakage_kg,
-            sf6_leak_methodology,
-            sf6_n2_fa,
-            h2o_fa,
-            so2_fa,
-            sf6_n2_fb,
-            h2o_fb,
-            so2_fb,
-            sf6_n2_fc,
-            h2o_fc,
-            so2_fc,
-            vidar_fa,
-            vidar_fb,
-            vidar_fc,
-            extra_measurements_json,
-            breaker_category,
-        ) = row
+        values = list(row)
+        element_comments = values[0] if len(values) > 0 else None
+        ins_closed_fa = values[1] if len(values) > 1 else None
+        ins_closed_fa_unit = values[2] if len(values) > 2 else None
+        ins_closed_fb = values[3] if len(values) > 3 else None
+        ins_closed_fb_unit = values[4] if len(values) > 4 else None
+        ins_closed_fc = values[5] if len(values) > 5 else None
+        ins_closed_fc_unit = values[6] if len(values) > 6 else None
+        ins_open_fa = values[7] if len(values) > 7 else None
+        ins_open_fa_unit = values[8] if len(values) > 8 else None
+        ins_open_fb = values[9] if len(values) > 9 else None
+        ins_open_fb_unit = values[10] if len(values) > 10 else None
+        ins_open_fc = values[11] if len(values) > 11 else None
+        ins_open_fc_unit = values[12] if len(values) > 12 else None
+        cont_fa = values[13] if len(values) > 13 else None
+        cont_fb = values[14] if len(values) > 14 else None
+        cont_fc = values[15] if len(values) > 15 else None
+        ops_count = values[16] if len(values) > 16 else None
+        sf6_leakage_kg = values[17] if len(values) > 17 else None
+        sf6_leak_methodology = values[18] if len(values) > 18 else None
+        sf6_n2_fa = values[19] if len(values) > 19 else None
+        h2o_fa = values[20] if len(values) > 20 else None
+        so2_fa = values[21] if len(values) > 21 else None
+        sf6_n2_fb = values[22] if len(values) > 22 else None
+        h2o_fb = values[23] if len(values) > 23 else None
+        so2_fb = values[24] if len(values) > 24 else None
+        sf6_n2_fc = values[25] if len(values) > 25 else None
+        h2o_fc = values[26] if len(values) > 26 else None
+        so2_fc = values[27] if len(values) > 27 else None
+        vidar_fa = values[28] if len(values) > 28 else None
+        vidar_fb = values[29] if len(values) > 29 else None
+        vidar_fc = values[30] if len(values) > 30 else None
+        extra_measurements_json = values[31] if len(values) > 31 else None
+        breaker_category = values[32] if len(values) > 32 else None
 
         extra_measurements = {}
         if extra_measurements_json:
@@ -27440,6 +27490,27 @@ class SubstationApp(App):
         )
         has_contact_resistance = any([cont_fa, cont_fb, cont_fc])
         has_operations_count = self._has_meaningful_measurement_value(ops_count)
+
+        oil_quantity_value = None
+        if isinstance(extra_measurements, dict):
+            for key in (
+                "oil_quantity_l",
+                "oil_quantity",
+                "oil_liters",
+                "oil_amount_l",
+                "oil_volume_l",
+            ):
+                if self._has_meaningful_measurement_value(extra_measurements.get(key)):
+                    oil_quantity_value = extra_measurements.get(key)
+                    break
+        has_oil_quantity = self._has_meaningful_measurement_value(oil_quantity_value)
+
+        if has_oil_quantity and breaker_category in {"Ελαίου", "Πτωχού Ελαίου"}:
+            add_section("Λάδι")
+            grid = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            grid.bind(minimum_height=grid.setter("height"))
+            add_kv_row(grid, "Ποσότητα λαδιού (L):", fmt(oil_quantity_value))
+            content.add_widget(grid)
 
         if has_closed_insulation:
             add_section(

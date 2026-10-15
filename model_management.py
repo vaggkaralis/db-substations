@@ -177,6 +177,21 @@ def _is_sf6_breaker_category(value):
     return normalized.startswith("sf6") or normalized == "hexafluoride"
 
 
+def _is_oil_breaker_category(value):
+    normalized = _normalize_breaker_category_value(value)
+    return normalized in {
+        "ελαίου",
+        "ελαιου",
+        "πτωχουελαίου",
+        "πτωχουελαιου",
+        "πτωχούελαίου",
+        "πτωχούελαιου",
+        "oil",
+        "lowoil",
+        "minimumoil",
+    }
+
+
 def _match_breaker_category_option(raw_value, options):
     if not raw_value:
         return ""
@@ -2349,6 +2364,14 @@ HV_BREAKER_MODEL_FIELD_DEFS = [
         "numeric": True,
     },
     {
+        "key": "oil_capacity_l",
+        "label_key": "MODEL_OIL_CAPACITY_L_LABEL",
+        "hint_key": "MODEL_OIL_CAPACITY_L_HINT",
+        "default_label": "Χωρητικότητα Ελαίου (L):",
+        "default_hint": "π.χ. 180",
+        "numeric": True,
+    },
+    {
         "key": "drive_mechanism",
         "label_key": "MODEL_DRIVE_MECHANISM_LABEL",
         "hint_key": "MODEL_DRIVE_MECHANISM_HINT",
@@ -2407,6 +2430,14 @@ MV_BREAKER_MODEL_FIELD_DEFS = [
         "default_hint": "π.χ. 55",
         "numeric": True,
     },
+    {
+        "key": "oil_capacity_l",
+        "label_key": "MODEL_OIL_CAPACITY_L_LABEL",
+        "hint_key": "MODEL_OIL_CAPACITY_L_HINT",
+        "default_label": "Χωρητικότητα Ελαίου (L):",
+        "default_hint": "π.χ. 180",
+        "numeric": True,
+    },
 ]
 
 MOTOR_DRIVE_MODEL_FIELD_DEFS = [
@@ -2425,11 +2456,17 @@ def _is_transformer_model_category(category):
     return TRANSFORMER_CATEGORY_TOKEN in str(category or "")
 
 
-def _get_model_extra_field_defs(category):
+def _get_model_extra_field_defs(category, breaker_category=None):
     if category == ELEM_BREAKER_YT:
-        return HV_BREAKER_MODEL_FIELD_DEFS
+        fields = list(HV_BREAKER_MODEL_FIELD_DEFS)
+        if not _is_oil_breaker_category(breaker_category):
+            fields = [field for field in fields if field["key"] != "oil_capacity_l"]
+        return fields
     if category == ELEM_BREAKER_MT:
-        return MV_BREAKER_MODEL_FIELD_DEFS
+        fields = list(MV_BREAKER_MODEL_FIELD_DEFS)
+        if not _is_oil_breaker_category(breaker_category):
+            fields = [field for field in fields if field["key"] != "oil_capacity_l"]
+        return fields
     if category == MOTOR_DRIVE_CATEGORY:
         return MOTOR_DRIVE_MODEL_FIELD_DEFS
     if _is_transformer_model_category(category):
@@ -2470,7 +2507,9 @@ def _apply_breaker_model_defaults(category, model_name, extra_values, power_val)
     return extra_values, power_val
 
 
-def _build_model_extra_inputs(container, category, input_map, initial_values=None):
+def _build_model_extra_inputs(
+    container, category, input_map, initial_values=None, breaker_category=None
+):
     from kivy.uix.label import Label
     from kivy.uix.textinput import TextInput
 
@@ -2478,7 +2517,7 @@ def _build_model_extra_inputs(container, category, input_map, initial_values=Non
     container.clear_widgets()
     input_map.clear()
 
-    for field_def in _get_model_extra_field_defs(category):
+    for field_def in _get_model_extra_field_defs(category, breaker_category):
         container.add_widget(
             Label(text=_label_for_field(field_def), size_hint_y=None, height=30)
         )
@@ -2494,9 +2533,9 @@ def _build_model_extra_inputs(container, category, input_map, initial_values=Non
         container.add_widget(container_input)
 
 
-def _collect_model_extra_values(category, input_map):
+def _collect_model_extra_values(category, input_map, breaker_category=None):
     values = {}
-    for field_def in _get_model_extra_field_defs(category):
+    for field_def in _get_model_extra_field_defs(category, breaker_category):
         widget = input_map.get(field_def["key"])
         raw_text = (widget.text if widget else "").strip()
         if not raw_text:
@@ -3867,7 +3906,12 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                 layout.add_widget(sf6_capacity_input, index=idx)
                 layout.add_widget(sf6_capacity_label, index=idx + 1)
 
-        _build_model_extra_inputs(extra_fields_box, text, extra_field_inputs)
+        _build_model_extra_inputs(
+            extra_fields_box,
+            text,
+            extra_field_inputs,
+            breaker_category=breaker_spinner.text,
+        )
 
     def on_breaker_category_change(_spinner, _text):
         if sf6_capacity_label in layout.children:
@@ -3880,6 +3924,12 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             idx = layout.children.index(model_name_input)
             layout.add_widget(sf6_capacity_input, index=idx)
             layout.add_widget(sf6_capacity_label, index=idx + 1)
+        _build_model_extra_inputs(
+            extra_fields_box,
+            category_spinner.text,
+            extra_field_inputs,
+            breaker_category=breaker_spinner.text,
+        )
 
     category_spinner.bind(text=on_category_change)
     breaker_spinner.bind(text=on_breaker_category_change)
@@ -3957,7 +4007,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         c = app_instance.conn.cursor()
         try:
             c.execute(
-                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle, onedrive_manual_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, oil_capacity_l, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle, onedrive_manual_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     category_spinner.text,
                     model_name_input.text.strip(),
@@ -3974,6 +4024,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     extra_values.get("bil_hv_lv_kv"),
                     extra_values.get("total_weight_kg"),
                     extra_values.get("oil_weight_kg"),
+                    extra_values.get("oil_capacity_l"),
                     extra_values.get("rated_normal_current_a"),
                     extra_values.get("rated_short_circuit_breaking_current_ka"),
                     extra_values.get("short_circuit_duration_s"),
@@ -4007,6 +4058,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     "bil_hv_lv_kv": extra_values.get("bil_hv_lv_kv"),
                     "total_weight_kg": extra_values.get("total_weight_kg"),
                     "oil_weight_kg": extra_values.get("oil_weight_kg"),
+                    "oil_capacity_l": extra_values.get("oil_capacity_l"),
                     "rated_normal_current_a": extra_values.get(
                         "rated_normal_current_a"
                     ),
@@ -4076,7 +4128,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     c = app_instance.conn.cursor()
     c.execute(
-        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle FROM element_models WHERE id=?",
+        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, oil_capacity_l, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle FROM element_models WHERE id=?",
         (model_id,),
     )
     model = c.fetchone()
@@ -4102,6 +4154,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         bil_hv_lv_kv,
         total_weight_kg,
         oil_weight_kg,
+        oil_capacity_l,
         rated_normal_current_a,
         rated_short_circuit_breaking_current_ka,
         short_circuit_duration_s,
@@ -4210,6 +4263,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         "bil_hv_lv_kv": bil_hv_lv_kv,
         "total_weight_kg": total_weight_kg,
         "oil_weight_kg": oil_weight_kg,
+        "oil_capacity_l": oil_capacity_l,
         "rated_normal_current_a": rated_normal_current_a,
         "rated_short_circuit_breaking_current_ka": rated_short_circuit_breaking_current_ka,
         "short_circuit_duration_s": short_circuit_duration_s,
@@ -4270,6 +4324,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             selected_category,
             extra_field_inputs,
             model_extra_values,
+            breaker_category=breaker_spinner.text,
         )
 
     def _on_category_change(_spinner, text):
@@ -4332,7 +4387,9 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
         try:
             extra_values = _collect_model_extra_values(
-                selected_category, extra_field_inputs
+                selected_category,
+                extra_field_inputs,
+                breaker_category=breaker_spinner.text,
             )
         except ValueError as exc:
             show_message_popup(S["TITLES"]["ERROR"], str(exc))
@@ -4368,7 +4425,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
         # Update the model
         c.execute(
-            "UPDATE element_models SET element_category=?, model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=?, onedrive_manual_link=?, connection_group=?, rated_voltage_hv_lv=?, mounting=?, specification=?, bil_hv_lv_kv=?, total_weight_kg=?, oil_weight_kg=?, rated_normal_current_a=?, rated_short_circuit_breaking_current_ka=?, short_circuit_duration_s=?, making_capacity_ka=?, sf6_pressure_rated_bar=?, drive_mechanism=?, rated_short_circuit_making_current_ka=?, cubicle=? WHERE id=?",
+            "UPDATE element_models SET element_category=?, model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=?, onedrive_manual_link=?, connection_group=?, rated_voltage_hv_lv=?, mounting=?, specification=?, bil_hv_lv_kv=?, total_weight_kg=?, oil_weight_kg=?, oil_capacity_l=?, rated_normal_current_a=?, rated_short_circuit_breaking_current_ka=?, short_circuit_duration_s=?, making_capacity_ka=?, sf6_pressure_rated_bar=?, drive_mechanism=?, rated_short_circuit_making_current_ka=?, cubicle=? WHERE id=?",
             (
                 selected_category,
                 model_name_input.text.strip(),
@@ -4386,6 +4443,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 extra_values.get("bil_hv_lv_kv"),
                 extra_values.get("total_weight_kg"),
                 extra_values.get("oil_weight_kg"),
+                extra_values.get("oil_capacity_l"),
                 extra_values.get("rated_normal_current_a"),
                 extra_values.get("rated_short_circuit_breaking_current_ka"),
                 extra_values.get("short_circuit_duration_s"),
@@ -4434,6 +4492,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 "bil_hv_lv_kv": extra_values.get("bil_hv_lv_kv"),
                 "total_weight_kg": extra_values.get("total_weight_kg"),
                 "oil_weight_kg": extra_values.get("oil_weight_kg"),
+                "oil_capacity_l": extra_values.get("oil_capacity_l"),
                 "rated_normal_current_a": extra_values.get("rated_normal_current_a"),
                 "rated_short_circuit_breaking_current_ka": extra_values.get(
                     "rated_short_circuit_breaking_current_ka"

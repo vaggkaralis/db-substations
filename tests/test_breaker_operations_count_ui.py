@@ -576,6 +576,120 @@ def test_show_maintenance_element_details_hv_breaker_hides_insulation_sections(
     assert "Κατάσταση λαδιού: Καλή" in texts
 
 
+def test_show_maintenance_element_details_mv_oil_breaker_shows_oil_quantity_field(
+    monkeypatch,
+):
+    captured = {}
+
+    class FakeCursor:
+        def __init__(self):
+            self._last_query = ""
+
+        def execute(self, query, _params=None):
+            self._last_query = query
+            return self
+
+        def fetchone(self):
+            if "SELECT m.name, m.date_time" in self._last_query:
+                return (
+                    "M1",
+                    "2026-04-28 10:00:00",
+                    "Γενικό σχόλιο",
+                    "Περιοδική",
+                    "tester",
+                    "ΥΣ 1",
+                    "Loc",
+                    "Div",
+                    DBrun.SubstationApp.ELEM_BREAKER_MT,
+                    "Q1",
+                    "SN1",
+                    "ABB",
+                    "Model1",
+                    "Ελαίου",
+                    "20KV",
+                    "Π1",
+                    "H1",
+                    "2020",
+                    None,
+                    None,
+                    None,
+                )
+            if "SELECT me.element_comments" in self._last_query:
+                return (
+                    "Σχόλιο στοιχείου",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "10",
+                    "11",
+                    "12",
+                    5,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    json.dumps(
+                        {"oil_condition": "Καλή", "oil_quantity_l": 240},
+                        ensure_ascii=False,
+                    ),
+                    "Ελαίου",
+                )
+            if "SELECT substation_id FROM maintenance" in self._last_query:
+                return (1,)
+            return None
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePopup:
+        def __init__(self, *args, **kwargs):
+            captured["popup"] = self
+            self.content = None
+
+        def open(self):
+            captured["opened"] = True
+
+        def dismiss(self):
+            return None
+
+    monkeypatch.setattr(DBrun, "Popup", FakePopup)
+    monkeypatch.setattr(DBrun, "BoxLayout", BoxLayout)
+    monkeypatch.setattr(DBrun, "GridLayout", GridLayout)
+    monkeypatch.setattr(DBrun, "Label", Label)
+    monkeypatch.setattr(DBrun, "Button", Button)
+    monkeypatch.setattr(DBrun, "ScrollView", ScrollView)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = FakeConnection()
+
+    app.show_maintenance_element_details(1, 2, "Q1")
+
+    assert captured.get("opened") is True
+    texts = _collect_texts(captured["popup"].content)
+    assert "[b]Ποσότητα λαδιού (L):[/b]" in texts
+    assert "240" in texts
+
+
 def test_show_maintenance_full_report_includes_element_form_data(monkeypatch):
     captured = {}
 

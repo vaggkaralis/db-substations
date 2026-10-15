@@ -1,11 +1,16 @@
+import sqlite3
+
 from DBrun import (
     build_maintenance_element_status_filter,
     filter_maintenance_elements_for_form,
+    get_model_oil_capacity_liters,
     is_oil_maintenance_element,
     oil_weight_kg_to_liters,
     should_show_maintenance_element,
     summarize_oil_requirement,
 )
+from database import init_db
+from model_management import MV_BREAKER_MODEL_FIELD_DEFS, _get_model_extra_field_defs
 
 
 def test_maintenance_element_status_filter_hides_inactive_for_new_records():
@@ -137,6 +142,45 @@ def test_oil_weight_kg_to_liters_uses_default_density():
     liters = oil_weight_kg_to_liters(178.0)
 
     assert liters == 200.0
+
+
+def test_mv_breaker_model_field_defs_include_oil_capacity_l():
+    assert "oil_capacity_l" in {field["key"] for field in MV_BREAKER_MODEL_FIELD_DEFS}
+
+
+def test_oil_capacity_field_is_only_shown_for_oil_breakers():
+    mv_oil_fields = {
+        field["key"] for field in _get_model_extra_field_defs("Διακόπτης ΜΤ", "Ελαίου")
+    }
+    mv_sf6_fields = {
+        field["key"] for field in _get_model_extra_field_defs("Διακόπτης ΜΤ", "SF6")
+    }
+    hv_oil_fields = {
+        field["key"] for field in _get_model_extra_field_defs("Διακόπτης ΥΤ", "Ελαίου")
+    }
+    hv_sf6_fields = {
+        field["key"] for field in _get_model_extra_field_defs("Διακόπτης ΥΤ", "SF6")
+    }
+
+    assert "oil_capacity_l" in mv_oil_fields
+    assert "oil_capacity_l" not in mv_sf6_fields
+    assert "oil_capacity_l" in hv_oil_fields
+    assert "oil_capacity_l" not in hv_sf6_fields
+
+
+def test_get_model_oil_capacity_liters_prefers_capacity_and_converts_transformer_weight():
+    assert get_model_oil_capacity_liters({"oil_capacity_l": 180}) == 180.0
+    assert get_model_oil_capacity_liters({"oil_weight_kg": 178.0}) == 200.0
+
+
+def test_init_db_creates_oil_capacity_l_column(tmp_path):
+    db_path = tmp_path / "oil_capacity.db"
+    init_db(str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(element_models)")]
+
+    assert "oil_capacity_l" in columns
 
 
 def test_summarize_oil_requirement_adds_tolerance_and_rounds_barrels_up():

@@ -35,6 +35,7 @@ REQUIRED_COLUMNS = {
     "bil_hv_lv_kv": "TEXT",
     "total_weight_kg": "REAL",
     "oil_weight_kg": "REAL",
+    "oil_capacity_l": "REAL",
     "rated_normal_current_a": "REAL",
     "rated_short_circuit_breaking_current_ka": "REAL",
     "short_circuit_duration_s": "REAL",

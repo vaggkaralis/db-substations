@@ -49,6 +49,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             bil_hv_lv_kv TEXT,
             total_weight_kg REAL,
             oil_weight_kg REAL,
+            oil_capacity_l REAL,
             rated_normal_current_a REAL,
             rated_short_circuit_breaking_current_ka REAL,
             short_circuit_duration_s REAL,
@@ -1061,6 +1062,11 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     if "oil_weight_kg" not in model_columns:
         try:
             cursor.execute("ALTER TABLE element_models ADD COLUMN oil_weight_kg REAL")
+        except Exception:
+            pass
+    if "oil_capacity_l" not in model_columns:
+        try:
+            cursor.execute("ALTER TABLE element_models ADD COLUMN oil_capacity_l REAL")
         except Exception:
             pass
     if "rated_normal_current_a" not in model_columns:
