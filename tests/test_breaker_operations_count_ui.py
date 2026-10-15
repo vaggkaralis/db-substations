@@ -211,6 +211,22 @@ def test_prepare_measurement_details_payload_keeps_json_only_fields():
     }
 
 
+def test_preserve_existing_measurement_payload_keeps_toggle_state():
+    app = object.__new__(DBrun.SubstationApp)
+
+    preserved = app._preserve_existing_measurement_payload(
+        {},
+        {
+            "measurements_enabled": True,
+            "extra_measurements": {"measurements_enabled": True, "ins_closed_fa": 5.2},
+        },
+        measurements_enabled=True,
+    )
+
+    assert preserved["measurements_enabled"] is True
+    assert preserved["extra_measurements"]["measurements_enabled"] is True
+
+
 def test_format_measurement_details_payload_formats_nested_values():
     app = object.__new__(DBrun.SubstationApp)
 

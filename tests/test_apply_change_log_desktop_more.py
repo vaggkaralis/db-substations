@@ -98,6 +98,78 @@ def test_maintenance_inserts_and_updates(tmp_path):
     assert md and md[0] == "2026-02-08T10:00:00"
 
 
+def test_maintenance_update_keeps_element_measurement_payload(tmp_path):
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_date TEXT
+        );
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT,
+            data_json TEXT
+        );
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER,
+            element_comments TEXT,
+            data_json TEXT
+        );
+        """
+    )
+    cur.execute("INSERT INTO elements (id, maintenance_date) VALUES (?, ?)", (7, ""))
+    cur.execute(
+        "INSERT INTO maintenance (id, substation_id, date_time, data_json) VALUES (?, ?, ?, ?)",
+        (10, 1, "2026-01-01", None),
+    )
+    cur.execute(
+        "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments, data_json) VALUES (?, ?, ?, ?)",
+        (10, 7, "old", json.dumps({"legacy": "value"})),
+    )
+    conn.commit()
+
+    changelog = tmp_path / "maintenance_update.jsonl"
+    changelog.write_text(
+        json.dumps(
+            {
+                "operation": "update",
+                "table": "maintenance",
+                "data": {
+                    "id": 10,
+                    "date_time": "2026-01-02",
+                    "elements": [
+                        {
+                            "element_id": 7,
+                            "element_comments": "new",
+                            "ins_closed_fa": 12.5,
+                            "sf6": {"sf6_n2_fa": "15"},
+                        }
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    apply_change_log_to_db(conn, str(changelog))
+
+    row = cur.execute(
+        "SELECT data_json FROM maintenance_elements WHERE maintenance_id=? AND element_id=?",
+        (10, 7),
+    ).fetchone()
+    assert row is not None
+    payload = json.loads(row[0])
+    assert payload["ins_closed_fa"] == 12.5
+    assert payload["sf6"]["sf6_n2_fa"] == "15"
+
+
 def test_motor_drive_inherits_transformer_maintenance_date_on_refresh():
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()

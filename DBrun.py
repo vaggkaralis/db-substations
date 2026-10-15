@@ -1133,10 +1133,40 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                                 continue
                             seen_element_ids.add(elem_id)
                             new_element_ids.append(elem_id)
-                            cur.execute(
-                                "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
-                                (maintenance_id, elem_id, elem_comments),
+                            extra_elem = {
+                                k: v
+                                for k, v in elem.items()
+                                if k
+                                not in (
+                                    "element_id",
+                                    "id",
+                                    "element_comments",
+                                    "comments",
+                                )
+                            }
+                            data_json = (
+                                json.dumps(extra_elem, ensure_ascii=False)
+                                if extra_elem
+                                else None
                             )
+                            if "data_json" in me_cols:
+                                cur.execute(
+                                    """
+                                    INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments, data_json)
+                                    VALUES (?, ?, ?, ?)
+                                    """,
+                                    (
+                                        maintenance_id,
+                                        elem_id,
+                                        elem_comments,
+                                        data_json,
+                                    ),
+                                )
+                            else:
+                                cur.execute(
+                                    "INSERT INTO maintenance_elements (maintenance_id, element_id, element_comments) VALUES (?, ?, ?)",
+                                    (maintenance_id, elem_id, elem_comments),
+                                )
                         try:
                             prune_stale_dga_measurements(
                                 conn,
@@ -1149,6 +1179,20 @@ def apply_change_log_to_db(conn: sqlite3.Connection, file_path: str):
                             data.get("substation_id", existing_substation_id),
                             _previous_element_ids + new_element_ids,
                         )
+                        try:
+                            extra_maint = {
+                                k: v for k, v in data.items() if k not in maint_cols
+                            }
+                            if extra_maint and "data_json" in maint_cols:
+                                cur.execute(
+                                    "UPDATE maintenance SET data_json=? WHERE id=?",
+                                    (
+                                        json.dumps(extra_maint, ensure_ascii=False),
+                                        maintenance_id,
+                                    ),
+                                )
+                        except Exception:
+                            pass
                         conn.commit()
                         continue
 
@@ -16664,6 +16708,14 @@ class SubstationApp(App):
                     except Exception:
                         extra_measurements = {}
 
+                has_saved_measurements = bool(
+                    extra_measurements.get("measurements_enabled")
+                ) or any(
+                    self._has_meaningful_measurement_value(value)
+                    for key, value in extra_measurements.items()
+                    if key != "measurements_enabled"
+                )
+
                 existing_elements_data[row[0]] = {
                     "element_comments": row[1] or "",
                     "ins_closed_fa": row[2],
@@ -16700,6 +16752,7 @@ class SubstationApp(App):
                         "vidar_fb": row[30],
                         "vidar_fc": row[31],
                     },
+                    "measurements_enabled": has_saved_measurements,
                     "extra_measurements": extra_measurements,
                 }
                 # Load pending tasks if this maintenance was previously saved as incomplete
@@ -20868,6 +20921,11 @@ class SubstationApp(App):
                                     extra_measurements
                                 )
                             )
+                            saved_toggle_state = data.get("measurements_enabled")
+                            if saved_toggle_state is not None:
+                                has_existing_measurements = bool(
+                                    has_existing_measurements or saved_toggle_state
+                                )
                             # Explicitly set the toggle state so it is deselected
                             # when there are no saved measurement values.
                             measurement_toggle.active = bool(has_existing_measurements)
@@ -21516,6 +21574,9 @@ class SubstationApp(App):
                         if measurements_enabled
                         else {}
                     )
+                    if measurements_enabled:
+                        extra = dict(extra)
+                        extra["measurements_enabled"] = True
 
                     # Safely extract measurement values to avoid KeyError when widgets are absent
                     def _m_text(k):
@@ -21584,6 +21645,7 @@ class SubstationApp(App):
                             "sf6_leak_methodology": sf6_leak_methodology_val,
                             "sf6": sf6_vals,
                             "vidar": vidar_vals,
+                            "measurements_enabled": measurements_enabled,
                             "extra_measurements": extra,
                         },
                         measurements_enabled=measurements_enabled,
@@ -23126,6 +23188,33 @@ class SubstationApp(App):
                 serialized[key] = serialized_value
         return serialized
 
+    def _normalize_form_measurement_payload(self, payload):
+        if not isinstance(payload, dict):
+            return {}
+
+        normalized = dict(payload)
+        nested_measurements = normalized.get("measurements")
+        if isinstance(nested_measurements, dict):
+            for key, value in nested_measurements.items():
+                normalized.setdefault(key, value)
+            if "extra_measurements" not in normalized:
+                normalized["extra_measurements"] = nested_measurements
+
+        if "extra_measurements" in normalized and isinstance(
+            normalized.get("extra_measurements"), dict
+        ):
+            extra_measurements = normalized["extra_measurements"]
+            if not extra_measurements and isinstance(
+                normalized.get("measurements"), dict
+            ):
+                normalized["extra_measurements"] = normalized["measurements"]
+            return normalized
+
+        if isinstance(normalized.get("measurements"), dict):
+            normalized["extra_measurements"] = normalized["measurements"]
+
+        return normalized
+
     def _apply_serialized_measurement_value(self, widget, value):
         if widget is None or value is None:
             return
@@ -23232,6 +23321,7 @@ class SubstationApp(App):
             "sf6",
             "vidar",
             "extra_measurements",
+            "measurements_enabled",
         ):
             existing_value = existing_data.get(key)
             if self._has_meaningful_measurement_value(existing_value):
