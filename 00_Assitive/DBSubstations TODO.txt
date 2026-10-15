@@ -1,0 +1,50 @@
+- Δημιουργία κατάλληλου logger/log file (user/info/debug level)
+- Δημιουργία developer/production mode (int/prod)
+
+To be verified:
+- Check for any unused files, functions or parts of the code. They are to be removed safely, so that we don't risk the functionality of the code, since the app is in a good working condition. Also we need to clean up the space inside the working directory, files that are not needed any more for the app need to be removed (old backup files, unused reports). Reminder: no one reads MD files, remove them!
+- android changes: After the changes are done it must be checked that CI Lint/test/build rules are followed and that the integrity of the android app is secured (as reminder the sensitivity of the android app to changes has been high, it has broken many times and it takes a lot of time to repair)
+- run the test suite, ensure that everything is ok and then ensure that there no violations of the CI Lint and test rules before committing and pushing the changes, avoid running build that takes too long. commit and push in the end
+
+
+Running:
+android app: 
+1. check that the maintenance forms of all types of elements include the same content with the ones of the desktop app. We have measurements and data for the various element types (breakers, transformers etc.) that should be aligned. 
+
+- add/import the schedule of the personnel from excel sheet. The isolations menu shall be used (as we already have a calendar there, the day or the week shall be able to open for the user to see/edit the daily and weekly schedule) for that and we need to link each employee with a job for the week. The job may be linked to an isolation but also maybe not. We also need to be able to import the schedule from excel, a template can be found in (an importer for the user to confirm and edit is needed here as well). The schedule may also be exported for a calendar week according to the template as well. Except for the projects that are running there are some standard jobs or absense that are entered here: ΓΡΑΦΕΙΟ (mainly for roles "Μηχανικός", "Τομεάρχης ΤΕΙ", "Υποτομεάρχης ΤΕΙ", "Ειδικό Στέλεχος Γ'"), "ΣΥΝΤΗΡΗΣΗ Μ/Σ ΔΙΑΝΟΜΗΣ", "ΑΠΟΘΗΚΗ", "ΔΙΕΥΘΕΤΗΣΗ ΥΛΙΚΩΝ ΑΠΟΘΗΚΗΣ", "ΑΝΑΠΑΥΣΗ", "ΑΝΑΡΡΩΤΙΚΗ ΑΔΕΙΑ", "ΣΠΟΥΔΑΣΤΙΚΗ ΑΔΕΙΑ", "ΕΙΔΙΚΗ ΑΔΕΙΑ", "ΓΟΝΙΚΗ ΑΔΕΙΑ", "ΑΔΕΙΑ ΑΝΕΥ ΑΠΟΔΟΧΩΝ", "ΓΡΑΜΜΑΤΕΙΑΚΗ ΥΠΟΣΤΗΡΙΞΗ", "ΙΑΤΡΙΚΕΣ ΕΞΕΤΑΣΕΙΣ", "LAVAL". A project usually is linked to a substation and a maintenance job (may be recignized automatically on importing as the name of the substation is usually in its description), but if it cannot be recognized, it may be linked by the user. If it is not recognized it may not have to do with a substation though, so this is also an option for the user to set. Not all users are able to edit the schedule, just "Μηχανικός", "Τομεάρχης ΤΕΙ", "Υποτομεάρχης ΤΕΙ", "Ειδικό Στέλεχος Γ'" and "Υποστήριξη".
+
+
+
+TODO:
+- element 1359 (substation "ΣΙΝΔΟΣ (Β.Π. ΘΕΣΣΑΛΟΝΙΚΗΣ)") connects Gates 1 and 9, while element 1361 connects Gates 2 and 9. I don't understand why we have a category "ΠΥΛΗ 9-10" since there is no Gate 10. We have gates 1, 2 and 9 so these gates can be interconnected here. When I try to edit, I see gate 3 there, but there is no gate 3 of course. We need to fix the substation and the gate interconnection logic i suppose. This is an exceptional substation, because there are no gates between 2 and 9 but we must give the user the possibility of setting and editing also these cases.
+
+- try to find a way to pull the current db file (read) for the android app. currently i have to open the onedrive app and download it manually to replace the older local db file on the phone. let's discuss it first before any changes are done
+
+- reports: responsible is not included in some of the reports (e.g. transformer report), we need to make sure that the responsible's name is printed in them. Do a thorough scan.
+
+- I want you to search in the documents of the folder to find data about the maintenance of the substation elements. The data are in documents and shall be imported as events in our database. You shall create a text file, which I'll Review, change and then give you the order to import it as events in the database, so you shall create the text file in a form that is readable by me and parsable by you for import.
+
+- I have a folder of existing data concerning our substations. The folder content is very big (>40GB). The point is to try and find there files that could concern our database and patch them in such a way to our folder structure. We must be pretty sure when we link data to our structure. When you move data from the existing folder they need to be moved so that we know that we are done with them. I can give you the path to see that he file structure is a bit different (for example instead of "ΠΥΛΗ 1" you can see "ΜΣ1"). The folder must be analyzed and transformed. I will need help since it's so big. The idea would be to migrate the useful data in such a way so that we (a) move them in our file structure and (b) link/bind them to the database as well (Import data for the substations from it in the db as well). 
+
+- explain to me how you print the excel report of the dga measurements, do you use the file i gave you, so the file is essential for the code to work?
+
+- ΖΥΓΟΥΣ + ΓΕΙΩΤΕΣ
+
+- PDF reports (inspections, maintenances etc.)
+
+- Test Backup database function: Check that the backups are working automatically and tell me in what rhythm and how many copies am i supposed to find at all times (I think a daily, a weekly and a monthly make sense, so at all times the user can find the copies from yesterday, last week and last month). When is the backup triggered (assumed, when closing the app?)? Is it checked on shutdown of the app what backups we have and are NEW fresh ones created? Review and optimize
+
+
+
+
+Wishlist:
+- Make selected menus copyable
+- Check AI potential for some functionalities, like importing maintenance from e-mail
+- import a maintenance report from scanned (OCR) report. We use currently written maintenance reports and we will need to be able to scan and import them in the database. We will need an importer for those.
+
+	
+
+Scripts:
+1. Outlook tools (automatic failures)
+2. android tools: 
+	i. Power - Current
