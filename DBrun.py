@@ -19168,14 +19168,11 @@ class SubstationApp(App):
                     elem_display = f"[b]{display_name}[/b] - {display_type}"
                     if breaker_category:
                         elem_display += f" ({breaker_category})"
-                    elem_display += f"\nS/N: {serial_number or '-'}"
 
-                    # Add manufacturer and model info
+                    # Keep the title as the first line; the long metadata belongs in the
+                    # detached detail area below the title and beside the model tags.
                     mfr = model_manufacturer or manufacturer or "-"
                     mdl = model_name or model or "-"
-                    elem_display += (
-                        f" | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id or 'N/A'})"
-                    )
 
                     # Element row: keep gate tag on the left, the first line flush at the
                     # top, then put model tags under it and continue the detail text to the right.
@@ -19227,12 +19224,15 @@ class SubstationApp(App):
                         spacing=8,
                         padding=(0, 0, 0, 0),
                     )
-                    content_stack = BoxLayout(
-                        orientation="vertical",
-                        size_hint_x=1,
-                        spacing=2,
+                    content_block = GridLayout(
+                        cols=2,
+                        rows=2,
+                        size_hint=(1, None),
+                        spacing=(6, 2),
                         padding=(0, 0, 0, 0),
+                        row_default_height=22,
                     )
+                    content_block.bind(minimum_height=content_block.setter("height"))
 
                     first_line_label = Label(
                         text=elem_display,
@@ -19250,57 +19250,33 @@ class SubstationApp(App):
                             inst, "height", max(22, val[1] + 2)
                         ),
                     )
-                    content_stack.add_widget(first_line_label)
+                    first_line_label.col_span = 2
+                    content_block.add_widget(first_line_label)
 
                     if model_tags_box:
-                        info_row = BoxLayout(
-                            orientation="horizontal",
-                            size_hint=(1, None),
-                            height=22,
-                            spacing=6,
-                            padding=(0, 0, 0, 0),
-                        )
                         model_tags_box.size_hint_y = None
                         model_tags_box.size_hint_x = None
-                        info_row.add_widget(model_tags_box)
+                        content_block.add_widget(model_tags_box)
 
-                        detail_label = Label(
-                            text=detail_display,
-                            size_hint_x=1,
-                            size_hint_y=None,
-                            height=22,
-                            markup=True,
-                            halign="left",
-                            valign="middle",
-                        )
-                        detail_label.bind(
-                            width=lambda inst, val: setattr(
-                                inst, "text_size", (max(0, val), None)
-                            ),
-                            texture_size=lambda inst, val: setattr(
-                                inst, "height", max(22, val[1] + 2)
-                            ),
-                        )
-                        info_row.add_widget(detail_label)
-                        content_stack.add_widget(info_row)
-                    else:
-                        detail_label = Label(
-                            text=detail_display,
-                            size_hint=(1, None),
-                            height=22,
-                            markup=True,
-                            halign="left",
-                            valign="middle",
-                        )
-                        detail_label.bind(
-                            width=lambda inst, val: setattr(
-                                inst, "text_size", (max(0, val - 6), None)
-                            ),
-                            texture_size=lambda inst, val: setattr(
-                                inst, "height", max(22, val[1] + 2)
-                            ),
-                        )
-                        content_stack.add_widget(detail_label)
+                    detail_label = Label(
+                        text=detail_display,
+                        size_hint=(1, None) if not model_tags_box else (1, None),
+                        height=22,
+                        markup=True,
+                        halign="left",
+                        valign="middle",
+                    )
+                    detail_label.bind(
+                        width=lambda inst, val: setattr(
+                            inst, "text_size", (max(0, val), None)
+                        ),
+                        texture_size=lambda inst, val: setattr(
+                            inst, "height", max(22, val[1] + 2)
+                        ),
+                    )
+                    if not model_tags_box:
+                        detail_label.col_span = 2
+                    content_block.add_widget(detail_label)
 
                     checkbox = CheckBox(
                         size_hint_x=0.08,
@@ -19308,8 +19284,9 @@ class SubstationApp(App):
                     )
 
                     content_row.add_widget(left_gate_column)
-                    content_row.add_widget(content_stack)
+                    content_row.add_widget(content_block)
                     content_row.add_widget(checkbox)
+                    left_gate_column.height = max(56, content_block.height)
                     self._bind_row_height_to_children(content_row, min_height=64)
                     elem_box.add_widget(content_row)
 
