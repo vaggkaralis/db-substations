@@ -276,6 +276,14 @@ def test_normalize_form_measurement_payload_maps_legacy_android_aliases():
     assert normalized["ins_closed_fa"] == 6.7
 
 
+def test_normalize_form_measurement_payload_maps_oil_quantity_aliases():
+    app = object.__new__(DBrun.SubstationApp)
+
+    normalized = app._normalize_form_measurement_payload({"oil_liters": 240})
+
+    assert normalized["oil_quantity_l"] == 240
+
+
 def test_format_measurement_details_payload_formats_nested_values():
     app = object.__new__(DBrun.SubstationApp)
 

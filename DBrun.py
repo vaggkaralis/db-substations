@@ -19546,6 +19546,29 @@ class SubstationApp(App):
                                 label_size_hint_x=0.42,
                             )
 
+                            oil_quantity_input = self._create_measurement_input(
+                                hint_text="L",
+                                size_hint_x=0.18,
+                                multiline=False,
+                            )
+                            oil_quantity_input.bind(
+                                text=lambda inst, val: (
+                                    setattr(
+                                        inst,
+                                        "text",
+                                        self._normalize_decimal_numeric_text(val),
+                                    )
+                                    if val and "," in val
+                                    else None
+                                )
+                            )
+                            self._add_labeled_measurement_row(
+                                details_container,
+                                "Ποσότητα λαδιού (L):",
+                                oil_quantity_input,
+                                label_size_hint_x=0.42,
+                            )
+
                             oil_changed_cb = CheckBox(
                                 size_hint=(None, None), size=(28, 28)
                             )
@@ -19664,6 +19687,7 @@ class SubstationApp(App):
                             measurements.update(
                                 {
                                     "oil_condition": oil_cond,
+                                    "oil_quantity_l": oil_quantity_input,
                                     "oil_changed": oil_changed_cb,
                                     "sync_timing": sync_timing,
                                     "wash_insulators": wash_insulators,
@@ -23276,6 +23300,11 @@ class SubstationApp(App):
         alias_map = {
             "operations_count": "ops_count",
             "sf6_leakage": "sf6_leakage_kg",
+            "oil_quantity": "oil_quantity_l",
+            "oil_quantity_l": "oil_quantity_l",
+            "oil_liters": "oil_quantity_l",
+            "oil_amount_l": "oil_quantity_l",
+            "oil_volume_l": "oil_quantity_l",
             "legacy_measurements": "extra_measurements",
             "measurements": "extra_measurements",
         }
@@ -23461,6 +23490,7 @@ class SubstationApp(App):
             "cont_fb",
             "cont_fc",
             "ops_count",
+            "oil_quantity_l",
             "sf6_leakage_kg",
             "sf6_leak_methodology",
             "sf6",
@@ -23556,6 +23586,7 @@ class SubstationApp(App):
     def _measurement_detail_label(self, key):
         label_map = {
             "oil_condition": "Κατάσταση λαδιού",
+            "oil_quantity_l": "Ποσότητα λαδιού",
             "oil_changed": "Αλλαγή λαδιών",
             "sync_timing": "Έλεγχος ταυτοχρονισμού",
             "open": "O",
