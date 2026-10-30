@@ -10769,6 +10769,41 @@ class SubstationApp(App):
                     e for e in all_elements if e[20] and e[20] == "Ανενεργή"
                 ]
 
+                now_dt = datetime.now()
+
+                def _get_element_maintenance_flags(
+                    maintenance_date,
+                    maintenance_cycle,
+                ):
+                    is_overdue = False
+                    is_stale_more_than_year = False
+                    last_maint = None
+
+                    if maintenance_date and str(maintenance_date).strip():
+                        try:
+                            last_maint = datetime.strptime(
+                                str(maintenance_date).split()[0], "%Y-%m-%d"
+                            )
+                            one_year_ago = now_dt - timedelta(days=365)
+                            if last_maint < one_year_ago:
+                                is_stale_more_than_year = True
+                        except Exception:
+                            last_maint = None
+
+                    if maintenance_cycle and maintenance_cycle > 0:
+                        if not maintenance_date or str(maintenance_date).strip() == "":
+                            # Missing maintenance date when cycle is defined
+                            is_overdue = True
+                        elif last_maint is not None:
+                            years_ago = now_dt - timedelta(
+                                days=int(maintenance_cycle) * 365
+                            )
+                            if last_maint < years_ago:
+                                is_overdue = True
+
+                    has_warning_or_expired = is_overdue or is_stale_more_than_year
+                    return is_overdue, has_warning_or_expired
+
                 c.execute(
                     """
                     SELECT parent_element_id, COUNT(*)
@@ -10781,6 +10816,31 @@ class SubstationApp(App):
                 child_counts_by_parent = {
                     parent_id: count for parent_id, count in c.fetchall() if parent_id
                 }
+
+                active_warning_or_expired_count = 0
+                active_expired_count = 0
+                for elem in active_elements:
+                    element_maintenance_cycle = elem[16]
+                    model_maintenance_cycle = elem[17]
+                    maintenance_cycle = None
+                    if element_maintenance_cycle and element_maintenance_cycle > 0:
+                        maintenance_cycle = element_maintenance_cycle
+                    elif model_maintenance_cycle and model_maintenance_cycle > 0:
+                        maintenance_cycle = model_maintenance_cycle
+                    is_overdue, has_warning_or_expired = _get_element_maintenance_flags(
+                        elem[5],
+                        maintenance_cycle,
+                    )
+                    if has_warning_or_expired:
+                        active_warning_or_expired_count += 1
+                    if is_overdue:
+                        active_expired_count += 1
+
+                lbl_count.text = (
+                    f"{len(active_elements)}/"
+                    f"{active_warning_or_expired_count}/"
+                    f"{active_expired_count}"
+                )
 
                 if active_elements or inactive_elements:
                     # Define sort priority for element types
@@ -10893,13 +10953,44 @@ class SubstationApp(App):
 
                         # Gate header with count
                         element_count = len(gate_elements)
+                        gate_warning_or_expired_count = 0
+                        gate_expired_count = 0
+                        for gate_elem in gate_elements:
+                            element_maintenance_cycle = gate_elem[16]
+                            model_maintenance_cycle = gate_elem[17]
+                            maintenance_cycle = None
+                            if (
+                                element_maintenance_cycle
+                                and element_maintenance_cycle > 0
+                            ):
+                                maintenance_cycle = element_maintenance_cycle
+                            elif (
+                                model_maintenance_cycle and model_maintenance_cycle > 0
+                            ):
+                                maintenance_cycle = model_maintenance_cycle
+                            is_overdue, has_warning_or_expired = (
+                                _get_element_maintenance_flags(
+                                    gate_elem[5],
+                                    maintenance_cycle,
+                                )
+                            )
+                            if has_warning_or_expired:
+                                gate_warning_or_expired_count += 1
+                            if is_overdue:
+                                gate_expired_count += 1
+
                         header_color = (
                             (1, 0, 0, 1)
                             if gate_name == "Ανενεργά"
                             else (0.2, 0.6, 1, 1)
                         )
                         gate_label = Label(
-                            text=f"   {gate_name} ({element_count} στοιχεία)",
+                            text=(
+                                f"   {gate_name} ("
+                                f"{element_count}/"
+                                f"{gate_warning_or_expired_count}/"
+                                f"{gate_expired_count} στοιχεία)"
+                            ),
                             size_hint_y=None,
                             height=35,
                             bold=True,
@@ -10945,30 +11036,19 @@ class SubstationApp(App):
                             ):
                                 maintenance_cycle = model_maintenance_cycle
 
-                            is_overdue = False
-                            if maintenance_cycle and maintenance_cycle > 0:
-                                if (
-                                    not maintenance_date
-                                    or maintenance_date.strip() == ""
-                                ):
-                                    # Missing maintenance date when cycle is defined
-                                    is_overdue = True
-                                else:
-                                    try:
-                                        last_maint = datetime.strptime(
-                                            maintenance_date.split()[0], "%Y-%m-%d"
-                                        )
-                                        years_ago = datetime.now() - timedelta(
-                                            days=maintenance_cycle * 365
-                                        )
-                                        if last_maint < years_ago:
-                                            is_overdue = True
-                                    except Exception:
-                                        pass
+                            is_overdue, has_warning_or_expired = (
+                                _get_element_maintenance_flags(
+                                    maintenance_date,
+                                    maintenance_cycle,
+                                )
+                            )
 
-                            # Format maintenance date with color if overdue or missing
+                            # Format maintenance date with color if overdue/missing
+                            # (red) or older than one year (yellow), with red priority.
                             if is_overdue:
                                 maint_display = f"[color=ff0000][b]Τελ. Συντ.: {maintenance_date or '-'}[/b][/color]"
+                            elif has_warning_or_expired:
+                                maint_display = f"[color=ffcc33][b]Τελ. Συντ.: {maintenance_date or '-'}[/b][/color]"
                             else:
                                 maint_display = f"Τελ. Συντ.: {maintenance_date or '-'}"
 
@@ -19807,6 +19887,7 @@ class SubstationApp(App):
                                 hint_text="Έλεγχος Διαρροών Sf6",
                                 size_hint_x=0.5,
                                 multiline=True,
+                                follow_parent_scroll=False,
                             )
                             self._add_labeled_measurement_row(
                                 details_container,
@@ -22535,14 +22616,18 @@ class SubstationApp(App):
         if widget_y is None:
             return None
 
+        line_height = max(18.0, float(getattr(text_input, "line_height", 18) or 18))
+        text_input_height = float(getattr(text_input, "height", 0) or 0)
+
         cursor_pos = getattr(text_input, "cursor_pos", None)
         if isinstance(cursor_pos, (tuple, list)) and len(cursor_pos) > 1:
             try:
-                return widget_y + float(cursor_pos[1])
+                cursor_local_y = float(cursor_pos[1])
+                if -line_height <= cursor_local_y <= text_input_height + line_height:
+                    return widget_y + cursor_local_y
             except Exception:
                 pass
 
-        line_height = max(18.0, float(getattr(text_input, "line_height", 18) or 18))
         cursor = getattr(text_input, "cursor", None)
         cursor_row = 0
         if isinstance(cursor, (tuple, list)) and len(cursor) > 1:
@@ -22554,7 +22639,6 @@ class SubstationApp(App):
         _padding_left, padding_top, _padding_right, padding_bottom = (
             self._normalize_text_input_padding(text_input)
         )
-        text_input_height = float(getattr(text_input, "height", 0) or 0)
         cursor_local_y = max(
             float(padding_bottom) + 2.0,
             text_input_height - float(padding_top) - line_height * (cursor_row + 1),
@@ -22669,7 +22753,10 @@ class SubstationApp(App):
             except Exception:
                 _apply()
 
-        for event_name in ("focus", "cursor", "height", "size", "text"):
+        # Avoid binding on "focus" / "text": both can fire during the same touch
+        # sequence that gives focus, which may trigger a scroll jump and blur.
+        # Cursor and geometry changes are enough to keep the caret visible while typing.
+        for event_name in ("cursor", "height", "size"):
             try:
                 text_input.bind(**{event_name: _schedule})
             except Exception:
@@ -22678,7 +22765,12 @@ class SubstationApp(App):
         return text_input
 
     def _enable_expandable_text_input(
-        self, text_input, *, min_height=52, max_height=150
+        self,
+        text_input,
+        *,
+        min_height=52,
+        max_height=150,
+        bind_parent_scroll_follow=True,
     ):
         def _resize(*_args):
             text = getattr(text_input, "text", "") or ""
@@ -22690,7 +22782,8 @@ class SubstationApp(App):
             )
 
         text_input.bind(text=_resize)
-        self._bind_parent_scroll_follow_for_text_input(text_input)
+        if bind_parent_scroll_follow:
+            self._bind_parent_scroll_follow_for_text_input(text_input)
         _resize()
         return text_input
 
@@ -22720,6 +22813,7 @@ class SubstationApp(App):
         size_hint_x=0.2,
         multiline=False,
         min_height=None,
+        follow_parent_scroll=True,
     ):
         text_input = TextInput(
             text=text,
@@ -22734,6 +22828,7 @@ class SubstationApp(App):
             self._enable_expandable_text_input(
                 text_input,
                 min_height=min_height or 52,
+                bind_parent_scroll_follow=follow_parent_scroll,
             )
         return text_input
 

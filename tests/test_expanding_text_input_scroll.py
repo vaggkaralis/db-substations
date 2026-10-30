@@ -79,3 +79,21 @@ def test_expanding_text_input_scroll_stays_put_when_caret_is_visible():
     )
 
     assert desired_scroll_y is None
+
+
+def test_expanding_text_input_scroll_ignores_out_of_range_cursor_pos():
+    app = SubstationApp()
+    scroll, text_input = _build_scroll_context(
+        scroll_y=0.5,
+        widget_y=250,
+        cursor_y=900,
+    )
+    text_input.cursor = (0, 0)
+
+    desired_scroll_y = app._get_parent_scroll_y_for_text_input_cursor(
+        scroll,
+        text_input,
+        padding=24,
+    )
+
+    assert desired_scroll_y is None
