@@ -12,7 +12,7 @@ clean up the unnecessary parts of code and files, check CI Lint/Test compliance,
 
 
 TODO:
-- sync process still too slow. i make a small change and i have to wait minutes to sync it. optimize
+- sync process still too slow. i make a small change and i have to wait minutes to sync it. optimize it. the user needs to make small changes and sync them quickly to the common folder and the app shall be smart enough to realize that the changes done do not demand so much time.
 
 - make it work -> full MV maintenance from android
 

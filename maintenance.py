@@ -678,13 +678,56 @@ def show_maintenance_menu_popup(app, ui):
             return
         fallback_action()
 
+    def _start_new_maintenance_with_substation_selection():
+        try:
+            cursor = app.conn.cursor()
+            cursor.execute("SELECT id, name FROM substations ORDER BY name")
+            substations = cursor.fetchall() or []
+        except Exception:
+            substations = []
+
+        if not substations:
+            show_message = ui.get("show_message_popup")
+            if callable(show_message):
+                show_message(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    S["MESSAGES"].get("NO_SUBSTATIONS", "Δεν υπάρχουν υποσταθμοί!"),
+                )
+            return
+
+        substation_by_name = {sub_name: sub_id for sub_id, sub_name in substations}
+
+        def _open_maintenance_for_substation(substation_name):
+            substation_id = substation_by_name.get(substation_name)
+            if substation_id is None:
+                return
+            if hasattr(app, "show_maintenance_menu_for_substation"):
+                app.show_maintenance_menu_for_substation(
+                    substation_id,
+                    substation_name,
+                    parent_popup=None,
+                )
+                return
+            app.show_maintenance_menu(
+                parent_popup=None,
+                preselected_substation_name=substation_name,
+            )
+
+        if hasattr(app, "_show_substation_selection_window_with_callback"):
+            app._show_substation_selection_window_with_callback(
+                None,
+                substations,
+                on_select=_open_maintenance_for_substation,
+                title=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή Υποσταθμού"),
+            )
+            return
+
+        app.show_maintenance_menu(parent_popup=None)
+
     buttons = [
         (
             S["MESSAGES"].get("ADD_MAINTENANCE", "Καταχώρηση Συντήρησης"),
-            lambda: _launch_or_fallback(
-                "maintenance_form",
-                lambda: app.show_maintenance_menu(parent_popup=None),
-            ),
+            _start_new_maintenance_with_substation_selection,
         ),
         (
             S["MESSAGES"].get(
