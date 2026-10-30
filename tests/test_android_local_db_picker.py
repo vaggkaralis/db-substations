@@ -147,15 +147,8 @@ def test_build_places_onedrive_refresh_button_in_db_bar(monkeypatch):
     assert hasattr(app, "onedrive_refresh_btn")
     assert app.onedrive_refresh_btn is not None
     assert app.local_db_btn.size_hint_x < 0.35
-    container = getattr(app, "onedrive_refresh_btn_container", None)
-    if container is not None:
-        assert container in app.db_bar.children
-    else:
-        assert app.onedrive_refresh_btn in app.db_bar.children
-
-    btn_text = getattr(app.onedrive_refresh_btn, "text", None)
-    if btn_text is not None:
-        assert btn_text != "X"
+    assert app.onedrive_refresh_btn in app.db_bar.children
+    assert getattr(app.onedrive_refresh_btn, "text", "") == "Επαναφόρτωση"
 
 
 def test_build_hides_sync_button_on_android(monkeypatch):
@@ -914,6 +907,122 @@ def test_has_element_maintenance_history_ignores_orphan_links(tmp_path):
 
     assert app._has_element_maintenance_history(707) is False
     assert app._has_element_maintenance_history(708) is True
+
+
+def test_show_element_maintenance_history_reads_measurements_from_data_json(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "android_measurement_history.db"
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE substations (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            name TEXT
+        );
+        CREATE TABLE maintenance (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER,
+            date_time TEXT,
+            maintenance_type TEXT,
+            overall_comments TEXT,
+            responsible_id INTEGER,
+            onedrive_media_folder_link TEXT
+        );
+        CREATE TABLE maintenance_elements (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            element_id INTEGER,
+            element_comments TEXT,
+            insulation_closed_fa_ground TEXT,
+            insulation_closed_fb_ground TEXT,
+            insulation_closed_fc_ground TEXT,
+            contact_resistance_fa_fa TEXT,
+            contact_resistance_fb_fb TEXT,
+            contact_resistance_fc_fc TEXT,
+            operations_count TEXT,
+            data_json TEXT
+        );
+        CREATE TABLE maintenance_people (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            person_id INTEGER,
+            role TEXT
+        );
+        CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE maintenance_pending_tasks (
+            id INTEGER PRIMARY KEY,
+            maintenance_id INTEGER,
+            tasks_text TEXT
+        );
+        """
+    )
+    cur.execute("INSERT INTO substations (id, name) VALUES (1, 'S1')")
+    cur.execute("INSERT INTO elements (id, substation_id, name) VALUES (10, 1, 'E1')")
+    cur.execute(
+        """
+        INSERT INTO maintenance
+            (id, substation_id, date_time, maintenance_type, overall_comments)
+        VALUES
+            (100, 1, '2026-01-01 10:00', 'Επαναληπτική συντήρηση', 'ok')
+        """
+    )
+    cur.execute(
+        """
+        INSERT INTO maintenance_elements (
+            maintenance_id,
+            element_id,
+            element_comments,
+            insulation_closed_fa_ground,
+            operations_count,
+            data_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            100,
+            10,
+            "elem comment",
+            None,
+            None,
+            '{"ins_closed_fa":"321","ops_count":"777"}',
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, title=None, size_hint=None, **kwargs):
+            self.title = title
+            self.size_hint = size_hint
+            self.content = kwargs.get("content")
+            captured["instance"] = self
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    monkeypatch.setattr(android_app, "Popup", DummyPopup)
+
+    app = android_app.SubstationAndroidApp()
+    app.local_db_path = str(db_path)
+    errors = []
+    monkeypatch.setattr(app, "show_error", lambda message: errors.append(message))
+
+    app.show_element_maintenance_history(10, "E1")
+
+    assert errors == []
+    assert captured.get("instance") is not None
+    texts = _collect_widget_texts(captured["instance"].content)
+    full_text = "\n".join(str(text) for text in texts)
+    assert "321" in full_text
+    assert "777" in full_text
 
 
 def test_show_substation_details_guards_maintenance_action_errors(monkeypatch):

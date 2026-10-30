@@ -4095,7 +4095,7 @@ class SubstationAndroidApp(App):
 
             self.mode_label = Label(
                 text=S.get("MESSAGES", {}).get("MODE_LABEL_LOCAL", "Πηγή: Τοπική Βάση"),
-                size_hint_x=0.58,
+                size_hint_x=0.50,
                 font_size="13sp",
                 halign="left",
                 valign="middle",
@@ -4107,7 +4107,7 @@ class SubstationAndroidApp(App):
 
             self.local_db_btn = Button(
                 text=S.get("MESSAGES", {}).get("LOCAL_DB_BUTTON", "Βάση Δεδομένων"),
-                size_hint_x=0.26,
+                size_hint_x=0.23,
                 font_size="13sp",
                 halign="center",
                 valign="middle",
@@ -4120,35 +4120,29 @@ class SubstationAndroidApp(App):
             self.local_db_btn.bind(on_press=lambda _x: self.open_local_db_picker())
             self._style_button(self.local_db_btn, "secondary")
 
-            self.onedrive_refresh_btn = self._build_vector_icon_button(
-                "refresh",
-                lambda _x: self._refresh_db_from_onedrive_source(),
-                size=(52, 52),
+            self.onedrive_refresh_btn = Button(
+                text=S.get("MESSAGES", {}).get(
+                    "ONEDRIVE_RELOAD_BUTTON", "Επαναφόρτωση"
+                ),
+                size_hint_x=0.27,
+                font_size="13sp",
+                halign="center",
+                valign="middle",
             )
+            self.onedrive_refresh_btn.bind(
+                size=lambda inst, _size: setattr(
+                    inst, "text_size", (inst.width - 8, inst.height - 8)
+                )
+            )
+            self.onedrive_refresh_btn.bind(
+                on_press=lambda _x: self._refresh_db_from_onedrive_source()
+            )
+            self._style_button(self.onedrive_refresh_btn, "secondary")
             self.onedrive_refresh_btn_container = None
-            try:
-                from kivy.uix.anchorlayout import AnchorLayout
-
-                self.onedrive_refresh_btn_container = AnchorLayout(
-                    anchor_x="center",
-                    anchor_y="center",
-                    size_hint_x=0.16,
-                )
-                # Fill the same reserved slot so tapping is easier without
-                # increasing the slot width in the DB toolbar.
-                self.onedrive_refresh_btn.size_hint = (0.95, 0.9)
-                self.onedrive_refresh_btn_container.add_widget(
-                    self.onedrive_refresh_btn
-                )
-            except Exception:
-                self.onedrive_refresh_btn.size_hint_x = 0.16
 
             self.db_bar.add_widget(self.mode_label)
             self.db_bar.add_widget(self.local_db_btn)
-            if self.onedrive_refresh_btn_container is not None:
-                self.db_bar.add_widget(self.onedrive_refresh_btn_container)
-            else:
-                self.db_bar.add_widget(self.onedrive_refresh_btn)
+            self.db_bar.add_widget(self.onedrive_refresh_btn)
             main_layout.add_widget(self.db_bar)
 
             # Main content area
@@ -9896,6 +9890,54 @@ class SubstationAndroidApp(App):
     def show_element_maintenance_history(self, element_id, element_name):
         """Show maintenance history for a specific element"""
         try:
+
+            def _has_meaningful_measurement_value(value):
+                if value is None:
+                    return False
+                if isinstance(value, str):
+                    stripped = value.strip()
+                    if not stripped:
+                        return False
+                    if stripped in {"-", "—"}:
+                        return False
+                return True
+
+            def _display_measurement_value(value):
+                if isinstance(value, dict):
+                    base_value = (
+                        value.get("value")
+                        if isinstance(value.get("value"), (str, int, float))
+                        else None
+                    )
+                    if _has_meaningful_measurement_value(base_value):
+                        unit_value = value.get("unit")
+                        if _has_meaningful_measurement_value(unit_value):
+                            return f"{base_value} {unit_value}"
+                        return str(base_value)
+                    return ""
+                return str(value)
+
+            def _resolve_measurement_value(
+                legacy_value, payload, direct_keys=(), nested_paths=()
+            ):
+                if _has_meaningful_measurement_value(legacy_value):
+                    return legacy_value
+                for key in direct_keys:
+                    payload_value = payload.get(key)
+                    if _has_meaningful_measurement_value(payload_value):
+                        return payload_value
+                for path in nested_paths:
+                    current = payload
+                    valid_path = True
+                    for part in path:
+                        if not isinstance(current, dict):
+                            valid_path = False
+                            break
+                        current = current.get(part)
+                    if valid_path and _has_meaningful_measurement_value(current):
+                        return current
+                return None
+
             if not self.local_db_path or not os.path.exists(self.local_db_path):
                 self.show_error("Δεν υπάρχει φορτωμένη βάση δεδομένων")
                 return
@@ -9917,7 +9959,7 @@ class SubstationAndroidApp(App):
                        me.element_comments, s.name as substation_name,
                        me.insulation_closed_fa_ground, me.insulation_closed_fb_ground, me.insulation_closed_fc_ground,
                        me.contact_resistance_fa_fa, me.contact_resistance_fb_fb, me.contact_resistance_fc_fc,
-                       me.operations_count, m.onedrive_media_folder_link
+                       me.operations_count, me.data_json, m.onedrive_media_folder_link
                 FROM maintenance m
                 JOIN maintenance_elements me ON m.id = me.maintenance_id
                 JOIN substations s ON m.substation_id = s.id
@@ -10031,8 +10073,54 @@ class SubstationAndroidApp(App):
                     contact_res_fb,
                     contact_res_fc,
                     operations_count,
+                    measurement_data_json,
                     onedrive_media_link,
                 ) in maintenance_records:
+                    measurement_payload = {}
+                    if measurement_data_json:
+                        try:
+                            decoded_payload = json.loads(measurement_data_json)
+                            if isinstance(decoded_payload, dict):
+                                measurement_payload = decoded_payload
+                        except Exception:
+                            measurement_payload = {}
+
+                    insul_fa_value = _resolve_measurement_value(
+                        insul_fa_gnd,
+                        measurement_payload,
+                        direct_keys=("insulation_closed_fa_ground", "ins_closed_fa"),
+                    )
+                    insul_fb_value = _resolve_measurement_value(
+                        insul_fb_gnd,
+                        measurement_payload,
+                        direct_keys=("insulation_closed_fb_ground", "ins_closed_fb"),
+                    )
+                    insul_fc_value = _resolve_measurement_value(
+                        insul_fc_gnd,
+                        measurement_payload,
+                        direct_keys=("insulation_closed_fc_ground", "ins_closed_fc"),
+                    )
+                    contact_res_fa_value = _resolve_measurement_value(
+                        contact_res_fa,
+                        measurement_payload,
+                        direct_keys=("contact_resistance_fa_fa", "cont_fa"),
+                    )
+                    contact_res_fb_value = _resolve_measurement_value(
+                        contact_res_fb,
+                        measurement_payload,
+                        direct_keys=("contact_resistance_fb_fb", "cont_fb"),
+                    )
+                    contact_res_fc_value = _resolve_measurement_value(
+                        contact_res_fc,
+                        measurement_payload,
+                        direct_keys=("contact_resistance_fc_fc", "cont_fc"),
+                    )
+                    operations_count_value = _resolve_measurement_value(
+                        operations_count,
+                        measurement_payload,
+                        direct_keys=("operations_count", "ops_count"),
+                    )
+
                     pending_tasks_display = build_pending_tasks_history_text(
                         pending_tasks_by_maint.get(maint_id, "")
                     )
@@ -10139,32 +10227,34 @@ class SubstationAndroidApp(App):
 
                     # Add measurements if present
                     measurements = []
-                    if insul_fa_gnd:
+                    if _has_meaningful_measurement_value(insul_fa_value):
                         measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FA_GND', 'FA-GND')}: {insul_fa_gnd}"
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FA_GND', 'FA-GND')}: {_display_measurement_value(insul_fa_value)}"
                         )
-                    if insul_fb_gnd:
+                    if _has_meaningful_measurement_value(insul_fb_value):
                         measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB_GND', 'FB-GND')}: {insul_fb_gnd}"
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB_GND', 'FB-GND')}: {_display_measurement_value(insul_fb_value)}"
                         )
-                    if insul_fc_gnd:
+                    if _has_meaningful_measurement_value(insul_fc_value):
                         measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC_GND', 'FC-GND')}: {insul_fc_gnd}"
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC_GND', 'FC-GND')}: {_display_measurement_value(insul_fc_value)}"
                         )
-                    if contact_res_fa:
+                    if _has_meaningful_measurement_value(contact_res_fa_value):
                         measurements.append(
-                            f"{S['MESSAGES'].get('PHASE_TO_PHASE_LABEL', 'FA-FA')}: {contact_res_fa}"
+                            f"{S['MESSAGES'].get('PHASE_TO_PHASE_LABEL', 'FA-FA')}: {_display_measurement_value(contact_res_fa_value)}"
                         )
-                    if contact_res_fb:
+                    if _has_meaningful_measurement_value(contact_res_fb_value):
                         measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB', 'FB-FB')}: {contact_res_fb}"
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB', 'FB-FB')}: {_display_measurement_value(contact_res_fb_value)}"
                         )
-                    if contact_res_fc:
+                    if _has_meaningful_measurement_value(contact_res_fc_value):
                         measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC', 'FC-FC')}: {contact_res_fc}"
+                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC', 'FC-FC')}: {_display_measurement_value(contact_res_fc_value)}"
                         )
-                    if operations_count:
-                        measurements.append(f"Λειτουργίες: {operations_count}")
+                    if _has_meaningful_measurement_value(operations_count_value):
+                        measurements.append(
+                            f"Λειτουργίες: {_display_measurement_value(operations_count_value)}"
+                        )
 
                     if measurements:
                         data_parts.append(" | ".join(measurements))
