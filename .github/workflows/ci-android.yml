@@ -270,6 +270,18 @@ jobs:
               https://downloads.sourceforge.net/project/freetype/freetype2/2.10.1/freetype-2.10.1.tar.gz \
               -O freetype-2.10.1.tar.gz
           fi
+      - name: Patch python-for-android jpeg recipe
+        shell: bash
+        run: |
+          P4A_DIR="$HOME/.buildozer/android/platform/python-for-android"
+          if [ ! -d "$P4A_DIR" ]; then
+            mkdir -p "$(dirname "$P4A_DIR")"
+            git clone --depth 1 --branch v2024.01.21 \
+              https://github.com/kivy/python-for-android.git "$P4A_DIR"
+          fi
+          JPEG_RECIPE="$P4A_DIR/pythonforandroid/recipes/jpeg/__init__.py"
+          sed -i "s/shprint(sh.rm, '-f', 'CMakeCache.txt', 'CMakeFiles\\/')/shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles\\/')/" "$JPEG_RECIPE"
+          grep -n "CMakeFiles" "$JPEG_RECIPE"
       - name: Build APK with Buildozer
         shell: bash
         run: |
