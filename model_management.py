@@ -205,27 +205,48 @@ def _match_breaker_category_option(raw_value, options):
 
 
 def _get_breaker_category_options_for_selection(app_instance, selected_element_type):
-    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
-    all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
+    def _fallback_breaker_categories_for_type(element_type):
+        if element_type == ELEM_BREAKER_MT:
+            return list(getattr(app_instance, "BREAKER_CATEGORIES_MV", [
+                "SF6",
+                "Πτωχού Ελαίου",
+                "Ελαίου",
+                "Κενού",
+            ]))
+        if element_type == ELEM_BREAKER_YT:
+            return list(getattr(app_instance, "BREAKER_CATEGORIES_HV", [
+                "SF6",
+                "Ελαίου",
+            ]))
+        return list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", [
+            "SF6",
+            "Πτωχού Ελαίου",
+            "Ελαίου",
+            "Κενού",
+        ]))
+
     normalized_type = _normalize_element_type_filter_value(selected_element_type)
-    if normalized_type == all_breakers_label:
+    getter = getattr(app_instance, "_get_breaker_categories_for_element_type", None)
+    if normalized_type == S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες"):
         values = []
         for group in (
             list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", [])),
-            list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_MT)),
-            list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_YT)),
+            list(_fallback_breaker_categories_for_type(ELEM_BREAKER_MT)),
+            list(_fallback_breaker_categories_for_type(ELEM_BREAKER_YT)),
         ):
             for item in group:
                 if item and item not in values:
                     values.append(item)
         return values
     if normalized_type == ELEM_BREAKER_MT:
-        return list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_MT))
+        if callable(getter):
+            return list(getter(ELEM_BREAKER_MT))
+        return _fallback_breaker_categories_for_type(ELEM_BREAKER_MT)
     if normalized_type == ELEM_BREAKER_YT:
-        return list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_YT))
-    if normalized_type and normalized_type != all_option:
-        return list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", []))
-    return list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", []))
+        if callable(getter):
+            return list(getter(ELEM_BREAKER_YT))
+        return _fallback_breaker_categories_for_type(ELEM_BREAKER_YT)
+    return _fallback_breaker_categories_for_type(ELEM_BREAKER_MT)
 
 
 def _get_breaker_role_options():

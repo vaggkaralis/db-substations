@@ -7,6 +7,7 @@ from model_management import (
     _is_sf6_breaker_category,
     _match_breaker_category_option,
     _element_type_filter_options,
+    _get_breaker_category_options_for_selection,
     get_model_management_statistics,
     search_elements,
 )
@@ -297,6 +298,26 @@ def test_model_management_statistics_collects_expected_graph_data():
         ("MV-100", 1),
         ("MV-200", 1),
     ]
+
+
+def test_breaker_category_options_update_for_hv_and_mv_split_values():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+
+    assert _get_breaker_category_options_for_selection(app, ELEM_BREAKER_MT) == [
+        "SF6",
+        "Πτωχού Ελαίου",
+        "Ελαίου",
+        "Κενού",
+    ]
+    assert _get_breaker_category_options_for_selection(app, ELEM_BREAKER_YT) == [
+        "SF6",
+        "Ελαίου",
+    ]
+    assert _get_breaker_category_options_for_selection(
+        app,
+        S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες"),
+    ) == ["SF6", "Πτωχού Ελαίου", "Ελαίου", "Κενού"]
 
 
 def test_model_management_statistics_counts_elements_and_section_sums_match_totals():
