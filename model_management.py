@@ -245,7 +245,9 @@ def _filter_models_by_section_selection(
         and selected_breaker_category != all_option
         and _is_breaker_element_category(selected_category)
     ):
-        normalized_breaker = _normalize_breaker_category_value(selected_breaker_category)
+        normalized_breaker = _normalize_breaker_category_value(
+            selected_breaker_category
+        )
         section_models = [
             m
             for m in section_models

@@ -637,7 +637,9 @@ def test_filter_models_by_section_selection_ignores_breaker_filter_when_type_is_
         ),
     ]
 
-    filtered = _filter_models_by_section_selection(models, all_option, "SF6", all_option)
+    filtered = _filter_models_by_section_selection(
+        models, all_option, "SF6", all_option
+    )
 
     assert [row[2] for row in filtered] == ["MV Oil", "MV SF6", "HV SF6"]
 
@@ -671,7 +673,9 @@ def test_filter_models_by_section_selection_applies_breaker_filter_for_variant_l
         ),
     ]
 
-    filtered = _filter_models_by_section_selection(models, "MV Breaker", "SF6", all_option)
+    filtered = _filter_models_by_section_selection(
+        models, "MV Breaker", "SF6", all_option
+    )
 
     assert [row[2] for row in filtered] == ["MV SF6"]
 
