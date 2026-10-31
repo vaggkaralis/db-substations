@@ -12,6 +12,20 @@ clean up the unnecessary parts of code and files, check CI Lint/Test compliance,
 
 
 TODO:
+- i am trying to import EML reports and the recognition of the elements is wrong. The inactive elements shall not be automatically recognized. Only the active ones. 
+
+- for each substation we need an extra button to show the summary of the elements useful for the upcoming maintenance. The button shall be positioned next to the button "Ανενεργά στοιχεία" (the 3 buttons - "+ Προσθήκη Νέου Στοιχείου", "Ανενεργά στοιχεία" and the new one "Πληροφορίες Στοιχείων Υ/Σ" - shall get the horizontal space horizontally equally, as the 2 buttons do now) and the summary that the user gets shall be the following in greek:
+	- Total:
+		- number of HV breakers
+		- number of transformers
+		- number of MV breakers, of which X of type Y (Oil, SF6 etc.)
+		- Total amount of Oil for the MV breakers (calculated through the amount of oil the model uses) and also additionally converted to barels (as we defined it in the oil calculator we have in the maintenance form)
+	- Per Gate ("ΠΥΛΗ 1:", "ΠΥΛΗ 2:" etc.)
+		- number of MV breakers, of which X of type Y (Oil, SF6 etc.)
+		- Total amount of Oil for the MV breakers (calculated through the amount of oil the model uses) and also additionally converted to barels (as we defined it in the oil calculator we have in the maintenance form)
+
+- print substation elemenet view to pdf
+
 - sync process still too slow. i make a small change and i have to wait minutes to sync it. optimize it. the user needs to make small changes and sync them quickly to the common folder and the app shall be smart enough to realize that the changes done do not demand so much time.
 
 - make it work -> full MV maintenance from android
