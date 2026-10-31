@@ -204,6 +204,32 @@ def _match_breaker_category_option(raw_value, options):
     return ""
 
 
+def _is_breaker_element_category(value):
+    raw_text = str(value or "").strip()
+    if raw_text in {ELEM_BREAKER_MT, ELEM_BREAKER_YT}:
+        return True
+
+    norm = _normalized_token_text(raw_text)
+    if not norm:
+        return False
+
+    has_breaker_token = (
+        "διακοπτ" in norm
+        or "breaker" in norm
+        or "circuit breaker" in norm
+        or "cb" == norm
+    )
+    has_mv_hv_token = (
+        "μτ" in norm
+        or "υτ" in norm
+        or "mv" in norm
+        or "hv" in norm
+        or "medium voltage" in norm
+        or "high voltage" in norm
+    )
+    return has_breaker_token and has_mv_hv_token
+
+
 def _filter_models_by_section_selection(
     all_models_subset,
     selected_category,
@@ -217,7 +243,7 @@ def _filter_models_by_section_selection(
     if (
         selected_breaker_category
         and selected_breaker_category != all_option
-        and selected_category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
+        and _is_breaker_element_category(selected_category)
     ):
         normalized_breaker = _normalize_breaker_category_value(selected_breaker_category)
         section_models = [
@@ -3359,7 +3385,7 @@ def _show_models_management_popup(app_instance):
             section_box.add_widget(section_grid)
 
             def _configure_breaker_filter(selected_category):
-                is_breaker_category = selected_category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
+                is_breaker_category = _is_breaker_element_category(selected_category)
                 if is_breaker_category:
                     breaker_filter_label.size_hint_x = 0.23
                     breaker_filter_label.opacity = 1
