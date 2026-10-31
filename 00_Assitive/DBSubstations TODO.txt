@@ -12,6 +12,15 @@ clean up the unnecessary parts of code and files, check CI Lint/Test compliance,
 
 
 TODO:
+- in the subsattion element view we need an extra button that shows the summary of the elements useful for the maintenance in a short popup. The new button shall be positioned next to the button "Ανενεργά Στοιχεία" and the 3 buttons ("Προσθήκη Νέου Στοιχείου", "Ανενεργά Στοιχεία" and the new one "Πληροφορίες Στοιχείων") shall share the horizontal space equally (as the 2 current buttons do now). Summary shall be structured like this in greek (be explanatory in greek in the summary):
+	- Substation in total:
+		- Number of HV breakers and amount of oil and/or SF6 (if oil, i want it in liters AND in barels also for the following lines - the definition of barel you can find in the oil calculator we implemented for the maintenance form)
+		- Number of Transformers and amount of oil
+		- Number of MV breakers overall/Oil/SF6/Πτωχού Ελαίου/Vacuum (if a category has 0 do not display it) and the total amount of oil/sf6
+	- per gate (ΠΥΛΗ 1, ΠΥΛΗ 2 etc.):
+		- Number of MV breakers overall/Oil/SF6/Πτωχού Ελαίου/Vacuum (if a category has 0 do not display it) and the total amount of oil/sf6
+Usually the user will have to work on a single gate, and he needs the summary of how many oil/sfe6 etc breakers	there are and how much oil (liters and barels) and sf6 in kg is needed. so in this popup he will get the summary.
+
 - sync process still too slow. i make a small change and i have to wait minutes to sync it. optimize it. the user needs to make small changes and sync them quickly to the common folder and the app shall be smart enough to realize that the changes done do not demand so much time.
 
 - make it work -> full MV maintenance from android
