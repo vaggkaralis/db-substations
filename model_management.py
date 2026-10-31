@@ -204,6 +204,30 @@ def _match_breaker_category_option(raw_value, options):
     return ""
 
 
+def _get_breaker_category_options_for_selection(app_instance, selected_element_type):
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
+    normalized_type = _normalize_element_type_filter_value(selected_element_type)
+    if normalized_type == all_breakers_label:
+        values = []
+        for group in (
+            list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", [])),
+            list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_MT)),
+            list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_YT)),
+        ):
+            for item in group:
+                if item and item not in values:
+                    values.append(item)
+        return values
+    if normalized_type == ELEM_BREAKER_MT:
+        return list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_MT))
+    if normalized_type == ELEM_BREAKER_YT:
+        return list(app_instance._get_breaker_categories_for_element_type(ELEM_BREAKER_YT))
+    if normalized_type and normalized_type != all_option:
+        return list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", []))
+    return list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", []))
+
+
 def _get_breaker_role_options():
     return [
         S["MESSAGES"].get("ALL_OPTION", "(Όλα)"),
@@ -2022,19 +2046,17 @@ def show_element_search_popup(app_instance, parent_popup=None):
             breaker_category_spinner.text = all_option
             breaker_role_spinner.text = all_option
             return
-        if selected_type == ELEM_BREAKER_MT:
-            categories = app_instance._get_breaker_categories_for_element_type(
-                ELEM_BREAKER_MT
-            )
-        elif selected_type == ELEM_BREAKER_YT:
-            categories = app_instance._get_breaker_categories_for_element_type(
-                ELEM_BREAKER_YT
-            )
-        else:
-            categories = list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", []))
+        categories = _get_breaker_category_options_for_selection(
+            app_instance, selected_type
+        )
         breaker_category_spinner.values = [all_option] + list(categories)
-        if breaker_category_spinner.text not in breaker_category_spinner.values:
+        if not breaker_category_spinner.text or breaker_category_spinner.text not in breaker_category_spinner.values:
             breaker_category_spinner.text = all_option
+
+        if selected_type in {ELEM_BREAKER_MT, ELEM_BREAKER_YT}:
+            breaker_role_spinner.disabled = False
+        else:
+            breaker_role_spinner.disabled = False
 
     def _add_element_result(elem_data, is_inactive=False):
         (
