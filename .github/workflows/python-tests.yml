@@ -162,6 +162,11 @@ jobs:
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
           build_log="$RUNNER_TEMP/buildozer-android.log"
           : > "$build_log"
+          # Remove stale python-for-android jpeg CMake directories before retrying.
+          find "$HOME/.buildozer" -type d \( -path '*/python-for-android/**/jpeg*' -o -path '*/python-for-android/**/CMakeFiles' \) 2>/dev/null | while read -r stale_dir; do
+            echo "Removing stale android build state: $stale_dir"
+            rm -rf "$stale_dir"
+          done
           build_succeeded=0
           for attempt in 1 2 3; do
             echo "Buildozer attempt $attempt" | tee -a "$build_log"
