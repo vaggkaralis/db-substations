@@ -204,6 +204,31 @@ def _match_breaker_category_option(raw_value, options):
     return ""
 
 
+def _filter_models_by_section_selection(
+    all_models_subset,
+    selected_category,
+    selected_breaker_category,
+    all_option,
+):
+    section_models = list(all_models_subset or [])
+    if selected_category and selected_category != all_option:
+        section_models = [m for m in section_models if m[1] == selected_category]
+
+    if (
+        selected_breaker_category
+        and selected_breaker_category != all_option
+        and selected_category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
+    ):
+        normalized_breaker = _normalize_breaker_category_value(selected_breaker_category)
+        section_models = [
+            m
+            for m in section_models
+            if _normalize_breaker_category_value(m[6]) == normalized_breaker
+        ]
+
+    return section_models
+
+
 def _get_breaker_role_options():
     return [
         S["MESSAGES"].get("ALL_OPTION", "(Όλα)"),
@@ -3309,34 +3334,94 @@ def _show_models_management_popup(app_instance):
             section_filter_spinner = Spinner(
                 text=all_option,
                 values=section_filter_values,
-                size_hint_x=0.75,
+                size_hint_x=0.30,
             )
             section_filter_row.add_widget(section_filter_spinner)
+
+            breaker_filter_label = Label(
+                text=S["MESSAGES"].get("BREAKER_CATEGORY_LABEL", "Κατηγορία Διακόπτη:"),
+                size_hint_x=0.0,
+                opacity=0,
+            )
+            section_filter_row.add_widget(breaker_filter_label)
+            breaker_filter_spinner = Spinner(
+                text=all_option,
+                values=[all_option],
+                size_hint_x=0.0,
+                opacity=0,
+                disabled=True,
+            )
+            section_filter_row.add_widget(breaker_filter_spinner)
             section_box.add_widget(section_filter_row)
 
             section_grid = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
             section_grid.bind(minimum_height=section_grid.setter("height"))
             section_box.add_widget(section_grid)
 
-            def _render_selected(selected_category):
-                section_grid.clear_widgets()
-                if selected_category and selected_category != all_option:
-                    section_models = [
-                        m for m in all_models_subset if m[1] == selected_category
-                    ]
-                    _render_cards(section_grid, section_models, allowed_categories)
+            def _configure_breaker_filter(selected_category):
+                is_breaker_category = selected_category in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]
+                if is_breaker_category:
+                    breaker_filter_label.size_hint_x = 0.23
+                    breaker_filter_label.opacity = 1
+                    breaker_filter_spinner.size_hint_x = 0.22
+                    breaker_filter_spinner.opacity = 1
+                    breaker_filter_spinner.disabled = False
+                    breaker_options = list(
+                        app_instance._get_breaker_categories_for_element_type(
+                            selected_category
+                        )
+                        or []
+                    )
+                    for model in all_models_subset:
+                        if model[1] != selected_category:
+                            continue
+                        breaker_category = str(model[6] or "").strip()
+                        if not breaker_category:
+                            continue
+                        if _match_breaker_category_option(
+                            breaker_category, breaker_options
+                        ):
+                            continue
+                        breaker_options.append(breaker_category)
+                    values = [all_option] + breaker_options
+                    current = _match_breaker_category_option(
+                        breaker_filter_spinner.text, values
+                    )
+                    breaker_filter_spinner.values = values
+                    breaker_filter_spinner.text = current or all_option
                 else:
-                    _render_cards(section_grid, all_models_subset, allowed_categories)
+                    breaker_filter_label.size_hint_x = 0.0
+                    breaker_filter_label.opacity = 0
+                    breaker_filter_spinner.size_hint_x = 0.0
+                    breaker_filter_spinner.opacity = 0
+                    breaker_filter_spinner.disabled = True
+                    breaker_filter_spinner.values = [all_option]
+                    breaker_filter_spinner.text = all_option
+
+            def _render_selected():
+                section_grid.clear_widgets()
+                section_models = _filter_models_by_section_selection(
+                    all_models_subset,
+                    section_filter_spinner.text,
+                    breaker_filter_spinner.text,
+                    all_option,
+                )
+                _render_cards(section_grid, section_models, allowed_categories)
 
             section_filter_spinner.bind(
-                text=lambda _spinner, text: _render_selected(text)
+                text=lambda _spinner, text: (
+                    _configure_breaker_filter(text),
+                    _render_selected(),
+                )
             )
+            breaker_filter_spinner.bind(text=lambda *_args: _render_selected())
             default_filter = all_option
             # Large datasets render much faster when a single category is shown first.
             if len(all_models_subset) > 120 and allowed_categories:
                 default_filter = allowed_categories[0]
             section_filter_spinner.text = default_filter
-            _render_selected(default_filter)
+            _configure_breaker_filter(default_filter)
+            _render_selected()
             return section_box
 
         elements_section = render_section(
