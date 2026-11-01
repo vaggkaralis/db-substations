@@ -112,6 +112,14 @@ jobs:
           pip3 install --upgrade buildozer cython==0.29.33
           pip3 install "cmake<4"
           cmake --version
+      - name: Force Java 17 for Android build
+        shell: bash
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
       - name: Prepare Android source tree
         run: |
           python3 - <<'PY'
@@ -344,8 +352,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          export PATH="$JAVA_HOME/bin:$PATH"
           export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
+          java -version
           command -v cmake
           cmake --version | head -n 1
           build_log="$RUNNER_TEMP/buildozer-android.log"
