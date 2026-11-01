@@ -283,36 +283,48 @@ jobs:
             fi
           done
 
-          for jpeg_recipe in \
-            "$GITHUB_WORKSPACE/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py" \
-            "$HOME/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py"; do
-          if [ -f "$jpeg_recipe" ]; then
-          python3 - "$jpeg_recipe" <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           import re
-          import sys
 
-          jpeg_recipe = Path(sys.argv[1])
-          content = jpeg_recipe.read_text(encoding="utf-8")
-          updated = content
-          updated = updated.replace(
-              "shprint(sh.rm, '-f', 'CMakeCache.txt', 'CMakeFiles/')",
-              "shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles/')",
+          roots = [
+              Path(".buildozer"),
+              Path.home() / ".buildozer",
+          ]
+          recipe_suffix = Path("pythonforandroid/recipes/jpeg/__init__.py")
+          pattern = re.compile(
+              r"""shprint\(\s*sh\.rm\s*,\s*['"]-f['"]\s*,\s*['"]CMakeCache\.txt['"]\s*,\s*['"]CMakeFiles/?['"]\s*\)"""
           )
-          updated = updated.replace(
-              'shprint(sh.rm, "-f", "CMakeCache.txt", "CMakeFiles/")',
-              'shprint(sh.rm, "-rf", "CMakeCache.txt", "CMakeFiles/")',
-          )
-          updated = re.sub(
-              r"""shprint\(\s*sh\.rm\s*,\s*['"]-f['"]\s*,\s*['"]CMakeCache\.txt['"]\s*,\s*['"]CMakeFiles/?['"]\s*\)""",
-              "shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles/')",
-              updated,
-          )
-          if updated != content:
-              jpeg_recipe.write_text(updated, encoding="utf-8")
+
+          patched_paths = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob(str(recipe_suffix)):
+                  content = path.read_text(encoding="utf-8")
+                  updated = pattern.sub(
+                      "shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles/')",
+                      content,
+                  )
+                  if updated != content:
+                      path.write_text(updated, encoding="utf-8")
+                      patched_paths.append(path)
+
+          print(f"Patched jpeg recipe files: {len(patched_paths)}")
+          for path in patched_paths:
+              print(path)
           PY
-          grep -n "shprint(sh.rm" "$jpeg_recipe"
-          fi
+
+          for root in ".buildozer" "$HOME/.buildozer"; do
+            if [ -d "$root" ]; then
+              find "$root" -type f -path '*/pythonforandroid/recipes/jpeg/__init__.py' -print0 | while IFS= read -r -d '' jpeg_recipe; do
+                grep -n "shprint(sh.rm" "$jpeg_recipe" || true
+                if grep -qE "shprint\(\s*sh\.rm,\s*['\"]-f['\"],\s*['\"]CMakeCache\.txt['\"],\s*['\"]CMakeFiles/?['\"]" "$jpeg_recipe"; then
+                  echo "Unpatched jpeg cleanup command remains in $jpeg_recipe" >&2
+                  exit 1
+                fi
+              done
+            fi
           done
 
           find .buildozer -type d -path "*/other_builds/jpeg/*/jpeg/CMakeFiles" -prune -exec rm -rf {} + 2>/dev/null || true
