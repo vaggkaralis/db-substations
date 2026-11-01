@@ -287,7 +287,21 @@ jobs:
             "$GITHUB_WORKSPACE/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py" \
             "$HOME/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py"; do
             if [ -f "$jpeg_recipe" ]; then
-              sed -i -E "/CMakeFiles/ s/shprint\\(sh\\.rm,[[:space:]]*['\\\"]-f['\\\"]/shprint(sh.rm, '-rf'/" "$jpeg_recipe"
+              python3 - "$jpeg_recipe" <<'PY'
+              from pathlib import Path
+              import re
+              import sys
+
+              jpeg_recipe = Path(sys.argv[1])
+              content = jpeg_recipe.read_text(encoding='utf-8')
+              updated = re.sub(
+                  r"""(shprint\(sh\.rm,\s*['"])-f(['"],\s*['"]CMakeCache\.txt['"],\s*['"]CMakeFiles/?['"]\s*\))""",
+                  r"\1-rf\2",
+                  content,
+              )
+              if updated != content:
+                  jpeg_recipe.write_text(updated, encoding='utf-8')
+              PY
               grep -n "CMakeFiles" "$jpeg_recipe"
             fi
           done
