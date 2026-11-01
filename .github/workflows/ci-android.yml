@@ -336,14 +336,22 @@ jobs:
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
           build_log="$RUNNER_TEMP/buildozer-android.log"
           : > "$build_log"
-          # python-for-android's jpeg recipe can leave stale CMake build dirs behind
-          # from prior aborted runs; clear them before the next build attempt.
-          find "$HOME/.buildozer" -type d -path '*/python-for-android/**/jpeg*' -o -path '*/python-for-android/**/CMakeFiles' 2>/dev/null | while read -r stale_dir; do
-            echo "Removing stale android build state: $stale_dir"
-            rm -rf "$stale_dir"
-          done
           build_succeeded=0
           for attempt in 1 2 3; do
+            # python-for-android's jpeg recipe can fail on `rm -f ... CMakeFiles/`
+            # when stale CMake build dirs are present; remove them before each attempt.
+            for root in "$GITHUB_WORKSPACE/.buildozer" "$HOME/.buildozer"; do
+              if [ -d "$root" ]; then
+                find "$root" -type d -path '*/other_builds/jpeg/*/jpeg/CMakeFiles' -print0 2>/dev/null | while IFS= read -r -d '' stale_dir; do
+                  echo "Removing stale android build dir: $stale_dir"
+                  rm -rf "$stale_dir"
+                done
+                find "$root" -type f -path '*/other_builds/jpeg/*/jpeg/CMakeCache.txt' -print0 2>/dev/null | while IFS= read -r -d '' stale_file; do
+                  echo "Removing stale android cmake cache: $stale_file"
+                  rm -f "$stale_file"
+                done
+              fi
+            done
             echo "Buildozer attempt $attempt" | tee -a "$build_log"
             if buildozer -v android debug 2>&1 | tee -a "$build_log"; then
               build_succeeded=1
