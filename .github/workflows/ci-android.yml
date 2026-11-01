@@ -293,16 +293,25 @@ jobs:
           import sys
 
           jpeg_recipe = Path(sys.argv[1])
-          content = jpeg_recipe.read_text(encoding='utf-8')
+          content = jpeg_recipe.read_text(encoding="utf-8")
+          updated = content
+          updated = updated.replace(
+              "shprint(sh.rm, '-f', 'CMakeCache.txt', 'CMakeFiles/')",
+              "shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles/')",
+          )
+          updated = updated.replace(
+              'shprint(sh.rm, "-f", "CMakeCache.txt", "CMakeFiles/")',
+              'shprint(sh.rm, "-rf", "CMakeCache.txt", "CMakeFiles/")',
+          )
           updated = re.sub(
-              r"""(shprint\(sh\.rm,\s*['"])-f(['"],\s*['"]CMakeCache\.txt['"],\s*['"]CMakeFiles/?['"]\s*\))""",
-              r"\1-rf\2",
-              content,
+              r"""shprint\(\s*sh\.rm\s*,\s*['"]-f['"]\s*,\s*['"]CMakeCache\.txt['"]\s*,\s*['"]CMakeFiles/?['"]\s*\)""",
+              "shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles/')",
+              updated,
           )
           if updated != content:
-              jpeg_recipe.write_text(updated, encoding='utf-8')
+              jpeg_recipe.write_text(updated, encoding="utf-8")
           PY
-          grep -n "CMakeFiles" "$jpeg_recipe"
+          grep -n "shprint(sh.rm" "$jpeg_recipe"
           fi
           done
 
