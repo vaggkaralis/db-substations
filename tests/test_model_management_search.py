@@ -4,6 +4,8 @@ from model_management import (
     ELEM_BREAKER_MT,
     ELEM_BREAKER_YT,
     _deduplicate_manufacturer_list,
+    _filter_models_by_section_selection,
+    _is_breaker_element_category,
     _is_sf6_breaker_category,
     _match_breaker_category_option,
     _element_type_filter_options,
@@ -609,6 +611,102 @@ def test_match_breaker_category_option_is_case_and_accent_tolerant():
     assert _match_breaker_category_option("πτωχου ελαιου", options) == "Πτωχού Ελαίου"
     assert _match_breaker_category_option("  sf 6  ", options) == "SF6"
     assert _match_breaker_category_option("ΚΕΝΟΥ", options) == "Κενού"
+
+
+def test_filter_models_by_section_selection_filters_by_category_and_breaker_type():
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    models = [
+        (1, ELEM_BREAKER_MT, "MV Oil", "ABB", 6, "Outdoor", "Ελαίου", None, None, None),
+        (2, ELEM_BREAKER_MT, "MV SF6", "ABB", 6, "Outdoor", "SF6", None, None, None),
+        (
+            3,
+            ELEM_BREAKER_YT,
+            "HV SF6",
+            "Siemens",
+            6,
+            "Outdoor",
+            "SF6",
+            None,
+            None,
+            None,
+        ),
+    ]
+
+    filtered = _filter_models_by_section_selection(
+        models, ELEM_BREAKER_MT, "sf 6", all_option
+    )
+
+    assert [row[2] for row in filtered] == ["MV SF6"]
+
+
+def test_filter_models_by_section_selection_ignores_breaker_filter_when_type_is_all():
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    models = [
+        (1, ELEM_BREAKER_MT, "MV Oil", "ABB", 6, "Outdoor", "Ελαίου", None, None, None),
+        (2, ELEM_BREAKER_MT, "MV SF6", "ABB", 6, "Outdoor", "SF6", None, None, None),
+        (
+            3,
+            ELEM_BREAKER_YT,
+            "HV SF6",
+            "Siemens",
+            6,
+            "Outdoor",
+            "SF6",
+            None,
+            None,
+            None,
+        ),
+    ]
+
+    filtered = _filter_models_by_section_selection(
+        models, all_option, "SF6", all_option
+    )
+
+    assert [row[2] for row in filtered] == ["MV Oil", "MV SF6", "HV SF6"]
+
+
+def test_filter_models_by_section_selection_applies_breaker_filter_for_variant_labels():
+    all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
+    models = [
+        (
+            1,
+            "MV Breaker",
+            "MV Oil",
+            "ABB",
+            6,
+            "Outdoor",
+            "Ελαίου",
+            None,
+            None,
+            None,
+        ),
+        (
+            2,
+            "MV Breaker",
+            "MV SF6",
+            "ABB",
+            6,
+            "Outdoor",
+            "SF6",
+            None,
+            None,
+            None,
+        ),
+    ]
+
+    filtered = _filter_models_by_section_selection(
+        models, "MV Breaker", "SF6", all_option
+    )
+
+    assert [row[2] for row in filtered] == ["MV SF6"]
+
+
+def test_is_breaker_element_category_accepts_localized_and_english_variants():
+    assert _is_breaker_element_category(ELEM_BREAKER_MT)
+    assert _is_breaker_element_category(ELEM_BREAKER_YT)
+    assert _is_breaker_element_category("MV Breaker")
+    assert _is_breaker_element_category("High Voltage Circuit Breaker")
+    assert not _is_breaker_element_category("Μετασχηματιστής 150/20KV")
 
 
 def test_deduplicate_manufacturer_list_collapses_confusable_abb_entries():
