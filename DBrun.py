@@ -10608,8 +10608,11 @@ class SubstationApp(App):
                 # Action buttons row for add/ inactive / view (in one horizontal row)
                 btn_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
 
+                action_size = 0.25 if not show_elements else 0.33
+
                 add_elem_btn = Button(
-                    text="+ " + S["MESSAGES"]["ADD_ELEMENT_BTN"], size_hint_x=0.33
+                    text="+ " + S["MESSAGES"]["ADD_ELEMENT_BTN"],
+                    size_hint_x=action_size,
                 )
                 add_elem_btn.bind(
                     on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
@@ -10623,7 +10626,7 @@ class SubstationApp(App):
                     text=S["MESSAGES"]["INACTIVE_ELEMENTS"].format(
                         count=inactive_count
                     ),
-                    size_hint_x=0.33,
+                    size_hint_x=action_size,
                 )
                 inactive_elem_btn.bind(
                     on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
@@ -10632,12 +10635,23 @@ class SubstationApp(App):
                 )
                 btn_row.add_widget(inactive_elem_btn)
 
+                info_elem_btn = Button(
+                    text=S["MESSAGES"].get("ELEMENT_INFO_BTN", "Πληροφορίες Στοιχείων"),
+                    size_hint_x=action_size,
+                )
+                info_elem_btn.bind(
+                    on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
+                        self.show_substation_element_summary(sid, sname, p)
+                    )
+                )
+                btn_row.add_widget(info_elem_btn)
+
                 if not show_elements:
                     view_elements_btn = Button(
                         text=S["MESSAGES"]["VIEW_ACTIVE_ELEMENTS"].format(
                             count=elem_count
                         ),
-                        size_hint_x=0.34,
+                        size_hint_x=action_size,
                     )
                     view_elements_btn.bind(
                         on_press=lambda x, sname=sub_name, p=popup: (
@@ -15547,6 +15561,260 @@ class SubstationApp(App):
         from elements import show_inactive_elements as _f
 
         return _f(self, substation_id, substation_name, parent_popup)
+
+    def show_substation_element_summary(
+        self, substation_id, substation_name, parent_popup
+    ):
+        from collections import defaultdict
+
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
+
+        def _coerce_float(value):
+            if value in (None, ""):
+                return None
+            try:
+                return float(str(value).replace(",", ".").strip())
+            except (TypeError, ValueError):
+                return None
+
+        def _normalize_breaker_category(value):
+            text = str(value or "").strip()
+            if not text:
+                return ""
+            lowered = text.casefold()
+            if lowered in {"sf6", "sf6 gas"}:
+                return "SF6"
+            if lowered in {"ελαίου", "oil", "oil ελαίου", "οil", "έλαίου"}:
+                return "Ελαίου"
+            if lowered in {
+                "πτωχού ελαίου",
+                "low oil",
+                "low-oil",
+                "πτωχου ελαίου",
+            }:
+                return "Πτωχού Ελαίου"
+            if lowered in {"κενού", "vacuum", "vacum", "vacuum breaker"}:
+                return "Κενού"
+            return text
+
+        def _get_oil_liters(oil_capacity_l, oil_weight_kg):
+            oil_value = _coerce_float(oil_capacity_l)
+            if oil_value is not None and oil_value >= 0:
+                return oil_value
+            oil_weight = _coerce_float(oil_weight_kg)
+            if oil_weight is None:
+                return 0.0
+            liters = oil_weight_kg_to_liters(oil_weight)
+            return liters if liters is not None else 0.0
+
+        def _format_numeric(value, digits=1):
+            try:
+                number = float(value or 0)
+            except (TypeError, ValueError):
+                return "0"
+            return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+        def _format_oil_summary(total_liters):
+            if total_liters <= 0:
+                return ""
+            summary = summarize_oil_requirement(total_liters)
+            adjusted_liters = float(summary.get("adjusted_liters") or 0.0)
+            barrels = int(summary.get("rounded_barrels") or 0)
+            return f"{_format_numeric(adjusted_liters, 1)} L / {barrels} βαρέλια"
+
+        def _build_category_summary(label, total, category_counts, oil_liters, sf6_kg):
+            if total <= 0:
+                return ""
+            pieces = [f"  - {label}: {total}"]
+            category_parts = []
+            for category in ["SF6", "Ελαίου", "Πτωχού Ελαίου", "Κενού"]:
+                count = int(category_counts.get(category, 0) or 0)
+                if count > 0:
+                    category_parts.append(f"{category}: {count}")
+            if category_parts:
+                pieces.append(f" ({', '.join(category_parts)})")
+            details = []
+            if oil_liters > 0:
+                details.append(f"λάδι: {_format_oil_summary(oil_liters)}")
+            if sf6_kg > 0:
+                details.append(f"SF6: {_format_numeric(sf6_kg, 1)} kg")
+            if details:
+                pieces.append(f" - {', '.join(details)}")
+            return "".join(pieces)
+
+        rows = self.conn.execute(
+            """
+            SELECT e.gate, e.element_type, e.breaker_category,
+                   em.oil_capacity_l, em.sf6_capacity_kg, em.oil_weight_kg
+            FROM elements e
+            LEFT JOIN element_models em ON em.id = e.element_model_id
+            WHERE e.substation_id = ?
+              AND (e.operating_status IS NULL OR e.operating_status = 'Ενεργή')
+            ORDER BY e.gate, e.name
+            """,
+            (substation_id,),
+        ).fetchall()
+
+        hv_total = 0
+        hv_category_counts = defaultdict(int)
+        hv_oil_liters = 0.0
+        hv_sf6_kg = 0.0
+
+        transformer_total = 0
+        transformer_oil_liters = 0.0
+
+        mv_total = 0
+        mv_category_counts = defaultdict(int)
+        mv_oil_liters = 0.0
+        mv_sf6_kg = 0.0
+
+        gate_summary = defaultdict(
+            lambda: {
+                "mv_total": 0,
+                "category_counts": defaultdict(int),
+                "oil_liters": 0.0,
+                "sf6_kg": 0.0,
+            }
+        )
+
+        for (
+            gate_name,
+            element_type,
+            breaker_category,
+            oil_capacity_l,
+            sf6_capacity_kg,
+            oil_weight_kg,
+        ) in rows:
+            gate_key = str(gate_name or "").strip() or "Χωρίς Πύλη"
+            normalized_type = str(element_type or "").strip()
+            normalized_category = _normalize_breaker_category(breaker_category)
+            oil_liters = _get_oil_liters(oil_capacity_l, oil_weight_kg)
+            sf6_kg = _coerce_float(sf6_capacity_kg) or 0.0
+
+            if normalized_type == self.ELEM_BREAKER_YT:
+                hv_total += 1
+                if normalized_category == "SF6":
+                    hv_category_counts["SF6"] += 1
+                    hv_sf6_kg += sf6_kg
+                elif normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
+                    hv_category_counts[normalized_category] += 1
+                    hv_oil_liters += oil_liters
+                elif normalized_category == "Κενού":
+                    hv_category_counts["Κενού"] += 1
+
+            elif "μετασχηματιστ" in normalized_type.casefold():
+                transformer_total += 1
+                transformer_oil_liters += oil_liters
+
+            elif normalized_type == self.ELEM_BREAKER_MT:
+                mv_total += 1
+                if normalized_category:
+                    mv_category_counts[normalized_category] += 1
+                    gate_bucket = gate_summary[gate_key]
+                    gate_bucket["mv_total"] += 1
+                    gate_bucket["category_counts"][normalized_category] += 1
+                if normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
+                    mv_oil_liters += oil_liters
+                    gate_summary[gate_key]["oil_liters"] += oil_liters
+                if normalized_category == "SF6":
+                    mv_sf6_kg += sf6_kg
+                    gate_summary[gate_key]["sf6_kg"] += sf6_kg
+
+        total_lines = []
+        if hv_total > 0:
+            total_lines.append(
+                _build_category_summary(
+                    "Διακόπτες ΥΤ",
+                    hv_total,
+                    hv_category_counts,
+                    hv_oil_liters,
+                    hv_sf6_kg,
+                )
+            )
+        if transformer_total > 0:
+            total_lines.append(
+                f"  - Μετασχηματιστές: {transformer_total}"
+                + (
+                    f" - λάδι: {_format_oil_summary(transformer_oil_liters)}"
+                    if transformer_oil_liters > 0
+                    else ""
+                )
+            )
+        if mv_total > 0:
+            total_lines.append(
+                _build_category_summary(
+                    "Διακόπτες ΜΤ",
+                    mv_total,
+                    mv_category_counts,
+                    mv_oil_liters,
+                    mv_sf6_kg,
+                )
+            )
+
+        gate_lines = []
+        for gate_name in sorted(gate_summary):
+            gate_bucket = gate_summary[gate_name]
+            gate_mv_total = int(gate_bucket.get("mv_total") or 0)
+            if gate_mv_total <= 0:
+                continue
+            gate_lines.append(f"  - {gate_name}:")
+            gate_lines.append(
+                _build_category_summary(
+                    "Διακόπτες ΜΤ",
+                    gate_mv_total,
+                    gate_bucket["category_counts"],
+                    float(gate_bucket.get("oil_liters") or 0.0),
+                    float(gate_bucket.get("sf6_kg") or 0.0),
+                )
+            )
+
+        summary_lines = [
+            f"[b]{substation_name}[/b]",
+            "",
+            "Σύνολο υποσταθμού:",
+        ]
+        summary_lines.extend(
+            total_lines or ["  - Δεν βρέθηκαν στοιχεία για αυτόν τον υποσταθμό."]
+        )
+        summary_lines.extend(["", "Ανά πύλη:"])
+        summary_lines.extend(
+            gate_lines or ["  - Δεν υπάρχουν καταχωρημένες πύλες με ενεργά στοιχεία."]
+        )
+
+        popup = Popup(
+            title=f"Πληροφορίες Στοιχείων - {substation_name}",
+            size_hint=(0.72, 0.8),
+        )
+        popup._dbs_origin_popup = parent_popup
+
+        content = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        label = Label(
+            text="\n".join(summary_lines),
+            markup=True,
+            halign="left",
+            valign="top",
+            size_hint_y=None,
+            text_size=(None, None),
+        )
+        label.bind(
+            texture_size=lambda instance, size: setattr(
+                instance, "size", (instance.width, size[1])
+            )
+        )
+        scroll.add_widget(label)
+        content.add_widget(scroll)
+
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=42)
+        close_btn.bind(on_press=popup.dismiss)
+        content.add_widget(close_btn)
+
+        popup.content = content
+        popup.open()
 
     def show_element_maintenance_history(self, element_id, element_name, parent_popup):
         from elements import show_element_maintenance_history as _f

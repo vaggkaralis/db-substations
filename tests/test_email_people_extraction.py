@@ -152,6 +152,30 @@ def test_element_matching_prefers_exact_designator_over_prefix_match():
     assert found == {2}
 
 
+def test_element_matching_ignores_inactive_elements():
+    conn = _make_element_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "ALTER TABLE elements ADD COLUMN operating_status TEXT DEFAULT 'Ενεργή'"
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, name, element_type, operating_status) "
+        "VALUES (1, 1, ?, ?, ?)",
+        ("Ρ-25", "Διακόπτης ΥΤ", "Ενεργή"),
+    )
+    cur.execute(
+        "INSERT INTO elements (id, substation_id, name, element_type, operating_status) "
+        "VALUES (2, 1, ?, ?, ?)",
+        ("Ρ-25", "Διακόπτης ΥΤ", "Ανενεργή"),
+    )
+    conn.commit()
+
+    body = "Σήμερα έγινε συντήρηση στον διακόπτη Ρ-25."
+
+    found = mei._find_elements_in_body(conn, body, 1)
+    assert found == {1}
+
+
 def test_element_matching_uses_real_email_formats_without_matching_generic_ms_text():
     conn = _make_element_conn()
     cur = conn.cursor()

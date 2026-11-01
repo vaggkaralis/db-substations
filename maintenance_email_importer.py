@@ -823,13 +823,54 @@ def _find_people_in_body(conn, body_text: str, exclude_ids=None):
     return found
 
 
+def _is_active_element_record(row):
+    if row is None:
+        return True
+    if isinstance(row, dict):
+        status = row.get("operating_status")
+    else:
+        try:
+            status = row[3]
+        except (IndexError, TypeError):
+            status = None
+    if status is None:
+        return True
+    status = str(status).strip()
+    if not status:
+        return True
+    return status not in {"Ανενεργή", "Inactive", "inactive"}
+
+
 def _find_elements_in_body(conn, body_text: str, substation_id: int):
     c = conn.cursor()
-    c.execute(
-        "SELECT id, name, element_type FROM elements WHERE substation_id=?",
-        (substation_id,),
-    )
-    elements = c.fetchall()
+    c.execute("PRAGMA table_info(elements)")
+    available_columns = {row[1] for row in c.fetchall()}
+
+    if "operating_status" in available_columns:
+        c.execute(
+            """
+            SELECT id, name, element_type, operating_status
+            FROM elements
+            WHERE substation_id=?
+              AND (
+                  operating_status IS NULL
+                  OR TRIM(operating_status) = ''
+                  OR TRIM(operating_status) = 'Ενεργή'
+                  OR TRIM(operating_status) = 'Active'
+                  OR TRIM(operating_status) = 'active'
+              )
+            """,
+            (substation_id,),
+        )
+    else:
+        c.execute(
+            "SELECT id, name, element_type FROM elements WHERE substation_id=?",
+            (substation_id,),
+        )
+    rows = c.fetchall()
+    elements = [
+        (row[0], row[1], row[2]) for row in rows if _is_active_element_record(row)
+    ]
 
     normalized_body = _normalize_text(body_text)
     normalized_body = re.sub(r"μ\s*[\./-]\s*σ", "μσ", normalized_body)
