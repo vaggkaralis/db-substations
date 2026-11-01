@@ -453,76 +453,105 @@ def terminate_launched_child_processes():
             continue
 
 
-if KIVY_AVAILABLE:
+def create_popup(title, size_hint, **kwargs):
+    """Create a popup while tolerating missing or strict Kivy APIs.
 
-    def create_popup(title, size_hint, **kwargs):
-        """Create a popup while tolerating Kivy versions that reject unsupported kwargs.
+    The runtime may have Kivy available when the module is imported, yet a later
+    test or headless environment may disable it. We therefore resolve the popup
+    implementation lazily and fall back to a tiny stand-in when Kivy is absent.
+    """
+    if not KIVY_AVAILABLE:
 
-        This project historically passed a `modal` kwarg, but the installed Kivy
-        popup API does not accept it. We silently drop unsupported arguments and
-        keep the valid ones such as `auto_dismiss`.
-        """
-        popup_module = importlib.import_module("kivy.uix.popup")
-        popup_cls = popup_module.Popup
+        class _FallbackPopup:
+            def __init__(self, title, size_hint, **popup_kwargs):
+                self.title = title
+                self.size_hint = size_hint
+                self.kwargs = popup_kwargs
+                self.content = None
 
-        popup_kwargs = dict(kwargs)
-        popup_kwargs.pop("modal", None)
+            def open(self):
+                return None
 
+            def dismiss(self):
+                return None
+
+        return _FallbackPopup(title=title, size_hint=size_hint, **kwargs)
+
+    popup_module = importlib.import_module("kivy.uix.popup")
+    popup_cls = popup_module.Popup
+
+    popup_kwargs = dict(kwargs)
+    popup_kwargs.pop("modal", None)
+
+    try:
+        return popup_cls(title=title, size_hint=size_hint, **popup_kwargs)
+    except TypeError as exc:
+        msg = str(exc)
+        if "unexpected keyword argument" not in msg and "positional argument" not in msg:
+            raise
+        return popup_cls(title=title, size_hint=size_hint)
+
+
+def show_message_popup(title: str, message: str, callback=None) -> None:
+    """Show a popup or a minimal headless console fallback."""
+    if not KIVY_AVAILABLE:
+        print(f"--- {title} ---")
         try:
-            return popup_cls(title=title, size_hint=size_hint, **popup_kwargs)
-        except TypeError as exc:
-            msg = str(exc)
-            if (
-                "unexpected keyword argument" not in msg
-                and "positional argument" not in msg
-            ):
-                raise
-            return popup_cls(title=title, size_hint=size_hint)
-
-    def show_message_popup(title: str, message: str, callback=None) -> None:
-        """Show a Kivy popup with dynamic sizing based on message length."""
-        msg_len = len(message)
-        if msg_len < 100:
-            size_hint = (0.7, 0.3)
-        elif msg_len < 200:
-            size_hint = (0.85, 0.4)
-        else:
-            size_hint = (0.9, 0.55)
-
-        popup = Popup(title=title, size_hint=size_hint)
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
-
-        scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=10)
-        msg_label = Label(
-            text=str(message),
-            size_hint_y=None,
-            markup=False,
-            halign="left",
-            valign="top",
-        )
-
-        def _update_wrap_width(instance, width):
-            instance.text_size = (max(10, width - 14), None)
-
-        msg_label.bind(
-            width=_update_wrap_width,
-            texture_size=lambda inst, size: setattr(inst, "height", size[1] + 8),
-        )
-        scroll.add_widget(msg_label)
-        layout.add_widget(scroll)
-
-        close_btn = Button(text="OK", size_hint_y=0.15)
-
-        def on_close(btn):
-            popup.dismiss()
-            if callback:
+            print(str(message))
+        except Exception:
+            print(repr(message))
+        if callback:
+            try:
                 callback()
+            except Exception:
+                pass
+        return
 
-        close_btn.bind(on_press=on_close)
-        layout.add_widget(close_btn)
+    msg_len = len(message)
+    if msg_len < 100:
+        size_hint = (0.7, 0.3)
+    elif msg_len < 200:
+        size_hint = (0.85, 0.4)
+    else:
+        size_hint = (0.9, 0.55)
 
-        popup.content = layout
-        popup.open()
+    popup = Popup(title=title, size_hint=size_hint)
+    layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+    scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=10)
+    msg_label = Label(
+        text=str(message),
+        size_hint_y=None,
+        markup=False,
+        halign="left",
+        valign="top",
+    )
+
+    def _update_wrap_width(instance, width):
+        instance.text_size = (max(10, width - 14), None)
+
+    msg_label.bind(
+        width=_update_wrap_width,
+        texture_size=lambda inst, size: setattr(inst, "height", size[1] + 8),
+    )
+    scroll.add_widget(msg_label)
+    layout.add_widget(scroll)
+
+    close_btn = Button(text="OK", size_hint_y=0.15)
+
+    def on_close(btn):
+        popup.dismiss()
+        if callback:
+            callback()
+
+    close_btn.bind(on_press=on_close)
+    layout.add_widget(close_btn)
+
+    popup.content = layout
+    popup.open()
+
+
+if KIVY_AVAILABLE:
 
     def ask_open_file(title: str = "Select file", filetypes=None):
         """Show a native open-file dialog and return the selected path or None.
@@ -772,6 +801,24 @@ else:
     # Fallback implementations when Kivy is not available. These are
     # intentionally minimal: they print messages to console and use
     # tkinter dialogs when possible for file selection.
+
+    def create_popup(title, size_hint, **kwargs):
+        """Return a tiny stand-in popup object for headless/test environments."""
+
+        class _FallbackPopup:
+            def __init__(self, title, size_hint, **popup_kwargs):
+                self.title = title
+                self.size_hint = size_hint
+                self.kwargs = popup_kwargs
+                self.content = None
+
+            def open(self):
+                return None
+
+            def dismiss(self):
+                return None
+
+        return _FallbackPopup(title=title, size_hint=size_hint, **kwargs)
 
     def show_message_popup(title: str, message: str, callback=None) -> None:
         print(f"--- {title} ---")

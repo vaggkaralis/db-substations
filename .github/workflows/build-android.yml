@@ -161,6 +161,12 @@ jobs:
           -exec sed -i 's/android:hardwareAccelerated="true"/android:hardwareAccelerated="false"/g' {} \; 2>/dev/null || true
         find "$HOME/.buildozer" -name "AndroidManifest.tmpl.xml" -path "*/sdl2/*" \
           -exec sed -i 's/android:hardwareAccelerated="true"/android:hardwareAccelerated="false"/g' {} \; 2>/dev/null || true
+        # python-for-android's jpeg recipe sometimes leaves stale CMake tree output
+        # behind after failed builds; remove the cached artifact before retrying.
+        find "$HOME/.buildozer" -type d \( -path '*/python-for-android/**/jpeg*' -o -path '*/python-for-android/**/CMakeFiles' \) 2>/dev/null | while read -r stale_dir; do
+          echo "Removing stale android build state: $stale_dir"
+          rm -rf "$stale_dir"
+        done
         build_succeeded=0
         for attempt in 1 2 3; do
           echo "Buildozer attempt $attempt" | tee -a "$build_log"

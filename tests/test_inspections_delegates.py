@@ -64,6 +64,21 @@ def test_create_popup_ignores_unsupported_modal_kwarg(monkeypatch):
     assert popup.kwargs == {"auto_dismiss": False}
 
 
+def test_headless_create_popup_returns_fallback_object():
+    import popups
+
+    original = popups.KIVY_AVAILABLE
+    try:
+        popups.KIVY_AVAILABLE = False
+        popup = popups.create_popup("Title", (0.5, 0.5), modal=False)
+        assert popup.title == "Title"
+        assert popup.size_hint == (0.5, 0.5)
+        assert popup.kwargs == {"modal": False}
+        assert popup.content is None
+    finally:
+        popups.KIVY_AVAILABLE = original
+
+
 def test_handle_inspection_menu_entry_uses_substation_chooser(monkeypatch):
     import inspections
     import kivy.uix.boxlayout as kivy_boxlayout
