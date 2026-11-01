@@ -487,7 +487,10 @@ def create_popup(title, size_hint, **kwargs):
         return popup_cls(title=title, size_hint=size_hint, **popup_kwargs)
     except TypeError as exc:
         msg = str(exc)
-        if "unexpected keyword argument" not in msg and "positional argument" not in msg:
+        if (
+            "unexpected keyword argument" not in msg
+            and "positional argument" not in msg
+        ):
             raise
         return popup_cls(title=title, size_hint=size_hint)
 
@@ -801,36 +804,6 @@ else:
     # Fallback implementations when Kivy is not available. These are
     # intentionally minimal: they print messages to console and use
     # tkinter dialogs when possible for file selection.
-
-    def create_popup(title, size_hint, **kwargs):
-        """Return a tiny stand-in popup object for headless/test environments."""
-
-        class _FallbackPopup:
-            def __init__(self, title, size_hint, **popup_kwargs):
-                self.title = title
-                self.size_hint = size_hint
-                self.kwargs = popup_kwargs
-                self.content = None
-
-            def open(self):
-                return None
-
-            def dismiss(self):
-                return None
-
-        return _FallbackPopup(title=title, size_hint=size_hint, **kwargs)
-
-    def show_message_popup(title: str, message: str, callback=None) -> None:
-        print(f"--- {title} ---")
-        try:
-            print(str(message))
-        except Exception:
-            print(repr(message))
-        if callback:
-            try:
-                callback()
-            except Exception:
-                pass
 
     def ask_open_file(title: str = "Select file", filetypes=None):
         try:

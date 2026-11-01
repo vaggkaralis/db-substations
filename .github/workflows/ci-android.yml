@@ -270,7 +270,7 @@ jobs:
               https://downloads.sourceforge.net/project/freetype/freetype2/2.10.1/freetype-2.10.1.tar.gz \
               -O freetype-2.10.1.tar.gz
           fi
-      - name: Patch python-for-android jpeg recipe
+      - name: Patch python-for-android jpeg cleanup
         shell: bash
         run: |
           P4A_DIR="$HOME/.buildozer/android/platform/python-for-android"
@@ -279,9 +279,17 @@ jobs:
             git clone --depth 1 --branch v2024.01.21 \
               https://github.com/kivy/python-for-android.git "$P4A_DIR"
           fi
-          JPEG_RECIPE="$P4A_DIR/pythonforandroid/recipes/jpeg/__init__.py"
-          sed -i "s/shprint(sh.rm, '-f', 'CMakeCache.txt', 'CMakeFiles\\/')/shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles\\/')/" "$JPEG_RECIPE"
-          grep -n "CMakeFiles" "$JPEG_RECIPE"
+
+          for jpeg_recipe in \
+            ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py" \
+            "$P4A_DIR/pythonforandroid/recipes/jpeg/__init__.py"; do
+            if [ -f "$jpeg_recipe" ]; then
+              sed -i "s/shprint(sh.rm, '-f', 'CMakeCache.txt', 'CMakeFiles\\/')/shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles\\/')/" "$jpeg_recipe"
+              grep -n "CMakeFiles" "$jpeg_recipe"
+            fi
+          done
+
+          find .buildozer -type d -path "*/other_builds/jpeg/*/jpeg/CMakeFiles" -prune -exec rm -rf {} + 2>/dev/null || true
       - name: Build APK with Buildozer
         shell: bash
         run: |

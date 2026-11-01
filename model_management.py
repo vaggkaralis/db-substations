@@ -207,23 +207,41 @@ def _match_breaker_category_option(raw_value, options):
 def _get_breaker_category_options_for_selection(app_instance, selected_element_type):
     def _fallback_breaker_categories_for_type(element_type):
         if element_type == ELEM_BREAKER_MT:
-            return list(getattr(app_instance, "BREAKER_CATEGORIES_MV", [
-                "SF6",
-                "Πτωχού Ελαίου",
-                "Ελαίου",
-                "Κενού",
-            ]))
+            return list(
+                getattr(
+                    app_instance,
+                    "BREAKER_CATEGORIES_MV",
+                    [
+                        "SF6",
+                        "Πτωχού Ελαίου",
+                        "Ελαίου",
+                        "Κενού",
+                    ],
+                )
+            )
         if element_type == ELEM_BREAKER_YT:
-            return list(getattr(app_instance, "BREAKER_CATEGORIES_HV", [
-                "SF6",
-                "Ελαίου",
-            ]))
-        return list(getattr(app_instance, "BREAKER_CATEGORIES_ALL", [
-            "SF6",
-            "Πτωχού Ελαίου",
-            "Ελαίου",
-            "Κενού",
-        ]))
+            return list(
+                getattr(
+                    app_instance,
+                    "BREAKER_CATEGORIES_HV",
+                    [
+                        "SF6",
+                        "Ελαίου",
+                    ],
+                )
+            )
+        return list(
+            getattr(
+                app_instance,
+                "BREAKER_CATEGORIES_ALL",
+                [
+                    "SF6",
+                    "Πτωχού Ελαίου",
+                    "Ελαίου",
+                    "Κενού",
+                ],
+            )
+        )
 
     normalized_type = _normalize_element_type_filter_value(selected_element_type)
     getter = getattr(app_instance, "_get_breaker_categories_for_element_type", None)
@@ -2071,7 +2089,10 @@ def show_element_search_popup(app_instance, parent_popup=None):
             app_instance, selected_type
         )
         breaker_category_spinner.values = [all_option] + list(categories)
-        if not breaker_category_spinner.text or breaker_category_spinner.text not in breaker_category_spinner.values:
+        if (
+            not breaker_category_spinner.text
+            or breaker_category_spinner.text not in breaker_category_spinner.values
+        ):
             breaker_category_spinner.text = all_option
 
         if selected_type in {ELEM_BREAKER_MT, ELEM_BREAKER_YT}:
