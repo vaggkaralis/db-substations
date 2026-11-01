@@ -292,8 +292,11 @@ jobs:
               Path.home() / ".buildozer",
           ]
           recipe_suffix = Path("pythonforandroid/recipes/jpeg/__init__.py")
-          pattern = re.compile(
+          rm_pattern = re.compile(
               r"""shprint\(\s*sh\.rm\s*,\s*['"]-f['"]\s*,\s*['"]CMakeCache\.txt['"]\s*,\s*['"]CMakeFiles/?['"]\s*\)"""
+          )
+          toolchain_pattern = re.compile(
+              r"""('-DCMAKE_TOOLCHAIN_FILE=' \+ toolchain_file,\s*\n)"""
           )
 
           patched_paths = []
@@ -302,10 +305,16 @@ jobs:
                   continue
               for path in root.rglob(str(recipe_suffix)):
                   content = path.read_text(encoding="utf-8")
-                  updated = pattern.sub(
+                  updated = rm_pattern.sub(
                       "shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles/')",
                       content,
                   )
+                  if "CMAKE_POLICY_VERSION_MINIMUM" not in updated:
+                      updated = toolchain_pattern.sub(
+                          r"\1                    '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',\n",
+                          updated,
+                          count=1,
+                      )
                   if updated != content:
                       path.write_text(updated, encoding="utf-8")
                       patched_paths.append(path)
@@ -319,6 +328,7 @@ jobs:
             if [ -d "$root" ]; then
               find "$root" -type f -path '*/pythonforandroid/recipes/jpeg/__init__.py' -print0 | while IFS= read -r -d '' jpeg_recipe; do
                 grep -n "shprint(sh.rm" "$jpeg_recipe" || true
+                grep -n "CMAKE_POLICY_VERSION_MINIMUM" "$jpeg_recipe" || true
                 if grep -qE "shprint\(\s*sh\.rm,\s*['\"]-f['\"],\s*['\"]CMakeCache\.txt['\"],\s*['\"]CMakeFiles/?['\"]" "$jpeg_recipe"; then
                   echo "Unpatched jpeg cleanup command remains in $jpeg_recipe" >&2
                   exit 1
