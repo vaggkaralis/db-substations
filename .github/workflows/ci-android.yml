@@ -287,7 +287,7 @@ jobs:
             "$GITHUB_WORKSPACE/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py" \
             "$HOME/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py"; do
             if [ -f "$jpeg_recipe" ]; then
-              sed -i -E "/CMakeFiles\\// s/shprint\\(sh\\.rm, '-f'/shprint(sh.rm, '-rf'/" "$jpeg_recipe"
+              sed -i -E "/CMakeFiles/ s/shprint\\(sh\\.rm,[[:space:]]*['\\\"]-f['\\\"]/shprint(sh.rm, '-rf'/" "$jpeg_recipe"
               grep -n "CMakeFiles" "$jpeg_recipe"
             fi
           done
