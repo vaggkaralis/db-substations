@@ -273,18 +273,21 @@ jobs:
       - name: Patch python-for-android jpeg cleanup
         shell: bash
         run: |
-          P4A_DIR="$HOME/.buildozer/android/platform/python-for-android"
-          if [ ! -d "$P4A_DIR" ]; then
-            mkdir -p "$(dirname "$P4A_DIR")"
-            git clone --depth 1 --branch v2024.01.21 \
-              https://github.com/kivy/python-for-android.git "$P4A_DIR"
-          fi
+          for p4a_dir in \
+            "$GITHUB_WORKSPACE/.buildozer/android/platform/python-for-android" \
+            "$HOME/.buildozer/android/platform/python-for-android"; do
+            if [ ! -d "$p4a_dir" ]; then
+              mkdir -p "$(dirname "$p4a_dir")"
+              git clone --depth 1 --branch v2024.01.21 \
+                https://github.com/kivy/python-for-android.git "$p4a_dir"
+            fi
+          done
 
           for jpeg_recipe in \
-            ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py" \
-            "$P4A_DIR/pythonforandroid/recipes/jpeg/__init__.py"; do
+            "$GITHUB_WORKSPACE/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py" \
+            "$HOME/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/jpeg/__init__.py"; do
             if [ -f "$jpeg_recipe" ]; then
-              sed -i "s/shprint(sh.rm, '-f', 'CMakeCache.txt', 'CMakeFiles\\/')/shprint(sh.rm, '-rf', 'CMakeCache.txt', 'CMakeFiles\\/')/" "$jpeg_recipe"
+              sed -i -E "/CMakeFiles\\// s/shprint\\(sh\\.rm, '-f'/shprint(sh.rm, '-rf'/" "$jpeg_recipe"
               grep -n "CMakeFiles" "$jpeg_recipe"
             fi
           done
