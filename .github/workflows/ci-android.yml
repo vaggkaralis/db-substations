@@ -110,6 +110,8 @@ jobs:
         run: |
           pip3 install --upgrade pip
           pip3 install --upgrade buildozer cython==0.29.33
+          pip3 install "cmake<4"
+          cmake --version
       - name: Prepare Android source tree
         run: |
           python3 - <<'PY'
@@ -344,6 +346,8 @@ jobs:
           set -o pipefail
           export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH
+          command -v cmake
+          cmake --version | head -n 1
           build_log="$RUNNER_TEMP/buildozer-android.log"
           : > "$build_log"
           build_succeeded=0
