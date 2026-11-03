@@ -9904,16 +9904,19 @@ class SubstationAndroidApp(App):
 
             def _display_measurement_value(value):
                 if isinstance(value, dict):
-                    base_value = (
-                        value.get("value")
-                        if isinstance(value.get("value"), (str, int, float))
-                        else None
-                    )
+                    base_value = value.get("value")
+                    if isinstance(base_value, dict):
+                        return _display_measurement_value(base_value)
                     if _has_meaningful_measurement_value(base_value):
-                        unit_value = value.get("unit")
-                        if _has_meaningful_measurement_value(unit_value):
-                            return f"{base_value} {unit_value}"
+                        for unit_key in ("unit", "units", "u"):
+                            unit_value = value.get(unit_key)
+                            if _has_meaningful_measurement_value(unit_value):
+                                return f"{base_value} {unit_value}"
                         return str(base_value)
+                    for candidate_key in ("value", "result", "reading", "measurement"):
+                        candidate = value.get(candidate_key)
+                        if _has_meaningful_measurement_value(candidate):
+                            return _display_measurement_value({"value": candidate})
                     return ""
                 return str(value)
 
@@ -9926,6 +9929,10 @@ class SubstationAndroidApp(App):
                     payload_value = payload.get(key)
                     if _has_meaningful_measurement_value(payload_value):
                         return payload_value
+                    if isinstance(payload_value, dict):
+                        nested_value = payload_value.get("value")
+                        if _has_meaningful_measurement_value(nested_value):
+                            return payload_value
                 for path in nested_paths:
                     current = payload
                     valid_path = True
@@ -9936,6 +9943,12 @@ class SubstationAndroidApp(App):
                         current = current.get(part)
                     if valid_path and _has_meaningful_measurement_value(current):
                         return current
+                for key in payload:
+                    if isinstance(payload.get(key), dict):
+                        value_blob = payload[key]
+                        if "value" in value_blob:
+                            if value_blob.get("key") in direct_keys:
+                                return value_blob
                 return None
 
             if not self.local_db_path or not os.path.exists(self.local_db_path):
@@ -10225,36 +10238,124 @@ class SubstationAndroidApp(App):
                             f"{S['MESSAGES'].get('ELEMENT_COMMENTS_LABEL', 'Σχόλια Στοιχείου:')} {element_comments}"
                         )
 
-                    # Add measurements if present
+                    # Add measurements if present, including units stored in the
+                    # legacy scalar columns or nested JSON payloads.
                     measurements = []
-                    if _has_meaningful_measurement_value(insul_fa_value):
-                        measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FA_GND', 'FA-GND')}: {_display_measurement_value(insul_fa_value)}"
+                    measurement_items = []
+
+                    def _add_measurement_item(label, value, fallback_unit=""):
+                        if not _has_meaningful_measurement_value(value):
+                            return
+                        value_to_display = value
+                        if isinstance(value_to_display, dict):
+                            value_to_display = value_to_display.get(
+                                "value", value_to_display
+                            )
+                        unit_value = fallback_unit
+                        if isinstance(value, dict):
+                            for unit_key in ("unit", "units", "u"):
+                                unit_candidate = value.get(unit_key)
+                                if _has_meaningful_measurement_value(unit_candidate):
+                                    unit_value = str(unit_candidate)
+                                    break
+                        text = _display_measurement_value(
+                            {"value": value_to_display, "unit": unit_value}
+                            if unit_value
+                            else value_to_display
                         )
-                    if _has_meaningful_measurement_value(insul_fb_value):
-                        measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB_GND', 'FB-GND')}: {_display_measurement_value(insul_fb_value)}"
+                        label_text = f"{label}: {text}"
+                        if label_text not in measurement_items:
+                            measurement_items.append(label_text)
+
+                    for value, label, unit in (
+                        (
+                            insul_fa_value,
+                            S["MESSAGES"].get("INSULATION_LABEL_FA_GND", "FA-GND"),
+                            "GΩ",
+                        ),
+                        (
+                            insul_fb_value,
+                            S["MESSAGES"].get("INSULATION_LABEL_FB_GND", "FB-GND"),
+                            "GΩ",
+                        ),
+                        (
+                            insul_fc_value,
+                            S["MESSAGES"].get("INSULATION_LABEL_FC_GND", "FC-GND"),
+                            "GΩ",
+                        ),
+                        (
+                            contact_res_fa_value,
+                            S["MESSAGES"].get("PHASE_TO_PHASE_LABEL", "FA-FA"),
+                            "mΩ",
+                        ),
+                        (
+                            contact_res_fb_value,
+                            S["MESSAGES"].get("INSULATION_LABEL_FB", "FB-FB"),
+                            "mΩ",
+                        ),
+                        (
+                            contact_res_fc_value,
+                            S["MESSAGES"].get("INSULATION_LABEL_FC", "FC-FC"),
+                            "mΩ",
+                        ),
+                        (operations_count_value, "Λειτουργίες", ""),
+                    ):
+                        _add_measurement_item(label, value, unit)
+
+                    for key, label, unit in (
+                        ("vidar_fa", "ΦΑ-ΦΑ", ""),
+                        ("vidar_fb", "ΦΒ-ΦΒ", ""),
+                        ("vidar_fc", "ΦΓ-ΦΓ", ""),
+                        ("sf6_n2_fa", "SF6/N2 ΦΑ", "ppm"),
+                        ("sf6_n2_fb", "SF6/N2 ΦΒ", "ppm"),
+                        ("sf6_n2_fc", "SF6/N2 ΦΓ", "ppm"),
+                        ("h2o_fa", "H2O ΦΑ", "ppm"),
+                        ("h2o_fb", "H2O ΦΒ", "ppm"),
+                        ("h2o_fc", "H2O ΦΓ", "ppm"),
+                        ("so2_fa", "SO2 ΦΑ", "ppm"),
+                        ("so2_fb", "SO2 ΦΒ", "ppm"),
+                        ("so2_fc", "SO2 ΦΓ", "ppm"),
+                        ("sf6_leakage", "Διαρροή SF6", "kg"),
+                        ("sf6_leakage_kg", "Διαρροή SF6", "kg"),
+                        ("oil_quantity_l", "Ποσότητα λαδιού", "L"),
+                        ("oil_capacity_l", "Χωρητικότητα λαδιού", "L"),
+                        ("temp_fan_oil", "Θερμοκρασία λαδιού", "°C"),
+                        ("oil_temp_c", "Θερμοκρασία λαδιού", "°C"),
+                        ("temperature_oil_c", "Θερμοκρασία λαδιού", "°C"),
+                    ):
+                        value = _resolve_measurement_value(
+                            None,
+                            measurement_payload,
+                            direct_keys=(key, f"{key}_value", f"{key}_reading"),
                         )
-                    if _has_meaningful_measurement_value(insul_fc_value):
-                        measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC_GND', 'FC-GND')}: {_display_measurement_value(insul_fc_value)}"
-                        )
-                    if _has_meaningful_measurement_value(contact_res_fa_value):
-                        measurements.append(
-                            f"{S['MESSAGES'].get('PHASE_TO_PHASE_LABEL', 'FA-FA')}: {_display_measurement_value(contact_res_fa_value)}"
-                        )
-                    if _has_meaningful_measurement_value(contact_res_fb_value):
-                        measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FB', 'FB-FB')}: {_display_measurement_value(contact_res_fb_value)}"
-                        )
-                    if _has_meaningful_measurement_value(contact_res_fc_value):
-                        measurements.append(
-                            f"{S['MESSAGES'].get('INSULATION_LABEL_FC', 'FC-FC')}: {_display_measurement_value(contact_res_fc_value)}"
-                        )
-                    if _has_meaningful_measurement_value(operations_count_value):
-                        measurements.append(
-                            f"Λειτουργίες: {_display_measurement_value(operations_count_value)}"
-                        )
+                        _add_measurement_item(label, value, unit)
+
+                    if measurement_payload.get("vidar_status"):
+                        vidar_status = measurement_payload.get("vidar_status") or {}
+                        vidar_comment = measurement_payload.get("vidar_comment") or {}
+                        for phase_key, phase_label in (
+                            ("vidar_fa", "ΦΑ-ΦΑ"),
+                            ("vidar_fb", "ΦΒ-ΦΒ"),
+                            ("vidar_fc", "ΦΓ-ΦΓ"),
+                        ):
+                            status_value = _resolve_measurement_value(
+                                None,
+                                vidar_status,
+                                direct_keys=(phase_key, f"{phase_key}_value"),
+                            )
+                            if not _has_meaningful_measurement_value(status_value):
+                                continue
+                            comment_text = str(
+                                vidar_comment.get(phase_key) or ""
+                            ).strip()
+                            value_text = str(status_value).strip()
+                            if comment_text:
+                                value_text = f"{value_text} | Σχόλιο: {comment_text}"
+                            label_text = f"{phase_label}: {value_text}"
+                            if label_text not in measurement_items:
+                                measurement_items.append(label_text)
+
+                    measurements.extend(measurement_items)
 
                     if measurements:
                         data_parts.append(" | ".join(measurements))

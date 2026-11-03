@@ -9,7 +9,7 @@ source.exclude_dirs = .git,.github,.venv,__pycache__,tests,scripts,tools,dist,.p
 source.exclude_patterns = tests/*,tests/_shims/*,scripts/*,tools/*,dist/*,__pycache__/*,*.pyc,*.pyo,test_*.py,build_*.py
 icon.filename = res/icons/android_launcher.png
 
-version = 1.2.0
+version = 1.3.0
 # Android requires a monotonically increasing versionCode for updates.
 # CI workflows overwrite this value per run to guarantee update installability.
 android.numeric_version = 10200

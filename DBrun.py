@@ -3617,6 +3617,7 @@ class SubstationApp(App):
             "BoxLayout": BoxLayout,
             "Label": Label,
             "Button": Button,
+            "CheckBox": CheckBox,
             "show_message_popup": show_message_popup,
         }
         return self._run_with_loading(
@@ -7990,10 +7991,10 @@ class SubstationApp(App):
             title=S["MESSAGES"].get(
                 "STARTUP_PROGRESS_TITLE", "Initialization in Progress"
             ),
-            size_hint=(0.65, 0.35),
+            size_hint=(0.65, 0.46),
             auto_dismiss=False,
         )
-        layout = BoxLayout(orientation="vertical", padding=15, spacing=12)
+        layout = BoxLayout(orientation="vertical", padding=15, spacing=10)
 
         # Operation label
         operation_label = Label(
@@ -8002,6 +8003,7 @@ class SubstationApp(App):
             ),
             size_hint_y=None,
             height=30,
+            bold=True,
         )
         layout.add_widget(operation_label)
 
@@ -8027,10 +8029,26 @@ class SubstationApp(App):
         progress_text = Label(
             text="0%",
             size_hint_y=None,
-            height=25,
+            height=22,
             font_size="12sp",
         )
         layout.add_widget(progress_text)
+
+        log_terminal = TextInput(
+            text="",
+            readonly=True,
+            multiline=True,
+            size_hint_y=None,
+            height=120,
+            font_size="11sp",
+            foreground_color=(0.92, 0.96, 1.0, 1.0),
+            background_color=(0.06, 0.09, 0.14, 1.0),
+            cursor_color=(1, 1, 1, 0),
+            cursor_blink=False,
+            write_tab=False,
+            padding=(8, 8),
+        )
+        layout.add_widget(log_terminal)
 
         progress_popup.content = layout
         return {
@@ -8039,7 +8057,44 @@ class SubstationApp(App):
             "substation_label": substation_label,
             "progress_bar": progress_bar,
             "progress_text": progress_text,
+            "log_terminal": log_terminal,
+            "_log_messages": [],
         }
+
+    def _append_startup_progress_log(self, progress_ui, message):
+        """Append a human-readable status line to the sync log panel."""
+        if not progress_ui or not isinstance(progress_ui, dict):
+            return
+        text = str(message or "").strip()
+        if not text:
+            return
+        try:
+
+            def _apply_update(_dt):
+                try:
+                    logs = list(progress_ui.get("_log_messages") or [])
+                    if not logs or logs[-1] != text:
+                        logs.append(text)
+                    if len(logs) > 40:
+                        logs = logs[-40:]
+                    progress_ui["_log_messages"] = logs
+                    terminal = progress_ui.get("log_terminal")
+                    if terminal is not None:
+                        terminal.text = "\n".join(logs)
+                        try:
+                            terminal.cursor = (0, len(terminal.text))
+                        except Exception:
+                            pass
+                        try:
+                            terminal.scroll_y = 0
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            Clock.schedule_once(_apply_update, 0)
+        except Exception:
+            pass
 
     def _update_startup_progress(
         self, progress_ui, operation, substation, current, total
@@ -8058,6 +8113,13 @@ class SubstationApp(App):
                     )
                     progress_ui["progress_bar"].value = percent
                     progress_ui["progress_text"].text = f"{percent}%"
+                    if substation:
+                        self._append_startup_progress_log(
+                            progress_ui,
+                            f"{operation} — {substation}",
+                        )
+                    else:
+                        self._append_startup_progress_log(progress_ui, operation)
                 except Exception:
                     pass
 
@@ -10046,6 +10108,268 @@ class SubstationApp(App):
         popup.open()
         return True
 
+    def _export_substation_elements_view_pdf(
+        self,
+        substation_id,
+        substation_name,
+        element_type_filter=None,
+        gate_filter=None,
+    ):
+        from datetime import datetime
+        import os
+        import subprocess
+        import sys
+        from popups import show_message_popup
+        from pdf_reports import MaintenanceReportGenerator
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+
+        c = self.conn.cursor()
+        all_label = S["MESSAGES"].get("ALL_LABEL", "(Όλα)")
+        gate_unregistered = get_unreg()
+        query = """
+            SELECT e.element_type, e.name, e.gate, e.serial_number, e.voltage_level,
+                   e.power_mva, e.manufacturer, e.manufacture_year, e.is_main_switch,
+                   em.breaker_category, em.model_name, em.manufacturer as model_manufacturer,
+                   em.power_mva as model_power_mva, em.installation_space, e.maintenance_date,
+                   e.maintenance_cycle as element_maintenance_cycle, em.maintenance_cycle as model_maintenance_cycle
+            FROM elements e
+            LEFT JOIN element_models em ON e.element_model_id = em.id
+            WHERE e.substation_id=?
+              AND COALESCE(e.parent_element_id, 0)=0
+              AND (e.operating_status IS NULL OR e.operating_status='Ενεργή')
+        """
+        params = [substation_id]
+        if element_type_filter and element_type_filter != all_label:
+            query += " AND e.element_type=?"
+            params.append(element_type_filter)
+        if gate_filter and gate_filter != all_label:
+            if gate_filter == gate_unregistered:
+                query += " AND (e.gate IS NULL OR TRIM(e.gate)='')"
+            else:
+                query += " AND e.gate=?"
+                params.append(gate_filter)
+        query += " ORDER BY COALESCE(e.gate, ''), e.name"
+
+        c.execute(query, params)
+        rows = c.fetchall()
+        if not rows:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                S["MESSAGES"].get("NO_ELEMENTS", "Δεν βρέθηκαν στοιχεία."),
+            )
+            return
+
+        try:
+            pdf_gen = MaintenanceReportGenerator(self.conn)
+            greek_font = getattr(pdf_gen, "greek_font", "Helvetica")
+
+            def _nfc(text):
+                if text is None or text == "":
+                    return "-"
+                return pdf_gen.normalize_text(str(text))
+
+            shared_root = resolve_shared_root(getattr(self, "db_path", None))
+            reports_dir = os.path.join(shared_root, "_EXPORTS", "substation_elements")
+            os.makedirs(reports_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_name = str(substation_name or "").replace("/", "-").replace("\\", "-")
+            output_path = os.path.join(
+                reports_dir, f"SubstationElements_{safe_name}_{timestamp}.pdf"
+            )
+
+            doc = SimpleDocTemplate(
+                output_path,
+                pagesize=A4,
+                leftMargin=12 * mm,
+                rightMargin=12 * mm,
+                topMargin=12 * mm,
+                bottomMargin=12 * mm,
+            )
+            styles = getSampleStyleSheet()
+            story = []
+
+            title_style = ParagraphStyle(
+                "SubstationElementsTitle",
+                parent=styles["Heading1"],
+                fontName=greek_font,
+                fontSize=16,
+                leading=19,
+                alignment=1,
+                spaceAfter=8,
+            )
+            info_style = ParagraphStyle(
+                "SubstationElementsInfo",
+                parent=styles["Normal"],
+                fontName=greek_font,
+                fontSize=9,
+                leading=11,
+                alignment=0,
+                spaceAfter=10,
+            )
+            header_cell_style = ParagraphStyle(
+                "SubstationElementsHeaderCell",
+                parent=styles["Normal"],
+                fontName=greek_font,
+                fontSize=9,
+                leading=11,
+                alignment=0,
+            )
+            body_cell_style = ParagraphStyle(
+                "SubstationElementsBodyCell",
+                parent=styles["Normal"],
+                fontName=greek_font,
+                fontSize=8,
+                leading=10,
+                alignment=0,
+            )
+
+            story.append(
+                Paragraph(_nfc(f"Στοιχεία Υποσταθμού - {substation_name}"), title_style)
+            )
+            filter_info = (
+                f"Φίλτρο Τύπου: {element_type_filter or all_label} | "
+                f"Φίλτρο Πύλης: {gate_filter or all_label}"
+            )
+            story.append(Paragraph(_nfc(filter_info), info_style))
+            story.append(
+                Paragraph(_nfc(f"Σύνολο ενεργών στοιχείων: {len(rows)}"), info_style)
+            )
+            story.append(Spacer(1, 3 * mm))
+
+            table_data = [
+                [
+                    Paragraph(_nfc("Α/Α"), header_cell_style),
+                    Paragraph(_nfc("Πύλη"), header_cell_style),
+                    Paragraph(_nfc("Όνομα"), header_cell_style),
+                    Paragraph(_nfc("Τύπος"), header_cell_style),
+                    Paragraph(_nfc("Κατηγορία"), header_cell_style),
+                    Paragraph(_nfc("Στοιχεία"), header_cell_style),
+                    Paragraph(_nfc("S/N"), header_cell_style),
+                    Paragraph(_nfc("Τελ. Συντήρηση"), header_cell_style),
+                ]
+            ]
+
+            for idx, row in enumerate(rows, 1):
+                (
+                    elem_type,
+                    elem_name,
+                    gate,
+                    serial_number,
+                    voltage_level,
+                    power_mva,
+                    manufacturer,
+                    manufacture_year,
+                    is_main_switch,
+                    breaker_category,
+                    model_name,
+                    model_manufacturer,
+                    model_power_mva,
+                    installation_space,
+                    maintenance_date,
+                    _element_maintenance_cycle,
+                    _model_maintenance_cycle,
+                ) = row
+
+                display_elem_type = elem_type
+                if elem_type in self.BREAKER_ELEMENT_TYPES:
+                    display_elem_type = self._format_elem_type(
+                        elem_type, is_main_switch
+                    )
+                effective_power = (
+                    model_power_mva if model_power_mva is not None else power_mva
+                )
+                detail_parts = []
+                if model_name:
+                    detail_parts.append(f"Μοντέλο: {model_name}")
+                if model_manufacturer or manufacturer:
+                    detail_parts.append(
+                        f"Κατασκ.: {model_manufacturer or manufacturer}"
+                    )
+                if manufacture_year:
+                    detail_parts.append(f"Έτος: {manufacture_year}")
+                if installation_space:
+                    detail_parts.append(f"Χώρος: {installation_space}")
+                if voltage_level:
+                    detail_parts.append(f"Τάση: {voltage_level}")
+                if effective_power:
+                    detail_parts.append(f"Ισχύς: {effective_power} MVA")
+                details_text = " | ".join(detail_parts) if detail_parts else "-"
+
+                table_data.append(
+                    [
+                        Paragraph(_nfc(str(idx)), body_cell_style),
+                        Paragraph(_nfc(gate or gate_unregistered), body_cell_style),
+                        Paragraph(_nfc(elem_name), body_cell_style),
+                        Paragraph(_nfc(display_elem_type), body_cell_style),
+                        Paragraph(_nfc(breaker_category), body_cell_style),
+                        Paragraph(_nfc(details_text), body_cell_style),
+                        Paragraph(_nfc(serial_number), body_cell_style),
+                        Paragraph(_nfc(maintenance_date), body_cell_style),
+                    ]
+                )
+
+            col_widths = [
+                doc.width * 0.06,
+                doc.width * 0.14,
+                doc.width * 0.16,
+                doc.width * 0.13,
+                doc.width * 0.10,
+                doc.width * 0.24,
+                doc.width * 0.10,
+                doc.width * 0.07,
+            ]
+            table = Table(table_data, colWidths=col_widths, repeatRows=1)
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("GRID", (0, 0), (-1, -1), 0.8, colors.black),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                        ("FONTNAME", (0, 0), (-1, 0), greek_font),
+                        ("FONTNAME", (0, 1), (-1, -1), greek_font),
+                    ]
+                )
+            )
+            story.append(table)
+            doc.build(story)
+            open_error = None
+            try:
+                if sys.platform == "win32":
+                    os.startfile(output_path)
+                elif sys.platform == "darwin":
+                    subprocess.call(["open", output_path])
+                else:
+                    subprocess.call(["xdg-open", output_path])
+            except Exception as exc:
+                open_error = str(exc)
+            success_message = f"Το PDF αποθηκεύτηκε στο:\n{output_path}"
+            if open_error:
+                success_message += f"\n\nΑποτυχία ανοίγματος PDF:\n{open_error}"
+            show_message_popup(
+                S["TITLES"].get("SUCCESS", "Επιτυχία"),
+                success_message,
+            )
+        except Exception as exc:
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                f"Σφάλμα κατά την εξαγωγή PDF:\n{exc}",
+            )
+
     def _display_substations(
         self,
         filter_name=None,
@@ -10152,6 +10476,24 @@ class SubstationApp(App):
 
         # Create main layout
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        action_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
+        refresh_btn = Button(
+            text=S["MESSAGES"].get("REFRESH_BUTTON", "Ανανέωση"),
+            size_hint_x=None,
+            width=120,
+        )
+        refresh_btn.bind(
+            on_press=lambda _x, p=popup: self._display_substations(
+                filter_name,
+                reuse_popup=p,
+                element_type_filter=p._dbs_element_type_filter,
+                gate_filter=p._dbs_gate_filter,
+            )
+        )
+        action_row.add_widget(BoxLayout(size_hint_x=1))
+        action_row.add_widget(refresh_btn)
+        main_layout.add_widget(action_row)
 
         if not show_elements:
             dga_tools_layout = BoxLayout(size_hint_y=None, height=42, spacing=8)
@@ -10724,21 +11066,27 @@ class SubstationApp(App):
                 popup._dbs_gate_filter = current_gate_filter
 
                 filter_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
+                pdf_btn = Button(
+                    text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
+                    size_hint_x=0.14,
+                    **self._get_ui_font_kwargs(),
+                )
+                filter_layout.add_widget(pdf_btn)
                 filter_layout.add_widget(
                     Label(
                         text=S["MESSAGES"].get("FILTER_TYPE", "Φίλτρο Τύπου:"),
-                        size_hint_x=0.2,
+                        size_hint_x=0.15,
                     )
                 )
                 type_spinner = Spinner(
-                    text=current_type_filter, values=type_values, size_hint_x=0.35
+                    text=current_type_filter, values=type_values, size_hint_x=0.24
                 )
                 filter_layout.add_widget(type_spinner)
                 filter_layout.add_widget(
-                    Label(text=S["MESSAGES"]["FILTER_GATE"], size_hint_x=0.2)
+                    Label(text=S["MESSAGES"]["FILTER_GATE"], size_hint_x=0.15)
                 )
                 gate_spinner = Spinner(
-                    text=current_gate_filter, values=gate_values, size_hint_x=0.35
+                    text=current_gate_filter, values=gate_values, size_hint_x=0.32
                 )
                 filter_layout.add_widget(gate_spinner)
 
@@ -10747,6 +11095,15 @@ class SubstationApp(App):
                         sub_name, popup, type_spinner.text, gate_spinner.text
                     )
 
+                def export_pdf_for_current_filters(_instance=None):
+                    self._export_substation_elements_view_pdf(
+                        sub_id,
+                        sub_name,
+                        type_spinner.text,
+                        gate_spinner.text,
+                    )
+
+                pdf_btn.bind(on_press=export_pdf_for_current_filters)
                 type_spinner.bind(text=refresh_filters)
                 gate_spinner.bind(text=refresh_filters)
                 grid.add_widget(filter_layout)
@@ -12333,15 +12690,24 @@ class SubstationApp(App):
 
                 def _apply(_dt):
                     try:
-                        progress_ui["operation_label"].text = operation or S[
-                            "MESSAGES"
-                        ].get(
+                        operation_text = operation or S["MESSAGES"].get(
                             "STARTUP_SYNC_DATA_ONEDRIVE",
                             "Συγχρονισμός δεδομένων με OneDrive...",
                         )
+                        progress_ui["operation_label"].text = operation_text
                         progress_ui["substation_label"].text = detail or ""
                         progress_ui["progress_bar"].value = safe_percent
                         progress_ui["progress_text"].text = f"{safe_percent}%"
+                        if detail:
+                            self._append_startup_progress_log(
+                                progress_ui,
+                                f"{operation_text} — {detail}",
+                            )
+                        else:
+                            self._append_startup_progress_log(
+                                progress_ui,
+                                operation_text,
+                            )
                     except Exception:
                         pass
 
@@ -23310,7 +23676,7 @@ class SubstationApp(App):
             comment_input.opacity = 0.45
 
             def _sync_comment_state(_inst, value, text_input=comment_input):
-                if str(value or "").strip() == "NOK":
+                if str(value or "").strip() in {"OK", "NOK"}:
                     text_input.disabled = False
                     text_input.opacity = 1
                 else:
@@ -25427,7 +25793,7 @@ class SubstationApp(App):
             # people
             c.execute(
                 f"""
-                SELECT mp.maintenance_id, p.name, mp.role
+                SELECT mp.maintenance_id, mp.person_id, p.name, mp.role
                 FROM maintenance_people mp
                 JOIN people p ON mp.person_id = p.id
                 WHERE mp.maintenance_id IN ({placeholders})
@@ -25435,14 +25801,23 @@ class SubstationApp(App):
                 """,
                 maint_ids,
             )
-            for m_id, person_name, role in c.fetchall():
+            for m_id, person_id, person_name, role in c.fetchall():
                 entry = people_by_maint.setdefault(
-                    m_id, {"responsible": None, "crew": []}
+                    m_id,
+                    {
+                        "responsible": None,
+                        "responsible_id": None,
+                        "crew": [],
+                        "crew_ids": [],
+                    },
                 )
                 if role == "responsible":
                     entry["responsible"] = person_name
+                    entry["responsible_id"] = person_id
                 elif role == "crew":
                     entry["crew"].append(person_name)
+                    if person_id not in entry["crew_ids"]:
+                        entry["crew_ids"].append(person_id)
 
             # fallback responsible_id resolution
             c.execute(
@@ -26160,6 +26535,77 @@ class SubstationApp(App):
                 def make_email_handler(m_id):
                     return lambda x: self.send_maintenance_email_report(m_id)
 
+                def make_duplicate_handler(
+                    m_id,
+                    maint_name,
+                    maint_type,
+                    record_date_time,
+                    record_elements,
+                    record_overall_comments,
+                    record_pending_tasks_text,
+                    record_preparation_checklist_json,
+                ):
+                    def _handler(_instance=None):
+                        entry = people_by_maint.get(m_id, {})
+                        duplicate_element_ids = [
+                            elem[0]
+                            for elem in (record_elements or [])
+                            if elem and elem[0] is not None
+                        ]
+                        duplicate_prefill = {
+                            "substation_id": substation_id,
+                            "substation_name": substation_name,
+                            "maintenance_type": maint_type,
+                            "maintenance_name": f"{maint_name} (Αντίγραφο)",
+                            "date_time": record_date_time
+                            or datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "overall_comments": record_overall_comments or "",
+                            "responsible_id": entry.get("responsible_id"),
+                            "crew_ids": list(entry.get("crew_ids") or []),
+                            "pending_tasks_text": record_pending_tasks_text or "",
+                            "element_ids": duplicate_element_ids,
+                            "elements": [
+                                {
+                                    "id": elem[0],
+                                    "name": elem[2],
+                                    "element_type": elem[1],
+                                }
+                                for elem in record_elements or []
+                                if elem and elem[0] is not None
+                            ],
+                        }
+                        if record_preparation_checklist_json:
+                            try:
+                                duplicate_prefill["preparation_checklist_state"] = (
+                                    normalize_state(
+                                        json.loads(record_preparation_checklist_json)
+                                    )
+                                )
+                            except Exception:
+                                pass
+
+                        def _reopen_history():
+                            self.show_substation_maintenance_history(
+                                substation_id,
+                                substation_name,
+                                parent_display_popup,
+                                current_element_filter.get("id"),
+                                current_element_filter.get("name"),
+                                include_maintenance_ids=include_maintenance_ids,
+                            )
+
+                        self.show_maintenance_menu(
+                            None,
+                            substation_name,
+                            popup,
+                            None,
+                            _reopen_history,
+                            _reopen_history,
+                            duplicate_prefill,
+                        )
+
+                    return _handler
+
                 # end per-record loop
 
                 def make_edit_handler(m_id, p, maint_type, elements):
@@ -26268,6 +26714,12 @@ class SubstationApp(App):
                     icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
                     size=(35, 35),
                 )
+                duplicate_btn = IconOnlyButton(
+                    icon_type="copy",
+                    icon_color=(0.15, 0.63, 0.41, 1),
+                    size=(35, 35),
+                    tooltip="Αντιγραφή συντήρησης",
+                )
                 checklist_btn = IconOnlyButton(
                     icon_type="book",
                     icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
@@ -26292,6 +26744,18 @@ class SubstationApp(App):
                         maint_id, popup, maintenance_type, elements
                     )
                 )
+                duplicate_btn.bind(
+                    on_press=make_duplicate_handler(
+                        maint_id,
+                        maint_name,
+                        maintenance_type,
+                        date_time,
+                        elements_by_maint.get(maint_id, []),
+                        overall_comments or "",
+                        pending_tasks_text or "",
+                        preparation_checklist_json,
+                    )
+                )
                 rebuild_btn.bind(on_press=make_rebuild_folder_handler(maint_id))
                 view_btn.bind(on_press=make_view_handler(maint_id))
                 checklist_handler = make_checklist_handler(
@@ -26305,6 +26769,7 @@ class SubstationApp(App):
                 header.add_widget(view_btn)
                 header.add_widget(rebuild_btn)
                 header.add_widget(edit_btn)
+                header.add_widget(duplicate_btn)
                 if checklist_handler is not None:
                     header.add_widget(checklist_btn)
                 header.add_widget(email_btn)

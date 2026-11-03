@@ -131,6 +131,34 @@ def test_delete_model_returns_to_subelement_menu_for_subelement_category(monkeyp
     assert calls[-1] == ("subelements", app, parent_popup)
 
 
+def test_saved_element_search_filters_are_kept_on_app_instance():
+    mod = importlib.import_module("model_management")
+    app = type("App", (), {})()
+    parent = type("ParentPopup", (), {})()
+    state = {"element_type": "Διακόπτης ΜΤ", "include_inactive": True}
+
+    mod._store_saved_element_search_filters(app, parent, state)
+    parent._dbs_element_search_filters = {}
+
+    assert mod._get_saved_element_search_filters(app, parent) == state
+    assert app._dbs_element_search_filters == state
+
+
+def test_saved_element_search_filters_are_reset_when_cleared():
+    mod = importlib.import_module("model_management")
+    app = type("App", (), {})()
+    parent = type("ParentPopup", (), {})()
+
+    mod._store_saved_element_search_filters(
+        app, parent, {"element_type": "Διακόπτης ΜΤ"}
+    )
+    mod._store_saved_element_search_filters(app, parent, {})
+
+    assert mod._get_saved_element_search_filters(app, parent) == {}
+    assert app._dbs_element_search_filters == {}
+    assert parent._dbs_element_search_filters == {}
+
+
 def test_launch_app_screen_falls_back_to_project_entry_script(monkeypatch):
     mod = importlib.import_module("popups")
     command = {}

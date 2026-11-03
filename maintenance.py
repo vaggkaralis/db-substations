@@ -18,6 +18,7 @@ def _make_ui_dict(ui):
         "Label",
         "Button",
         "TextInput",
+        "CheckBox",
         "FileChooserListView",
         "Spinner",
         "ask_open_file",
@@ -30,7 +31,11 @@ def _make_ui_dict(ui):
     return {k: ui.get(k) for k in keys}
 
 
-def _load_due_elements_grouped_by_substation(app):
+def _load_due_elements_grouped_by_substation(
+    app,
+    include_warnings=False,
+    warning_window_days=90,
+):
     cursor = app.conn.cursor()
     unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
     cursor.execute(
@@ -70,6 +75,47 @@ def _load_due_elements_grouped_by_substation(app):
 
     grouped = {}
     now = datetime.now()
+    warning_window = max(30, int(warning_window_days or 90))
+
+    def _parse_due_info(maintenance_date, maintenance_cycle):
+        if not maintenance_cycle or int(maintenance_cycle) <= 0:
+            return None
+
+        last_maint_text = (maintenance_date or "-").strip() or "-"
+        if not maintenance_date or not str(maintenance_date).strip():
+            return {
+                "status": "expired",
+                "last_maint_text": last_maint_text,
+                "next_due_text": "Άμεσα (χωρίς τελευταία συντήρηση)",
+                "days_until_due": -1,
+            }
+
+        try:
+            last_maint = datetime.strptime(str(maintenance_date).split()[0], "%Y-%m-%d")
+            next_due = last_maint + timedelta(days=int(maintenance_cycle) * 365)
+            next_due_text = next_due.strftime("%Y-%m-%d")
+            delta_days = (next_due.date() - now.date()).days
+            if next_due <= now:
+                status = "expired"
+            elif include_warnings and delta_days <= warning_window:
+                status = "warning"
+            else:
+                status = None
+            if status is None:
+                return None
+            return {
+                "status": status,
+                "last_maint_text": last_maint_text,
+                "next_due_text": next_due_text,
+                "days_until_due": delta_days,
+            }
+        except Exception:
+            return {
+                "status": "expired",
+                "last_maint_text": last_maint_text,
+                "next_due_text": "Μη έγκυρη ημερομηνία τελευταίας συντήρησης",
+                "days_until_due": -1,
+            }
 
     for row in cursor.fetchall() or []:
         (
@@ -105,29 +151,8 @@ def _load_due_elements_grouped_by_substation(app):
         elif model_cycle and int(model_cycle) > 0:
             maintenance_cycle = int(model_cycle)
 
-        if not maintenance_cycle:
-            continue
-
-        is_due = False
-        next_due_text = "-"
-        last_maint_text = (maintenance_date or "-").strip() or "-"
-
-        if not maintenance_date or not str(maintenance_date).strip():
-            is_due = True
-            next_due_text = "Άμεσα (χωρίς τελευταία συντήρηση)"
-        else:
-            try:
-                last_maint = datetime.strptime(
-                    str(maintenance_date).split()[0], "%Y-%m-%d"
-                )
-                next_due = last_maint + timedelta(days=maintenance_cycle * 365)
-                next_due_text = next_due.strftime("%Y-%m-%d")
-                is_due = next_due <= now
-            except Exception:
-                is_due = True
-                next_due_text = "Μη έγκυρη ημερομηνία τελευταίας συντήρησης"
-
-        if not is_due:
+        due_info = _parse_due_info(maintenance_date, maintenance_cycle)
+        if due_info is None:
             continue
 
         resolved_model_name = (
@@ -177,8 +202,10 @@ def _load_due_elements_grouped_by_substation(app):
             "power_mva": resolved_power_mva,
             "installation_space": resolved_installation_space,
             "maintenance_cycle": maintenance_cycle,
-            "maintenance_date": last_maint_text,
-            "next_due": next_due_text,
+            "maintenance_date": due_info["last_maint_text"],
+            "next_due": due_info["next_due_text"],
+            "status": due_info["status"],
+            "days_until_due": due_info["days_until_due"],
         }
 
         bucket = grouped.setdefault(
@@ -187,22 +214,43 @@ def _load_due_elements_grouped_by_substation(app):
                 "substation_id": substation_id,
                 "substation_name": substation_name or f"Υ/Σ {substation_id}",
                 "elements": [],
+                "expired_count": 0,
+                "warning_count": 0,
             },
         )
         bucket["elements"].append(entry)
+        if entry["status"] == "expired":
+            bucket["expired_count"] += 1
+        else:
+            bucket["warning_count"] += 1
 
-    return sorted(
-        grouped.values(),
-        key=lambda x: (-len(x["elements"]), x["substation_name"].lower()),
-    )
+    def _group_sort_key(group):
+        if not group["elements"]:
+            return (3, 1_000_000, group["substation_name"].lower())
+        expired_count = group["expired_count"]
+        warning_count = group["warning_count"]
+        nearest_delta = min(
+            elem.get("days_until_due", 10_000_000)
+            for elem in group["elements"]
+            if isinstance(elem, dict)
+        )
+        return (
+            0 if expired_count > 0 else 1,
+            -(expired_count or warning_count),
+            nearest_delta,
+            group["substation_name"].lower(),
+        )
+
+    return sorted(grouped.values(), key=_group_sort_key)
 
 
-def _show_due_substations_popup(app, ui, parent_popup=None):
+def _show_due_substations_popup(app, ui, parent_popup=None, include_warnings=False):
     ui = _make_ui_dict(ui)
     Popup = ui["Popup"]
     BoxLayout = ui["BoxLayout"]
     Label = ui["Label"]
     Button = ui["Button"]
+    CheckBox = ui.get("CheckBox")
 
     from kivy.uix.scrollview import ScrollView
 
@@ -229,7 +277,22 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
                 pass
         return Button(text=fallback_text)
 
-    due_groups = _load_due_elements_grouped_by_substation(app)
+    due_groups = _load_due_elements_grouped_by_substation(
+        app,
+        include_warnings=include_warnings,
+    )
+
+    def _refresh_popup(show_warnings):
+        try:
+            popup.dismiss()
+        except Exception:
+            pass
+        _show_due_substations_popup(
+            app,
+            ui,
+            parent_popup=parent_popup,
+            include_warnings=show_warnings,
+        )
 
     popup = Popup(
         title=S["MESSAGES"].get(
@@ -241,11 +304,47 @@ def _show_due_substations_popup(app, ui, parent_popup=None):
 
     root = BoxLayout(orientation="vertical", spacing=8, padding=10)
 
+    if CheckBox is not None:
+        toggle_row = BoxLayout(
+            size_hint_y=None,
+            height=42,
+            spacing=10,
+            padding=(6, 6, 8, 6),
+        )
+        show_warning_checkbox = CheckBox(
+            active=bool(include_warnings),
+            size_hint=(None, None),
+            size=(28, 28),
+        )
+        show_warning_checkbox.bind(
+            active=lambda _inst, value: _refresh_popup(bool(value))
+        )
+        toggle_label = Label(
+            text="Εμφάνιση υποσταθμών με προειδοποίηση",
+            size_hint_x=1.0,
+            valign="middle",
+            halign="right",
+            color=(0.12, 0.12, 0.12, 1.0),
+            bold=True,
+        )
+        toggle_row.add_widget(show_warning_checkbox)
+        toggle_row.add_widget(toggle_label)
+        root.add_widget(toggle_row)
+
+    total_due_elements = sum(len(group.get("elements", [])) for group in due_groups)
     header_text = (
-        f"Βρέθηκαν {len(due_groups)} υποσταθμοί με ληξιπρόθεσμα στοιχεία"
+        f"Βρέθηκαν {len(due_groups)} υποσταθμοί / {total_due_elements} ληξιπρόθεσμα στοιχεία"
         if due_groups
         else "Δεν βρέθηκαν ληξιπρόθεσμα στοιχεία."
     )
+    if (
+        include_warnings
+        and due_groups
+        and not any(group.get("expired_count", 0) > 0 for group in due_groups)
+    ):
+        header_text = f"Βρέθηκαν {len(due_groups)} υποσταθμοί / {total_due_elements} στοιχεία που πλησιάζουν τη λήξη"
+    elif include_warnings and due_groups:
+        header_text = f"Βρέθηκαν {len(due_groups)} υποσταθμοί / {total_due_elements} ληξιπρόθεσμα/πλησιάζοντα στοιχεία"
     root.add_widget(Label(text=header_text, size_hint_y=None, height=34))
 
     scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -840,8 +939,13 @@ def show_maintenance_menu_popup(app, ui):
     popup.open()
 
 
-def show_due_substations_popup(app, ui, parent_popup=None):
-    return _show_due_substations_popup(app, ui, parent_popup=parent_popup)
+def show_due_substations_popup(app, ui, parent_popup=None, include_warnings=False):
+    return _show_due_substations_popup(
+        app,
+        ui,
+        parent_popup=parent_popup,
+        include_warnings=include_warnings,
+    )
 
 
 def _show_import_maintenance_email_dialog(app, ui, parent_popup=None):

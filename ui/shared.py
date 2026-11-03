@@ -390,6 +390,40 @@ class IconWidget(Widget):
                 )
                 # pupil
                 Ellipse(pos=(cx - rx * 0.25, cy - ry * 0.25), size=(rx * 0.5, ry * 0.5))
+            elif self.icon_type == "copy":
+                # stacked document sheets to suggest duplicate/copy action
+                sheet_w = w * 0.46
+                sheet_h = h * 0.42
+                back_x = x + w * 0.32
+                back_y = y + h * 0.2
+                front_x = x + w * 0.18
+                front_y = y + h * 0.38
+                Line(
+                    rectangle=(back_x, back_y, sheet_w, sheet_h),
+                    width=max(1.1, line_w),
+                )
+                Line(
+                    rectangle=(front_x, front_y, sheet_w, sheet_h),
+                    width=max(1.1, line_w),
+                )
+                Line(
+                    points=[
+                        front_x + w * 0.08,
+                        front_y + h * 0.12,
+                        front_x + sheet_w * 0.6,
+                        front_y + h * 0.12,
+                    ],
+                    width=max(0.9, line_w * 0.75),
+                )
+                Line(
+                    points=[
+                        back_x + w * 0.08,
+                        back_y + h * 0.12,
+                        back_x + sheet_w * 0.6,
+                        back_y + h * 0.12,
+                    ],
+                    width=max(0.9, line_w * 0.75),
+                )
             elif self.icon_type == "book":
                 # book/manual icon: spine and pages
                 book_x = x + w * 0.2
@@ -894,6 +928,9 @@ class IconOnlyButton(ButtonBehavior, BoxLayout):
             "edit": S["MESSAGES"].get("TOOLTIP_EDIT", "Επεξεργασία"),
             "delete": S["MESSAGES"].get("TOOLTIP_DELETE", "Διαγραφή"),
             "eye": S["MESSAGES"].get("TOOLTIP_VIEW", "Προβολή"),
+            "copy": S["MESSAGES"].get(
+                "TOOLTIP_COPY", "Αντιγραφή/Δημιουργία νέας καταχώρησης"
+            ),
             "maintenance": S["MESSAGES"].get("TOOLTIP_MAINTENANCE", "Συντήρηση"),
             "inspection": S["MESSAGES"].get("TOOLTIP_INSPECTION", "Επιθεώρηση"),
             "book": S["MESSAGES"].get("TOOLTIP_MANUAL", "Manual"),

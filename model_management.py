@@ -1899,6 +1899,60 @@ def show_model_statistics_popup(app_instance, parent_popup=None):
     popup.open()
 
 
+def _get_saved_element_search_filters(app_instance, parent_popup=None):
+    candidates = []
+
+    if parent_popup is not None:
+        saved_filters = getattr(parent_popup, "_dbs_element_search_filters", {})
+        if isinstance(saved_filters, dict):
+            candidates.append(saved_filters)
+
+    if app_instance is not None:
+        saved_filters = getattr(app_instance, "_dbs_element_search_filters", {})
+        if isinstance(saved_filters, dict):
+            candidates.append(saved_filters)
+
+    for candidate in candidates:
+        if candidate:
+            return dict(candidate)
+    return {}
+
+
+def _store_saved_element_search_filters(app_instance, parent_popup, filters):
+    saved_filters = dict(filters or {})
+    if app_instance is not None:
+        app_instance._dbs_element_search_filters = saved_filters
+    if parent_popup is not None:
+        parent_popup._dbs_element_search_filters = saved_filters
+
+
+def _get_saved_model_management_filters(app_instance, parent_popup=None):
+    candidates = []
+
+    if parent_popup is not None:
+        saved_filters = getattr(parent_popup, "_dbs_model_management_filters", {})
+        if isinstance(saved_filters, dict):
+            candidates.append(saved_filters)
+
+    if app_instance is not None:
+        saved_filters = getattr(app_instance, "_dbs_model_management_filters", {})
+        if isinstance(saved_filters, dict):
+            candidates.append(saved_filters)
+
+    for candidate in candidates:
+        if candidate:
+            return dict(candidate)
+    return {}
+
+
+def _store_saved_model_management_filters(app_instance, parent_popup, filters):
+    saved_filters = dict(filters or {})
+    if app_instance is not None:
+        app_instance._dbs_model_management_filters = saved_filters
+    if parent_popup is not None:
+        parent_popup._dbs_model_management_filters = saved_filters
+
+
 def show_element_search_popup(app_instance, parent_popup=None):
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
@@ -2064,48 +2118,46 @@ def show_element_search_popup(app_instance, parent_popup=None):
 
     main_layout.add_widget(filter_grid)
 
-    # Restore filter state if it was saved on parent_popup
-    if parent_popup and hasattr(parent_popup, "_dbs_element_search_filters"):
-        saved_filters = getattr(parent_popup, "_dbs_element_search_filters", {})
-        if (
-            saved_filters.get("element_type")
-            and saved_filters["element_type"] in element_type_spinner.values
-        ):
-            element_type_spinner.text = saved_filters["element_type"]
-        if (
-            saved_filters.get("breaker_category")
-            and saved_filters["breaker_category"] in breaker_category_spinner.values
-        ):
-            breaker_category_spinner.text = saved_filters["breaker_category"]
-        if (
-            saved_filters.get("breaker_role")
-            and saved_filters["breaker_role"] in breaker_role_spinner.values
-        ):
-            breaker_role_spinner.text = saved_filters["breaker_role"]
-        if (
-            saved_filters.get("year_relation")
-            and saved_filters["year_relation"] in year_relation_spinner.values
-        ):
-            year_relation_spinner.text = saved_filters["year_relation"]
-        if saved_filters.get("year_value"):
-            year_input.text = saved_filters["year_value"]
-        if (
-            saved_filters.get("distance_relation")
-            and saved_filters["distance_relation"] in distance_relation_spinner.values
-        ):
-            distance_relation_spinner.text = saved_filters["distance_relation"]
-        if (
-            saved_filters.get("distance_value")
-            and saved_filters["distance_value"] in distance_spinner.values
-        ):
-            distance_spinner.text = saved_filters["distance_value"]
-        if (
-            saved_filters.get("sort_order")
-            and saved_filters["sort_order"] in sort_spinner.values
-        ):
-            sort_spinner.text = saved_filters["sort_order"]
-        if saved_filters.get("include_inactive"):
-            include_inactive_checkbox.active = saved_filters["include_inactive"]
+    saved_filters = _get_saved_element_search_filters(app_instance, parent_popup)
+    if (
+        saved_filters.get("element_type")
+        and saved_filters["element_type"] in element_type_spinner.values
+    ):
+        element_type_spinner.text = saved_filters["element_type"]
+    if (
+        saved_filters.get("breaker_category")
+        and saved_filters["breaker_category"] in breaker_category_spinner.values
+    ):
+        breaker_category_spinner.text = saved_filters["breaker_category"]
+    if (
+        saved_filters.get("breaker_role")
+        and saved_filters["breaker_role"] in breaker_role_spinner.values
+    ):
+        breaker_role_spinner.text = saved_filters["breaker_role"]
+    if (
+        saved_filters.get("year_relation")
+        and saved_filters["year_relation"] in year_relation_spinner.values
+    ):
+        year_relation_spinner.text = saved_filters["year_relation"]
+    if saved_filters.get("year_value"):
+        year_input.text = saved_filters["year_value"]
+    if (
+        saved_filters.get("distance_relation")
+        and saved_filters["distance_relation"] in distance_relation_spinner.values
+    ):
+        distance_relation_spinner.text = saved_filters["distance_relation"]
+    if (
+        saved_filters.get("distance_value")
+        and saved_filters["distance_value"] in distance_spinner.values
+    ):
+        distance_spinner.text = saved_filters["distance_value"]
+    if (
+        saved_filters.get("sort_order")
+        and saved_filters["sort_order"] in sort_spinner.values
+    ):
+        sort_spinner.text = saved_filters["sort_order"]
+    if saved_filters.get("include_inactive"):
+        include_inactive_checkbox.active = saved_filters["include_inactive"]
 
     action_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
     results_summary = Label(text="", size_hint_x=0.68, halign="left", valign="middle")
@@ -2396,19 +2448,19 @@ def show_element_search_popup(app_instance, parent_popup=None):
     reset_btn.bind(on_press=_reset_filters)
 
     def _capture_filter_state():
-        """Capture current filter state to parent_popup for persistence"""
-        if parent_popup:
-            parent_popup._dbs_element_search_filters = {
-                "element_type": element_type_spinner.text,
-                "breaker_category": breaker_category_spinner.text,
-                "breaker_role": breaker_role_spinner.text,
-                "year_relation": year_relation_spinner.text,
-                "year_value": year_input.text,
-                "distance_relation": distance_relation_spinner.text,
-                "distance_value": distance_spinner.text,
-                "sort_order": sort_spinner.text,
-                "include_inactive": include_inactive_checkbox.active,
-            }
+        """Capture current filter state for persistence across popup reopenings."""
+        filters = {
+            "element_type": element_type_spinner.text,
+            "breaker_category": breaker_category_spinner.text,
+            "breaker_role": breaker_role_spinner.text,
+            "year_relation": year_relation_spinner.text,
+            "year_value": year_input.text,
+            "distance_relation": distance_relation_spinner.text,
+            "distance_value": distance_spinner.text,
+            "sort_order": sort_spinner.text,
+            "include_inactive": include_inactive_checkbox.active,
+        }
+        _store_saved_element_search_filters(app_instance, parent_popup, filters)
 
     def _close_with_state_capture():
         """Capture state before closing"""
@@ -2427,7 +2479,11 @@ def show_element_search_popup(app_instance, parent_popup=None):
     popup.bind(on_dismiss=lambda *args: _capture_filter_state())
 
     _refresh_breaker_filters()
-    _render_results([], search_executed=False)
+    saved_filters = _get_saved_element_search_filters(app_instance, parent_popup)
+    if saved_filters:
+        _run_search()
+    else:
+        _render_results([], search_executed=False)
     popup.open()
 
 
@@ -2749,7 +2805,15 @@ def _get_post_save_model_management_callback(app_instance, category, parent_popu
     """Choose the right management screen after a successful model save."""
     if _is_subelement_category(app_instance, category):
         return lambda: show_subelement_management_popup(app_instance, parent_popup)
-    return lambda: show_models_management(app_instance)
+
+    def _return_to_parent_or_models():
+        saved_filters = _get_saved_element_search_filters(app_instance, parent_popup)
+        if saved_filters:
+            show_element_search_popup(app_instance, parent_popup)
+            return
+        show_models_management(app_instance)
+
+    return _return_to_parent_or_models
 
 
 def _show_manufacturer_logo_manager_popup(
@@ -3041,6 +3105,17 @@ def _show_models_management_popup(app_instance):
     scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
     grid = GridLayout(cols=1, spacing=5, size_hint_y=None, padding=5)
     grid.bind(minimum_height=grid.setter("height"))
+    saved_model_filters = _get_saved_model_management_filters(app_instance, popup)
+
+    def _persist_model_filters(
+        family_key, section_filter_spinner, breaker_filter_spinner
+    ):
+        state = _get_saved_model_management_filters(app_instance, popup)
+        state[family_key] = {
+            "category": section_filter_spinner.text,
+            "breaker_category": breaker_filter_spinner.text,
+        }
+        _store_saved_model_management_filters(app_instance, popup, state)
 
     def render_models(selected_category=None):
         grid.clear_widgets()
@@ -3503,16 +3578,40 @@ def _show_models_management_popup(app_instance):
             section_filter_spinner.bind(
                 text=lambda _spinner, text: (
                     _configure_breaker_filter(text),
+                    _persist_model_filters(
+                        family_key, section_filter_spinner, breaker_filter_spinner
+                    ),
                     _render_selected(),
                 )
             )
-            breaker_filter_spinner.bind(text=lambda *_args: _render_selected())
+            breaker_filter_spinner.bind(
+                text=lambda *_args: (
+                    _persist_model_filters(
+                        family_key, section_filter_spinner, breaker_filter_spinner
+                    ),
+                    _render_selected(),
+                )
+            )
             default_filter = all_option
             # Large datasets render much faster when a single category is shown first.
             if len(all_models_subset) > 120 and allowed_categories:
                 default_filter = allowed_categories[0]
-            section_filter_spinner.text = default_filter
-            _configure_breaker_filter(default_filter)
+
+            saved_family_state = saved_model_filters.get(family_key, {})
+            saved_category = saved_family_state.get("category")
+            if saved_category in section_filter_values:
+                section_filter_spinner.text = saved_category
+            else:
+                section_filter_spinner.text = default_filter
+            _configure_breaker_filter(section_filter_spinner.text)
+            saved_breaker = saved_family_state.get("breaker_category")
+            if saved_breaker in breaker_filter_spinner.values:
+                breaker_filter_spinner.text = saved_breaker
+            else:
+                breaker_filter_spinner.text = all_option
+            _persist_model_filters(
+                family_key, section_filter_spinner, breaker_filter_spinner
+            )
             _render_selected()
             return section_box
 
