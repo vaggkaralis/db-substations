@@ -159,6 +159,31 @@ def test_saved_element_search_filters_are_reset_when_cleared():
     assert parent._dbs_element_search_filters == {}
 
 
+def test_post_save_navigation_returns_to_model_management(monkeypatch):
+    mod = importlib.import_module("model_management")
+    calls = []
+
+    app = type("App", (), {"TRANSFORMER_SUBELEMENT_TYPES": ["OLTC"]})()
+
+    monkeypatch.setattr(
+        mod,
+        "show_models_management",
+        lambda app_instance: calls.append(("models", app_instance)),
+    )
+    monkeypatch.setattr(
+        mod,
+        "show_element_search_popup",
+        lambda app_instance, parent_popup=None: calls.append(
+            ("search", app_instance, parent_popup)
+        ),
+    )
+
+    callback = mod._get_post_save_model_management_callback(app, "Breakers")
+    callback()
+
+    assert calls == [("models", app)]
+
+
 def test_launch_app_screen_falls_back_to_project_entry_script(monkeypatch):
     mod = importlib.import_module("popups")
     command = {}

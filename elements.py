@@ -233,6 +233,37 @@ def _show_no_history_maintenance_options(
     prompt_popup.open()
 
 
+def _find_duplicate_element_rows(conn, substation_id):
+    """Return normalized duplicate-name groups with their ids inside a substation."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, name FROM elements WHERE substation_id=? ORDER BY name, id",
+        (substation_id,),
+    )
+
+    groups = {}
+    for element_id, element_name in cursor.fetchall():
+        normalized_name = _normalize_element_name(element_name)
+        if not normalized_name:
+            continue
+        groups.setdefault(normalized_name, []).append(
+            (int(element_id), str(element_name or ""))
+        )
+
+    duplicate_rows = []
+    for normalized_name, rows in sorted(groups.items()):
+        if len(rows) <= 1:
+            continue
+        duplicate_rows.append(
+            {
+                "normalized_name": normalized_name,
+                "display_name": normalized_name,
+                "rows": rows,
+            }
+        )
+    return duplicate_rows
+
+
 def _find_duplicate_element_id(
     conn, substation_id, raw_name, exclude_id=None, gate=None, parent_element_id=None
 ):

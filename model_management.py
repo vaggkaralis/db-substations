@@ -2802,15 +2802,13 @@ def _fetch_dominant_element_power_by_model(cursor, model_ids):
 
 
 def _get_post_save_model_management_callback(app_instance, category, parent_popup=None):
-    """Choose the right management screen after a successful model save."""
+    """Return to the relevant models screen while preserving the last filter state."""
     if _is_subelement_category(app_instance, category):
         return lambda: show_subelement_management_popup(app_instance, parent_popup)
 
     def _return_to_parent_or_models():
-        saved_filters = _get_saved_element_search_filters(app_instance, parent_popup)
-        if saved_filters:
-            show_element_search_popup(app_instance, parent_popup)
-            return
+        # Models management keeps its own filter state; restore that screen
+        # instead of the unrelated element-search popup.
         show_models_management(app_instance)
 
     return _return_to_parent_or_models

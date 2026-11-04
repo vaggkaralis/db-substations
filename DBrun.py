@@ -11065,6 +11065,31 @@ class SubstationApp(App):
                 popup._dbs_element_type_filter = current_type_filter
                 popup._dbs_gate_filter = current_gate_filter
 
+                try:
+                    from elements import _find_duplicate_element_rows
+
+                    duplicate_groups = _find_duplicate_element_rows(self.conn, sub_id)
+                    if duplicate_groups:
+                        duplicate_lines = []
+                        for duplicate_group in duplicate_groups:
+                            ids = ", ".join(
+                                f"#{element_id}"
+                                for element_id, _ in duplicate_group["rows"]
+                            )
+                            duplicate_lines.append(
+                                f"- {duplicate_group['display_name']} ({ids})"
+                            )
+                        show_message_popup(
+                            S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                            (
+                                f'Βρέθηκαν διπλότυπα στοιχεία με το ίδιο όνομα στο υποσταθμό "{sub_name}". '
+                                "Παρακαλούμε να τα επιλύσετε ώστε να είναι σαφές ποιο στοιχείο αναφέρεται σε κάθε καταχώρηση:\n\n"
+                                + "\n".join(duplicate_lines)
+                            ),
+                        )
+                except Exception:
+                    pass
+
                 filter_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
                 pdf_btn = Button(
                     text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
@@ -19661,6 +19686,37 @@ class SubstationApp(App):
                 (substation_id,),
             )
             elements = c.fetchall()
+            unknown_gate_label = "Άγνωστο"
+            if maintenance_id and existing_elements_data:
+                known_ids = {
+                    int(row[0]) for row in elements if row and row[0] is not None
+                }
+                for elem_id in sorted(existing_elements_data.keys()):
+                    if elem_id is None:
+                        continue
+                    if int(elem_id) in known_ids:
+                        continue
+                    elements.append(
+                        (
+                            int(elem_id),
+                            "Άγνωστο",
+                            f"Άγνωστο (ID: {elem_id})",
+                            "",
+                            unknown_gate_label,
+                            "",
+                            None,
+                            None,
+                            "",
+                            "",
+                            None,
+                            "",
+                            "",
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                    )
             current_element_rows[:] = elements
             _set_default_checklist_categories()
             refresh_checklist_summary()
@@ -19798,6 +19854,9 @@ class SubstationApp(App):
             unreg_val = get_unreg()
             if unreg_val in gates_dict:
                 sorted_gates.append(unreg_val)
+            unknown_gate_label = "Άγνωστο"
+            if unknown_gate_label in gates_dict:
+                sorted_gates.append(unknown_gate_label)
 
             # Display elements grouped by gate
             for gate_name in sorted_gates:
@@ -25898,7 +25957,7 @@ class SubstationApp(App):
             JOIN maintenance_elements me ON me.maintenance_id = m.id
             JOIN elements e ON e.id = me.element_id
             WHERE m.substation_id = ?
-            ORDER BY e.name
+            ORDER BY e.name, e.id
             """,
             (substation_id,),
         )
@@ -25913,6 +25972,36 @@ class SubstationApp(App):
             extra_element_row = c.fetchone()
             if extra_element_row:
                 all_elements_in_sub.append(extra_element_row)
+
+        try:
+            from elements import _find_duplicate_element_rows
+
+            duplicate_id_names = {}
+            for duplicate_group in _find_duplicate_element_rows(
+                self.conn, substation_id
+            ):
+                for element_id, _display_name in duplicate_group["rows"]:
+                    duplicate_id_names[element_id] = duplicate_group["display_name"]
+        except Exception:
+            duplicate_id_names = {}
+
+        if duplicate_id_names:
+            duplicate_lines = []
+            for duplicate_group in _find_duplicate_element_rows(
+                self.conn, substation_id
+            ):
+                ids = ", ".join(
+                    f"#{element_id}" for element_id, _ in duplicate_group["rows"]
+                )
+                duplicate_lines.append(f"- {duplicate_group['display_name']} ({ids})")
+            show_message_popup(
+                S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                (
+                    f'Βρέθηκαν διπλότυπα στοιχεία με το ίδιο όνομα στο υποσταθμό "{substation_name}". '
+                    "Παρακαλούμε να τα επιλύσετε προτού συνεχίσετε:\n\n"
+                    + "\n".join(duplicate_lines)
+                ),
+            )
 
         c.execute("""
             SELECT s.id, s.name, COUNT(m.id) AS maint_count
@@ -27082,7 +27171,8 @@ class SubstationApp(App):
             picker_grid.add_widget(all_btn)
 
             for eid, ename, etype in all_elements_in_sub:
-                btn = Button(text=f"{ename}  [{etype}]", size_hint_y=None, height=45)
+                button_text = f"{ename} (ID: {eid})  [{etype}]"
+                btn = Button(text=button_text, size_hint_y=None, height=45)
 
                 def _select_elem(_, _eid=eid, _ename=ename):
                     picker.dismiss()
