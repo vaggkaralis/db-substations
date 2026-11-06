@@ -34,7 +34,7 @@ def _make_ui_dict(ui):
 def _load_due_elements_grouped_by_substation(
     app,
     include_warnings=False,
-    warning_window_days=90,
+    warning_window_days=None,
 ):
     cursor = app.conn.cursor()
     unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
@@ -68,17 +68,20 @@ def _load_due_elements_grouped_by_substation(
         FROM elements e
         JOIN substations s ON s.id = e.substation_id
         LEFT JOIN element_models em ON em.id = e.element_model_id
-        WHERE e.operating_status IS NULL OR TRIM(e.operating_status) != 'Ανενεργή'
+        WHERE e.operating_status IS NULL OR TRIM(e.operating_status) NOT IN ('Ανενεργή', 'Απόσυρση')
         ORDER BY s.name COLLATE NOCASE ASC, e.name COLLATE NOCASE ASC
         """
     )
 
     grouped = {}
     now = datetime.now()
-    warning_window = max(30, int(warning_window_days or 90))
 
     def _parse_due_info(maintenance_date, maintenance_cycle):
-        if not maintenance_cycle or int(maintenance_cycle) <= 0:
+        try:
+            cycle_years = int(maintenance_cycle or 0)
+        except Exception:
+            cycle_years = 0
+        if cycle_years <= 0:
             return None
 
         last_maint_text = (maintenance_date or "-").strip() or "-"
@@ -92,13 +95,27 @@ def _load_due_elements_grouped_by_substation(
 
         try:
             last_maint = datetime.strptime(str(maintenance_date).split()[0], "%Y-%m-%d")
-            next_due = last_maint + timedelta(days=int(maintenance_cycle) * 365)
+            cycle_days = cycle_years * 365
+            next_due = last_maint + timedelta(days=cycle_days)
             next_due_text = next_due.strftime("%Y-%m-%d")
             delta_days = (next_due.date() - now.date()).days
             if next_due <= now:
                 status = "expired"
-            elif include_warnings and delta_days <= warning_window:
-                status = "warning"
+            elif include_warnings:
+                cycle_warning_days = max(1, int(cycle_days * 0.2))
+                configured_warning_days = None
+                try:
+                    if warning_window_days is not None:
+                        configured_warning_days = int(warning_window_days)
+                except Exception:
+                    configured_warning_days = None
+                effective_warning_days = (
+                    configured_warning_days
+                    if configured_warning_days is not None
+                    and configured_warning_days > 0
+                    else cycle_warning_days
+                )
+                status = "warning" if delta_days <= effective_warning_days else None
             else:
                 status = None
             if status is None:

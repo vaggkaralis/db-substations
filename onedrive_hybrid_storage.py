@@ -1620,6 +1620,30 @@ def _merge_tree_into(src: str, dst: str) -> None:
                 shutil.move(_win_path(src_item), _win_path(dst_item))
         else:
             if os.path.exists(dst_item):
+                if os.path.isfile(dst_item):
+                    try:
+                        if os.path.getsize(src_item) == os.path.getsize(dst_item):
+                            same_content = True
+                            with (
+                                open(src_item, "rb") as src_fh,
+                                open(dst_item, "rb") as dst_fh,
+                            ):
+                                while True:
+                                    src_chunk = src_fh.read(1024 * 1024)
+                                    dst_chunk = dst_fh.read(1024 * 1024)
+                                    if src_chunk != dst_chunk:
+                                        same_content = False
+                                        break
+                                    if not src_chunk:
+                                        break
+                            if same_content:
+                                try:
+                                    os.remove(src_item)
+                                except Exception:
+                                    pass
+                                continue
+                    except Exception:
+                        pass
                 base, ext = os.path.splitext(name)
                 idx = 1
                 candidate = os.path.join(dst, f"{base}_legacy{idx}{ext}")
@@ -2614,6 +2638,144 @@ def delete_orphaned_maintenance_report_paths(conn) -> int:
         )
         """)
     return cur.rowcount if cur.rowcount is not None else 0
+
+
+def cleanup_legacy_report_copies(
+    conn,
+    *,
+    db_path: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Repoint legacy-tracked report rows and remove duplicate *_legacyN.pdf copies.
+
+    A legacy copy is removed only when:
+      1) A same-folder canonical sibling file exists, and
+      2) The legacy file is not referenced by report_path columns.
+    """
+    cur = conn.cursor()
+    shared_root = resolve_shared_root(db_path)
+    legacy_re = re.compile(r"^(?P<stem>.+)_legacy(?P<n>\d+)(?P<ext>\.pdf)$", re.I)
+
+    repointed_rows = 0
+    repointed_by_table = {
+        "maintenance_report_paths": 0,
+        "maintenance_overview_report_paths": 0,
+        "dga_measurements": 0,
+    }
+
+    def _norm_path(path: str | None) -> str:
+        if not path:
+            return ""
+        try:
+            return os.path.normcase(os.path.abspath(path))
+        except Exception:
+            return os.path.normcase(str(path))
+
+    for table, id_col in (
+        ("maintenance_report_paths", "id"),
+        ("maintenance_overview_report_paths", "id"),
+        ("dga_measurements", "id"),
+    ):
+        try:
+            cur.execute(f"SELECT {id_col}, report_path FROM {table}")
+            rows = cur.fetchall() or []
+        except Exception:
+            continue
+
+        for row_id, report_path in rows:
+            if not report_path:
+                continue
+            file_name = os.path.basename(str(report_path))
+            match = legacy_re.match(file_name)
+            if not match:
+                continue
+            canonical_name = f"{match.group('stem')}{match.group('ext')}"
+            canonical_path = os.path.join(
+                os.path.dirname(str(report_path)), canonical_name
+            )
+            if not os.path.isfile(canonical_path):
+                continue
+            if not dry_run:
+                cur.execute(
+                    f"UPDATE {table} SET report_path=? WHERE {id_col}=?",
+                    (canonical_path, row_id),
+                )
+            repointed_rows += 1
+            repointed_by_table[table] += 1
+
+    referenced_paths = set()
+    for table in (
+        "maintenance_report_paths",
+        "maintenance_overview_report_paths",
+        "dga_measurements",
+    ):
+        try:
+            cur.execute(
+                f"SELECT report_path FROM {table} WHERE report_path IS NOT NULL AND TRIM(report_path)<>''"
+            )
+            for path_row in cur.fetchall() or []:
+                path_value = (
+                    path_row[0]
+                    if isinstance(path_row, (tuple, list))
+                    else path_row["report_path"]
+                )
+                norm = _norm_path(path_value)
+                if norm:
+                    referenced_paths.add(norm)
+        except Exception:
+            continue
+
+    legacy_seen = 0
+    deleted_files = 0
+    skipped_missing_base = 0
+    skipped_referenced = 0
+    delete_errors = 0
+
+    if os.path.isdir(shared_root):
+        for root, _dirs, files in os.walk(shared_root):
+            for file_name in files:
+                if not file_name.lower().endswith(".pdf"):
+                    continue
+                match = legacy_re.match(file_name)
+                if not match:
+                    continue
+                legacy_seen += 1
+                legacy_path = os.path.join(root, file_name)
+                canonical_name = f"{match.group('stem')}{match.group('ext')}"
+                canonical_path = os.path.join(root, canonical_name)
+
+                if not os.path.isfile(canonical_path):
+                    skipped_missing_base += 1
+                    continue
+
+                if _norm_path(legacy_path) in referenced_paths:
+                    skipped_referenced += 1
+                    continue
+
+                if dry_run:
+                    deleted_files += 1
+                    continue
+
+                try:
+                    os.remove(legacy_path)
+                    deleted_files += 1
+                except Exception:
+                    delete_errors += 1
+
+    if not dry_run:
+        conn.commit()
+
+    return {
+        "shared_root": shared_root,
+        "dry_run": bool(dry_run),
+        "repointed_rows": int(repointed_rows),
+        "repointed_by_table": repointed_by_table,
+        "legacy_seen": int(legacy_seen),
+        "deleted_files": int(deleted_files),
+        "skipped_missing_base": int(skipped_missing_base),
+        "skipped_referenced": int(skipped_referenced),
+        "delete_errors": int(delete_errors),
+    }
 
 
 def upsert_maintenance_overview_report_path(

@@ -118,6 +118,14 @@ OPERATING_STATUS_MAPPINGS = {
         "Εκτός Λειτουργίας",
         "Out of Service",
     ],
+    "Απόσυρση": [
+        "Απόσυρση",
+        "Retired",
+        "Withdrawn",
+        "Αποσύρθηκε",
+        "Αποσυρμένη",
+        "Discontinued",
+    ],
 }
 
 # Expected values for breaker roles

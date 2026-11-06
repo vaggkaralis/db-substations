@@ -838,7 +838,14 @@ def _is_active_element_record(row):
     status = str(status).strip()
     if not status:
         return True
-    return status not in {"Ανενεργή", "Inactive", "inactive"}
+    return status not in {
+        "Ανενεργή",
+        "Απόσυρση",
+        "Inactive",
+        "inactive",
+        "Retired",
+        "retired",
+    }
 
 
 def _find_elements_in_body(conn, body_text: str, substation_id: int):

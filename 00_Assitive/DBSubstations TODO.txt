@@ -5,37 +5,30 @@ To be verified:
 - Check for any unused files, functions or parts of the code. They are to be removed safely, so that we don't risk the functionality of the code, since the app is in a good working condition. Also we need to clean up the space inside the working directory, files that are not needed any more for the app need to be removed (old backup files, unused reports). Reminder: no one reads MD files, remove them!
 - android changes: After the changes are done it must be checked that CI Lint/test/build rules are followed and that the integrity of the android app is secured (as reminder the sensitivity of the android app to changes has been high, it has broken many times and it takes a lot of time to repair)
 - run the test suite, ensure that everything is ok and then ensure that there no violations of the CI Lint and test rules before committing and pushing the changes, avoid running build that takes too long. commit and push in the end
+- clean up the unnecessary parts of code and files, check CI Lint/Test compliance, so that we have no errors during build and ensure that the changes are committed/pushed correctly to the mainline so that the CI (GitHub actions) is triggered to build the apk correctly
 
 
-Running:
-clean up the unnecessary parts of code and files, check CI Lint/Test compliance, so that we have no errors during build and ensure that the changes are committed/pushed correctly to the mainline so that the CI (GitHub actions) is triggered to build the apk correctly
+************************************************
+*************** Running: ***********************
+************************************************
+
+element with id 575 has following maintenances (element's maintenance history). IDs 686, 673, 1922, 496
+When i navigate in the substation's maintenance history i find in the element filter 2 elements with the same name "ΜΣ1", where the first has maintenance instances 686, 673, 496 and the second 2359, 876.
+What is wrong here?? how did the code let this happen?
 
 
-TODO:
-- in the subsattion element view we need an extra button that shows the summary of the elements useful for the maintenance in a short popup. The new button shall be positioned next to the button "Ανενεργά Στοιχεία" and the 3 buttons ("Προσθήκη Νέου Στοιχείου", "Ανενεργά Στοιχεία" and the new one "Πληροφορίες Στοιχείων") shall share the horizontal space equally (as the 2 current buttons do now). Summary shall be structured like this in greek (be explanatory in greek in the summary):
-	- Substation in total:
-		- Number of HV breakers and amount of oil and/or SF6 (if oil, i want it in liters AND in barels also for the following lines - the definition of barel you can find in the oil calculator we implemented for the maintenance form)
-		- Number of Transformers and amount of oil
-		- Number of MV breakers overall/Oil/SF6/Πτωχού Ελαίου/Vacuum (if a category has 0 do not display it) and the total amount of oil/sf6
-	- per gate (ΠΥΛΗ 1, ΠΥΛΗ 2 etc.):
-		- Number of MV breakers overall/Oil/SF6/Πτωχού Ελαίου/Vacuum (if a category has 0 do not display it) and the total amount of oil/sf6
-Usually the user will have to work on a single gate, and he needs the summary of how many oil/sfe6 etc breakers	there are and how much oil (liters and barels) and sf6 in kg is needed. so in this popup he will get the summary.
 
-- i am trying to import EML reports and the recognition of the elements is wrong. The inactive elements shall not be automatically recognized. Only the active ones. 
+Following must be resolved:
+- in the android app the units of the measurements when adding a new maintenance need to be aligned with the units used on the desktop app (e.g. maintenance of MV vacuum breaker - but it must be ckecked for all types of elements).
 
-- for each substation we need an extra button to show the summary of the elements useful for the upcoming maintenance. The button shall be positioned next to the button "Ανενεργά στοιχεία" (the 3 buttons - "+ Προσθήκη Νέου Στοιχείου", "Ανενεργά στοιχεία" and the new one "Πληροφορίες Στοιχείων Υ/Σ" - shall get the horizontal space horizontally equally, as the 2 buttons do now) and the summary that the user gets shall be the following in greek:
-	- Total:
-		- number of HV breakers
-		- number of transformers
-		- number of MV breakers, of which X of type Y (Oil, SF6 etc.)
-		- Total amount of Oil for the MV breakers (calculated through the amount of oil the model uses) and also additionally converted to barels (as we defined it in the oil calculator we have in the maintenance form)
-	- Per Gate ("ΠΥΛΗ 1:", "ΠΥΛΗ 2:" etc.)
-		- number of MV breakers, of which X of type Y (Oil, SF6 etc.)
-		- Total amount of Oil for the MV breakers (calculated through the amount of oil the model uses) and also additionally converted to barels (as we defined it in the oil calculator we have in the maintenance form)
+- in the add/edit maintenance form, when a new instance is created, the responsible is prefilled with the name of the user that is currently logged in (which is correct). the problem is that when tis responsible is changed by the user (through the dropdown list) the name of the preselected responsible (current user) stays selected (which is wrong)
 
-- print substation elemenet view to pdf
+- measurement data of an element's maintenance history on android app are printed without units. also, I think that not all measurements are displayed, some are skipped. check and fix.
 
-- sync process still too slow. i make a small change and i have to wait minutes to sync it. optimize it. the user needs to make small changes and sync them quickly to the common folder and the app shall be smart enough to realize that the changes done do not demand so much time.
+**********************************************
+**************** TODO: ***********************
+**********************************************
+- could it be that we have a memory leak?? When i use the desktop app for a while i see the RAM usage growing a lot. Are you sure that we get rid of the parts we don't need on the way? Especially after the change with the extra windows the chances that there we have unnecessary memory usage has grown.
 
 - make it work -> full MV maintenance from android
 

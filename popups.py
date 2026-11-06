@@ -16,7 +16,26 @@ import sys
 import tempfile
 import uuid
 
+import gc
+
 _LAUNCHED_CHILD_PROCESSES = []
+
+
+def _prune_launched_child_processes():
+    """Drop child handles that have already exited to avoid retaining stale processes."""
+    survivors = []
+    for child_proc in list(_LAUNCHED_CHILD_PROCESSES):
+        try:
+            poll = getattr(child_proc, "poll", None)
+            if callable(poll) and poll() is not None:
+                continue
+        except Exception:
+            continue
+        survivors.append(child_proc)
+    if len(survivors) != len(_LAUNCHED_CHILD_PROCESSES):
+        _LAUNCHED_CHILD_PROCESSES[:] = survivors
+    return survivors
+
 
 try:
     from kivy.uix.boxlayout import BoxLayout
@@ -419,6 +438,7 @@ def launch_app_screen(screen_name, payload=None):
     navigate to a dedicated screen after login.
     """
     try:
+        _prune_launched_child_processes()
         script = _resolve_app_entry_script()
         if not script:
             return False
@@ -441,6 +461,7 @@ def launch_app_screen(screen_name, payload=None):
 
 def terminate_launched_child_processes():
     """Best-effort shutdown of child app windows started by this process."""
+    _prune_launched_child_processes()
     for child_proc in list(_LAUNCHED_CHILD_PROCESSES):
         try:
             poll = getattr(child_proc, "poll", None)
@@ -451,6 +472,11 @@ def terminate_launched_child_processes():
                 terminate()
         except Exception:
             continue
+    _prune_launched_child_processes()
+    try:
+        gc.collect()
+    except Exception:
+        pass
 
 
 def create_popup(title, size_hint, **kwargs):

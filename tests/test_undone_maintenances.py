@@ -124,11 +124,66 @@ def test_show_maintenance_menu_for_substation_opens_form_when_no_pending(monkeyp
     app.show_maintenance_menu_for_substation(sub_id, "S1")
 
     assert captured["kwargs"]["preselected_substation_name"] == "S1"
+    assert captured["kwargs"]["after_cancel_callback"] is not None
+    assert captured["kwargs"]["after_save_callback"] is not None
     assert (
         captured["kwargs"]["maintenance_id"] is None
         if "maintenance_id" in captured["kwargs"]
         else True
     )
+
+
+def test_show_maintenance_menu_for_substation_reopens_history_after_close(monkeypatch):
+    conn = database.init_db(":memory:")
+    c = conn.cursor()
+    c.execute("INSERT INTO substations (name) VALUES (?)", ("S1",))
+    sub_id = c.lastrowid
+    conn.commit()
+
+    app = DBrun.SubstationApp()
+    app.conn = conn
+    captured = {}
+
+    def fake_show_maintenance_menu(*args, **kwargs):
+        captured["kwargs"] = kwargs
+
+    def fake_history(
+        substation_id, substation_name, parent_display_popup=None, **kwargs
+    ):
+        captured["history"] = (
+            substation_id,
+            substation_name,
+            parent_display_popup,
+            kwargs,
+        )
+
+    def fake_schedule_once(callback, delay):
+        captured["scheduled"] = (callback, delay)
+        callback(0)
+
+    monkeypatch.setattr(app, "show_maintenance_menu", fake_show_maintenance_menu)
+    monkeypatch.setattr(app, "show_substation_maintenance_history", fake_history)
+    monkeypatch.setattr(
+        app,
+        "_show_substation_incomplete_maintenance_reminder",
+        lambda substation_id, substation_name, on_close=None: on_close(),
+    )
+    import kivy.clock as kivy_clock
+
+    monkeypatch.setattr(
+        kivy_clock,
+        "Clock",
+        type("ClockStub", (), {"schedule_once": staticmethod(fake_schedule_once)}),
+    )
+
+    parent_popup = object()
+    app.show_maintenance_menu_for_substation(sub_id, "S1", parent_popup=parent_popup)
+
+    captured["kwargs"]["after_cancel_callback"]()
+
+    assert captured["scheduled"][1] == 0
+    assert captured["history"][0:2] == (sub_id, "S1")
+    assert captured["history"][2] is None
 
 
 def test_generic_substation_selection_reminder_shows_once_per_substation(monkeypatch):

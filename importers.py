@@ -33,8 +33,8 @@ REQUIRED_COLUMNS = [
 
 # Valid values for specific columns (prefer centralized lists in strings.py)
 VALID_OPERATING_STATUS = list(
-    S.get("MESSAGES", {}).get("OPERATING_STATUS", ["Ενεργή", "Ανενεργή"])
-) + ["Active", "Inactive"]
+    S.get("MESSAGES", {}).get("OPERATING_STATUS", ["Ενεργή", "Ανενεργή", "Απόσυρση"])
+) + ["Active", "Inactive", "Retired"]
 VALID_BREAKER_ROLES = list(
     S.get("MESSAGES", {}).get(
         "BREAKER_TYPES", ["Κεντρικός", "Γραμμής", "Διασυνδετικός", "Διακόπτης Πυκνωτών"]

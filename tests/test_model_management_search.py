@@ -8,7 +8,6 @@ from model_management import (
     _is_breaker_element_category,
     _is_sf6_breaker_category,
     _match_breaker_category_option,
-    _element_type_filter_options,
     _get_breaker_category_options_for_selection,
     get_model_management_statistics,
     search_elements,
@@ -271,14 +270,47 @@ def test_search_elements_hides_inactive_by_default():
     }
 
 
-def test_element_type_filter_options_normalize_transformer_aliases():
+def test_retired_elements_are_hidden_from_active_counts_but_visible_when_inactive_is_enabled():
     conn = _setup_db()
     app = _DummyApp(conn)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO elements (
+            id, substation_id, element_model_id, parent_element_id, element_type, name, serial_number,
+            maintenance_date, manufacturer, installation_space, operating_status, maintenance_cycle,
+            breaker_category, manufacture_year, is_main_switch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            6,
+            1,
+            2,
+            None,
+            ELEM_BREAKER_MT,
+            "MV RETIRED",
+            "SN6",
+            "2024-01-01",
+            "ABB",
+            "OUT",
+            "Απόσυρση",
+            "6",
+            "SF6",
+            "2022",
+            0,
+        ),
+    )
+    conn.commit()
 
-    options = _element_type_filter_options(app, conn)
+    active_stats = get_model_management_statistics(app)
+    assert active_stats["rows_count"] == 4
 
-    assert options.count("Μετασχηματιστής 150/20KV") == 1
-    assert "Transformer" not in options
+    rows_with_inactive = search_elements(
+        app,
+        element_type_filter=ELEM_BREAKER_MT,
+        include_inactive=True,
+    )
+    assert "MV RETIRED" in {row[2] for row in rows_with_inactive}
 
 
 def test_model_management_statistics_collects_expected_graph_data():

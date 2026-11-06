@@ -2,6 +2,9 @@ from pathlib import Path
 
 from database import init_db
 from onedrive_hybrid_storage import (
+    cleanup_legacy_report_copies,
+    _merge_tree_into,
+    resolve_shared_root,
     get_maintenance_overview_report_path,
     get_maintenance_report_path,
     regenerate_maintenance_reports,
@@ -100,6 +103,50 @@ def test_upsert_rejects_stale_maintenance_element_pair(tmp_path):
         assert "stale maintenance-element pair" in str(exc)
     else:
         raise AssertionError("Expected ValueError for stale maintenance-element pair")
+
+
+def test_merge_tree_drops_identical_duplicate_files_without_legacy_suffix(tmp_path):
+    src = tmp_path / "legacy_src"
+    dst = tmp_path / "canonical_dst"
+    src.mkdir()
+    dst.mkdir()
+
+    src_file = src / "Αναφ_test_M123.pdf"
+    dst_file = dst / "Αναφ_test_M123.pdf"
+    payload = b"same-content"
+    src_file.write_bytes(payload)
+    dst_file.write_bytes(payload)
+
+    _merge_tree_into(str(src), str(dst))
+
+    assert dst_file.exists()
+    assert dst_file.read_bytes() == payload
+    assert not src_file.exists()
+    assert list(dst.glob("*_legacy*.pdf")) == []
+
+
+def test_cleanup_legacy_report_copies_deletes_untracked_legacy_pdf(tmp_path):
+    db_path = tmp_path / "test.db"
+    conn = init_db(str(db_path))
+    _seed_sample_data(conn)
+
+    shared_root = Path(resolve_shared_root(str(db_path)))
+    report_folder = shared_root / "TEST_SUB" / "ΠΥΛΗ 1" / "instance"
+    report_folder.mkdir(parents=True, exist_ok=True)
+    canonical = report_folder / "Αναφ_demo_M100.pdf"
+    legacy = report_folder / "Αναφ_demo_M100_legacy1.pdf"
+    canonical.write_bytes(b"pdf-content")
+    legacy.write_bytes(b"pdf-content")
+
+    result = cleanup_legacy_report_copies(
+        conn,
+        db_path=str(db_path),
+        dry_run=False,
+    )
+
+    assert canonical.exists()
+    assert not legacy.exists()
+    assert result["deleted_files"] >= 1
 
 
 def test_ensure_maintenance_overview_reports_tracks_each_reports_root(

@@ -953,7 +953,7 @@ class SubstationAndroidApp(App):
         "VOLTAGE_LEVELS", ["20 KV", "150 KV", "20/150 KV"]
     )
     OPERATING_STATUS = S.get("MESSAGES", {}).get(
-        "OPERATING_STATUS", ["Ενεργή", "Ανενεργή"]
+        "OPERATING_STATUS", ["Ενεργή", "Ανενεργή", "Απόσυρση"]
     )
     INSTALLATION_SPACE = S.get("MESSAGES", {}).get(
         "INSTALLATION_SPACE", ["Εσωτερικός", "Εξωτερικός"]
@@ -4368,7 +4368,7 @@ class SubstationAndroidApp(App):
                    em.manufacturer as model_manufacturer, em.manual_pdf, em.onedrive_manual_link
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
-            WHERE e.substation_id = ? AND e.operating_status != 'Ανενεργή'
+            WHERE e.substation_id = ? AND e.operating_status NOT IN ('Ανενεργή', 'Απόσυρση')
             ORDER BY e.gate
             """,
             (substation_id,),

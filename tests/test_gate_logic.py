@@ -56,6 +56,27 @@ def test_get_available_gates_inter_true_false():
     assert all("-" in g for g in inter if g != "(Μη καταχωρημένο)")
 
 
+def test_get_available_gates_inter_allows_single_gate_when_hemizygos_exists():
+    app, sid = setup_app_with_substation_and_transformers(["T1", "T2"])
+    c = app.conn.cursor()
+    c.execute(
+        """
+        INSERT INTO elements (
+            substation_id, element_type, name, gate, hemizygos, is_main_switch, breaker_category
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (sid, ELEM_BREAKER_MT, "Q-H1", "ΠΥΛΗ 1", "Ημιζυγός 1", 0, "SF6"),
+    )
+    app.conn.commit()
+
+    inter = app.get_available_gates(sid, True)
+
+    assert "ΠΥΛΗ 1" in inter
+    assert "ΠΥΛΗ 2" in inter
+    assert "ΠΥΛΗ 1-2" in inter
+
+
 def test_get_available_gates_fills_missing_for_unassigned_transformer():
     app, sid = setup_app_with_substation_and_transformers(["T1", "T2"])
     c = app.conn.cursor()

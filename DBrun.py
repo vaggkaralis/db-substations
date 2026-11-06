@@ -129,13 +129,13 @@ from onedrive_hybrid_storage import (
     ensure_maintenance_folders,
     delete_maintenance_folders,
     invalidate_maintenance_reports,
+    cleanup_legacy_report_copies,
     process_hybrid_queue,
     prune_stale_dga_measurements,
     resolve_shared_root,
     ensure_dga_folder,
     get_transformer_report_targets,
     sync_all_substation_structures,
-    regenerate_maintenance_reports,
     relink_existing_maintenance_assets,
 )
 from popups import ask_open_file, ask_open_files
@@ -729,11 +729,24 @@ def build_maintenance_element_status_filter(
     return f"({substation_filter} OR e.id IN ({placeholders}))", linked_ids
 
 
+def is_active_operating_status(operating_status):
+    return str(operating_status or "").strip() == "Ενεργή"
+
+
+def is_retired_operating_status(operating_status):
+    return str(operating_status or "").strip() == "Απόσυρση"
+
+
+def is_inactive_operating_status(operating_status):
+    status = str(operating_status or "").strip()
+    return status in {"Ανενεργή", "Απόσυρση"}
+
+
 def format_maintenance_element_name(element_name, operating_status):
     name = str(element_name or "").strip()
     if not name:
         return ""
-    if str(operating_status or "").strip() != "Ανενεργή":
+    if not is_inactive_operating_status(operating_status):
         return name
     suffix = S["MESSAGES"].get("INACTIVE_ELEMENT_SUFFIX", "(ΠΑΛΙΟ)")
     suffix = str(suffix or "").strip()
@@ -818,10 +831,6 @@ def summarize_oil_requirement(
         if adjusted_liters > 0 and barrel_volume_val > 0
         else 0,
     }
-
-
-def is_inactive_operating_status(operating_status):
-    return str(operating_status or "").strip() == "Ανενεργή"
 
 
 def should_show_maintenance_element(
@@ -1648,6 +1657,29 @@ class SubstationApp(App):
 
         self._parent_watch_event = Clock.schedule_interval(_watch_parent, 1.0)
 
+    def _clear_popup_widget_tree(self, widget):
+        """Break strong widget-parent references to reduce retained memory on popup close."""
+        if widget is None:
+            return
+        try:
+            children = list(getattr(widget, "children", []) or [])
+            for child in children:
+                self._clear_popup_widget_tree(child)
+        except Exception:
+            pass
+        try:
+            widget.clear_widgets()
+        except Exception:
+            pass
+        try:
+            widget.content = None
+        except Exception:
+            pass
+        try:
+            widget.parent = None
+        except Exception:
+            pass
+
     def _dismiss_popup_and_maybe_close_child_window(
         self,
         popup,
@@ -1655,24 +1687,52 @@ class SubstationApp(App):
         close_child_window=True,
     ):
         try:
+            import gc
+
             from kivy.clock import Clock
         except Exception:
+            try:
+                import gc
+            except Exception:
+                gc = None
             Clock = None
 
         try:
             if popup is not None:
+                popup_content = getattr(popup, "content", None)
                 try:
-                    # Detach heavy widget trees first so close clicks remain responsive.
-                    popup.content = None
+                    popup.dismiss()
                 except Exception:
-                    pass
+                    try:
+                        if Clock is not None:
+                            Clock.schedule_once(lambda *_: popup.dismiss(), 0)
+                        else:
+                            popup.dismiss()
+                    except Exception:
+                        pass
+
+                def _cleanup_popup(*_args):
+                    try:
+                        self._clear_popup_widget_tree(popup_content)
+                    except Exception:
+                        pass
+                    try:
+                        popup.content = None
+                    except Exception:
+                        pass
+                    try:
+                        if gc is not None:
+                            gc.collect()
+                    except Exception:
+                        pass
+
                 try:
                     if Clock is not None:
-                        Clock.schedule_once(lambda *_: popup.dismiss(), 0)
+                        Clock.schedule_once(_cleanup_popup, 0.05)
                     else:
-                        popup.dismiss()
+                        _cleanup_popup()
                 except Exception:
-                    popup.dismiss()
+                    pass
         except Exception:
             pass
 
@@ -1705,10 +1765,6 @@ class SubstationApp(App):
     ):
         """Dismiss a popup and either restore the parent view or close the child window."""
         if popup is not None:
-            try:
-                popup.content = None
-            except Exception:
-                pass
             try:
                 popup.dismiss()
             except Exception:
@@ -1801,7 +1857,9 @@ class SubstationApp(App):
     BREAKER_TYPES = S["MESSAGES"].get(
         "BREAKER_TYPES", ["Κεντρικός", "Γραμμής", "Διασυνδετικός", "Διακόπτης Πυκνωτών"]
     )  # Main, Line, Interconnection, or Capacitor breaker
-    OPERATING_STATUS = S["MESSAGES"].get("OPERATING_STATUS", ["Ενεργή", "Ανενεργή"])
+    OPERATING_STATUS = S["MESSAGES"].get(
+        "OPERATING_STATUS", ["Ενεργή", "Ανενεργή", "Απόσυρση"]
+    )
     INSTALLATION_SPACE = S["MESSAGES"].get(
         "INSTALLATION_SPACE", ["Εσωτερικός", "Εξωτερικός"]
     )
@@ -3370,9 +3428,21 @@ class SubstationApp(App):
             return
         self._cleanup_completed = True
         try:
+            import gc
+
+            gc.collect()
+        except Exception:
+            pass
+        try:
             from popups import terminate_launched_child_processes
 
             terminate_launched_child_processes()
+        except Exception:
+            pass
+        try:
+            import gc
+
+            gc.collect()
         except Exception:
             pass
         try:
@@ -4640,6 +4710,60 @@ class SubstationApp(App):
         sync_header_row.add_widget(sync_header)
         sync_header_row.add_widget(sync_help_btn)
         content.add_widget(sync_header_row)
+
+        cleanup_row = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height=40, spacing=10
+        )
+        cleanup_btn = Button(
+            text=S["MESSAGES"].get(
+                "SYNC_CLEANUP_LEGACY_REPORTS_BUTTON",
+                "Καθαρισμός legacy αντιγράφων PDF αναφορών",
+            )
+        )
+
+        def _run_cleanup_legacy_reports(*_args):
+            try:
+                result = cleanup_legacy_report_copies(
+                    self.conn,
+                    db_path=self.db_path,
+                    dry_run=False,
+                )
+                show_message_popup(
+                    S["TITLES"].get("INFO", "Πληροφορία"),
+                    (
+                        "Ο καθαρισμός ολοκληρώθηκε.\n\n"
+                        f"Διαγράφηκαν αρχεία: {int(result.get('deleted_files', 0) or 0)}\n"
+                        f"Επανασυνδέθηκαν διαδρομές DB: {int(result.get('repointed_rows', 0) or 0)}\n"
+                        f"Παραλείφθηκαν (χωρίς canonical αρχείο): {int(result.get('skipped_missing_base', 0) or 0)}\n"
+                        f"Παραλείφθηκαν (αναφερόμενα στη ΒΔ): {int(result.get('skipped_referenced', 0) or 0)}\n"
+                        f"Σφάλματα διαγραφής: {int(result.get('delete_errors', 0) or 0)}"
+                    ),
+                )
+            except Exception as exc:
+                show_message_popup(
+                    S["TITLES"].get("ERROR", "Σφάλμα"),
+                    f"Αποτυχία καθαρισμού legacy αντιγράφων PDF:\n{exc}",
+                )
+
+        def _confirm_cleanup_legacy_reports(*_args):
+            from reports import show_confirm
+
+            show_confirm(
+                S["TITLES"].get("CONFIRM", "Επιβεβαίωση"),
+                (
+                    "Θέλετε να διαγραφούν τα περιττά αρχεία *_legacyN.pdf\n"
+                    "όπου υπάρχει ήδη canonical PDF;\n\n"
+                    "Η ενέργεια είναι μόνιμη και επηρεάζει τον κοινόχρηστο φάκελο."
+                ),
+                yes_callback=_run_cleanup_legacy_reports,
+                yes_text=S["BUTTONS"].get("YES", "Ναι"),
+                no_text=S["BUTTONS"].get("NO", "Όχι"),
+                yes_color=(1, 0, 0, 1),
+            )
+
+        cleanup_btn.bind(on_press=_confirm_cleanup_legacy_reports)
+        cleanup_row.add_widget(cleanup_btn)
+        content.add_widget(cleanup_row)
 
         interval_row = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=40, spacing=10
@@ -7218,8 +7342,26 @@ class SubstationApp(App):
 
         inter_sorted = self.sort_gate_labels_for_display(inter)
 
+        has_hemizygos = False
+        try:
+            c.execute(
+                """
+                SELECT 1
+                FROM elements
+                WHERE substation_id=?
+                  AND TRIM(COALESCE(hemizygos, '')) != ''
+                LIMIT 1
+                """,
+                (substation_id,),
+            )
+            has_hemizygos = c.fetchone() is not None
+        except Exception:
+            has_hemizygos = False
+
         if is_interconnection is True:
-            gates = inter_sorted
+            # In substations that use hemizygos, an interconnection breaker may
+            # connect the two hemizygos while still belonging to a single gate.
+            gates = regular + inter_sorted if has_hemizygos else inter_sorted
         elif is_interconnection is False:
             gates = regular
         else:
@@ -10460,7 +10602,7 @@ class SubstationApp(App):
 
             c.execute(
                 f"SELECT substation_id, COUNT(*) FROM elements WHERE substation_id IN ({placeholders}) "
-                "AND operating_status='Ανενεργή' GROUP BY substation_id",
+                "AND operating_status IN ('Ανενεργή', 'Απόσυρση') GROUP BY substation_id",
                 sub_ids,
             )
             inactive_count_map = {sid: cnt for sid, cnt in c.fetchall()}
@@ -10483,14 +10625,24 @@ class SubstationApp(App):
             size_hint_x=None,
             width=120,
         )
-        refresh_btn.bind(
-            on_press=lambda _x, p=popup: self._display_substations(
-                filter_name,
-                reuse_popup=p,
-                element_type_filter=p._dbs_element_type_filter,
-                gate_filter=p._dbs_gate_filter,
+
+        def _refresh_substations_view(_instance=None, p=popup):
+            refresh_message = (
+                S["MESSAGES"].get("LOADING_DATA", "Φόρτωση δεδομένων...")
+                if show_elements
+                else S["MESSAGES"].get("LOADING_SUBSTATIONS", "Φόρτωση υποσταθμών...")
             )
-        )
+            self._run_with_loading(
+                lambda: self._display_substations(
+                    filter_name,
+                    reuse_popup=p,
+                    element_type_filter=p._dbs_element_type_filter,
+                    gate_filter=p._dbs_gate_filter,
+                ),
+                refresh_message,
+            )
+
+        refresh_btn.bind(on_press=_refresh_substations_view)
         action_row.add_widget(BoxLayout(size_hint_x=1))
         action_row.add_widget(refresh_btn)
         main_layout.add_widget(action_row)
@@ -10514,6 +10666,54 @@ class SubstationApp(App):
         scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
         grid = GridLayout(cols=1, spacing=5, size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
+
+        model_context_tags_builder = None
+        if show_elements:
+            try:
+                from model_management import _build_model_context_tags as _tags_builder
+
+                model_context_tags_builder = _tags_builder
+            except Exception:
+                model_context_tags_builder = None
+
+        manual_path_exists_cache = {}
+
+        def _manual_file_exists_cached(path_value):
+            norm_path = str(path_value or "").strip()
+            if not norm_path:
+                return False
+            if norm_path in manual_path_exists_cache:
+                return manual_path_exists_cache[norm_path]
+            exists = False
+            try:
+                exists = os.path.exists(norm_path)
+            except Exception:
+                exists = False
+            manual_path_exists_cache[norm_path] = exists
+            return exists
+
+        def _build_separator_line():
+            from kivy.graphics import Color, Rectangle
+            from kivy.uix.widget import Widget
+
+            sep = Widget(size_hint_y=None, size_hint_x=1, height=8)
+            thickness = 2
+            with sep.canvas:
+                Color(0.7, 0.7, 0.7, 1)
+                rect = Rectangle(
+                    pos=(sep.x, sep.y + (sep.height - thickness) / 2),
+                    size=(sep.width, thickness),
+                )
+
+            def _update_rect(*_args):
+                try:
+                    rect.pos = (sep.x, sep.y + (sep.height - thickness) / 2)
+                    rect.size = (sep.width, thickness)
+                except Exception:
+                    pass
+
+            sep.bind(pos=_update_rect, size=_update_rect)
+            return sep
 
         # If a previous scroll position was provided, restore it after layout
         if prev_scroll_y is not None:
@@ -10869,6 +11069,22 @@ class SubstationApp(App):
                 )
                 actions_buttons.add_widget(edit_icon)
 
+                if not show_elements:
+                    info_icon = IconOnlyButton(
+                        icon_type="info",
+                        size=(44, 36),
+                        icon_color=self.theme.get("primary", (0.2, 0.6, 1, 1)),
+                        tooltip=S["MESSAGES"].get(
+                            "ELEMENT_INFO_BTN", "Πληροφορίες Στοιχείων"
+                        ),
+                    )
+                    info_icon.bind(
+                        on_press=lambda x, sid=sub_id, sname=sub_name, p=popup: (
+                            self.show_substation_element_summary(sid, sname, p)
+                        )
+                    )
+                    actions_buttons.add_widget(info_icon)
+
                 delete_icon = IconOnlyButton(
                     icon_type="delete",
                     size=(44, 36),
@@ -11065,31 +11281,6 @@ class SubstationApp(App):
                 popup._dbs_element_type_filter = current_type_filter
                 popup._dbs_gate_filter = current_gate_filter
 
-                try:
-                    from elements import _find_duplicate_element_rows
-
-                    duplicate_groups = _find_duplicate_element_rows(self.conn, sub_id)
-                    if duplicate_groups:
-                        duplicate_lines = []
-                        for duplicate_group in duplicate_groups:
-                            ids = ", ".join(
-                                f"#{element_id}"
-                                for element_id, _ in duplicate_group["rows"]
-                            )
-                            duplicate_lines.append(
-                                f"- {duplicate_group['display_name']} ({ids})"
-                            )
-                        show_message_popup(
-                            S["TITLES"].get("WARNING", "Προειδοποίηση"),
-                            (
-                                f'Βρέθηκαν διπλότυπα στοιχεία με το ίδιο όνομα στο υποσταθμό "{sub_name}". '
-                                "Παρακαλούμε να τα επιλύσετε ώστε να είναι σαφές ποιο στοιχείο αναφέρεται σε κάθε καταχώρηση:\n\n"
-                                + "\n".join(duplicate_lines)
-                            ),
-                        )
-                except Exception:
-                    pass
-
                 filter_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
                 pdf_btn = Button(
                     text=S["MESSAGES"].get("PDF_BUTTON", "PDF"),
@@ -11142,6 +11333,7 @@ class SubstationApp(App):
                     FROM elements e 
                     LEFT JOIN element_models em ON e.element_model_id = em.id 
                     WHERE e.substation_id=? AND COALESCE(e.parent_element_id, 0)=0
+                      AND (e.operating_status IS NULL OR e.operating_status='Ενεργή')
                 """
                 params = [sub_id]
                 if current_type_filter != "(Όλα)":
@@ -11162,7 +11354,9 @@ class SubstationApp(App):
                     e for e in all_elements if not e[20] or e[20] == "Ενεργή"
                 ]
                 inactive_elements = [
-                    e for e in all_elements if e[20] and e[20] == "Ανενεργή"
+                    e
+                    for e in all_elements
+                    if e[20] and e[20] in {"Ανενεργή", "Απόσυρση"}
                 ]
 
                 now_dt = datetime.now()
@@ -11172,7 +11366,7 @@ class SubstationApp(App):
                     maintenance_cycle,
                 ):
                     is_overdue = False
-                    is_stale_more_than_year = False
+                    is_warning_window = False
                     last_maint = None
 
                     if maintenance_date and str(maintenance_date).strip():
@@ -11180,24 +11374,27 @@ class SubstationApp(App):
                             last_maint = datetime.strptime(
                                 str(maintenance_date).split()[0], "%Y-%m-%d"
                             )
-                            one_year_ago = now_dt - timedelta(days=365)
-                            if last_maint < one_year_ago:
-                                is_stale_more_than_year = True
                         except Exception:
                             last_maint = None
 
                     if maintenance_cycle and maintenance_cycle > 0:
+                        cycle_days = int(maintenance_cycle) * 365
+                        warning_days = max(1, int(cycle_days * 0.2))
                         if not maintenance_date or str(maintenance_date).strip() == "":
                             # Missing maintenance date when cycle is defined
                             is_overdue = True
                         elif last_maint is not None:
-                            years_ago = now_dt - timedelta(
-                                days=int(maintenance_cycle) * 365
-                            )
-                            if last_maint < years_ago:
+                            next_due = last_maint + timedelta(days=cycle_days)
+                            if next_due <= now_dt:
                                 is_overdue = True
+                            else:
+                                warning_threshold = next_due - timedelta(
+                                    days=warning_days
+                                )
+                                if now_dt >= warning_threshold:
+                                    is_warning_window = True
 
-                    has_warning_or_expired = is_overdue or is_stale_more_than_year
+                    has_warning_or_expired = is_overdue or is_warning_window
                     return is_overdue, has_warning_or_expired
 
                 c.execute(
@@ -11271,31 +11468,30 @@ class SubstationApp(App):
                             hemizygos
                         )
 
-                        # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV line breakers, MV capacitor breakers, rest
+                        # Keep global priority first (HV -> Transformer -> MV),
+                        # then sort within groups by hemizygos and local subtype order.
                         if elem_type == self.ELEM_BREAKER_YT:
-                            return (1, hemizygos_rank, elem_name)
+                            return (1, hemizygos_rank, 0, elem_name)
                         elif self._is_transformer(elem_type):
-                            return (2, hemizygos_rank, elem_name)
+                            return (2, hemizygos_rank, 0, elem_name)
                         elif elem_type == "Motor Drive":
-                            return (3, hemizygos_rank, elem_name)
-                        elif (
-                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 1
-                        ):  # Main breaker
-                            return (4, hemizygos_rank, elem_name)
-                        elif (
-                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 2
-                        ):  # Interconnection breaker
-                            return (5, hemizygos_rank, elem_name)
-                        elif (
-                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 0
-                        ):  # Line breaker
-                            return (6, hemizygos_rank, elem_name)
-                        elif (
-                            elem_type == self.ELEM_BREAKER_MT and is_main_switch == 3
-                        ):  # Capacitor breaker
-                            return (7, hemizygos_rank, elem_name)
+                            return (3, hemizygos_rank, 0, elem_name)
+                        elif elem_type == self.ELEM_BREAKER_MT:
+                            # MV subtype order inside each gate + hemizygos:
+                            # Main -> Line -> Capacitor -> Interconnection -> rest.
+                            if is_main_switch == 1:
+                                mv_rank = 1
+                            elif is_main_switch == 0:
+                                mv_rank = 2
+                            elif is_main_switch == 3:
+                                mv_rank = 3
+                            elif is_main_switch == 2:
+                                mv_rank = 4
+                            else:
+                                mv_rank = 5
+                            return (4, hemizygos_rank, mv_rank, elem_name)
                         else:
-                            return (8, hemizygos_rank, elem_name)
+                            return (5, hemizygos_rank, 0, elem_name)
 
                     # Group active elements by gate
                     gates_dict = {}
@@ -11448,9 +11644,13 @@ class SubstationApp(App):
                             else:
                                 maint_display = f"Τελ. Συντ.: {maintenance_date or '-'}"
 
-                            # Add inactive indicator
+                            # Add inactive/retired indicator
                             inactive_marker = ""
-                            if operating_status and operating_status == "Ανενεργή":
+                            if operating_status == "Απόσυρση":
+                                inactive_marker = (
+                                    " [color=ff8c00][b][ΑΠΟΣΥΡΣΗ][/b][/color]"
+                                )
+                            elif operating_status == "Ανενεργή":
                                 inactive_marker = (
                                     " [color=ff0000][b][ΑΝΕΝΕΡΓΟ][/b][/color]"
                                 )
@@ -11501,9 +11701,9 @@ class SubstationApp(App):
 
                             try:
                                 left_gate_column = BoxLayout(
-                                    orientation="vertical",
+                                    orientation="horizontal",
                                     size_hint=(None, None),
-                                    width=36,
+                                    width=74 if hemizygos else 36,
                                     height=56,
                                     spacing=1,
                                     padding=(0, 0, 0, 0),
@@ -11546,26 +11746,23 @@ class SubstationApp(App):
                                 first_line_label.col_span = 2
 
                                 try:
-                                    from model_management import (
-                                        _build_model_context_tags,
-                                    )
-
-                                    model_tags_box = _build_model_context_tags(
-                                        raw_elem_type,
-                                        breaker_category=breaker_category,
-                                        installation_space=installation_space or "-",
-                                        manufacturer=manufacturer,
-                                        app_instance=self,
-                                    )
+                                    if model_context_tags_builder is not None:
+                                        model_tags_box = model_context_tags_builder(
+                                            raw_elem_type,
+                                            breaker_category=breaker_category,
+                                            installation_space=installation_space
+                                            or "-",
+                                            manufacturer=manufacturer,
+                                            app_instance=self,
+                                        )
+                                    else:
+                                        model_tags_box = None
                                     if model_tags_box:
                                         model_tags_box.size_hint_x = None
                                         model_tags_box.size_hint_y = None
                                         model_tags_box.height = 22
                                         model_tags_box.width = 176
                                 except Exception:
-                                    import traceback
-
-                                    traceback.print_exc()
                                     model_tags_box = None
 
                                 content_block.add_widget(first_line_label)
@@ -11607,9 +11804,6 @@ class SubstationApp(App):
                                 left_gate_column.height = max(56, content_block.height)
                                 elem_layout.add_widget(row_with_gate)
                             except Exception:
-                                import traceback
-
-                                traceback.print_exc()
                                 fallback_label = Label(
                                     text=f"{j}. {elem_name}",
                                     size_hint_y=None,
@@ -11621,7 +11815,7 @@ class SubstationApp(App):
                                 elem_layout.add_widget(fallback_label)
 
                             manual_available = bool(
-                                (manual_pdf and os.path.exists(manual_pdf))
+                                _manual_file_exists_cached(manual_pdf)
                                 or (
                                     model_onedrive_manual_link
                                     and (
@@ -11635,42 +11829,6 @@ class SubstationApp(App):
                             model_usage_available = bool(element_model_id)
 
                             # Add separator line after each element
-                            from kivy.uix.widget import Widget
-                            from kivy.graphics import Color, Rectangle
-
-                            class SeparatorLine(Widget):
-                                def __init__(self, **kwargs):
-                                    super().__init__(**kwargs)
-                                    self.size_hint_y = None
-                                    self.size_hint_x = 1
-                                    # give some vertical space and draw a thin line centered
-                                    self.height = 8
-                                    self._thickness = 2
-                                    with self.canvas:
-                                        Color(0.7, 0.7, 0.7, 1)
-                                        self._rect = Rectangle(
-                                            pos=(
-                                                self.x,
-                                                self.y
-                                                + (self.height - self._thickness) / 2,
-                                            ),
-                                            size=(self.width, self._thickness),
-                                        )
-                                    self.bind(
-                                        pos=self._update_rect, size=self._update_rect
-                                    )
-
-                                def _update_rect(self, *args):
-                                    try:
-                                        self._rect.pos = (
-                                            self.x,
-                                            self.y
-                                            + (self.height - self._thickness) / 2,
-                                        )
-                                        self._rect.size = (self.width, self._thickness)
-                                    except Exception:
-                                        pass
-
                             # Note: separator will be added to the parent `grid` after the element row
 
                             is_transformer = self._is_transformer(raw_elem_type)
@@ -11793,7 +11951,7 @@ class SubstationApp(App):
 
                             grid.add_widget(elem_layout)
                             # full-width separator after the element row
-                            grid.add_widget(SeparatorLine())
+                            grid.add_widget(_build_separator_line())
                 else:
                     no_elements_label = Label(
                         text=S["MESSAGES"].get(
@@ -12456,43 +12614,13 @@ class SubstationApp(App):
                 "STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."
             ),
             S["MESSAGES"].get(
-                "SYNC_PROGRESS_REPORTS", "Αναγέννηση αναφορών συντήρησης..."
+                "SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."
             ),
         )
         if needs_asset_repair:
             try:
                 reports_progress = _stage_progress_callback(
                     38,
-                    80,
-                    S["MESSAGES"].get(
-                        "SYNC_PROGRESS_REPORTS", "Αναγέννηση αναφορών συντήρησης..."
-                    ),
-                )
-                report_result = regenerate_maintenance_reports(
-                    work_conn,
-                    db_path=self.db_path,
-                    quiet=True,
-                    progress_callback=reports_progress,
-                )
-            except Exception as exc:
-                logging.exception(
-                    "Failed to regenerate maintenance reports during manual sync"
-                )
-                stage_errors.append(f"Αναγέννηση αναφορών συντήρησης: {exc}")
-
-        _notify_progress(
-            80,
-            S["MESSAGES"].get(
-                "STARTUP_SYNC_DATA_ONEDRIVE", "Συγχρονισμός δεδομένων με OneDrive..."
-            ),
-            S["MESSAGES"].get(
-                "SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."
-            ),
-        )
-        if needs_asset_repair:
-            try:
-                relink_progress = _stage_progress_callback(
-                    80,
                     90,
                     S["MESSAGES"].get(
                         "SYNC_PROGRESS_ASSETS", "Σύνδεση αρχείων και αναφορών..."
@@ -12501,7 +12629,7 @@ class SubstationApp(App):
                 relink_result = relink_existing_maintenance_assets(
                     work_conn,
                     db_path=self.db_path,
-                    progress_callback=relink_progress,
+                    progress_callback=reports_progress,
                 )
             except Exception as exc:
                 logging.exception(
@@ -12617,10 +12745,7 @@ class SubstationApp(App):
                 f"Συγχρ. δομής OneDrive: total={int(structure_result.get('total', 0) or 0)}, "
                 f"ok={int(structure_result.get('synced', 0) or 0)}, "
                 f"failed={int(structure_result.get('failed', 0) or 0)}",
-                f"Συγχρ. αναφορών OneDrive: total={int(report_result.get('total', 0) or 0)}, "
-                f"generated={report_generated}, "
-                f"skipped={int(report_result.get('skipped', 0) or 0)}, "
-                f"failed={int(report_result.get('failed', 0) or 0)}",
+                "PDF αναφορές συντήρησης: δημιουργούνται μόνο κατ' απαίτηση από τα κουμπιά PDF.",
             ]
         )
         if report_missing > 0 and report_generated == 0:
@@ -13175,7 +13300,6 @@ class SubstationApp(App):
             # Define the heavy work to run in background thread
             def _startup_worker():
                 sync_result = {"total": 0, "synced": 0, "failed": 0}
-                report_result = {"total": 0, "generated": 0, "skipped": 0, "failed": 0}
                 relink_result = {
                     "media_linked": 0,
                     "reports_linked": 0,
@@ -13320,51 +13444,12 @@ class SubstationApp(App):
                             _notify_startup_progress(
                                 38,
                                 S["MESSAGES"].get(
-                                    "SYNC_PROGRESS_REPORTS",
-                                    "Regenerating maintenance reports...",
-                                ),
-                            )
-                            _report_progress = _startup_stage_progress_callback(
-                                38,
-                                80,
-                                S["MESSAGES"].get(
-                                    "SYNC_PROGRESS_REPORTS",
-                                    "Regenerating maintenance reports...",
-                                ),
-                            )
-
-                            report_result = regenerate_maintenance_reports(
-                                startup_conn,
-                                db_path=self.db_path,
-                                quiet=True,
-                                progress_callback=_report_progress,
-                            )
-                            results["report_result"] = report_result
-                            logging.info(
-                                "Maintenance reports: total=%s generated=%s skipped=%s failed=%s",
-                                report_result.get("total", 0),
-                                report_result.get("generated", 0),
-                                report_result.get("skipped", 0),
-                                report_result.get("failed", 0),
-                            )
-                        except Exception as exc:
-                            logging.exception(
-                                "Failed to regenerate maintenance reports at startup"
-                            )
-                            results["stage_errors"].append(
-                                f"Αναγέννηση αναφορών συντήρησης: {exc}"
-                            )
-
-                        try:
-                            _notify_startup_progress(
-                                80,
-                                S["MESSAGES"].get(
                                     "SYNC_PROGRESS_ASSETS",
                                     "Linking files and reports...",
                                 ),
                             )
-                            _relink_progress = _startup_stage_progress_callback(
-                                80,
+                            _report_progress = _startup_stage_progress_callback(
+                                38,
                                 90,
                                 S["MESSAGES"].get(
                                     "SYNC_PROGRESS_ASSETS",
@@ -13375,7 +13460,7 @@ class SubstationApp(App):
                             relink_result = relink_existing_maintenance_assets(
                                 startup_conn,
                                 db_path=self.db_path,
-                                progress_callback=_relink_progress,
+                                progress_callback=_report_progress,
                             )
                             results["relink_result"] = relink_result
                             logging.info(
@@ -13543,10 +13628,7 @@ class SubstationApp(App):
                         f"Συγχρ. δομής OneDrive: total={int(sync_result.get('total', 0) or 0)}, "
                         f"ok={int(sync_result.get('synced', 0) or 0)}, "
                         f"failed={int(sync_result.get('failed', 0) or 0)}",
-                        f"Συγχρ. αναφορών OneDrive: total={int(report_result.get('total', 0) or 0)}, "
-                        f"generated={startup_generated}, "
-                        f"skipped={int(report_result.get('skipped', 0) or 0)}, "
-                        f"failed={int(report_result.get('failed', 0) or 0)}",
+                        "PDF αναφορές συντήρησης: δημιουργούνται μόνο κατ' απαίτηση από τα κουμπιά PDF.",
                         "",
                         f"Εισερχόμενα sync: processed={int(startup_sync.get('processed', 0) or 0)}, "
                         f"accepted={startup_accepted}, conflicts={startup_conflicts}, "
@@ -16044,7 +16126,8 @@ class SubstationApp(App):
             FROM elements e
             LEFT JOIN element_models em ON em.id = e.element_model_id
             WHERE e.substation_id = ?
-              AND (e.operating_status IS NULL OR e.operating_status = 'Ενεργή')
+              AND COALESCE(e.parent_element_id, 0)=0
+              AND (COALESCE(TRIM(e.operating_status), '') = '' OR TRIM(e.operating_status) = 'Ενεργή')
             ORDER BY e.gate, e.name
             """,
             (substation_id,),
@@ -18468,6 +18551,9 @@ class SubstationApp(App):
             size_hint_y=None,
             height=35,
         )
+        responsible_spinner._last_selected_responsible_pid = people_map.get(
+            responsible_default_text
+        )
         content_layout.add_widget(responsible_spinner)
         _register_wizard_widget(2, responsible_spinner)
 
@@ -18636,25 +18722,36 @@ class SubstationApp(App):
         select_all_btn.bind(on_press=lambda x: set_all_crew(True))
         clear_all_btn.bind(on_press=lambda x: set_all_crew(False))
 
-        # When responsible changes, ensure crew checkbox for responsible is selected and disabled
+        # When responsible changes, ensure the selected responsible is checked/disabled,
+        # while clearing any stale auto-selected previous responsible row.
         def _sync_responsible_in_crew(*_args):
-            # determine selected responsible pid
-            sel_label = responsible_spinner.text
+            sel_label = responsible_spinner.text or ""
             sel_pid = people_map.get(sel_label)
+            previous_pid = getattr(
+                responsible_spinner, "_last_selected_responsible_pid", None
+            )
             for pid, cb in crew_checks.items():
                 if pid in inactive_locked_crew_ids:
                     cb.active = True
                     cb.disabled = True
                     continue
-                if pid == sel_pid:
-                    cb.active = True
-                    cb.disabled = True
-                else:
-                    # re-enable other checkboxes
-                    if getattr(cb, "disabled", False):
-                        cb.disabled = False
+
+                is_selected = pid == sel_pid
+                was_previous = (
+                    previous_pid is not None
+                    and pid == previous_pid
+                    and previous_pid != sel_pid
+                )
+                cb.active = bool(is_selected)
+                cb.disabled = bool(is_selected)
+                if was_previous:
+                    cb.active = False
+                    cb.disabled = False
+
+            responsible_spinner._last_selected_responsible_pid = sel_pid
 
         responsible_spinner.bind(text=lambda _inst, _val: _sync_responsible_in_crew())
+        _sync_responsible_in_crew()
 
         # Overall comments
         comments_label = Label(
@@ -19384,7 +19481,7 @@ class SubstationApp(App):
         inactive_elements_toggle_btn.bind(on_press=_toggle_inactive_elements)
         _refresh_inactive_toggle_button()
 
-        def _set_gate_body_expanded(gate_name, expanded):
+        def _set_gate_body_expanded(gate_name, expanded, *, scroll_to_top=False):
             section = gate_sections.get(gate_name)
             if not section:
                 return
@@ -19423,9 +19520,15 @@ class SubstationApp(App):
                 expanded = (
                     True if selected_count > 0 else bool(section.get("expanded", False))
                 )
+                scroll_to_top = False
             else:
                 expanded = bool(force) or selected_count > 0
-            _set_gate_body_expanded(gate_name, expanded)
+                scroll_to_top = bool(force)
+            _set_gate_body_expanded(
+                gate_name,
+                expanded,
+                scroll_to_top=scroll_to_top,
+            )
 
         def refresh_substation_context(*_args):
             return
@@ -19661,6 +19764,13 @@ class SubstationApp(App):
 
         def load_elements(substation_name):
             """Load elements for selected substation"""
+            widget_class = globals().get("Widget")
+            if widget_class is None:
+                try:
+                    from kivy.uix.widget import Widget as widget_class
+                except Exception:
+                    widget_class = object
+
             elements_container.clear_widgets()
             element_widgets.clear()
             gate_sections.clear()
@@ -20011,10 +20121,16 @@ class SubstationApp(App):
                         for elem_id in section.get("element_ids", [])
                     )
                     if selected:
-                        _set_gate_body_expanded(gate_value, True)
+                        _set_gate_body_expanded(
+                            gate_value,
+                            True,
+                            scroll_to_top=True,
+                        )
                     else:
                         _set_gate_body_expanded(
-                            gate_value, not bool(section.get("expanded", False))
+                            gate_value,
+                            not bool(section.get("expanded", False)),
+                            scroll_to_top=True,
                         )
                     _sync_dynamic_step_layout()
 
@@ -20066,7 +20182,7 @@ class SubstationApp(App):
                     elem_box.bind(minimum_height=elem_box.setter("height"))
 
                     left_gate_column = BoxLayout(
-                        orientation="vertical",
+                        orientation="horizontal",
                         size_hint=(None, None),
                         width=74 if hemizygos else 36,
                         height=64,
@@ -20163,13 +20279,26 @@ class SubstationApp(App):
                     content_block.add_widget(detail_label)
 
                     checkbox = CheckBox(
-                        size_hint_x=0.08,
+                        size_hint=(None, None),
+                        size=(28, 28),
                         color=self.theme.get("primary", (0.05, 0.18, 0.36, 1)),
                     )
+                    selection_column = BoxLayout(
+                        orientation="vertical",
+                        size_hint=(None, None),
+                        width=32,
+                        height=64,
+                        spacing=0,
+                        padding=(0, 0, 0, 0),
+                    )
+                    selection_column.add_widget(widget_class())
+                    selection_column.add_widget(checkbox)
+                    selection_column.add_widget(widget_class())
 
+                    content_row.add_widget(selection_column)
                     content_row.add_widget(left_gate_column)
                     content_row.add_widget(content_block)
-                    content_row.add_widget(checkbox)
+                    selection_column.height = max(56, content_block.height)
                     left_gate_column.height = max(56, content_block.height)
                     self._bind_row_height_to_children(content_row, min_height=64)
                     elem_box.add_widget(content_row)
@@ -20228,8 +20357,6 @@ class SubstationApp(App):
                         sf6_leakage_input = None
                         sf6_methodology_input = None
 
-                        # debug logging removed
-
                         # Additional diagnostics: print transformer-detection result
                         # transformer detection logging removed
 
@@ -20282,7 +20409,7 @@ class SubstationApp(App):
                                 "primary", (0.05, 0.18, 0.36, 1)
                             )
                             measurements_toggle_row.add_widget(measurements_toggle)
-                            measurements_toggle_row.add_widget(Widget())
+                            measurements_toggle_row.add_widget(widget_class())
                             details_container.add_widget(measurements_toggle_row)
 
                             measurements_fields_container = BoxLayout(
@@ -20613,6 +20740,7 @@ class SubstationApp(App):
                                 hint_text="Πλύσιμο Μονωτήρων – Έλεγχος Φθοράς",
                                 size_hint_x=0.5,
                                 multiline=True,
+                                follow_parent_scroll=False,
                             )
                             self._add_labeled_measurement_row(
                                 details_container,
@@ -20625,6 +20753,7 @@ class SubstationApp(App):
                                 hint_text="Έλεγχος Διάβρωσης Εξωτερικών Μεταλλικών Τμημάτων",
                                 size_hint_x=0.5,
                                 multiline=True,
+                                follow_parent_scroll=False,
                             )
                             self._add_labeled_measurement_row(
                                 details_container,
@@ -21268,6 +21397,156 @@ class SubstationApp(App):
                                 leak_layout.add_widget(sf6_methodology_input)
                                 details_container.add_widget(leak_layout)
 
+                                pressure_gauge_value = self._create_measurement_input(
+                                    hint_text="0.0",
+                                    size_hint_x=0.2,
+                                )
+                                pressure_gauge_unit = Spinner(
+                                    text="bar",
+                                    values=("bar", "kPa", "psi"),
+                                    size_hint_x=0.16,
+                                )
+                                self._add_labeled_measurement_row(
+                                    details_container,
+                                    "Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6:",
+                                    pressure_gauge_value,
+                                    pressure_gauge_unit,
+                                    label_size_hint_x=0.52,
+                                )
+
+                                details_container.add_widget(
+                                    Label(
+                                        text="Όρια ALARM/BLOCK:",
+                                        size_hint_y=None,
+                                        height=25,
+                                        bold=True,
+                                    )
+                                )
+                                alarm_limits_sections = BoxLayout(
+                                    size_hint_y=None,
+                                    height=0,
+                                    spacing=6,
+                                )
+                                alarm_limits_sections.bind(
+                                    minimum_height=alarm_limits_sections.setter(
+                                        "height"
+                                    )
+                                )
+                                appearance_section = BoxLayout(
+                                    orientation="vertical",
+                                    spacing=3,
+                                    size_hint_x=0.48,
+                                    size_hint_y=None,
+                                    height=0,
+                                )
+                                appearance_section.bind(
+                                    minimum_height=appearance_section.setter("height")
+                                )
+                                appearance_section.add_widget(
+                                    Label(
+                                        text="Εμφάνιση",
+                                        size_hint_y=None,
+                                        height=24,
+                                        bold=True,
+                                    )
+                                )
+                                alarm_appearance_value = self._create_measurement_input(
+                                    hint_text="0.0",
+                                    size_hint_x=0.38,
+                                )
+                                alarm_appearance_unit = Spinner(
+                                    text="bar",
+                                    values=("bar", "kPa", "psi"),
+                                    size_hint_x=0.22,
+                                )
+                                self._add_labeled_measurement_row(
+                                    appearance_section,
+                                    "ALARM:",
+                                    alarm_appearance_value,
+                                    alarm_appearance_unit,
+                                    label_size_hint_x=0.28,
+                                    height=36,
+                                )
+                                block_appearance_value = self._create_measurement_input(
+                                    hint_text="0.0",
+                                    size_hint_x=0.38,
+                                )
+                                block_appearance_unit = Spinner(
+                                    text="bar",
+                                    values=("bar", "kPa", "psi"),
+                                    size_hint_x=0.22,
+                                )
+                                self._add_labeled_measurement_row(
+                                    appearance_section,
+                                    "BLOCK/TRIP:",
+                                    block_appearance_value,
+                                    block_appearance_unit,
+                                    label_size_hint_x=0.28,
+                                    height=36,
+                                )
+
+                                disappearance_section = BoxLayout(
+                                    orientation="vertical",
+                                    spacing=3,
+                                    size_hint_x=0.48,
+                                    size_hint_y=None,
+                                    height=0,
+                                )
+                                disappearance_section.bind(
+                                    minimum_height=disappearance_section.setter(
+                                        "height"
+                                    )
+                                )
+                                disappearance_section.add_widget(
+                                    Label(
+                                        text="Εξαφάνιση",
+                                        size_hint_y=None,
+                                        height=24,
+                                        bold=True,
+                                    )
+                                )
+                                alarm_disappearance_value = (
+                                    self._create_measurement_input(
+                                        hint_text="0.0",
+                                        size_hint_x=0.38,
+                                    )
+                                )
+                                alarm_disappearance_unit = Spinner(
+                                    text="bar",
+                                    values=("bar", "kPa", "psi"),
+                                    size_hint_x=0.22,
+                                )
+                                self._add_labeled_measurement_row(
+                                    disappearance_section,
+                                    "ALARM:",
+                                    alarm_disappearance_value,
+                                    alarm_disappearance_unit,
+                                    label_size_hint_x=0.28,
+                                    height=36,
+                                )
+                                block_disappearance_value = (
+                                    self._create_measurement_input(
+                                        hint_text="0.0",
+                                        size_hint_x=0.38,
+                                    )
+                                )
+                                block_disappearance_unit = Spinner(
+                                    text="bar",
+                                    values=("bar", "kPa", "psi"),
+                                    size_hint_x=0.22,
+                                )
+                                self._add_labeled_measurement_row(
+                                    disappearance_section,
+                                    "BLOCK/TRIP:",
+                                    block_disappearance_value,
+                                    block_disappearance_unit,
+                                    label_size_hint_x=0.28,
+                                    height=36,
+                                )
+                                alarm_limits_sections.add_widget(appearance_section)
+                                alarm_limits_sections.add_widget(disappearance_section)
+                                details_container.add_widget(alarm_limits_sections)
+
                                 details_container.add_widget(
                                     Label(
                                         text="ΠΟΙΟΤΗΤΑ ΑΕΡΙΟΥ SF6:",
@@ -21367,6 +21646,20 @@ class SubstationApp(App):
                                     "h2o_fc": h2o_fc,
                                     "so2_fc": so2_fc,
                                 }
+                                measurements.update(
+                                    {
+                                        "sf6_pressure_gauge_value": pressure_gauge_value,
+                                        "sf6_pressure_gauge_unit": pressure_gauge_unit,
+                                        "sf6_alarm_appearance_value": alarm_appearance_value,
+                                        "sf6_alarm_appearance_unit": alarm_appearance_unit,
+                                        "sf6_block_appearance_value": block_appearance_value,
+                                        "sf6_block_appearance_unit": block_appearance_unit,
+                                        "sf6_alarm_disappearance_value": alarm_disappearance_value,
+                                        "sf6_alarm_disappearance_unit": alarm_disappearance_unit,
+                                        "sf6_block_disappearance_value": block_disappearance_value,
+                                        "sf6_block_disappearance_unit": block_disappearance_unit,
+                                    }
+                                )
                             else:
                                 sf6_leakage_input = None
                                 sf6_methodology_input = None
@@ -21526,18 +21819,14 @@ class SubstationApp(App):
                         # saved details_container
 
                     def ensure_details(elem_box=elem_box, eid=elem_id):
-                        # ensure_details debug removed
                         build_details_for(eid)
                         dc = element_widgets.get(eid, {}).get("details_container")
-                        # ensure_details found debug removed
                         if dc is not None and dc not in elem_box.children:
-                            # details_container child inspection debug removed
                             elem_box.add_widget(dc)
 
                     def toggle_details(
                         _checkbox_instance, value, elem_box=elem_box, eid=elem_id
                     ):
-                        # toggle_details debug removed
                         if bulk_element_selection["active"]:
                             if not value:
                                 dc = element_widgets.get(eid, {}).get(
@@ -23433,6 +23722,12 @@ class SubstationApp(App):
             return text_input
 
         def _schedule(*_args):
+            try:
+                if not getattr(text_input, "focus", False):
+                    return
+            except Exception:
+                return
+
             def _apply(_dt=0):
                 self._keep_text_input_cursor_visible_in_parent_scroll(
                     text_input,
@@ -23446,15 +23741,13 @@ class SubstationApp(App):
             except Exception:
                 _apply()
 
-        # Avoid binding on "focus" / "text": both can fire during the same touch
-        # sequence that gives focus, which may trigger a scroll jump and blur.
-        # Cursor and geometry changes are enough to keep the caret visible while typing.
-        for event_name in ("cursor", "height", "size"):
-            try:
-                text_input.bind(**{event_name: _schedule})
-            except Exception:
-                pass
-        _schedule()
+        # Keep the caret visible only for real user editing. Structural size changes
+        # while expanding/collapsing sections in the maintenance form must not force
+        # the parent ScrollView to jump unexpectedly.
+        try:
+            text_input.bind(cursor=_schedule)
+        except Exception:
+            pass
         return text_input
 
     def _enable_expandable_text_input(
@@ -24982,6 +25275,7 @@ class SubstationApp(App):
         substation_id,
         substation_name,
         parent_popup=None,
+        parent_display_popup=None,
         preselected_element_id=None,
         preselected_element_name=None,
     ):
@@ -24991,6 +25285,7 @@ class SubstationApp(App):
             substation_id: ID of the substation (for compatibility, not used)
             substation_name: Name of the substation to preselect
             parent_popup: Parent popup to dismiss when opening this one
+            parent_display_popup: Popup to restore when history is closed
         """
         # Call the main function with the preselected substation and optional
         # element to auto-select in the maintenance form.
@@ -24999,12 +25294,29 @@ class SubstationApp(App):
             "preselected_element_name": preselected_element_name,
         }
 
+        def _reopen_history_view(*_args):
+            def _do_reopen(_dt=None):
+                self.show_substation_maintenance_history(
+                    substation_id,
+                    substation_name,
+                    parent_display_popup=parent_display_popup,
+                )
+
+            try:
+                from kivy.clock import Clock
+
+                Clock.schedule_once(_do_reopen, 0)
+            except Exception:
+                _do_reopen()
+
         def _open_form():
             self.show_maintenance_menu(
                 instance=None,
                 preselected_substation_name=substation_name,
                 parent_popup=parent_popup,
                 prefill_data=prefill,
+                after_save_callback=_reopen_history_view,
+                after_cancel_callback=_reopen_history_view,
             )
 
         self._show_substation_incomplete_maintenance_reminder(
@@ -26105,6 +26417,7 @@ class SubstationApp(App):
                 substation_id,
                 substation_name,
                 popup,
+                parent_display_popup=refresh_parent_popup,
                 preselected_element_id=current_element_filter.get("id"),
                 preselected_element_name=current_element_filter.get("name"),
             )

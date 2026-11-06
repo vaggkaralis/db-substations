@@ -2145,11 +2145,12 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
     c = app.conn.cursor()
     c.execute(
         """
-            SELECT e.id, e.element_type, e.name, e.serial_number, 
-                   em.manufacturer as model_manufacturer, em.model_name, e.is_main_switch, em.manual_pdf
-            FROM elements e 
+            SELECT e.id, e.element_type, e.name, e.serial_number,
+                   em.manufacturer as model_manufacturer, em.model_name, e.is_main_switch,
+                   em.manual_pdf, e.operating_status
+            FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
-            WHERE e.substation_id=? AND e.operating_status='Ανενεργή' 
+            WHERE e.substation_id=? AND e.operating_status IN ('Ανενεργή', 'Απόσυρση')
             ORDER BY e.name
         """,
         (substation_id,),
@@ -2184,15 +2185,22 @@ def show_inactive_elements(app, substation_id, substation_name, parent_popup):
             model_name,
             is_main_switch,
             manual_pdf,
+            operating_status,
         ) in inactive_elements:
             elem_layout = BoxLayout(
                 size_hint_y=None, height=80, spacing=5, orientation="vertical"
             )
 
             display_elem_type = elem_type
-            # Keep display as-is; additional logic can be added later
-
-            info_text = f"[b]{elem_name}[/b] - {display_elem_type}\nS/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'} (id:{elem_id})"
+            status_tag = (
+                "[color=ff8c00][b]ΑΠΟΣΥΡΣΗ[/b][/color]"
+                if str(operating_status or "").strip() == "Απόσυρση"
+                else "[color=ff0000][b]ΑΝΕΝΕΡΓΟ[/b][/color]"
+            )
+            info_text = (
+                f"[b]{elem_name}[/b] - {display_elem_type} {status_tag}\n"
+                f"S/N: {serial_number or '-'} | Κατ.: {model_manufacturer or '-'} | Μοντ.: {model_name or '-'} (id:{elem_id})"
+            )
             elem_label = Label(text=info_text, size_hint_y=None, height=50, markup=True)
             elem_layout.add_widget(elem_label)
 

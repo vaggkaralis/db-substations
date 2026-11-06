@@ -135,7 +135,7 @@ def _count_active_model_usage(cursor, model_id):
         SELECT COUNT(*)
         FROM elements
         WHERE element_model_id = ?
-          AND COALESCE(TRIM(operating_status), '') != 'Ανενεργή'
+          AND COALESCE(TRIM(operating_status), '') NOT IN ('Ανενεργή', 'Απόσυρση')
         """,
         (model_id,),
     )
@@ -450,7 +450,7 @@ def search_elements(
     all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
     all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
     if not include_inactive:
-        sql += " AND COALESCE(TRIM(e.operating_status), '') != 'Ανενεργή'"
+        sql += " AND COALESCE(TRIM(e.operating_status), '') NOT IN ('Ανενεργή', 'Απόσυρση')"
     if element_type_filter and element_type_filter != all_option:
         normalized_type_filter = _normalize_element_type_filter_value(
             element_type_filter
@@ -1101,7 +1101,7 @@ def _filtered_elements_for_statistics(
     all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
 
     if not include_inactive:
-        sql += " AND COALESCE(TRIM(e.operating_status), '') != 'Ανενεργή'"
+        sql += " AND COALESCE(TRIM(e.operating_status), '') NOT IN ('Ανενεργή', 'Απόσυρση')"
 
     normalized_scope = _normalize_element_type_filter_value(element_scope)
     if normalized_scope and normalized_scope != all_option:
@@ -2299,7 +2299,7 @@ def show_element_search_popup(app_instance, parent_popup=None):
             substation_id = row[12]
             base_distance_km = row[13]
             operating_status = (row[7] or "").strip()
-            is_inactive = operating_status == "Ανενεργή"
+            is_inactive = operating_status in {"Ανενεργή", "Απόσυρση"}
             if substation_name not in groups:
                 groups[substation_name] = {
                     "id": substation_id,
@@ -2444,7 +2444,13 @@ def show_element_search_popup(app_instance, parent_popup=None):
         _render_results([], search_executed=False)
 
     element_type_spinner.bind(text=lambda *_args: _refresh_breaker_filters())
-    search_btn.bind(on_press=_run_search)
+    search_btn.bind(
+        on_press=lambda *_args: _run_with_optional_loading(
+            app_instance,
+            _run_search,
+            S["MESSAGES"].get("LOADING_DATA", "Φόρτωση δεδομένων..."),
+        )
+    )
     reset_btn.bind(on_press=_reset_filters)
 
     def _capture_filter_state():
@@ -2750,7 +2756,7 @@ def _fetch_active_usage_counts(cursor, model_ids):
         SELECT element_model_id, COUNT(*)
         FROM elements
         WHERE element_model_id IN ({placeholders})
-          AND COALESCE(TRIM(operating_status), '') != 'Ανενεργή'
+          AND COALESCE(TRIM(operating_status), '') NOT IN ('Ανενεργή', 'Απόσυρση')
         GROUP BY element_model_id
         """,
         model_ids,
@@ -5250,7 +5256,7 @@ def show_model_usages(app_instance, model_id, model_name):
                 substation_id = elem_data[12]
                 operating_status = elem_data[7]
                 status_val = operating_status.strip() if operating_status else ""
-                is_inactive = status_val == "Ανενεργή"
+                is_inactive = status_val in {"Ανενεργή", "Απόσυρση"}
                 if substation_name not in substation_groups:
                     substation_groups[substation_name] = {
                         "id": substation_id,
@@ -5373,11 +5379,13 @@ def show_model_usages(app_instance, model_id, model_name):
                     )
 
                     breaker_info = f" | {breaker_category}" if breaker_category else ""
-                    inactive_marker = (
-                        " [color=ff0000][b]ΑΝΕΝΕΡΓΟ[/b][/color]"
-                        if operating_status and operating_status.strip() == "Ανενεργή"
-                        else ""
-                    )
+                    status_label = str(operating_status or "").strip()
+                    if status_label == "Απόσυρση":
+                        inactive_marker = " [color=ff8c00][b]ΑΠΟΣΥΡΣΗ[/b][/color]"
+                    elif status_label == "Ανενεργή":
+                        inactive_marker = " [color=ff0000][b]ΑΝΕΝΕΡΓΟ[/b][/color]"
+                    else:
+                        inactive_marker = ""
                     name_text = (
                         f"[b][size=16]{elem_name}[/size][/b] - {elem_type}"
                         f"{breaker_info}{inactive_marker}"
@@ -5410,11 +5418,11 @@ def show_model_usages(app_instance, model_id, model_name):
                     display_power_str = (
                         f"{model_power_val} MVA" if model_power_val is not None else "-"
                     )
-                    status_display = (
-                        "Ανενεργή"
-                        if operating_status and operating_status.strip() == "Ανενεργή"
-                        else (operating_status or "Ενεργή")
-                    )
+                    status_display = str(operating_status or "").strip() or "Ενεργή"
+                    if status_display == "Απόσυρση":
+                        status_display = "Απόσυρση"
+                    elif status_display == "Ανενεργή":
+                        status_display = "Ανενεργή"
                     details_text = (
                         f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | "
                         f"Κατάστ.: {status_display} | Ισχ.: {display_power_str}"
@@ -5546,7 +5554,7 @@ def show_model_usages(app_instance, model_id, model_name):
             substation_name = elem_data[11]
             substation_id = elem_data[12]
             status_val = operating_status.strip() if operating_status else ""
-            is_inactive = status_val == "Ανενεργή"
+            is_inactive = status_val in {"Ανενεργή", "Απόσυρση"}
             if substation_name not in substation_groups:
                 substation_groups[substation_name] = {
                     "id": substation_id,
@@ -5621,9 +5629,9 @@ def show_model_usages(app_instance, model_id, model_name):
             display_power_str = (
                 f"{model_power_val} MVA" if model_power_val is not None else "-"
             )
-            status_display = (
-                "Ανενεργή" if is_inactive else (operating_status or "Ενεργή")
-            )
+            status_display = str(operating_status or "").strip() or "Ενεργή"
+            if status_display not in {"Ενεργή", "Ανενεργή", "Απόσυρση"}:
+                status_display = status_display or "Ενεργή"
             details_text = (
                 f"Κατ.: {manufacturer or '-'} | Χώρος: {installation_space or '-'} | "
                 f"Κατάστ.: {status_display} | Ισχ.: {display_power_str}"
