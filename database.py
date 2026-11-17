@@ -55,6 +55,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
             short_circuit_duration_s REAL,
             making_capacity_ka REAL,
             sf6_pressure_rated_bar REAL,
+            sf6_multiple_valves INTEGER NOT NULL DEFAULT 0,
             drive_mechanism TEXT,
             rated_short_circuit_making_current_ka REAL,
             cubicle TEXT,
@@ -1101,6 +1102,13 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         try:
             cursor.execute(
                 "ALTER TABLE element_models ADD COLUMN sf6_pressure_rated_bar REAL"
+            )
+        except Exception:
+            pass
+    if "sf6_multiple_valves" not in model_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE element_models ADD COLUMN sf6_multiple_valves INTEGER NOT NULL DEFAULT 0"
             )
         except Exception:
             pass

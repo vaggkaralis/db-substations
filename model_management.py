@@ -2,6 +2,7 @@
 Model Management UI Functions for Element Models
 """
 
+import json
 import os
 import shutil
 import unicodedata
@@ -2730,6 +2731,142 @@ def _collect_model_extra_values(category, input_map, breaker_category=None):
     return values
 
 
+def _coerce_bool_flag(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        cleaned = value.strip().lower()
+        if cleaned in {"", "0", "false", "no", "off", "none", "null"}:
+            return False
+        if cleaned in {"1", "true", "yes", "on"}:
+            return True
+        try:
+            return float(cleaned) != 0.0
+        except ValueError:
+            return cleaned not in {"", "none", "null"}
+    return bool(value)
+
+
+def _normalize_sf6_measurement_payload_for_multi_valve(payload, has_multiple_valves):
+    if not isinstance(payload, dict):
+        return payload
+
+    flattened = dict(payload)
+    for nested_key in ("extra_measurements", "measurements"):
+        nested = flattened.get(nested_key)
+        if isinstance(nested, dict):
+            flattened = {**nested, **flattened}
+    payload = flattened
+
+    def _is_missing(value):
+        return value is None or (isinstance(value, str) and value.strip() == "")
+
+    def _use_first_non_missing(primary, fallback):
+        if not _is_missing(primary):
+            return primary
+        return fallback
+
+    normalized = dict(payload)
+    phase_values = normalized.get("sf6_pressure_gauge_values")
+    if not isinstance(phase_values, dict):
+        phase_values = {}
+
+    for phase_key in ("phase_a", "phase_b", "phase_c"):
+        value = normalized.get(f"sf6_pressure_gauge_value_{phase_key}")
+        if not _is_missing(value) and _is_missing(phase_values.get(phase_key)):
+            phase_values[phase_key] = value
+
+    legacy_value = normalized.get("sf6_pressure_gauge_value")
+    any_phase_value = any(
+        not _is_missing(phase_values.get(key))
+        for key in ("phase_a", "phase_b", "phase_c")
+    )
+
+    if not _is_missing(legacy_value) and not any_phase_value:
+        phase_values = {
+            "phase_a": legacy_value,
+            "phase_b": legacy_value,
+            "phase_c": legacy_value,
+        }
+        any_phase_value = True
+
+    selected = next(
+        (
+            phase_values.get(key)
+            for key in ("phase_a", "phase_b", "phase_c")
+            if not _is_missing(phase_values.get(key))
+        ),
+        None,
+    )
+    if _is_missing(selected) and not _is_missing(legacy_value):
+        selected = legacy_value
+
+    if not _is_missing(selected):
+        baseline = _use_first_non_missing(phase_values.get("phase_a"), selected)
+        if not has_multiple_valves:
+            phase_values = {
+                "phase_a": baseline,
+                "phase_b": baseline,
+                "phase_c": baseline,
+            }
+        else:
+            for phase_key in ("phase_a", "phase_b", "phase_c"):
+                if _is_missing(phase_values.get(phase_key)):
+                    phase_values[phase_key] = baseline
+        normalized["sf6_pressure_gauge_values"] = {
+            key: phase_values.get(key) for key in ("phase_a", "phase_b", "phase_c")
+        }
+        normalized["sf6_pressure_gauge_value"] = _use_first_non_missing(
+            normalized["sf6_pressure_gauge_values"].get("phase_a"), baseline
+        )
+        for phase_key in ("phase_a", "phase_b", "phase_c"):
+            if not _is_missing(normalized["sf6_pressure_gauge_values"].get(phase_key)):
+                normalized[f"sf6_pressure_gauge_value_{phase_key}"] = normalized[
+                    "sf6_pressure_gauge_values"
+                ][phase_key]
+
+    return normalized
+
+
+def _sync_sf6_model_maintenance_data(conn, model_id, has_multiple_valves):
+    try:
+        conn.execute(
+            "SELECT e.id FROM elements e WHERE e.element_model_id=?",
+            (model_id,),
+        )
+        element_ids = [row[0] for row in conn.fetchall()]
+        if not element_ids:
+            return
+
+        placeholders = ",".join("?" for _ in element_ids)
+        conn.execute(
+            f"SELECT id, data_json FROM maintenance_elements WHERE element_id IN ({placeholders})",
+            element_ids,
+        )
+        for maintenance_id, raw_data_json in conn.fetchall():
+            if not raw_data_json:
+                continue
+            try:
+                payload = json.loads(raw_data_json)
+            except Exception:
+                continue
+            updated_payload = _normalize_sf6_measurement_payload_for_multi_valve(
+                payload, has_multiple_valves
+            )
+            if updated_payload != payload:
+                conn.execute(
+                    "UPDATE maintenance_elements SET data_json=? WHERE id=?",
+                    (json.dumps(updated_payload, ensure_ascii=False), maintenance_id),
+                )
+        conn.commit()
+    except Exception:
+        return
+
+
 def _is_subelement_category(app_instance, category):
     """Return True when a model category belongs to the subelement family."""
     if not category:
@@ -4116,6 +4253,24 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
     sf6_capacity_input = TextInput(
         hint_text="kg", size_hint_y=None, height=40, multiline=False
     )
+    sf6_multiple_valves_label = Label(
+        text="Διακόπτης με πολλαπλά βαλβίδια SF6:", size_hint_y=None, height=30
+    )
+    from kivy.uix.checkbox import CheckBox
+
+    sf6_multiple_valves_checkbox = CheckBox(active=False)
+    sf6_multiple_valves_checkbox.size_hint = (None, None)
+    sf6_multiple_valves_checkbox.size = (28, 28)
+    sf6_multiple_valves_checkbox.color = (0, 0, 0, 1)
+    sf6_multiple_valves_row = BoxLayout(
+        orientation="horizontal",
+        size_hint_y=None,
+        height=36,
+        spacing=10,
+        padding=(0, 0, 0, 0),
+    )
+    sf6_multiple_valves_row.add_widget(sf6_multiple_valves_label)
+    sf6_multiple_valves_row.add_widget(sf6_multiple_valves_checkbox)
 
     # Manufacturer
     layout.add_widget(Label(text="Κατασκευαστής:", size_hint_y=None, height=30))
@@ -4167,6 +4322,8 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         if sf6_capacity_label in layout.children:
             layout.remove_widget(sf6_capacity_label)
             layout.remove_widget(sf6_capacity_input)
+        if sf6_multiple_valves_row in layout.children:
+            layout.remove_widget(sf6_multiple_valves_row)
 
         # Add them back only if circuit breaker is selected
         if text in [ELEM_BREAKER_MT, ELEM_BREAKER_YT]:
@@ -4178,13 +4335,13 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                 breaker_spinner.text = (
                     breaker_categories[0] if breaker_categories else "SF6"
                 )
-            # Insert after model_name_input (which means before manufacturer in the visual order)
             idx = layout.children.index(model_name_input)
             layout.add_widget(breaker_spinner, index=idx)
             layout.add_widget(breaker_label, index=idx + 1)
             if _is_sf6_breaker_category(breaker_spinner.text):
                 layout.add_widget(sf6_capacity_input, index=idx)
                 layout.add_widget(sf6_capacity_label, index=idx + 1)
+                layout.add_widget(sf6_multiple_valves_row, index=idx + 2)
 
         _build_model_extra_inputs(
             extra_fields_box,
@@ -4197,6 +4354,8 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         if sf6_capacity_label in layout.children:
             layout.remove_widget(sf6_capacity_label)
             layout.remove_widget(sf6_capacity_input)
+        if sf6_multiple_valves_row in layout.children:
+            layout.remove_widget(sf6_multiple_valves_row)
         if category_spinner.text in [
             ELEM_BREAKER_MT,
             ELEM_BREAKER_YT,
@@ -4204,6 +4363,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
             idx = layout.children.index(model_name_input)
             layout.add_widget(sf6_capacity_input, index=idx)
             layout.add_widget(sf6_capacity_label, index=idx + 1)
+            layout.add_widget(sf6_multiple_valves_row, index=idx + 2)
         _build_model_extra_inputs(
             extra_fields_box,
             category_spinner.text,
@@ -4269,6 +4429,9 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         )
 
         sf6_capacity_val = None
+        sf6_multiple_valves_val = _coerce_bool_flag(
+            getattr(sf6_multiple_valves_checkbox, "active", False)
+        )
         if _is_sf6_breaker_category(breaker_cat):
             if not sf6_capacity_input.text.strip():
                 show_message_popup(
@@ -4287,7 +4450,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
         c = app_instance.conn.cursor()
         try:
             c.execute(
-                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, oil_capacity_l, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle, onedrive_manual_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO element_models (element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, oil_capacity_l, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, sf6_multiple_valves, drive_mechanism, rated_short_circuit_making_current_ka, cubicle, onedrive_manual_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     category_spinner.text,
                     model_name_input.text.strip(),
@@ -4310,6 +4473,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     extra_values.get("short_circuit_duration_s"),
                     extra_values.get("making_capacity_ka"),
                     extra_values.get("sf6_pressure_rated_bar"),
+                    int(sf6_multiple_valves_val),
                     extra_values.get("drive_mechanism"),
                     extra_values.get("rated_short_circuit_making_current_ka"),
                     extra_values.get("cubicle"),
@@ -4352,6 +4516,7 @@ def show_add_model_popup(app_instance, parent_popup=None, category=None, callbac
                     "sf6_pressure_rated_bar": extra_values.get(
                         "sf6_pressure_rated_bar"
                     ),
+                    "sf6_multiple_valves": int(sf6_multiple_valves_val),
                     "drive_mechanism": extra_values.get("drive_mechanism"),
                     "rated_short_circuit_making_current_ka": extra_values.get(
                         "rated_short_circuit_making_current_ka"
@@ -4408,7 +4573,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
     c = app_instance.conn.cursor()
     c.execute(
-        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, oil_capacity_l, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, drive_mechanism, rated_short_circuit_making_current_ka, cubicle FROM element_models WHERE id=?",
+        "SELECT element_category, model_name, manufacturer, maintenance_cycle, installation_space, breaker_category, sf6_capacity_kg, power_mva, onedrive_manual_link, connection_group, rated_voltage_hv_lv, mounting, specification, bil_hv_lv_kv, total_weight_kg, oil_weight_kg, oil_capacity_l, rated_normal_current_a, rated_short_circuit_breaking_current_ka, short_circuit_duration_s, making_capacity_ka, sf6_pressure_rated_bar, sf6_multiple_valves, drive_mechanism, rated_short_circuit_making_current_ka, cubicle FROM element_models WHERE id=?",
         (model_id,),
     )
     model = c.fetchone()
@@ -4440,6 +4605,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         short_circuit_duration_s,
         making_capacity_ka,
         sf6_pressure_rated_bar,
+        sf6_multiple_valves,
         drive_mechanism,
         rated_short_circuit_making_current_ka,
         cubicle,
@@ -4549,6 +4715,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         "short_circuit_duration_s": short_circuit_duration_s,
         "making_capacity_ka": making_capacity_ka,
         "sf6_pressure_rated_bar": sf6_pressure_rated_bar,
+        "sf6_multiple_valves": _coerce_bool_flag(sf6_multiple_valves),
         "drive_mechanism": drive_mechanism,
         "rated_short_circuit_making_current_ka": rated_short_circuit_making_current_ka,
         "cubicle": cubicle,
@@ -4565,11 +4732,32 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         height=40,
         multiline=False,
     )
+    sf6_multiple_valves_label = Label(
+        text="Διακόπτης με πολλαπλά βαλβίδια SF6:", size_hint_y=None, height=30
+    )
+    from kivy.uix.checkbox import CheckBox
+
+    sf6_multiple_valves_checkbox = CheckBox(
+        active=_coerce_bool_flag(sf6_multiple_valves)
+    )
+    sf6_multiple_valves_checkbox.size_hint = (None, None)
+    sf6_multiple_valves_checkbox.size = (28, 28)
+    sf6_multiple_valves_checkbox.color = (0, 0, 0, 1)
+    sf6_multiple_valves_row = BoxLayout(
+        orientation="horizontal",
+        size_hint_y=None,
+        height=36,
+        spacing=10,
+        padding=(0, 0, 0, 0),
+    )
+    sf6_multiple_valves_row.add_widget(sf6_multiple_valves_label)
+    sf6_multiple_valves_row.add_widget(sf6_multiple_valves_checkbox)
 
     def _sync_category_fields(selected_category):
         for widget in [
             sf6_capacity_label,
             sf6_capacity_input,
+            sf6_multiple_valves_row,
             breaker_label,
             breaker_spinner,
         ]:
@@ -4598,6 +4786,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             if _is_sf6_breaker_category(breaker_spinner.text):
                 layout.add_widget(sf6_capacity_input, index=insert_at)
                 layout.add_widget(sf6_capacity_label, index=insert_at + 1)
+                layout.add_widget(sf6_multiple_valves_row, index=insert_at + 2)
 
         _build_model_extra_inputs(
             extra_fields_box,
@@ -4614,6 +4803,8 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         if sf6_capacity_label in layout.children:
             layout.remove_widget(sf6_capacity_label)
             layout.remove_widget(sf6_capacity_input)
+        if sf6_multiple_valves_row in layout.children:
+            layout.remove_widget(sf6_multiple_valves_row)
         if category_spinner.text in [
             ELEM_BREAKER_MT,
             ELEM_BREAKER_YT,
@@ -4621,6 +4812,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
             insert_at = layout.children.index(extra_fields_box)
             layout.add_widget(sf6_capacity_input, index=insert_at)
             layout.add_widget(sf6_capacity_label, index=insert_at + 1)
+            layout.add_widget(sf6_multiple_valves_row, index=insert_at + 2)
 
     category_spinner.bind(text=_on_category_change)
     breaker_spinner.bind(text=_on_breaker_change)
@@ -4683,6 +4875,9 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         )
 
         sf6_capacity_val = None
+        sf6_multiple_valves_val = _coerce_bool_flag(
+            getattr(sf6_multiple_valves_checkbox, "active", False)
+        )
         if selected_category in [
             ELEM_BREAKER_MT,
             ELEM_BREAKER_YT,
@@ -4705,7 +4900,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
 
         # Update the model
         c.execute(
-            "UPDATE element_models SET element_category=?, model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=?, onedrive_manual_link=?, connection_group=?, rated_voltage_hv_lv=?, mounting=?, specification=?, bil_hv_lv_kv=?, total_weight_kg=?, oil_weight_kg=?, oil_capacity_l=?, rated_normal_current_a=?, rated_short_circuit_breaking_current_ka=?, short_circuit_duration_s=?, making_capacity_ka=?, sf6_pressure_rated_bar=?, drive_mechanism=?, rated_short_circuit_making_current_ka=?, cubicle=? WHERE id=?",
+            "UPDATE element_models SET element_category=?, model_name=?, manufacturer=?, maintenance_cycle=?, installation_space=?, breaker_category=?, sf6_capacity_kg=?, power_mva=?, onedrive_manual_link=?, connection_group=?, rated_voltage_hv_lv=?, mounting=?, specification=?, bil_hv_lv_kv=?, total_weight_kg=?, oil_weight_kg=?, oil_capacity_l=?, rated_normal_current_a=?, rated_short_circuit_breaking_current_ka=?, short_circuit_duration_s=?, making_capacity_ka=?, sf6_pressure_rated_bar=?, sf6_multiple_valves=?, drive_mechanism=?, rated_short_circuit_making_current_ka=?, cubicle=? WHERE id=?",
             (
                 selected_category,
                 model_name_input.text.strip(),
@@ -4729,6 +4924,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 extra_values.get("short_circuit_duration_s"),
                 extra_values.get("making_capacity_ka"),
                 extra_values.get("sf6_pressure_rated_bar"),
+                int(sf6_multiple_valves_val),
                 extra_values.get("drive_mechanism"),
                 extra_values.get("rated_short_circuit_making_current_ka"),
                 extra_values.get("cubicle"),
@@ -4752,6 +4948,9 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
         )
 
         app_instance.conn.commit()
+        _sync_sf6_model_maintenance_data(
+            app_instance.conn, model_id, bool(sf6_multiple_valves_val)
+        )
         app_instance._append_change_log(
             "update",
             "element_models",
@@ -4782,6 +4981,7 @@ def show_edit_model_popup(app_instance, model_id, parent_popup):
                 ),
                 "making_capacity_ka": extra_values.get("making_capacity_ka"),
                 "sf6_pressure_rated_bar": extra_values.get("sf6_pressure_rated_bar"),
+                "sf6_multiple_valves": int(sf6_multiple_valves_val),
                 "drive_mechanism": extra_values.get("drive_mechanism"),
                 "rated_short_circuit_making_current_ka": extra_values.get(
                     "rated_short_circuit_making_current_ka"

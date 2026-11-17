@@ -646,6 +646,7 @@ STRINGS_EL = {
         "ORG_SHORT": "ΔΕΕΔ",
         "OVERALL_COMMENTS_HINT": "Γενικά σχόλια για την συντήρηση...",
         "OVERALL_COMMENTS_LABEL": "Γενικά Σχόλια Συντήρησης:",
+        "SELECTED_ELEMENTS_INLINE_SUMMARY": "Επιλεγμένα στοιχεία ({count}): {elements}",
         "ONEDRIVE_MEDIA_LABEL": "Σύνδεσμος Φάκελου Εικόνων/Video (OneDrive):",
         "OPEN_ONEDRIVE_FOLDER": "Φάκελος OneDrive",
         "PAGE_LABEL_TEMPLATE": "Σελίδα {page}",

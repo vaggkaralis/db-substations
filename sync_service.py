@@ -781,6 +781,7 @@ def process_sync_inbox(
     tracker = _load_processed_tracker(tracker_path)
 
     files = []
+    seen_original_names: set[str] = set()
     # Check both pending and accepted directories
     for item in sorted(os.listdir(pending_dir)):
         src = os.path.join(pending_dir, item)
@@ -789,6 +790,7 @@ def process_sync_inbox(
         if not item.lower().endswith((".json", ".jsonl")):
             continue
         files.append((item, src))
+        seen_original_names.add(item)
 
     for item in sorted(os.listdir(accepted_dir)):
         src = os.path.join(accepted_dir, item)
@@ -804,8 +806,10 @@ def process_sync_inbox(
             original_name = item
         # Only add if not already processed in this sync cycle
         # (to avoid duplicates from pending and accepted)
-        if original_name not in [f[0] for f in files]:
-            files.append((original_name, src))
+        if original_name in seen_original_names:
+            continue
+        files.append((original_name, src))
+        seen_original_names.add(original_name)
 
     accepted = 0
     already_applied = 0
@@ -830,18 +834,25 @@ def process_sync_inbox(
                     pass
         except Exception:
             pass
-        payload_summary = _summarize_change_file(src)
-        file_summary = {
-            "source_file": original_name,
-            "entries": int(payload_summary.get("entries", 0) or 0),
-            "insert_entries": int(payload_summary.get("insert_entries", 0) or 0),
-            "table_counts": payload_summary.get("table_counts", {}),
-            "status": "pending",
-            "accepted": 0,
-            "already_applied": 0,
-            "conflicts": 0,
-            "rejected": 0,
-        }
+        file_summary = None
+
+        def _ensure_file_summary() -> dict:
+            nonlocal file_summary
+            if file_summary is not None:
+                return file_summary
+            payload_summary = _summarize_change_file(src)
+            file_summary = {
+                "source_file": original_name,
+                "entries": int(payload_summary.get("entries", 0) or 0),
+                "insert_entries": int(payload_summary.get("insert_entries", 0) or 0),
+                "table_counts": payload_summary.get("table_counts", {}),
+                "status": "pending",
+                "accepted": 0,
+                "already_applied": 0,
+                "conflicts": 0,
+                "rejected": 0,
+            }
+            return file_summary
 
         event = {
             "timestamp_utc": _utc_now_iso(),
@@ -884,6 +895,7 @@ def process_sync_inbox(
 
         try:
             if _detect_self_origin_file(src, local_device_id):
+                file_summary = _ensure_file_summary()
                 event["status"] = "self_ignored"
                 event["device_id"] = local_device_id
                 file_summary["status"] = "self_ignored"
@@ -921,6 +933,7 @@ def process_sync_inbox(
 
             # Determine overall status
             if file_conflicts > 0:
+                file_summary = _ensure_file_summary()
                 event["status"] = "conflict"
                 event["details"] = {
                     "accepted": file_accepted,
@@ -950,6 +963,7 @@ def process_sync_inbox(
                 }
             elif file_already_applied == 0 and file_accepted == 0:
                 # File had no applicable changes
+                file_summary = _ensure_file_summary()
                 event["status"] = "rejected"
                 event["reason"] = "No applicable changes found"
                 file_summary["status"] = "rejected"
@@ -975,6 +989,7 @@ def process_sync_inbox(
                     **file_fingerprint,
                 }
             elif file_already_applied > 0 and file_accepted == 0:
+                file_summary = _ensure_file_summary()
                 event["status"] = "already_applied"
                 event["count"] = file_already_applied
                 file_summary["status"] = "already_applied"
@@ -998,6 +1013,7 @@ def process_sync_inbox(
                     **file_fingerprint,
                 }
             else:
+                file_summary = _ensure_file_summary()
                 event["status"] = "accepted"
                 event["details"] = {
                     "accepted": file_accepted,
@@ -1030,6 +1046,7 @@ def process_sync_inbox(
                     **file_fingerprint,
                 }
         except Exception as exc:
+            file_summary = _ensure_file_summary()
             event["status"] = "rejected"
             event["error"] = str(exc)
             file_summary["status"] = "rejected"
