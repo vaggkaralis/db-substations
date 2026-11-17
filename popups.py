@@ -50,31 +50,7 @@ except Exception:
 
 
 def _resolve_app_icon_path():
-    base_dir = os.path.dirname(__file__)
-    ico_candidates = [
-        os.path.join(base_dir, "deddie_logo.ico"),
-        os.path.join(base_dir, "logo_deddie.ico"),
-    ]
-    for candidate in ico_candidates:
-        try:
-            if os.path.isfile(candidate):
-                return os.path.abspath(candidate)
-        except Exception:
-            continue
-
-    png_candidates = [
-        os.path.join(base_dir, "logo_deddie.png"),
-        os.path.join(base_dir, "deddie_logo.png"),
-        os.path.join(base_dir, "res", "icons", "android_launcher.png"),
-    ]
-    for candidate in png_candidates:
-        try:
-            if os.path.isfile(candidate):
-                generated = _ensure_runtime_ico_from_png(candidate)
-                if generated:
-                    return generated
-        except Exception:
-            continue
+    """Keep the default OS taskbar/window icon instead of custom branding."""
     return ""
 
 

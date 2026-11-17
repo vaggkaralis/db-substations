@@ -18,22 +18,12 @@ Following must be resolved:
 
 - measurement data of an element's maintenance history on android app are printed without units. also, I think that not all measurements are displayed, some are skipped. check and fix.
 
-- breaker models of type sf6 (both Medium and high voltage) need to be separated to 2 types: breakers multiple (3) sf6 valves (one for each phase) and breakers with one single valve in the model. the user sets this attribute in the model data with a checkbox ("breaker with multiple sf6 valves" in greek - by default deactivated, also for the current sf6 breaker models). This affects of course also the measurement data that are entered in the add/edit maintenance form. the user enters the pressure for the breaker and currently there is only one filed for that (both for the MV and the HV breakers). So now if the user edits a model and changes this model to have multiple valves, the form needs to be changed so that there are three fields (one for each phase) to enter the pressure. Retrospectively we need to adapt the database, so that, if the value is already registered for a breaker that has multiple valves (so 3 pressure data instead of 1 that is registered) for one of the previous maintenances, the maintenance data is adjusted and , then the same value (the one registered) shall apply to all three phases (e.g. the pressure is 2.5 bar, then all 3 phases shall have the value 2.5 bar). So if the user changes the model in the model management to have multiple valves, the maintenances that are affected from this change (the saved maintenances and the future ones, that have this model) need to be adapted automatically.
+- in a previous attempt, we added the deddie logo in the tray icon off the app on the windows task bar, when the desktop app i running. I want you to remove it. The fact is that it didn't work (app is running on a python logo), but sometimes some of the windows that are open turn to this deddie logo, while other open remain onthe python and it is just sad. I want a safe removal of the deddie logo from the app tray in the windows task bar and be careful so that we don't have any errors or regressions afterwards.
 
 **********************************************
 **************** TODO: ***********************
 **********************************************
-- removal of the deddie logo from the python app tray in the windows task bar
-
-- Τελευταία τιμή μετρητή στη λίστα των στοιχείων του υποσταθμού και να φαίνεται και στο Android (γενικά έλεγχος ότι έχει η εφαρμογή στον υπολογιστή να έχει και στο τηλέφωνο)
-
 - Να ψάξει μέσα στο φάκελο των μόνο γραμμικών και να βγάλει λίστα ανα υποσταθμό (για να μπορώ να κάνω έλεγχο) με τους ΒΜΣ για να δούμε στατιστικά τι ισχύ έχουν
-
-- Στοιχεία μοντέλου στο Android και στην εφαρμογή υπολογιστή στον υποσταθμό
-
-- when the sync process is running i get "Συγχρονισμός δεδομένων με OneDrive ... - Προετοιμασία συγχρονισμού ..." and then "Συγχρονισμός δεδομένων με OneDrive ... - Επεξεργασία εισερχομένων αλλαγών ..." and at that point it's taking too long. Is that necessary? can it be optimized?
-
-- could it be that we have a memory leak?? When i use the desktop app for a while i see the RAM usage growing a lot. Are you sure that we get rid of the parts we don't need on the way? Especially after the change with the extra windows the chances that there we have unnecessary memory usage has grown.
 
 - make it work -> full MV maintenance from android
 

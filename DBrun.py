@@ -520,10 +520,42 @@ except Exception:
     # Running in test environment without Kivy available — provide lightweight stubs
     class _StubWidget:
         def __init__(self, *a, **k):
-            pass
+            self.children = []
+            self.parent = None
+            self.size_hint = (1, 1)
+            self.size_hint_y = None
+            self.size_hint_x = None
+            self.opacity = 1
+            self.disabled = False
+            self.content = None
 
         def __call__(self, *a, **k):
             return _StubWidget()
+
+        def add_widget(self, widget, index=None):
+            widget.parent = self
+            if index is None:
+                self.children.append(widget)
+            else:
+                self.children.insert(index, widget)
+
+        def remove_widget(self, widget):
+            if widget in self.children:
+                self.children.remove(widget)
+                widget.parent = None
+
+        def bind(self, **kwargs):
+            return None
+
+        def setter(self, attr):
+            def _set(instance, value):
+                setattr(instance, attr, value)
+
+            return _set
+
+        def clear_widgets(self):
+            for child in list(self.children):
+                self.remove_widget(child)
 
     class _StubBehavior:
         def __init__(self, *a, **k):
@@ -1656,10 +1688,10 @@ class SubstationApp(App):
         except Exception:
             pass
 
+        # Disable custom taskbar/window branding to keep the default OS icon
+        # and avoid stale or inconsistent tray branding across child windows.
         try:
-            startup_icon = self._resolve_app_icon_path()
-            if startup_icon:
-                self.icon = startup_icon
+            self.icon = ""
         except Exception:
             pass
 
@@ -2565,33 +2597,17 @@ class SubstationApp(App):
         Clock.schedule_once(_refresh_if_current, 2.0)
 
     def _resolve_app_icon_path(self):
-        base_dir = os.path.dirname(__file__)
-        icon_candidates = [
-            os.path.join(base_dir, "deddie_logo.ico"),
-            os.path.join(base_dir, "logo_deddie.ico"),
-            os.path.join(base_dir, "logo_deddie.png"),
-            os.path.join(base_dir, "deddie_logo.png"),
-            os.path.join(base_dir, "res", "icons", "android_launcher.png"),
-        ]
-        for candidate in icon_candidates:
-            try:
-                if os.path.isfile(candidate):
-                    return candidate
-            except Exception:
-                continue
+        """Keep the default OS taskbar branding; custom app icons are intentionally disabled."""
         return ""
 
     def _apply_window_icon(self):
         try:
-            icon_path = self._resolve_app_icon_path()
-            if not icon_path:
-                return
-            Window.set_icon(icon_path)
-            self.icon = icon_path
-            self._apply_windows_taskbar_icon(icon_path)
-            APP_LOGGER.info("Applied app window icon: %s", icon_path)
+            # Deliberately leave the OS default icon in place to avoid the stale
+            # mixed Python/Deddie branding seen across multiple open windows.
+            self.icon = ""
+            APP_LOGGER.info("Custom app icon disabled; using default OS branding")
         except Exception:
-            logging.exception("Failed to set app window icon")
+            logging.exception("Failed to clear custom app window icon")
 
     def _resolve_windows_icon_file(self, icon_path):
         normalized = str(icon_path or "").strip()
@@ -2645,6 +2661,7 @@ class SubstationApp(App):
         return 0
 
     def _apply_windows_taskbar_icon(self, icon_path):
+        """Custom taskbar branding is intentionally disabled for stability."""
         if sys.platform != "win32":
             return
 
@@ -2657,47 +2674,9 @@ class SubstationApp(App):
         except Exception:
             pass
 
-        ico_path = self._resolve_windows_icon_file(icon_path)
-        if not ico_path:
-            return
-
-        try:
-            import ctypes
-
-            user32 = ctypes.windll.user32
-            WM_SETICON = 0x0080
-            ICON_SMALL = 0
-            ICON_BIG = 1
-            IMAGE_ICON = 1
-            LR_LOADFROMFILE = 0x0010
-
-            hicon = user32.LoadImageW(
-                0,
-                ico_path,
-                IMAGE_ICON,
-                0,
-                0,
-                LR_LOADFROMFILE,
-            )
-            if not hicon:
-                return
-
-            def _apply_once(_dt=None):
-                try:
-                    hwnd = self._get_window_hwnd()
-                    if not hwnd:
-                        return False
-                    user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
-                    user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
-                    return True
-                except Exception:
-                    return False
-
-            if not _apply_once(0):
-                Clock.schedule_once(_apply_once, 0.15)
-                Clock.schedule_once(_apply_once, 0.6)
-        except Exception:
-            logging.exception("Failed to apply Windows taskbar icon")
+        # Avoid assigning any custom taskbar icon; the default OS icon is more
+        # stable and prevents the mixed Python/Deddie branding seen in practice.
+        return
 
     def _check_db_compatibility(self):
         """Check if the database version is compatible with the app version.
@@ -11515,10 +11494,6 @@ class SubstationApp(App):
                     """,
                     (sub_id,),
                 )
-                child_counts_by_parent = {
-                    parent_id: count for parent_id, count in c.fetchall() if parent_id
-                }
-
                 active_warning_or_expired_count = 0
                 active_expired_count = 0
                 for elem in active_elements:
@@ -11790,17 +11765,21 @@ class SubstationApp(App):
                             power_display = (
                                 f"{effective_power} MVA" if effective_power else "-"
                             )
-                            child_count = child_counts_by_parent.get(elem_id, 0)
-                            child_info = (
-                                f" | Υποστοιχεία: {child_count}"
-                                if self._is_transformer(raw_elem_type) and child_count
-                                else ""
-                            )
                             elem_first_line = f"{j}. [b][size=18]{elem_name}[/size][/b] - {display_elem_type}{breaker_info}{inactive_marker}"
+                            summary_bits = [
+                                f"Κατ.: {model_manufacturer or manufacturer or '-'}",
+                                f"Μοντ.: {model_name or '-'}",
+                            ]
+                            if self._is_transformer(raw_elem_type):
+                                summary_bits.append(f"Ισχ.: {power_display}")
+                            if maintenance_cycle not in (None, ""):
+                                summary_bits.append(
+                                    f"Κύκλος: {maintenance_cycle or '-'} έτη"
+                                )
+                            summary_bits.append(f"{maint_display}")
                             elem_rest_lines = (
                                 f"S/N: {serial_number or '-'}{manufacture_info}\n"
-                                f"Κατ.: {model_manufacturer or manufacturer or '-'} | Μοντ.: {model_name or '-'} | Χώρος: {installation_space or '-'} | Τάση: {voltage_level or '-'} | Ισχ.: {power_display}{child_info}\n"
-                                f"Κύκλος: {maintenance_cycle or '-'} έτη | {maint_display} (id:{elem_id})"
+                                + " | ".join(summary_bits)
                             )
                             # Create a horizontal layout for element content and buttons
                             elem_layout = BoxLayout(size_hint_y=None, spacing=5)
@@ -14726,6 +14705,167 @@ class SubstationApp(App):
         else:
             on_error("Μη υποστηριζόμενη μορφή αρχείου")
 
+    def _build_element_summary_text(self, element_data, is_transformer=False):
+        """Return the compact row summary shown in the element list."""
+        serial_number = element_data.get("serial_number") or "-"
+        manufacturer = element_data.get("manufacturer") or "-"
+        model_name = element_data.get("model_name") or element_data.get("model") or "-"
+        model_manufacturer = (
+            element_data.get("model_manufacturer")
+            or element_data.get("manufacturer")
+            or "-"
+        )
+        manufacture_year = element_data.get("manufacture_year") or "-"
+        maintenance_date = element_data.get("maintenance_date") or "-"
+        maintenance_cycle = element_data.get("maintenance_cycle")
+        power_mva = element_data.get("power_mva")
+        model_power_mva = element_data.get("model_power_mva")
+        effective_power = (
+            model_power_mva if model_power_mva not in (None, "") else power_mva
+        )
+        operations_count = element_data.get("operations_count")
+        operations_label = (
+            S["MESSAGES"].get("OPERATIONS_COUNT_LABEL", "Αριθμός Χειρισμών").rstrip(":")
+        )
+
+        details = [
+            f"S/N: {serial_number}",
+            f"Κατ.: {model_manufacturer or manufacturer}",
+            f"Μοντ.: {model_name}",
+            f"Έτος: {manufacture_year}",
+            f"Κύκλος: {maintenance_cycle if maintenance_cycle not in (None, '') else '-'}",
+            f"Τελ. Συντ.: {maintenance_date}",
+        ]
+
+        if is_transformer:
+            power_display = (
+                f"{effective_power} MVA" if effective_power not in (None, "") else "-"
+            )
+            details.insert(-1, f"Ισχύς: {power_display}")
+
+        if operations_count in (None, "", "-", 0, 0.0, "0"):
+            display_operations = "-"
+        else:
+            display_operations = operations_count
+        details.append(f"{operations_label}: {display_operations}")
+
+        return " | ".join(details)
+
+    def _build_element_detail_lines(self, element_data):
+        """Build the full detail list used by the eye popup."""
+
+        def _is_blank(value):
+            if value is None:
+                return True
+            if isinstance(value, str):
+                return value.strip() == "" or value.strip().lower() in {
+                    "-",
+                    "n/a",
+                    "na",
+                    "none",
+                    "null",
+                }
+            return False
+
+        def _format_detail(label, value):
+            if _is_blank(value):
+                return None
+            if str(label).rstrip(":").endswith("Αριθμός Χειρισμών") and value in (
+                0,
+                0.0,
+                "0",
+            ):
+                value = "-"
+            return f"{str(label).rstrip(':')}: {value}"
+
+        name = (element_data.get("name") or "-").strip() or "-"
+        elem_type = (element_data.get("element_type") or "-").strip() or "-"
+        serial_number = element_data.get("serial_number") or "-"
+        manufacturer = element_data.get("manufacturer") or "-"
+        model_name = element_data.get("model_name") or element_data.get("model") or "-"
+        model_manufacturer = (
+            element_data.get("model_manufacturer")
+            or element_data.get("manufacturer")
+            or "-"
+        )
+        manufacture_year = element_data.get("manufacture_year") or "-"
+        maintenance_date = element_data.get("maintenance_date") or "-"
+        maintenance_cycle = element_data.get("maintenance_cycle")
+        installation_space = (
+            element_data.get("model_installation_space")
+            or element_data.get("installation_space")
+            or "-"
+        )
+        voltage_level = element_data.get("voltage_level") or "-"
+        power_mva = element_data.get("power_mva")
+        model_power_mva = element_data.get("model_power_mva")
+        effective_power = (
+            model_power_mva if model_power_mva not in (None, "") else power_mva
+        )
+        vector_group = element_data.get("vector_group") or "-"
+        breaker_category = element_data.get("breaker_category") or "-"
+        operations_count = element_data.get("operations_count")
+        if operations_count in (None, "", "-", 0, 0.0, "0"):
+            operations_count = "-"
+
+        detail_values = [
+            ("Όνομα", name),
+            ("Τύπος", elem_type),
+            ("S/N", serial_number),
+            ("Κατασκευαστής", manufacturer),
+            ("Έτος Κατασκευής", manufacture_year),
+            ("Μοντέλο", model_name),
+            ("Κατ. μοντέλου", model_manufacturer),
+            ("Χώρος", installation_space),
+            ("Τάση", voltage_level),
+            (
+                "Ονομαστική Ισχύς",
+                effective_power if effective_power not in (None, "") else "-",
+            ),
+            ("Κατηγορία Διακόπτη", breaker_category),
+            (
+                "Κύκλος",
+                maintenance_cycle if maintenance_cycle not in (None, "") else "-",
+            ),
+            ("Τελευταία Συντήρηση", maintenance_date),
+            ("Vector group", vector_group),
+            (
+                S["MESSAGES"].get("OPERATIONS_COUNT_LABEL", "Αριθμός Χειρισμών"),
+                operations_count,
+            ),
+        ]
+
+        extra_labels = {
+            "connection_group": "Ομάδα Συνδεσμολογίας",
+            "rated_voltage_hv_lv": "Ονομ. Τάση ΥΤ/ΜΤ",
+            "mounting": "Τρόπος Εγκατάστασης",
+            "specification": "Προδιαγραφή",
+            "bil_hv_lv_kv": "BIL ΥΤ/ΜΤ (kV)",
+            "total_weight_kg": "Συνολικό Βάρος (kg)",
+            "oil_weight_kg": "Βάρος Ελαίου (kg)",
+            "oil_capacity_l": "Χωρητικότητα Ελαίου (L)",
+            "rated_normal_current_a": "Ονομ. Ρεύμα (A)",
+            "rated_short_circuit_breaking_current_ka": "Ρεύμα Διακοπής Βραχ. Κυκλ. (kA)",
+            "short_circuit_duration_s": "Διάρκεια Βραχ. Κυκλ. (s)",
+            "making_capacity_ka": "Ικανότητα Ζεύξης (kA)",
+            "sf6_pressure_rated_bar": "Ονομ. Πίεση SF6 (bar)",
+            "sf6_capacity_kg": "Χωρητικότητα SF6 (kg)",
+            "drive_mechanism": "Μηχανισμός Κίνησης",
+            "rated_short_circuit_making_current_ka": "Ρεύμα Ζεύξης Βραχ. Κυκλ. (kA)",
+            "cubicle": "Κυψέλη",
+        }
+        for key, label in extra_labels.items():
+            value = element_data.get(key)
+            if not _is_blank(value):
+                detail_values.append((label, value))
+
+        lines = []
+        for label, value in detail_values:
+            formatted = _format_detail(label, value)
+            if formatted:
+                lines.append(formatted)
+        return lines
+
     def _show_element_quick_view(self, element_id):
         """Show a small popup with the element's key details (read-only)."""
         from kivy.uix.boxlayout import BoxLayout
@@ -14736,7 +14876,49 @@ class SubstationApp(App):
 
         c = self.conn.cursor()
         c.execute(
-            "SELECT e.name, e.element_type, e.serial_number, e.power_mva, e.manufacturer, e.manufacture_year, e.installation_space, e.maintenance_date, e.substation_id, e.operations_count, e.vector_group, e.breaker_category, em.power_mva AS model_power_mva, em.installation_space AS model_installation_space, em.manual_pdf FROM elements e LEFT JOIN element_models em ON e.element_model_id = em.id WHERE e.id=?",
+            """
+            SELECT
+                e.name,
+                e.element_type,
+                e.serial_number,
+                e.power_mva,
+                e.manufacturer,
+                e.manufacture_year,
+                e.installation_space,
+                e.maintenance_date,
+                e.substation_id,
+                e.operations_count,
+                e.vector_group,
+                e.breaker_category,
+                e.maintenance_cycle,
+                em.model_name,
+                em.manufacturer AS model_manufacturer,
+                em.installation_space AS model_installation_space,
+                em.power_mva AS model_power_mva,
+                em.connection_group,
+                em.rated_voltage_hv_lv,
+                em.mounting,
+                em.specification,
+                em.bil_hv_lv_kv,
+                em.total_weight_kg,
+                em.oil_weight_kg,
+                em.oil_capacity_l,
+                em.rated_normal_current_a,
+                em.rated_short_circuit_breaking_current_ka,
+                em.short_circuit_duration_s,
+                em.making_capacity_ka,
+                em.sf6_pressure_rated_bar,
+                em.sf6_capacity_kg,
+                em.drive_mechanism,
+                em.rated_short_circuit_making_current_ka,
+                em.cubicle,
+                em.manual_pdf,
+                e.voltage_level,
+                e.model
+            FROM elements e
+            LEFT JOIN element_models em ON e.element_model_id = em.id
+            WHERE e.id=?
+            """,
             (element_id,),
         )
         row = c.fetchone()
@@ -14747,103 +14929,122 @@ class SubstationApp(App):
             )
             return
 
-        if len(row) == 15:
-            (
-                name,
-                elem_type,
-                serial_number,
-                power_mva,
-                manufacturer,
-                manufacture_year,
-                installation_space,
-                maintenance_date,
-                substation_id,
-                operations_count,
-                vector_group,
-                breaker_category,
-                model_power_mva,
-                model_installation_space,
-                manual_pdf,
-            ) = row
-        elif len(row) == 14:
-            (
-                name,
-                elem_type,
-                serial_number,
-                power_mva,
-                manufacturer,
-                manufacture_year,
-                installation_space,
-                maintenance_date,
-                substation_id,
-                operations_count,
-                vector_group,
-                breaker_category,
-                model_power_mva,
-                model_installation_space,
-                manual_pdf,
-            ) = row
-        elif len(row) == 13:
-            (
-                name,
-                elem_type,
-                serial_number,
-                power_mva,
-                manufacturer,
-                manufacture_year,
-                installation_space,
-                maintenance_date,
-                substation_id,
-                operations_count,
-                model_power_mva,
-                model_installation_space,
-                manual_pdf,
-            ) = row
-            vector_group = None
-            breaker_category = None
-        else:
-            raise ValueError(
-                f"Unexpected quick-view row shape: expected 13, 14, or 15 columns, got {len(row)}"
-            )
-
-        # Check if transformer (150/20 kV)
-        is_transformer = self._is_transformer(elem_type) if elem_type else False
-
-        effective_power = (
-            model_power_mva if (model_power_mva is not None) else power_mva
-        )
-        effective_installation_space = (
-            model_installation_space
-            if model_installation_space not in (None, "")
-            else installation_space
-        )
-        power_display = f"{effective_power} MVA" if effective_power else "-"
-        lines = [
-            f"Όνομα: {name}",
-            f"Τύπος: {elem_type}",
-            f"S/N: {serial_number or '-'}",
-            f"Κατασκευαστής: {manufacturer or '-'} ({manufacture_year or '-'})",
-            f"Χώρος: {effective_installation_space or '-'}",
-            f"Ισχύς: {power_display}",
-            S["MESSAGES"]
-            .get("MAINT_LAST_LABEL", "Τελευταία Συντήρηση: {date}")
-            .format(date=maintenance_date or "-"),
+        columns = [
+            "name",
+            "element_type",
+            "serial_number",
+            "power_mva",
+            "manufacturer",
+            "manufacture_year",
+            "installation_space",
+            "maintenance_date",
+            "substation_id",
+            "operations_count",
+            "vector_group",
+            "breaker_category",
+            "maintenance_cycle",
+            "model_name",
+            "model_manufacturer",
+            "model_installation_space",
+            "model_power_mva",
+            "connection_group",
+            "rated_voltage_hv_lv",
+            "mounting",
+            "specification",
+            "bil_hv_lv_kv",
+            "total_weight_kg",
+            "oil_weight_kg",
+            "oil_capacity_l",
+            "rated_normal_current_a",
+            "rated_short_circuit_breaking_current_ka",
+            "short_circuit_duration_s",
+            "making_capacity_ka",
+            "sf6_pressure_rated_bar",
+            "sf6_capacity_kg",
+            "drive_mechanism",
+            "rated_short_circuit_making_current_ka",
+            "cubicle",
+            "manual_pdf",
+            "voltage_level",
+            "model_value",
         ]
-        if is_transformer:
-            lines.append(f"Vector group: {vector_group or '-'}")
-        if elem_type in self.BREAKER_ELEMENT_TYPES:
-            lines.append(
-                (
-                    f"{S['MESSAGES'].get('OPERATIONS_COUNT_LABEL', 'Αριθμός Χειρισμών:')} "
-                    f"{operations_count if operations_count is not None else '-'}"
-                )
-            )
+        data = dict(zip(columns, row))
+        if "model_installation_space" not in data and len(row) >= 12:
+            candidate = row[11]
+            if candidate not in (None, "") and not data.get("installation_space"):
+                data["model_installation_space"] = candidate
+        if "installation_space" not in data and len(row) >= 7:
+            data["installation_space"] = row[6]
 
-        layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+        is_transformer = (
+            self._is_transformer(data.get("element_type"))
+            if data.get("element_type")
+            else False
+        )
+        element_data = {
+            "name": data.get("name"),
+            "element_type": data.get("element_type"),
+            "serial_number": data.get("serial_number"),
+            "manufacturer": data.get("manufacturer"),
+            "model": data.get("model_value"),
+            "model_name": data.get("model_name"),
+            "model_manufacturer": data.get("model_manufacturer"),
+            "manufacture_year": data.get("manufacture_year"),
+            "installation_space": data.get("installation_space"),
+            "model_installation_space": data.get("model_installation_space"),
+            "maintenance_date": data.get("maintenance_date"),
+            "maintenance_cycle": data.get("maintenance_cycle"),
+            "substation_id": data.get("substation_id"),
+            "operations_count": data.get("operations_count"),
+            "vector_group": data.get("vector_group"),
+            "breaker_category": data.get("breaker_category"),
+            "power_mva": data.get("power_mva"),
+            "model_power_mva": data.get("model_power_mva"),
+            "manual_pdf": data.get("manual_pdf"),
+            "voltage_level": data.get("voltage_level"),
+            "connection_group": data.get("connection_group"),
+            "rated_voltage_hv_lv": data.get("rated_voltage_hv_lv"),
+            "mounting": data.get("mounting"),
+            "specification": data.get("specification"),
+            "bil_hv_lv_kv": data.get("bil_hv_lv_kv"),
+            "total_weight_kg": data.get("total_weight_kg"),
+            "oil_weight_kg": data.get("oil_weight_kg"),
+            "oil_capacity_l": data.get("oil_capacity_l"),
+            "rated_normal_current_a": data.get("rated_normal_current_a"),
+            "rated_short_circuit_breaking_current_ka": data.get(
+                "rated_short_circuit_breaking_current_ka"
+            ),
+            "short_circuit_duration_s": data.get("short_circuit_duration_s"),
+            "making_capacity_ka": data.get("making_capacity_ka"),
+            "sf6_pressure_rated_bar": data.get("sf6_pressure_rated_bar"),
+            "sf6_capacity_kg": data.get("sf6_capacity_kg"),
+            "drive_mechanism": data.get("drive_mechanism"),
+            "rated_short_circuit_making_current_ka": data.get(
+                "rated_short_circuit_making_current_ka"
+            ),
+            "cubicle": data.get("cubicle"),
+        }
+        lines = self._build_element_detail_lines(element_data)
 
-        # Add tags section at the top
+        layout = BoxLayout(
+            orientation="vertical", padding=10, spacing=8, size_hint_y=None
+        )
+        layout.bind(minimum_height=layout.setter("height"))
+
         from model_management import _build_model_context_tags
 
+        name = element_data.get("name") or "-"
+        elem_type = element_data.get("element_type") or "-"
+        manufacturer = element_data.get("manufacturer") or "-"
+        breaker_category = element_data.get("breaker_category") or "-"
+        substation_id = element_data.get("substation_id")
+        manual_pdf = element_data.get("manual_pdf")
+
+        effective_installation_space = (
+            element_data.get("model_installation_space")
+            if element_data.get("model_installation_space") not in (None, "")
+            else element_data.get("installation_space")
+        )
         tags_box = _build_model_context_tags(
             elem_type,
             breaker_category=breaker_category,
@@ -14859,11 +15060,8 @@ class SubstationApp(App):
             layout.add_widget(Label(text=line, size_hint_y=None, height=28))
 
         btn_row = BoxLayout(size_hint_y=None, height=60, spacing=6)
-
-        # Left side buttons
         left_buttons = BoxLayout(size_hint_x=0.55, spacing=6)
 
-        # Add manual button if available
         if manual_pdf and os.path.exists(manual_pdf):
             manual_btn = Button(text=S["MESSAGES"].get("MANUAL_LABEL", "Manual"))
             manual_btn.bind(on_press=lambda x: self._open_model_manual(manual_pdf))
@@ -14883,7 +15081,7 @@ class SubstationApp(App):
             except Exception:
                 substation_name = ""
 
-        # Add DGA button for transformers
+        popup_ref = {"popup": None}
         if is_transformer:
             subelements_btn = IconOnlyButton(
                 icon_type="subelements",
@@ -14896,7 +15094,7 @@ class SubstationApp(App):
                     name,
                     substation_id,
                     substation_name,
-                    popup,
+                    popup_ref["popup"],
                 )
             )
             left_buttons.add_widget(subelements_btn)
@@ -14914,26 +15112,28 @@ class SubstationApp(App):
             left_buttons.add_widget(dga_btn)
 
         btn_row.add_widget(left_buttons)
-
-        # Spacer in the middle
         btn_row.add_widget(Widget())
 
-        # Close button (right side)
         close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_x=0.15)
 
         def _close(_x):
-            popup.dismiss()
+            if popup_ref["popup"] is not None:
+                popup_ref["popup"].dismiss()
 
         close_btn.bind(on_press=_close)
         btn_row.add_widget(close_btn)
 
         layout.add_widget(btn_row)
 
+        scroll = ScrollView(do_scroll_x=False, size_hint=(1, 1))
+        scroll.add_widget(layout)
+
         popup = Popup(
             title=S["MESSAGES"].get("VIEW_ELEMENT_TITLE", "Προβολή Στοιχείου"),
-            size_hint=(0.85, 0.6),
+            size_hint=(0.85, 0.8),
         )
-        popup.content = layout
+        popup_ref["popup"] = popup
+        popup.content = scroll
         popup.open()
 
     def _read_elements_file(self, file_path):
@@ -20373,6 +20573,13 @@ class SubstationApp(App):
                         f"S/N: {serial_number or '-'}\n"
                         f"Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id or 'N/A'})"
                     )
+                    if operations_count not in (None, "", "-"):
+                        ops_label = (
+                            S["MESSAGES"]
+                            .get("OPERATIONS_COUNT_LABEL", "Αριθμός Χειρισμών")
+                            .rstrip(":")
+                        )
+                        detail_display += f"\n{ops_label}: {operations_count}"
 
                     model_tags_box = None
                     try:

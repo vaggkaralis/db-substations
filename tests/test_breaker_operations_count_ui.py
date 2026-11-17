@@ -37,6 +37,11 @@ def test_breaker_operations_count_row_shows_last_value(monkeypatch):
     assert "Αριθμός Χειρισμών:" in texts
     assert "Τελευταία τιμή: 321" in texts
 
+    summary = DBrun.SubstationApp._build_element_summary_text(
+        object.__new__(DBrun.SubstationApp), {"operations_count": 321}
+    )
+    assert "Αριθμός Χειρισμών: 321" in summary
+
 
 def test_operations_count_strings_exist_in_both_modules():
     assert (

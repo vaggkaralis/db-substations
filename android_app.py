@@ -927,6 +927,9 @@ def _diagnose_db_file_error(file_path: str) -> str:
 
 
 class SubstationAndroidApp(App):
+    ELEM_BREAKER_YT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ")
+    ELEM_BREAKER_MT = S.get("MESSAGES", {}).get("ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ")
+
     # Use centralized lists from strings module; keep safe fallbacks
     ELEMENT_TYPES = S.get("MESSAGES", {}).get(
         "ELEMENT_TYPES",
@@ -2437,6 +2440,649 @@ class SubstationAndroidApp(App):
             ordered.append(unregistered)
         return [(gate_name, grouped[gate_name]) for gate_name in ordered]
 
+    def _build_element_summary_text(self, element_data, is_transformer=False):
+        """Return the compact row summary shown in the element list."""
+        serial_number = element_data.get("serial_number") or "-"
+        manufacturer = element_data.get("manufacturer") or "-"
+        model_name = element_data.get("model_name") or element_data.get("model") or "-"
+        model_manufacturer = (
+            element_data.get("model_manufacturer")
+            or element_data.get("manufacturer")
+            or "-"
+        )
+        manufacture_year = element_data.get("manufacture_year") or "-"
+        maintenance_date = element_data.get("maintenance_date") or "-"
+        maintenance_cycle = element_data.get("maintenance_cycle")
+        power_mva = element_data.get("power_mva")
+        model_power_mva = element_data.get("model_power_mva")
+        effective_power = (
+            model_power_mva if model_power_mva not in (None, "") else power_mva
+        )
+        operations_count = element_data.get("operations_count")
+        operations_label = (
+            S.get("MESSAGES", {})
+            .get("OPERATIONS_COUNT_LABEL", "Αριθμός Χειρισμών")
+            .rstrip(":")
+        )
+
+        details = [
+            f"S/N: {serial_number}",
+            f"Κατ.: {model_manufacturer or manufacturer}",
+            f"Μοντ.: {model_name}",
+            f"Έτος: {manufacture_year}",
+            f"Κύκλος: {maintenance_cycle if maintenance_cycle not in (None, '') else '-'}",
+            f"Τελ. Συντ.: {maintenance_date}",
+        ]
+
+        if is_transformer:
+            power_display = (
+                f"{effective_power} MVA" if effective_power not in (None, "") else "-"
+            )
+            details.insert(-1, f"Ισχύς: {power_display}")
+
+        display_operations = (
+            "-"
+            if operations_count in (None, "", "-", 0, 0.0, "0")
+            else operations_count
+        )
+        details.append(f"{operations_label}: {display_operations}")
+
+        return " | ".join(details)
+
+    def _build_element_detail_lines(self, element_data):
+        """Build the full detail list used by the eye popup."""
+
+        def _is_blank(value):
+            if value is None:
+                return True
+            if isinstance(value, str):
+                return value.strip() == "" or value.strip().lower() in {
+                    "-",
+                    "n/a",
+                    "na",
+                    "none",
+                    "null",
+                }
+            return False
+
+        def _format_detail(label, value):
+            if _is_blank(value):
+                return None
+            if str(label).rstrip(":").endswith("Αριθμός Χειρισμών") and value in (
+                0,
+                0.0,
+                "0",
+            ):
+                value = "-"
+            return f"{str(label).rstrip(':')}: {value}"
+
+        name = (element_data.get("name") or "-").strip() or "-"
+        elem_type = (element_data.get("element_type") or "-").strip() or "-"
+        serial_number = element_data.get("serial_number") or "-"
+        manufacturer = element_data.get("manufacturer") or "-"
+        model_name = element_data.get("model_name") or element_data.get("model") or "-"
+        model_manufacturer = (
+            element_data.get("model_manufacturer")
+            or element_data.get("manufacturer")
+            or "-"
+        )
+        manufacture_year = element_data.get("manufacture_year") or "-"
+        maintenance_date = element_data.get("maintenance_date") or "-"
+        maintenance_cycle = element_data.get("maintenance_cycle")
+        installation_space = (
+            element_data.get("model_installation_space")
+            or element_data.get("installation_space")
+            or "-"
+        )
+        voltage_level = element_data.get("voltage_level") or "-"
+        power_mva = element_data.get("power_mva")
+        model_power_mva = element_data.get("model_power_mva")
+        effective_power = (
+            model_power_mva if model_power_mva not in (None, "") else power_mva
+        )
+        vector_group = element_data.get("vector_group") or "-"
+        breaker_category = element_data.get("breaker_category") or "-"
+        operations_count = element_data.get("operations_count")
+        if operations_count in (None, "", "-", 0, 0.0, "0"):
+            operations_count = "-"
+
+        detail_values = [
+            ("Όνομα", name),
+            ("Τύπος", elem_type),
+            ("S/N", serial_number),
+            ("Κατασκευαστής", manufacturer),
+            ("Έτος Κατασκευής", manufacture_year),
+            ("Μοντέλο", model_name),
+            ("Κατ. μοντέλου", model_manufacturer),
+            ("Χώρος", installation_space),
+            ("Τάση", voltage_level),
+            (
+                "Ονομαστική Ισχύς",
+                effective_power if effective_power not in (None, "") else "-",
+            ),
+            ("Κατηγορία Διακόπτη", breaker_category),
+            (
+                "Κύκλος",
+                maintenance_cycle if maintenance_cycle not in (None, "") else "-",
+            ),
+            ("Τελευταία Συντήρηση", maintenance_date),
+            ("Vector group", vector_group),
+            (
+                S.get("MESSAGES", {}).get(
+                    "OPERATIONS_COUNT_LABEL", "Αριθμός Χειρισμών"
+                ),
+                operations_count,
+            ),
+        ]
+
+        extra_labels = {
+            "connection_group": "Ομάδα Συνδεσμολογίας",
+            "rated_voltage_hv_lv": "Ονομ. Τάση ΥΤ/ΜΤ",
+            "mounting": "Τρόπος Εγκατάστασης",
+            "specification": "Προδιαγραφή",
+            "bil_hv_lv_kv": "BIL ΥΤ/ΜΤ (kV)",
+            "total_weight_kg": "Συνολικό Βάρος (kg)",
+            "oil_weight_kg": "Βάρος Ελαίου (kg)",
+            "oil_capacity_l": "Χωρητικότητα Ελαίου (L)",
+            "rated_normal_current_a": "Ονομ. Ρεύμα (A)",
+            "rated_short_circuit_breaking_current_ka": "Ρεύμα Διακοπής Βραχ. Κυκλ. (kA)",
+            "short_circuit_duration_s": "Διάρκεια Βραχ. Κυκλ. (s)",
+            "making_capacity_ka": "Ικανότητα Ζεύξης (kA)",
+            "sf6_pressure_rated_bar": "Ονομ. Πίεση SF6 (bar)",
+            "sf6_capacity_kg": "Χωρητικότητα SF6 (kg)",
+            "drive_mechanism": "Μηχανισμός Κίνησης",
+            "rated_short_circuit_making_current_ka": "Ρεύμα Ζεύξης Βραχ. Κυκλ. (kA)",
+            "cubicle": "Κυψέλη",
+        }
+        for key, label in extra_labels.items():
+            value = element_data.get(key)
+            if not _is_blank(value):
+                detail_values.append((label, value))
+
+        lines = []
+        for label, value in detail_values:
+            formatted = _format_detail(label, value)
+            if formatted:
+                lines.append(formatted)
+        return lines
+
+    def _build_substation_element_summary_lines(self, substation_id, substation_name):
+        """Build the compact per-substation summary used by the info popup."""
+        import math
+        from collections import defaultdict
+
+        def oil_weight_kg_to_liters(oil_weight_kg, density_kg_per_l=0.89):
+            try:
+                oil_weight_val = float(oil_weight_kg)
+                density_val = float(density_kg_per_l)
+            except (TypeError, ValueError):
+                return None
+            if density_val <= 0:
+                return None
+            return oil_weight_val / density_val
+
+        def summarize_oil_requirement(
+            total_liters,
+            barrel_volume_l=200.0,
+            tolerance_pct=10.0,
+        ):
+            try:
+                base_liters = max(0.0, float(total_liters or 0.0))
+            except (TypeError, ValueError):
+                base_liters = 0.0
+            try:
+                barrel_volume_val = float(barrel_volume_l or 0.0)
+            except (TypeError, ValueError):
+                barrel_volume_val = 0.0
+            try:
+                tolerance_val = max(0.0, float(tolerance_pct or 0.0))
+            except (TypeError, ValueError):
+                tolerance_val = 0.0
+
+            adjusted_liters = round(base_liters * (1.0 + tolerance_val / 100.0), 6)
+            exact_barrels = (
+                round(adjusted_liters / barrel_volume_val, 6)
+                if barrel_volume_val > 0
+                else 0.0
+            )
+            return {
+                "base_liters": base_liters,
+                "adjusted_liters": adjusted_liters,
+                "exact_barrels": exact_barrels,
+                "rounded_barrels": int(math.ceil(exact_barrels))
+                if adjusted_liters > 0 and barrel_volume_val > 0
+                else 0,
+            }
+
+        def _coerce_float(value):
+            if value in (None, ""):
+                return None
+            try:
+                return float(str(value).replace(",", ".").strip())
+            except (TypeError, ValueError):
+                return None
+
+        def _normalize_breaker_category(value):
+            text = str(value or "").strip()
+            if not text:
+                return ""
+            lowered = text.casefold()
+            if lowered in {"sf6", "sf6 gas"}:
+                return "SF6"
+            if lowered in {"ελαίου", "oil", "oil ελαίου", "οil", "έλαίου"}:
+                return "Ελαίου"
+            if lowered in {
+                "πτωχού ελαίου",
+                "low oil",
+                "low-oil",
+                "πτωχου ελαίου",
+            }:
+                return "Πτωχού Ελαίου"
+            if lowered in {"κενού", "vacuum", "vacum", "vacuum breaker"}:
+                return "Κενού"
+            return text
+
+        def _get_oil_liters(oil_capacity_l, oil_weight_kg):
+            oil_value = _coerce_float(oil_capacity_l)
+            if oil_value is not None and oil_value >= 0:
+                return oil_value
+            oil_weight = _coerce_float(oil_weight_kg)
+            if oil_weight is None:
+                return 0.0
+            liters = oil_weight_kg_to_liters(oil_weight)
+            return liters if liters is not None else 0.0
+
+        def _format_numeric(value, digits=1):
+            try:
+                number = float(value or 0)
+            except (TypeError, ValueError):
+                return "0"
+            return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+        def _format_oil_summary(total_liters):
+            if total_liters <= 0:
+                return ""
+            summary = summarize_oil_requirement(total_liters)
+            adjusted_liters = float(summary.get("adjusted_liters") or 0.0)
+            barrels = int(summary.get("rounded_barrels") or 0)
+            return f"{_format_numeric(adjusted_liters, 1)} L / {barrels} βαρέλια"
+
+        def _build_category_summary(label, total, category_counts, oil_liters, sf6_kg):
+            if total <= 0:
+                return ""
+            pieces = [f"  - {label}: {total}"]
+            category_parts = []
+            for category in ["SF6", "Ελαίου", "Πτωχού Ελαίου", "Κενού"]:
+                count = int(category_counts.get(category, 0) or 0)
+                if count > 0:
+                    category_parts.append(f"{category}: {count}")
+            if category_parts:
+                pieces.append(f" ({', '.join(category_parts)})")
+            details = []
+            if oil_liters > 0:
+                details.append(f"λάδι: {_format_oil_summary(oil_liters)}")
+            if sf6_kg > 0:
+                details.append(f"SF6: {_format_numeric(sf6_kg, 1)} kg")
+            if details:
+                pieces.append(f" - {', '.join(details)}")
+            return "".join(pieces)
+
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            rows = conn.execute(
+                """
+                SELECT e.gate, e.element_type, e.breaker_category,
+                       em.oil_capacity_l, em.sf6_capacity_kg, em.oil_weight_kg
+                FROM elements e
+                LEFT JOIN element_models em ON em.id = e.element_model_id
+                WHERE e.substation_id = ?
+                  AND COALESCE(e.parent_element_id, 0)=0
+                  AND (COALESCE(TRIM(e.operating_status), '') = '' OR TRIM(e.operating_status) = 'Ενεργή')
+                ORDER BY e.gate, e.name
+                """,
+                (substation_id,),
+            ).fetchall()
+            conn.close()
+        except Exception as exc:
+            Logger.warning(
+                f"APP: Failed to build substation summary for {substation_id}: {exc}"
+            )
+            return [
+                f"[b]{substation_name or 'Υποσταθμός'}[/b]",
+                "",
+                "Σύνολο υποσταθμού:",
+                "  - Δεν βρέθηκαν στοιχεία για αυτόν τον υποσταθμό.",
+            ]
+
+        hv_total = 0
+        hv_category_counts = defaultdict(int)
+        hv_oil_liters = 0.0
+        hv_sf6_kg = 0.0
+
+        transformer_total = 0
+        transformer_oil_liters = 0.0
+
+        mv_total = 0
+        mv_category_counts = defaultdict(int)
+        mv_oil_liters = 0.0
+        mv_sf6_kg = 0.0
+
+        gate_summary = defaultdict(
+            lambda: {
+                "mv_total": 0,
+                "category_counts": defaultdict(int),
+                "oil_liters": 0.0,
+                "sf6_kg": 0.0,
+            }
+        )
+
+        for (
+            gate_name,
+            element_type,
+            breaker_category,
+            oil_capacity_l,
+            sf6_capacity_kg,
+            oil_weight_kg,
+        ) in rows:
+            gate_key = str(gate_name or "").strip() or "Χωρίς Πύλη"
+            normalized_type = str(element_type or "").strip()
+            normalized_category = _normalize_breaker_category(breaker_category)
+            oil_liters = _get_oil_liters(oil_capacity_l, oil_weight_kg)
+            sf6_kg = _coerce_float(sf6_capacity_kg) or 0.0
+
+            if normalized_type == self.ELEM_BREAKER_YT:
+                hv_total += 1
+                if normalized_category == "SF6":
+                    hv_category_counts["SF6"] += 1
+                    hv_sf6_kg += sf6_kg
+                elif normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
+                    hv_category_counts[normalized_category] += 1
+                    hv_oil_liters += oil_liters
+                elif normalized_category == "Κενού":
+                    hv_category_counts["Κενού"] += 1
+            elif "μετασχηματιστ" in normalized_type.casefold():
+                transformer_total += 1
+                transformer_oil_liters += oil_liters
+            elif normalized_type == self.ELEM_BREAKER_MT:
+                mv_total += 1
+                if normalized_category:
+                    mv_category_counts[normalized_category] += 1
+                    gate_bucket = gate_summary[gate_key]
+                    gate_bucket["mv_total"] += 1
+                    gate_bucket["category_counts"][normalized_category] += 1
+                if normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
+                    mv_oil_liters += oil_liters
+                    gate_summary[gate_key]["oil_liters"] += oil_liters
+                if normalized_category == "SF6":
+                    mv_sf6_kg += sf6_kg
+                    gate_summary[gate_key]["sf6_kg"] += sf6_kg
+
+        total_lines = []
+        if hv_total > 0:
+            total_lines.append(
+                _build_category_summary(
+                    "Διακόπτες ΥΤ",
+                    hv_total,
+                    hv_category_counts,
+                    hv_oil_liters,
+                    hv_sf6_kg,
+                )
+            )
+        if transformer_total > 0:
+            total_lines.append(
+                f"  - Μετασχηματιστές: {transformer_total}"
+                + (
+                    f" - λάδι: {_format_oil_summary(transformer_oil_liters)}"
+                    if transformer_oil_liters > 0
+                    else ""
+                )
+            )
+        if mv_total > 0:
+            total_lines.append(
+                _build_category_summary(
+                    "Διακόπτες ΜΤ",
+                    mv_total,
+                    mv_category_counts,
+                    mv_oil_liters,
+                    mv_sf6_kg,
+                )
+            )
+
+        gate_lines = []
+        for gate_name in sorted(gate_summary):
+            gate_bucket = gate_summary[gate_name]
+            gate_mv_total = int(gate_bucket.get("mv_total") or 0)
+            if gate_mv_total <= 0:
+                continue
+            gate_lines.append(f"  - {gate_name}:")
+            gate_lines.append(
+                _build_category_summary(
+                    "Διακόπτες ΜΤ",
+                    gate_mv_total,
+                    gate_bucket["category_counts"],
+                    float(gate_bucket.get("oil_liters") or 0.0),
+                    float(gate_bucket.get("sf6_kg") or 0.0),
+                )
+            )
+
+        summary_lines = [
+            f"[b]{substation_name or 'Υποσταθμός'}[/b]",
+            "",
+            "Σύνολο υποσταθμού:",
+        ]
+        summary_lines.extend(
+            total_lines or ["  - Δεν βρέθηκαν στοιχεία για αυτόν τον υποσταθμό."]
+        )
+        summary_lines.extend(["", "Ανά πύλη:"])
+        summary_lines.extend(
+            gate_lines or ["  - Δεν υπάρχουν καταχωρημένες πύλες με ενεργά στοιχεία."]
+        )
+        return summary_lines
+
+    def show_substation_element_summary(
+        self, substation_id, substation_name, parent_popup=None
+    ):
+        summary_lines = self._build_substation_element_summary_lines(
+            substation_id, substation_name
+        )
+        popup = Popup(
+            title=f"Πληροφορίες Στοιχείων - {substation_name or 'Υποσταθμός'}",
+            size_hint=(0.72, 0.8),
+        )
+        if parent_popup is not None:
+            popup._dbs_origin_popup = parent_popup
+
+        content = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        label = Label(
+            text="\n".join(summary_lines),
+            markup=True,
+            halign="left",
+            valign="top",
+            size_hint_y=None,
+            text_size=(None, None),
+        )
+        label.bind(
+            texture_size=lambda instance, size: setattr(
+                instance, "size", (instance.width, size[1])
+            )
+        )
+        scroll.add_widget(label)
+        content.add_widget(scroll)
+
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=42)
+        close_btn.bind(on_press=popup.dismiss)
+        content.add_widget(close_btn)
+
+        popup.content = content
+        popup.open()
+
+    def _show_element_quick_view(self, element_id):
+        """Show a small popup with the element's full details (read-only)."""
+        try:
+            conn = sqlite3.connect(self.local_db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT e.name,
+                       e.element_type,
+                       e.serial_number,
+                       e.power_mva,
+                       e.manufacturer,
+                       e.manufacture_year,
+                       e.installation_space,
+                       e.maintenance_date,
+                       e.substation_id,
+                       e.operations_count,
+                       e.vector_group,
+                       e.breaker_category,
+                       e.maintenance_cycle,
+                       em.model_name,
+                       em.manufacturer AS model_manufacturer,
+                       em.installation_space AS model_installation_space,
+                       em.power_mva AS model_power_mva,
+                       em.connection_group,
+                       em.rated_voltage_hv_lv,
+                       em.mounting,
+                       em.specification,
+                       em.bil_hv_lv_kv,
+                       em.total_weight_kg,
+                       em.oil_weight_kg,
+                       em.oil_capacity_l,
+                       em.rated_normal_current_a,
+                       em.rated_short_circuit_breaking_current_ka,
+                       em.short_circuit_duration_s,
+                       em.making_capacity_ka,
+                       em.sf6_pressure_rated_bar,
+                       em.sf6_capacity_kg,
+                       em.drive_mechanism,
+                       em.rated_short_circuit_making_current_ka,
+                       em.cubicle,
+                       em.manual_pdf,
+                       e.voltage_level,
+                       e.model
+                FROM elements e
+                LEFT JOIN element_models em ON e.element_model_id = em.id
+                WHERE e.id=?
+                """,
+                (element_id,),
+            )
+            row = cursor.fetchone()
+            conn.close()
+        except Exception as exc:
+            Logger.warning(
+                f"APP: Failed to load element quick view for {element_id}: {exc}"
+            )
+            return
+
+        if not row:
+            self.show_error(
+                S["MESSAGES"].get("ELEMENT_NOT_FOUND", "Το στοιχείο δεν βρέθηκε.")
+            )
+            return
+
+        (
+            name,
+            elem_type,
+            serial_number,
+            power_mva,
+            manufacturer,
+            manufacture_year,
+            installation_space,
+            maintenance_date,
+            substation_id,
+            operations_count,
+            vector_group,
+            breaker_category,
+            maintenance_cycle,
+            model_name,
+            model_manufacturer,
+            model_installation_space,
+            model_power_mva,
+            connection_group,
+            rated_voltage_hv_lv,
+            mounting,
+            specification,
+            bil_hv_lv_kv,
+            total_weight_kg,
+            oil_weight_kg,
+            oil_capacity_l,
+            rated_normal_current_a,
+            rated_short_circuit_breaking_current_ka,
+            short_circuit_duration_s,
+            making_capacity_ka,
+            sf6_pressure_rated_bar,
+            sf6_capacity_kg,
+            drive_mechanism,
+            rated_short_circuit_making_current_ka,
+            cubicle,
+            manual_pdf,
+            voltage_level,
+            model_value,
+        ) = row
+
+        element_data = {
+            "name": name,
+            "element_type": elem_type,
+            "serial_number": serial_number,
+            "manufacturer": manufacturer,
+            "model": model_value,
+            "model_name": model_name,
+            "model_manufacturer": model_manufacturer,
+            "manufacture_year": manufacture_year,
+            "installation_space": installation_space,
+            "model_installation_space": model_installation_space,
+            "maintenance_date": maintenance_date,
+            "maintenance_cycle": maintenance_cycle,
+            "substation_id": substation_id,
+            "operations_count": operations_count,
+            "vector_group": vector_group,
+            "breaker_category": breaker_category,
+            "power_mva": power_mva,
+            "model_power_mva": model_power_mva,
+            "manual_pdf": manual_pdf,
+            "voltage_level": voltage_level,
+            "connection_group": connection_group,
+            "rated_voltage_hv_lv": rated_voltage_hv_lv,
+            "mounting": mounting,
+            "specification": specification,
+            "bil_hv_lv_kv": bil_hv_lv_kv,
+            "total_weight_kg": total_weight_kg,
+            "oil_weight_kg": oil_weight_kg,
+            "oil_capacity_l": oil_capacity_l,
+            "rated_normal_current_a": rated_normal_current_a,
+            "rated_short_circuit_breaking_current_ka": rated_short_circuit_breaking_current_ka,
+            "short_circuit_duration_s": short_circuit_duration_s,
+            "making_capacity_ka": making_capacity_ka,
+            "sf6_pressure_rated_bar": sf6_pressure_rated_bar,
+            "sf6_capacity_kg": sf6_capacity_kg,
+            "drive_mechanism": drive_mechanism,
+            "rated_short_circuit_making_current_ka": rated_short_circuit_making_current_ka,
+            "cubicle": cubicle,
+        }
+
+        lines = self._build_element_detail_lines(element_data)
+        box = BoxLayout(
+            orientation="vertical", spacing=8, padding=[10, 10], size_hint_y=None
+        )
+        box.bind(minimum_height=box.setter("height"))
+        for line in lines:
+            box.add_widget(Label(text=line, size_hint_y=None, height=28))
+
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
+        box.add_widget(close_btn)
+
+        scroll = ScrollView(do_scroll_x=False, size_hint=(1, 1))
+        scroll.add_widget(box)
+
+        popup = Popup(
+            title=S["MESSAGES"].get("VIEW_ELEMENT_TITLE", "Προβολή Στοιχείου"),
+            size_hint=(0.85, 0.8),
+        )
+        popup.content = scroll
+        close_btn.bind(on_press=popup.dismiss)
+        popup.open()
+
     def _build_gate_tag_widget(self, gate_name, *, height=110):
         tag_height = max(72, min(int(height or 72), 92))
         tag = Button(
@@ -3085,6 +3731,8 @@ class SubstationAndroidApp(App):
             normalized_icon_type = {
                 "history": "maintenance",
                 "manual": "book",
+                "view": "eye",
+                "details": "eye",
             }.get(icon_type, icon_type)
 
             class _LocalIconWidget(Widget):
@@ -3177,6 +3825,34 @@ class SubstationAndroidApp(App):
                                     rectangle=(row_x, row_y, row_w, box_h),
                                     width=max(1.0, line_w),
                                 )
+                        elif self._icon_type == "eye":
+                            eye_x = x + w * 0.18
+                            eye_y = y + h * 0.22
+                            eye_w = w * 0.64
+                            eye_h = h * 0.56
+                            Line(
+                                ellipse=(eye_x, eye_y, eye_w, eye_h),
+                                width=max(1.1, line_w),
+                            )
+                            Line(
+                                circle=(x + w * 0.5, y + h * 0.5, min(w, h) * 0.13),
+                                width=max(1.2, line_w),
+                            )
+                        elif self._icon_type == "info":
+                            cx = x + w * 0.5
+                            stroke = max(2.6, line_w * 2.1)
+                            dot_radius = min(w, h) * 0.07
+                            stem_top = y + h * 0.57
+                            stem_bottom = y + h * 0.10
+                            gap = h * 0.18
+                            Line(
+                                points=[cx, stem_bottom, cx, stem_top],
+                                width=stroke,
+                            )
+                            Line(
+                                circle=(cx, y + h * 0.88 + gap * 0.20, dot_radius),
+                                width=stroke,
+                            )
                         elif self._icon_type == "inspection":
                             Line(
                                 circle=(x + w * 0.4, y + h * 0.55, w * 0.2),
@@ -3289,6 +3965,8 @@ class SubstationAndroidApp(App):
                 "maintenance": "H",
                 "history": "H",
                 "manual": "B",
+                "eye": "E",
+                "info": "i",
                 "inspection": "I",
                 "refresh": "R",
             }
@@ -4363,9 +5041,10 @@ class SubstationAndroidApp(App):
             SELECT e.id, e.substation_id, e.element_type, e.name, e.serial_number,
                    e.maintenance_date, e.voltage_level, e.manufacturer, e.type,
                    e.manufacture_year, e.model, e.model_version, e.operating_status,
-                   e.installation_space, e.maintenance_cycle, e.gate, e.is_main_switch,
-                   e.element_model_id, em.breaker_category, em.model_name,
-                   em.manufacturer as model_manufacturer, em.manual_pdf, em.onedrive_manual_link
+                   e.installation_space, e.maintenance_cycle, e.operations_count, e.gate,
+                   e.is_main_switch, e.element_model_id, em.breaker_category,
+                   em.model_name, em.manufacturer as model_manufacturer,
+                   em.manual_pdf, em.onedrive_manual_link
             FROM elements e
             LEFT JOIN element_models em ON e.element_model_id = em.id
             WHERE e.substation_id = ? AND e.operating_status NOT IN ('Ανενεργή', 'Απόσυρση')
@@ -4391,6 +5070,7 @@ class SubstationAndroidApp(App):
             "operating_status",
             "installation_space",
             "maintenance_cycle",
+            "operations_count",
             "gate",
             "is_main_switch",
             "element_model_id",
@@ -5802,6 +6482,36 @@ class SubstationAndroidApp(App):
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
 
+        summary_row = BoxLayout(
+            orientation="horizontal",
+            size_hint_y=None,
+            height=52,
+            spacing=12,
+        )
+        name_label.size_hint_x = 1
+        summary_row.add_widget(name_label)
+
+        action_wrap = BoxLayout(
+            orientation="horizontal",
+            size_hint=(None, None),
+            width=44,
+            height=44,
+            padding=[0, 0, 0, 0],
+            spacing=0,
+        )
+        info_btn = self._build_vector_icon_button(
+            "info",
+            lambda _btn, sid=substation_id, sname=substation.get("name") or "": (
+                self.show_substation_element_summary(sid, sname, None)
+            ),
+            icon_color=(0.15, 0.55, 0.8, 1),
+            size=(38, 38),
+        )
+        info_btn.size_hint = (None, None)
+        info_btn.pos_hint = {"center_y": 0.5}
+        action_wrap.add_widget(info_btn)
+        summary_row.add_widget(action_wrap)
+
         location = substation.get("location") or "-"
         is_location_url = isinstance(location, str) and (
             location.startswith("http://") or location.startswith("https://")
@@ -5917,7 +6627,7 @@ class SubstationAndroidApp(App):
             size=lambda inst, _size: setattr(inst, "text_size", (inst.width, None))
         )
 
-        header_layout.add_widget(name_label)
+        header_layout.add_widget(summary_row)
         header_layout.add_widget(location_label)
         if location_button is not None:
             header_layout.add_widget(location_button)
@@ -6087,16 +6797,21 @@ class SubstationAndroidApp(App):
                         )
                         info_layout.add_widget(line1)
 
-                        sn = elem.get("serial_number") or "-"
-                        mfr = (
-                            elem.get("model_manufacturer")
-                            or elem.get("manufacturer")
-                            or "-"
-                        )
-                        mdl = elem.get("model_name") or elem.get("model") or "-"
-                        elem_id = elem.get("id", "N/A")
+                        summary_is_transformer = self._is_transformer(
+                            elem.get("element_type")
+                        ) and elem.get("element_type") not in [
+                            S.get("MESSAGES", {}).get(
+                                "ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"
+                            ),
+                            S.get("MESSAGES", {}).get(
+                                "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
+                            ),
+                        ]
                         line2 = Label(
-                            text=f"S/N: {sn} | Κατ.: {mfr} | Μοντ.: {mdl} (id:{elem_id})",
+                            text=self._build_element_summary_text(
+                                elem,
+                                is_transformer=summary_is_transformer,
+                            ),
                             font_size="11sp",
                             halign="left",
                             valign="middle",
@@ -6114,17 +6829,10 @@ class SubstationAndroidApp(App):
                         )
                         info_layout.add_widget(line2)
 
-                        voltage = elem.get("voltage_level", "-")
-                        year = elem.get("manufacture_year", "")
                         status = elem.get("operating_status", "-")
                         status_prefix = "[OK]" if status == "Ενεργή" else "[!]"
-                        line3_text = f"{voltage}"
-                        if year:
-                            line3_text += f" | Έτος: {year}"
-                        line3_text += f" | {status_prefix} {status}"
-
                         line3 = Label(
-                            text=line3_text,
+                            text=f"{status_prefix} {status}",
                             font_size="12sp",
                             halign="left",
                             valign="top",
@@ -6172,6 +6880,16 @@ class SubstationAndroidApp(App):
                                 size=(50, 50),
                             )
                             elem_card.add_widget(history_btn)
+
+                        eye_btn = self._build_vector_icon_button(
+                            "eye",
+                            lambda x, eid=elem.get("id"): self._show_element_quick_view(
+                                eid
+                            ),
+                            icon_color=(0.15, 0.55, 0.8, 1),
+                            size=(50, 50),
+                        )
+                        elem_card.add_widget(eye_btn)
 
                         if (
                             elem.get("element_model_id")

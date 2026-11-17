@@ -322,10 +322,11 @@ def test_load_substation_elements_uses_icon_only_android_action_buttons(monkeypa
     assert [button.icon_type for button in created_buttons] == [
         "book",
         "maintenance",
+        "eye",
         "models",
     ]
     assert all(button.bind_calls == 0 for button in created_buttons)
-    assert len(_collect_widgets_by_class_name(grid, "DummyIconButton")) == 3
+    assert len(_collect_widgets_by_class_name(grid, "DummyIconButton")) == 4
 
 
 def test_get_element_model_usage_groups_prefers_element_model_id(tmp_path):
