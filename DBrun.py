@@ -103,6 +103,115 @@ def _elements_missing_gate_warning_rows(conn, substation_id):
     ]
 
 
+def _coerce_bool_flag(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        cleaned = value.strip().lower()
+        if cleaned in {"", "0", "false", "no", "off", "none", "null"}:
+            return False
+        if cleaned in {"1", "true", "yes", "on"}:
+            return True
+        try:
+            return float(cleaned) != 0.0
+        except ValueError:
+            return cleaned not in {"", "none", "null"}
+    return bool(value)
+
+
+def _get_sf6_multiple_valves_flag(flag_map, element_id, default=False):
+    if not isinstance(flag_map, dict):
+        return _coerce_bool_flag(default)
+    if element_id is None:
+        return _coerce_bool_flag(default)
+
+    candidates = [element_id]
+    if isinstance(element_id, str):
+        stripped = element_id.strip()
+        if stripped:
+            candidates.append(stripped)
+            try:
+                candidates.append(int(stripped))
+            except ValueError:
+                pass
+    else:
+        try:
+            candidates.append(int(element_id))
+        except (TypeError, ValueError):
+            pass
+        candidates.append(str(element_id))
+
+    for candidate in candidates:
+        if candidate in flag_map:
+            return _coerce_bool_flag(flag_map[candidate])
+    for candidate_key, candidate_value in flag_map.items():
+        if str(candidate_key) == str(element_id):
+            return _coerce_bool_flag(candidate_value)
+    return _coerce_bool_flag(default)
+
+
+def _resolve_sf6_multiple_valves_flag(conn, flag_map, element_id, default=False):
+    cached_value = _get_sf6_multiple_valves_flag(flag_map, element_id, default)
+    if element_id is None or conn is None:
+        return cached_value
+
+    try:
+        fallback_map = _fetch_sf6_multiple_valves_by_element(conn, [element_id])
+        db_value = _get_sf6_multiple_valves_flag(fallback_map, element_id, default)
+        if not isinstance(flag_map, dict):
+            return db_value
+        if element_id not in flag_map and str(element_id) not in flag_map:
+            return db_value
+        if db_value != cached_value:
+            return db_value
+        return cached_value
+    except Exception:
+        return cached_value
+
+
+def _fetch_sf6_multiple_valves_by_element(conn, element_ids):
+    if not element_ids:
+        return {}
+    normalized_ids = []
+    seen = set()
+    for element_id in element_ids:
+        if element_id is None:
+            continue
+        try:
+            normalized_id = int(element_id)
+        except (TypeError, ValueError):
+            normalized_id = element_id
+        key = str(normalized_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_ids.append(normalized_id)
+    if not normalized_ids:
+        return {}
+    placeholders = ",".join(["?"] * len(normalized_ids))
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT e.id, COALESCE(em.sf6_multiple_valves, 0)
+            FROM elements e
+            LEFT JOIN element_models em ON em.id = e.element_model_id
+            WHERE e.id IN ({placeholders})
+            """,
+            normalized_ids,
+        )
+        result = {}
+        for row in cursor.fetchall() or []:
+            result[row[0]] = _coerce_bool_flag(row[1])
+        return result
+    except Exception:
+        return {}
+
+
 # Move runtime-only imports here so module-level imports are at top
 import importlib
 
@@ -12581,12 +12690,20 @@ class SubstationApp(App):
                 "SYNC_PROGRESS_INBOX", "Επεξεργασία εισερχομένων αλλαγών..."
             ),
         )
+        inbox_progress = _stage_progress_callback(
+            26,
+            36,
+            S["MESSAGES"].get(
+                "SYNC_PROGRESS_INBOX", "Επεξεργασία εισερχομένων αλλαγών..."
+            ),
+        )
         summary = run_sync_cycle(
             work_conn,
             db_path=self.db_path,
             actor=actor,
             create_backup_on_change=backup_on_change,
             hot_keep=hot_keep,
+            progress_callback=inbox_progress,
         )
         retention = summary.get("retention") or {}
 
@@ -18763,6 +18880,27 @@ class SubstationApp(App):
         )
         content_layout.add_widget(comments_label)
         _register_wizard_widget(2, comments_label)
+        selected_elements_summary_label = Label(
+            text=S["MESSAGES"]
+            .get(
+                "SELECTED_ELEMENTS_INLINE_SUMMARY",
+                "Επιλεγμένα στοιχεία ({count}): {elements}",
+            )
+            .format(
+                count=0,
+                elements=S["MESSAGES"].get("NO_ELEMENTS", "Κανένα στοιχείο"),
+            ),
+            size_hint_y=None,
+            markup=True,
+            halign="left",
+            valign="top",
+        )
+        selected_elements_summary_label.bind(
+            width=lambda inst, _val: setattr(inst, "text_size", (inst.width, None)),
+            texture_size=lambda inst, val: setattr(inst, "height", max(28, val[1] + 6)),
+        )
+        content_layout.add_widget(selected_elements_summary_label)
+        _register_wizard_widget(2, selected_elements_summary_label)
         comments_default = (
             maintenance_record[3]
             if maintenance_record and maintenance_record[3]
@@ -19190,6 +19328,8 @@ class SubstationApp(App):
 
         # Dictionary to store element widgets
         element_widgets = {}
+        baseline_selected_element_ids = set()
+        auto_highlighted_element_ids = set()
         bulk_element_selection = {"active": False}
         gate_sections = {}
         gate_order = []
@@ -19213,6 +19353,37 @@ class SubstationApp(App):
                 1
                 for widgets in element_widgets.values()
                 if getattr(widgets.get("checkbox"), "active", False)
+            )
+
+        def _refresh_selected_elements_summary():
+            selected_names = []
+            for elem_id, widgets in element_widgets.items():
+                if not getattr(widgets.get("checkbox"), "active", False):
+                    continue
+                meta = widgets.get("meta") or {}
+                name = str(meta.get("elem_name") or "").strip()
+                if not name:
+                    continue
+                if (
+                    elem_id in auto_highlighted_element_ids
+                    or elem_id not in baseline_selected_element_ids
+                ):
+                    name = f"[color=ff3333][b]{name}[/b][/color]"
+                selected_names.append(name)
+
+            selected_count = len(selected_names)
+            selected_elements_summary_label.text = (
+                S["MESSAGES"]
+                .get(
+                    "SELECTED_ELEMENTS_INLINE_SUMMARY",
+                    "Επιλεγμένα στοιχεία ({count}): {elements}",
+                )
+                .format(
+                    count=selected_count,
+                    elements=", ".join(selected_names)
+                    if selected_names
+                    else S["MESSAGES"].get("NO_ELEMENTS", "Κανένα στοιχείο"),
+                )
             )
 
         def _parse_local_decimal(value):
@@ -19773,6 +19944,8 @@ class SubstationApp(App):
 
             elements_container.clear_widgets()
             element_widgets.clear()
+            baseline_selected_element_ids.clear()
+            auto_highlighted_element_ids.clear()
             gate_sections.clear()
             gate_order[:] = []
             show_inactive_elements["value"] = False
@@ -19858,6 +20031,9 @@ class SubstationApp(App):
 
             element_ids = [elem[0] for elem in elements]
             last_ops_map = {}
+            sf6_multiple_valves_by_element = _fetch_sf6_multiple_valves_by_element(
+                c, element_ids
+            )
             if element_ids:
                 placeholders = ",".join(["?"] * len(element_ids))
                 c.execute(
@@ -20035,6 +20211,7 @@ class SubstationApp(App):
                     if selection_mode != "clear":
                         gate_sections.get(gate_value, {})["expanded"] = True
                     _refresh_elements_container_visibility()
+                    _refresh_selected_elements_summary()
                     refresh_workflow_summary()
                     _update_save_button_state()
                     _sync_dynamic_step_layout()
@@ -20770,22 +20947,89 @@ class SubstationApp(App):
                                 hint_text="uΩ",
                             )
 
-                            pressure_gauge_value = self._create_measurement_input(
-                                hint_text="0.0",
-                                size_hint_x=0.2,
+                            sf6_pressure_gauge_values = {}
+                            existing_sf6_payload = (
+                                existing_elements_data.get(eid)
+                                if existing_elements_data
+                                else {}
                             )
-                            pressure_gauge_unit = Spinner(
-                                text="bar",
-                                values=("bar", "kPa", "psi"),
-                                size_hint_x=0.16,
+                            has_multiple_sf6_valves = self._has_multi_valve_sf6_layout(
+                                existing_sf6_payload,
+                                _resolve_sf6_multiple_valves_flag(
+                                    self.conn, sf6_multiple_valves_by_element, eid
+                                ),
                             )
-                            self._add_labeled_measurement_row(
-                                details_container,
-                                "Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6:",
-                                pressure_gauge_value,
-                                pressure_gauge_unit,
-                                label_size_hint_x=0.56,
-                            )
+                            phase_a_sf6_pressure_widget = None
+
+                            if has_multiple_sf6_valves:
+                                pressure_gauge_unit = Spinner(
+                                    text="bar",
+                                    values=("bar", "kPa", "psi"),
+                                    size_hint_x=0.16,
+                                )
+                                self._add_labeled_measurement_row(
+                                    details_container,
+                                    "Μονάδα μανόμετρου SF6:",
+                                    pressure_gauge_unit,
+                                    label_size_hint_x=0.56,
+                                )
+                                for phase_key, phase_label in (
+                                    ("phase_a", "ΦΑΣΗ Α"),
+                                    ("phase_b", "ΦΑΣΗ Β"),
+                                    ("phase_c", "ΦΑΣΗ Γ"),
+                                ):
+                                    pressure_gauge_value = (
+                                        self._create_measurement_input(
+                                            hint_text="0.0",
+                                            size_hint_x=0.2,
+                                        )
+                                    )
+                                    sf6_pressure_gauge_values[phase_key] = (
+                                        pressure_gauge_value
+                                    )
+                                    if phase_key == "phase_a":
+                                        phase_a_sf6_pressure_widget = (
+                                            pressure_gauge_value
+                                        )
+                                    self._add_labeled_measurement_row(
+                                        details_container,
+                                        f"Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6 - {phase_label}:",
+                                        pressure_gauge_value,
+                                        label_size_hint_x=0.56,
+                                    )
+                                measurements["sf6_pressure_gauge_values"] = (
+                                    sf6_pressure_gauge_values
+                                )
+                                measurements["sf6_pressure_gauge_value"] = (
+                                    phase_a_sf6_pressure_widget
+                                )
+                                measurements["sf6_pressure_gauge_unit"] = (
+                                    pressure_gauge_unit
+                                )
+                            else:
+                                pressure_gauge_value = self._create_measurement_input(
+                                    hint_text="0.0",
+                                    size_hint_x=0.2,
+                                )
+                                phase_a_sf6_pressure_widget = pressure_gauge_value
+                                pressure_gauge_unit = Spinner(
+                                    text="bar",
+                                    values=("bar", "kPa", "psi"),
+                                    size_hint_x=0.16,
+                                )
+                                self._add_labeled_measurement_row(
+                                    details_container,
+                                    "Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6:",
+                                    pressure_gauge_value,
+                                    pressure_gauge_unit,
+                                    label_size_hint_x=0.56,
+                                )
+                                measurements["sf6_pressure_gauge_value"] = (
+                                    pressure_gauge_value
+                                )
+                                measurements["sf6_pressure_gauge_unit"] = (
+                                    pressure_gauge_unit
+                                )
 
                             details_container.add_widget(
                                 Label(
@@ -20988,7 +21232,10 @@ class SubstationApp(App):
                                     "wash_insulators": wash_insulators_sf6,
                                     "corrosion_check": corrosion_check,
                                     "resistance_raid": raid_inputs_sf6["measure"],
-                                    "sf6_pressure_gauge_value": pressure_gauge_value,
+                                    "sf6_pressure_gauge_value": (
+                                        sf6_pressure_gauge_values.get("phase_a")
+                                        or phase_a_sf6_pressure_widget
+                                    ),
                                     "sf6_pressure_gauge_unit": pressure_gauge_unit,
                                     "sf6_alarm_appearance_value": alarm_appearance_value,
                                     "sf6_alarm_appearance_unit": alarm_appearance_unit,
@@ -21397,22 +21644,95 @@ class SubstationApp(App):
                                 leak_layout.add_widget(sf6_methodology_input)
                                 details_container.add_widget(leak_layout)
 
-                                pressure_gauge_value = self._create_measurement_input(
-                                    hint_text="0.0",
-                                    size_hint_x=0.2,
+                                sf6_pressure_gauge_values = {}
+                                phase_a_sf6_pressure_widget = None
+                                existing_sf6_payload = (
+                                    existing_elements_data.get(eid)
+                                    if isinstance(existing_elements_data, dict)
+                                    else {}
                                 )
-                                pressure_gauge_unit = Spinner(
-                                    text="bar",
-                                    values=("bar", "kPa", "psi"),
-                                    size_hint_x=0.16,
+                                has_multiple_sf6_valves = (
+                                    self._has_multi_valve_sf6_layout(
+                                        existing_sf6_payload,
+                                        _resolve_sf6_multiple_valves_flag(
+                                            self.conn,
+                                            sf6_multiple_valves_by_element,
+                                            eid,
+                                        ),
+                                    )
                                 )
-                                self._add_labeled_measurement_row(
-                                    details_container,
-                                    "Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6:",
-                                    pressure_gauge_value,
-                                    pressure_gauge_unit,
-                                    label_size_hint_x=0.52,
-                                )
+
+                                if has_multiple_sf6_valves:
+                                    pressure_gauge_unit = Spinner(
+                                        text="bar",
+                                        values=("bar", "kPa", "psi"),
+                                        size_hint_x=0.16,
+                                    )
+                                    self._add_labeled_measurement_row(
+                                        details_container,
+                                        "Μονάδα μανόμετρου SF6:",
+                                        pressure_gauge_unit,
+                                        label_size_hint_x=0.52,
+                                    )
+                                    for phase_key, phase_label in (
+                                        ("phase_a", "ΦΑΣΗ Α"),
+                                        ("phase_b", "ΦΑΣΗ Β"),
+                                        ("phase_c", "ΦΑΣΗ Γ"),
+                                    ):
+                                        pressure_gauge_value = (
+                                            self._create_measurement_input(
+                                                hint_text="0.0",
+                                                size_hint_x=0.2,
+                                            )
+                                        )
+                                        sf6_pressure_gauge_values[phase_key] = (
+                                            pressure_gauge_value
+                                        )
+                                        if phase_key == "phase_a":
+                                            phase_a_sf6_pressure_widget = (
+                                                pressure_gauge_value
+                                            )
+                                        self._add_labeled_measurement_row(
+                                            details_container,
+                                            f"Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6 - {phase_label}:",
+                                            pressure_gauge_value,
+                                            label_size_hint_x=0.52,
+                                        )
+                                    measurements["sf6_pressure_gauge_values"] = (
+                                        sf6_pressure_gauge_values
+                                    )
+                                    measurements["sf6_pressure_gauge_value"] = (
+                                        phase_a_sf6_pressure_widget
+                                    )
+                                    measurements["sf6_pressure_gauge_unit"] = (
+                                        pressure_gauge_unit
+                                    )
+                                else:
+                                    pressure_gauge_value = (
+                                        self._create_measurement_input(
+                                            hint_text="0.0",
+                                            size_hint_x=0.2,
+                                        )
+                                    )
+                                    phase_a_sf6_pressure_widget = pressure_gauge_value
+                                    pressure_gauge_unit = Spinner(
+                                        text="bar",
+                                        values=("bar", "kPa", "psi"),
+                                        size_hint_x=0.16,
+                                    )
+                                    self._add_labeled_measurement_row(
+                                        details_container,
+                                        "Έλεγχος μανόμετρου σχετικής πίεσης αερίου SF6:",
+                                        pressure_gauge_value,
+                                        pressure_gauge_unit,
+                                        label_size_hint_x=0.52,
+                                    )
+                                    measurements["sf6_pressure_gauge_value"] = (
+                                        pressure_gauge_value
+                                    )
+                                    measurements["sf6_pressure_gauge_unit"] = (
+                                        pressure_gauge_unit
+                                    )
 
                                 details_container.add_widget(
                                     Label(
@@ -21646,20 +21966,26 @@ class SubstationApp(App):
                                     "h2o_fc": h2o_fc,
                                     "so2_fc": so2_fc,
                                 }
-                                measurements.update(
-                                    {
-                                        "sf6_pressure_gauge_value": pressure_gauge_value,
-                                        "sf6_pressure_gauge_unit": pressure_gauge_unit,
-                                        "sf6_alarm_appearance_value": alarm_appearance_value,
-                                        "sf6_alarm_appearance_unit": alarm_appearance_unit,
-                                        "sf6_block_appearance_value": block_appearance_value,
-                                        "sf6_block_appearance_unit": block_appearance_unit,
-                                        "sf6_alarm_disappearance_value": alarm_disappearance_value,
-                                        "sf6_alarm_disappearance_unit": alarm_disappearance_unit,
-                                        "sf6_block_disappearance_value": block_disappearance_value,
-                                        "sf6_block_disappearance_unit": block_disappearance_unit,
-                                    }
-                                )
+                                measurement_payload_to_store = {
+                                    "sf6_alarm_appearance_value": alarm_appearance_value,
+                                    "sf6_alarm_appearance_unit": alarm_appearance_unit,
+                                    "sf6_block_appearance_value": block_appearance_value,
+                                    "sf6_block_appearance_unit": block_appearance_unit,
+                                    "sf6_alarm_disappearance_value": alarm_disappearance_value,
+                                    "sf6_alarm_disappearance_unit": alarm_disappearance_unit,
+                                    "sf6_block_disappearance_value": block_disappearance_value,
+                                    "sf6_block_disappearance_unit": block_disappearance_unit,
+                                    "sf6_pressure_gauge_value": measurements.get(
+                                        "sf6_pressure_gauge_value"
+                                    ),
+                                    "sf6_pressure_gauge_values": measurements.get(
+                                        "sf6_pressure_gauge_values"
+                                    ),
+                                    "sf6_pressure_gauge_unit": measurements.get(
+                                        "sf6_pressure_gauge_unit"
+                                    ),
+                                }
+                                measurements.update(measurement_payload_to_store)
                             else:
                                 sf6_leakage_input = None
                                 sf6_methodology_input = None
@@ -21737,7 +22063,7 @@ class SubstationApp(App):
                                 measurements.setdefault("vidar", vidar_widgets)
                             elif is_breaker:
                                 # Legacy breaker measurement UI (populate only for breakers)
-                                measurements = {
+                                legacy_breaker_measurements = {
                                     "ins_closed_fa": ins_closed_fa,
                                     "ins_closed_fa_unit": ins_closed_fa_unit,
                                     "ins_closed_fb": ins_closed_fb,
@@ -21759,6 +22085,10 @@ class SubstationApp(App):
                                     "sf6_leak_methodology": sf6_methodology_input,
                                     "vidar": vidar_widgets,
                                 }
+                                if not isinstance(measurements, dict):
+                                    measurements = {}
+                                for key, value in legacy_breaker_measurements.items():
+                                    measurements.setdefault(key, value)
 
                         if (
                             has_measurement_form
@@ -21805,6 +22135,9 @@ class SubstationApp(App):
                             measurements_toggle.bind(active=_toggle_measurements)
 
                         self._bind_decimal_measurement_widgets(measurements)
+                        self._bind_measurement_toggle_autostart(
+                            measurements, measurements_toggle
+                        )
 
                         # Save into per-element storage (use eid)
                         element_widgets.setdefault(eid, {})
@@ -21819,7 +22152,18 @@ class SubstationApp(App):
                         # saved details_container
 
                     def ensure_details(elem_box=elem_box, eid=elem_id):
-                        build_details_for(eid)
+                        try:
+                            build_details_for(eid)
+                        except Exception:
+                            logging.exception(
+                                "Failed to build maintenance details for element %s",
+                                eid,
+                            )
+                            show_message_popup(
+                                S["TITLES"]["ERROR"],
+                                "Σφάλμα κατά το άνοιγμα δεδομένων συντήρησης στοιχείου.",
+                            )
+                            return
                         dc = element_widgets.get(eid, {}).get("details_container")
                         if dc is not None and dc not in elem_box.children:
                             elem_box.add_widget(dc)
@@ -21849,6 +22193,7 @@ class SubstationApp(App):
                         if bulk_element_selection["active"]:
                             return
                         _refresh_elements_container_visibility()
+                        _refresh_selected_elements_summary()
                         refresh_workflow_summary()
                         _update_save_button_state()
                         _sync_dynamic_step_layout()
@@ -21918,6 +22263,11 @@ class SubstationApp(App):
             if not maintenance_id and prefill_data.get("element_ids"):
                 prefill_elements = set(prefill_data.get("element_ids"))
                 incomplete_elements = set(prefill_data.get("incomplete_elements") or [])
+                for incomplete_id in incomplete_elements:
+                    try:
+                        auto_highlighted_element_ids.add(int(incomplete_id))
+                    except (TypeError, ValueError):
+                        continue
                 import_map = {}
                 for item in prefill_data.get("elements") or []:
                     if not isinstance(item, dict):
@@ -21927,12 +22277,28 @@ class SubstationApp(App):
                         import_map[elem_id] = self._normalize_prefill_element_payload(
                             item
                         )
+                bulk_element_selection["active"] = True
+                try:
+                    for elem_id in prefill_elements:
+                        if elem_id not in element_widgets:
+                            continue
+                        widgets = element_widgets[elem_id]
+                        widgets["checkbox"].active = True
+                finally:
+                    bulk_element_selection["active"] = False
                 for elem_id in prefill_elements:
                     if elem_id not in element_widgets:
                         continue
                     widgets = element_widgets[elem_id]
-                    widgets["checkbox"].active = True
                     widgets["ensure_details"]()
+                    widgets = element_widgets.get(elem_id, {})
+                    comments_widget = widgets.get("comments")
+                    if comments_widget is None or not hasattr(comments_widget, "text"):
+                        logging.error(
+                            "Skipping prefill for element %s because details widgets were not built",
+                            elem_id,
+                        )
+                        continue
                     if elem_id in incomplete_elements:
                         widgets[
                             "label"
@@ -21940,7 +22306,7 @@ class SubstationApp(App):
                     data = import_map.get(elem_id)
                     if not data:
                         continue
-                    widgets["comments"].text = data.get("element_comments", "")
+                    comments_widget.text = data.get("element_comments", "")
                     measurement_toggle = widgets.get("measurements_toggle")
                     if measurement_toggle is not None:
                         has_payload = bool(
@@ -21967,11 +22333,24 @@ class SubstationApp(App):
             if maintenance_id and prefill_data.get("element_ids"):
                 prefill_elements = set(prefill_data.get("element_ids") or [])
                 incomplete_elements = set(prefill_data.get("incomplete_elements") or [])
+                for incomplete_id in incomplete_elements:
+                    try:
+                        auto_highlighted_element_ids.add(int(incomplete_id))
+                    except (TypeError, ValueError):
+                        continue
+                bulk_element_selection["active"] = True
+                try:
+                    for elem_id in prefill_elements:
+                        if elem_id not in element_widgets:
+                            continue
+                        widgets = element_widgets[elem_id]
+                        widgets["checkbox"].active = True
+                finally:
+                    bulk_element_selection["active"] = False
                 for elem_id in prefill_elements:
                     if elem_id not in element_widgets:
                         continue
                     widgets = element_widgets[elem_id]
-                    widgets["checkbox"].active = True
                     widgets["ensure_details"]()
                     if elem_id in incomplete_elements:
                         widgets[
@@ -21979,13 +22358,40 @@ class SubstationApp(App):
                         ].text = f"[color=ff3333]{widgets['display']}[/color]"
 
             if maintenance_id and existing_elements_data:
+                bulk_element_selection["active"] = True
+                try:
+                    for elem_id in existing_elements_data.keys():
+                        if elem_id not in element_widgets:
+                            continue
+                        widgets = element_widgets[elem_id]
+                        widgets["checkbox"].active = True
+                finally:
+                    bulk_element_selection["active"] = False
                 for elem_id, data in existing_elements_data.items():
                     if elem_id not in element_widgets:
                         continue
                     widgets = element_widgets[elem_id]
-                    widgets["checkbox"].active = True
                     widgets["ensure_details"]()
-                    widgets["comments"].text = data.get("element_comments", "")
+                    widgets = element_widgets.get(elem_id, {})
+                    comments_widget = widgets.get("comments")
+                    if comments_widget is None or not hasattr(comments_widget, "text"):
+                        logging.error(
+                            "Skipping maintenance prefill for element %s because details widgets were not built",
+                            elem_id,
+                        )
+                        continue
+                    normalized_data = self._normalize_form_measurement_payload(data)
+                    normalized_data = self._normalize_sf6_pressure_payload(
+                        normalized_data,
+                        self._has_multi_valve_sf6_layout(
+                            normalized_data,
+                            _resolve_sf6_multiple_valves_flag(
+                                self.conn, sf6_multiple_valves_by_element, elem_id
+                            ),
+                        ),
+                    )
+                    data = normalized_data
+                    comments_widget.text = data.get("element_comments", "")
 
                     measurements = widgets["measurements"] or {}
                     if measurements:
@@ -22049,10 +22455,14 @@ class SubstationApp(App):
                             w.text = str(data.get("ops_count"))
 
                         sf6_widgets = measurements.get("sf6")
-                        if sf6_widgets:
+                        if isinstance(sf6_widgets, dict):
                             for key, widget in sf6_widgets.items():
                                 if data.get("sf6") and data["sf6"].get(key) is not None:
                                     widget.text = str(data["sf6"].get(key))
+
+                        self._apply_sf6_measurement_payload_to_widgets(
+                            measurements, data
+                        )
 
                         if (
                             measurements.get("sf6_leakage")
@@ -22070,7 +22480,7 @@ class SubstationApp(App):
                             )
 
                         vidar_widgets = measurements.get("vidar")
-                        if vidar_widgets:
+                        if isinstance(vidar_widgets, dict):
                             for key, widget in vidar_widgets.items():
                                 if (
                                     data.get("vidar")
@@ -22079,12 +22489,13 @@ class SubstationApp(App):
                                     widget.text = str(data["vidar"].get(key))
 
                         vidar_status_widgets = measurements.get("vidar_status") or {}
-                        for key, widget in vidar_status_widgets.items():
-                            legacy_status = self._legacy_vidar_display_value(
-                                (data.get("vidar") or {}).get(key)
-                            )
-                            if legacy_status in {"OK", "NOK"}:
-                                widget.text = legacy_status
+                        if isinstance(vidar_status_widgets, dict):
+                            for key, widget in vidar_status_widgets.items():
+                                legacy_status = self._legacy_vidar_display_value(
+                                    (data.get("vidar") or {}).get(key)
+                                )
+                                if legacy_status in {"OK", "NOK"}:
+                                    widget.text = legacy_status
 
                         extra_measurements = data.get("extra_measurements") or {}
                         if extra_measurements:
@@ -22141,7 +22552,16 @@ class SubstationApp(App):
                             # when there are no saved measurement values.
                             measurement_toggle.active = bool(has_existing_measurements)
 
+            baseline_selected_element_ids.update(
+                {
+                    elem_id
+                    for elem_id, widgets in element_widgets.items()
+                    if getattr(widgets.get("checkbox"), "active", False)
+                }
+            )
+
             _refresh_elements_container_visibility()
+            _refresh_selected_elements_summary()
 
             refresh_workflow_summary()
             _sync_dynamic_step_layout()
@@ -22262,6 +22682,10 @@ class SubstationApp(App):
                 for eid, widgets in element_widgets.items()
                 if widgets["checkbox"].active
             ]
+            sf6_multiple_valves_by_element = _fetch_sf6_multiple_valves_by_element(
+                self.conn,
+                [elem_id for elem_id, _ in selected_elements],
+            )
 
             # selected_elements prepared
 
@@ -22703,7 +23127,7 @@ class SubstationApp(App):
                     # Parse SF6 measurements if present
                     sf6_vals = {}
                     sf6_widgets = measurements.get("sf6")
-                    if sf6_widgets:
+                    if isinstance(sf6_widgets, dict):
                         for key, widget in sf6_widgets.items():
                             if isinstance(widget, (tuple, list)):
                                 continue
@@ -22750,7 +23174,7 @@ class SubstationApp(App):
                     # Parse VIDAR (vacuum) measurements when present
                     vidar_vals = {}
                     vidar_widgets = measurements.get("vidar")
-                    if vidar_widgets:
+                    if isinstance(vidar_widgets, dict):
                         for key, widget in vidar_widgets.items():
                             try:
                                 vidar_vals[key] = (
@@ -22765,7 +23189,7 @@ class SubstationApp(App):
                                     vidar_vals[key] = None
 
                     vidar_status_widgets = measurements.get("vidar_status") or {}
-                    if vidar_status_widgets:
+                    if isinstance(vidar_status_widgets, dict):
                         for key, widget in vidar_status_widgets.items():
                             status_text = str(getattr(widget, "text", "") or "").strip()
                             if status_text == "OK":
@@ -22779,6 +23203,14 @@ class SubstationApp(App):
                     measurement_toggle = widgets.get("measurements_toggle")
                     if measurement_toggle is not None:
                         measurements_enabled = bool(measurement_toggle.active)
+                    measurements_enabled = self._should_store_widget_measurements(
+                        measurements, measurements_enabled
+                    )
+                    if measurement_toggle is not None and measurements_enabled:
+                        try:
+                            measurement_toggle.active = True
+                        except Exception:
+                            pass
 
                     extra = (
                         self._serialize_measurements_for_storage(measurements)
@@ -22787,6 +23219,19 @@ class SubstationApp(App):
                     )
                     if measurements_enabled:
                         extra = dict(extra)
+                        extra.update(
+                            self._serialize_sf6_measurement_payload_fields(measurements)
+                        )
+                        has_multiple_sf6_valves = self._has_multi_valve_sf6_layout(
+                            extra,
+                            _resolve_sf6_multiple_valves_flag(
+                                self.conn, sf6_multiple_valves_by_element, elem_id
+                            ),
+                        )
+                        extra = self._normalize_sf6_pressure_payload(
+                            extra,
+                            has_multiple_sf6_valves,
+                        )
                         extra["measurements_enabled"] = True
 
                     # Safely extract measurement values to avoid KeyError when widgets are absent
@@ -22833,32 +23278,98 @@ class SubstationApp(App):
                         sf6_vals = {key: None for key in sf6_vals}
                         vidar_vals = {key: None for key in vidar_vals}
 
+                    current_payload = {
+                        "ins_closed_fa": ins_closed_fa_val,
+                        "ins_closed_fa_unit": ins_closed_fa_unit,
+                        "ins_closed_fb": ins_closed_fb_val,
+                        "ins_closed_fb_unit": ins_closed_fb_unit,
+                        "ins_closed_fc": ins_closed_fc_val,
+                        "ins_closed_fc_unit": ins_closed_fc_unit,
+                        "ins_open_fa": ins_open_fa_val,
+                        "ins_open_fa_unit": ins_open_fa_unit,
+                        "ins_open_fb": ins_open_fb_val,
+                        "ins_open_fb_unit": ins_open_fb_unit,
+                        "ins_open_fc": ins_open_fc_val,
+                        "ins_open_fc_unit": ins_open_fc_unit,
+                        "cont_fa": cont_fa_val,
+                        "cont_fb": cont_fb_val,
+                        "cont_fc": cont_fc_val,
+                        "ops_count": ops_count,
+                        "sf6_leakage_kg": sf6_leakage_val,
+                        "sf6_leak_methodology": sf6_leak_methodology_val,
+                        "sf6": sf6_vals,
+                        "vidar": vidar_vals,
+                        "sf6_pressure_gauge_value": measurements.get(
+                            "sf6_pressure_gauge_value"
+                        ),
+                        "sf6_pressure_gauge_values": measurements.get(
+                            "sf6_pressure_gauge_values"
+                        ),
+                        "sf6_pressure_gauge_unit": measurements.get(
+                            "sf6_pressure_gauge_unit"
+                        ),
+                        "sf6_alarm_appearance_value": measurements.get(
+                            "sf6_alarm_appearance_value"
+                        ),
+                        "sf6_alarm_appearance_unit": measurements.get(
+                            "sf6_alarm_appearance_unit"
+                        ),
+                        "sf6_block_appearance_value": measurements.get(
+                            "sf6_block_appearance_value"
+                        ),
+                        "sf6_block_appearance_unit": measurements.get(
+                            "sf6_block_appearance_unit"
+                        ),
+                        "sf6_alarm_disappearance_value": measurements.get(
+                            "sf6_alarm_disappearance_value"
+                        ),
+                        "sf6_alarm_disappearance_unit": measurements.get(
+                            "sf6_alarm_disappearance_unit"
+                        ),
+                        "sf6_block_disappearance_value": measurements.get(
+                            "sf6_block_disappearance_value"
+                        ),
+                        "sf6_block_disappearance_unit": measurements.get(
+                            "sf6_block_disappearance_unit"
+                        ),
+                        "post_sf6_quality": measurements.get("post_sf6_quality"),
+                        "measurements_enabled": measurements_enabled,
+                        "extra_measurements": extra,
+                    }
+                    current_payload = self._normalize_sf6_pressure_payload(
+                        current_payload,
+                        _resolve_sf6_multiple_valves_flag(
+                            self.conn, sf6_multiple_valves_by_element, elem_id
+                        ),
+                    )
+                    current_payload["extra_measurements"] = dict(
+                        current_payload.get("extra_measurements") or {}
+                    )
+                    current_payload["extra_measurements"].update(
+                        self._serialize_meaningful_payload_fields(
+                            current_payload,
+                            (
+                                "sf6_pressure_gauge_value",
+                                "sf6_pressure_gauge_values",
+                                "sf6_pressure_gauge_value_phase_a",
+                                "sf6_pressure_gauge_value_phase_b",
+                                "sf6_pressure_gauge_value_phase_c",
+                                "sf6_pressure_gauge_unit",
+                                "sf6_alarm_appearance_value",
+                                "sf6_alarm_appearance_unit",
+                                "sf6_block_appearance_value",
+                                "sf6_block_appearance_unit",
+                                "sf6_alarm_disappearance_value",
+                                "sf6_alarm_disappearance_unit",
+                                "sf6_block_disappearance_value",
+                                "sf6_block_disappearance_unit",
+                                "post_sf6_quality",
+                            ),
+                        )
+                    )
                     measurement_payload = self._preserve_existing_measurement_payload(
                         existing_elements_data.get(elem_id),
-                        {
-                            "ins_closed_fa": ins_closed_fa_val,
-                            "ins_closed_fa_unit": ins_closed_fa_unit,
-                            "ins_closed_fb": ins_closed_fb_val,
-                            "ins_closed_fb_unit": ins_closed_fb_unit,
-                            "ins_closed_fc": ins_closed_fc_val,
-                            "ins_closed_fc_unit": ins_closed_fc_unit,
-                            "ins_open_fa": ins_open_fa_val,
-                            "ins_open_fa_unit": ins_open_fa_unit,
-                            "ins_open_fb": ins_open_fb_val,
-                            "ins_open_fb_unit": ins_open_fb_unit,
-                            "ins_open_fc": ins_open_fc_val,
-                            "ins_open_fc_unit": ins_open_fc_unit,
-                            "cont_fa": cont_fa_val,
-                            "cont_fb": cont_fb_val,
-                            "cont_fc": cont_fc_val,
-                            "ops_count": ops_count,
-                            "sf6_leakage_kg": sf6_leakage_val,
-                            "sf6_leak_methodology": sf6_leak_methodology_val,
-                            "sf6": sf6_vals,
-                            "vidar": vidar_vals,
-                            "measurements_enabled": measurements_enabled,
-                            "extra_measurements": extra,
-                        },
+                        current_payload,
                         measurements_enabled=measurements_enabled,
                     )
 
@@ -24409,6 +24920,49 @@ class SubstationApp(App):
 
         return text or None
 
+    def _get_sf6_pressure_widget_reference(self, measurements):
+        if not isinstance(measurements, dict):
+            return None
+        phase_widgets = measurements.get("sf6_pressure_gauge_values") or {}
+        if isinstance(phase_widgets, dict):
+            for phase_key in ("phase_a", "phase_b", "phase_c"):
+                widget = phase_widgets.get(phase_key)
+                if widget is not None:
+                    return widget
+        return measurements.get("sf6_pressure_gauge_value")
+
+    def _has_multi_valve_sf6_layout(self, measurements=None, model_flag=None):
+        if model_flag is not None:
+            return _coerce_bool_flag(model_flag)
+        if not isinstance(measurements, dict):
+            return False
+
+        # Older maintenance payloads may store SF6 phase data inside nested
+        # `extra_measurements` or `measurements` dictionaries. Flatten those
+        # values without expanding legacy single-value payloads into a three-
+        # phase map before the layout decision is made.
+        flattened = dict(measurements)
+        for nested_key in ("extra_measurements", "measurements"):
+            nested = flattened.get(nested_key)
+            if isinstance(nested, dict):
+                flattened = {**nested, **flattened}
+        measurements = flattened
+
+        def _is_missing(value):
+            return value is None or (isinstance(value, str) and value.strip() == "")
+
+        phase_values = measurements.get("sf6_pressure_gauge_values")
+        if isinstance(phase_values, dict):
+            for phase_key in ("phase_b", "phase_c"):
+                if not _is_missing(phase_values.get(phase_key)):
+                    return True
+        for phase_key in ("phase_b", "phase_c"):
+            if not _is_missing(
+                measurements.get(f"sf6_pressure_gauge_value_{phase_key}")
+            ):
+                return True
+        return False
+
     def _serialize_measurements_for_storage(self, measurements):
         serialized = {}
         for key, widget in (measurements or {}).items():
@@ -24417,17 +24971,281 @@ class SubstationApp(App):
                 serialized[key] = serialized_value
         return serialized
 
+    def _serialize_sf6_measurement_payload_fields(self, measurements):
+        if not isinstance(measurements, dict):
+            return {}
+
+        serialized = {}
+        for field_name in (
+            "sf6_pressure_gauge_value",
+            "sf6_pressure_gauge_values",
+            "sf6_pressure_gauge_value_phase_a",
+            "sf6_pressure_gauge_value_phase_b",
+            "sf6_pressure_gauge_value_phase_c",
+            "sf6_pressure_gauge_unit",
+            "sf6_alarm_appearance_value",
+            "sf6_alarm_appearance_unit",
+            "sf6_block_appearance_value",
+            "sf6_block_appearance_unit",
+            "sf6_alarm_disappearance_value",
+            "sf6_alarm_disappearance_unit",
+            "sf6_block_disappearance_value",
+            "sf6_block_disappearance_unit",
+            "post_sf6_quality",
+        ):
+            widget = measurements.get(field_name)
+            if widget is None:
+                continue
+            serialized_value = self._serialize_measurement_widget_value(widget)
+            if self._has_meaningful_measurement_value(serialized_value):
+                serialized[field_name] = serialized_value
+        return serialized
+
+    def _serialize_meaningful_payload_fields(self, payload, field_names):
+        if not isinstance(payload, dict):
+            return {}
+
+        serialized = {}
+        for field_name in field_names:
+            value = payload.get(field_name)
+            if value is None:
+                continue
+            serialized_value = self._serialize_measurement_widget_value(value)
+            if self._has_meaningful_measurement_value(serialized_value):
+                serialized[field_name] = serialized_value
+        return serialized
+
+    def _should_store_widget_measurements(self, measurements, measurements_enabled):
+        if measurements_enabled:
+            return True
+        if not isinstance(measurements, dict):
+            return False
+        serialized = self._serialize_measurements_for_storage(measurements)
+        return self._has_meaningful_measurement_value(serialized)
+
+    def _bind_measurement_toggle_autostart(self, measurements, measurement_toggle):
+        if measurement_toggle is None or not isinstance(measurements, dict):
+            return
+
+        def _activate_if_value_present(_widget=None, *_args):
+            try:
+                if getattr(measurement_toggle, "active", False) is not True:
+                    measurement_toggle.active = True
+            except Exception:
+                pass
+
+        def _walk(value):
+            if isinstance(value, dict):
+                for child in value.values():
+                    _walk(child)
+                return
+            if isinstance(value, (list, tuple)):
+                for child in value:
+                    _walk(child)
+                return
+            try:
+                if hasattr(value, "bind"):
+                    value.bind(text=_activate_if_value_present)
+                    value.bind(active=_activate_if_value_present)
+            except Exception:
+                pass
+
+        _walk(measurements)
+
+    def _apply_sf6_measurement_payload_to_widgets(self, measurements, data):
+        if not isinstance(measurements, dict) or not isinstance(data, dict):
+            return
+
+        sf6_phase_widgets = measurements.get("sf6_pressure_gauge_values") or {}
+        if isinstance(sf6_phase_widgets, dict):
+            sf6_phase_map = data.get("sf6_pressure_gauge_values") or {}
+            if not isinstance(sf6_phase_map, dict):
+                sf6_phase_map = {}
+            for phase_key, widget in sf6_phase_widgets.items():
+                value = sf6_phase_map.get(phase_key)
+                if value is None:
+                    legacy_value = data.get("sf6_pressure_gauge_value")
+                    if legacy_value is not None and phase_key == "phase_a":
+                        value = legacy_value
+                if value is not None and widget is not None and hasattr(widget, "text"):
+                    widget.text = str(value)
+
+        sf6_single_widget = measurements.get("sf6_pressure_gauge_value")
+        if sf6_single_widget and hasattr(sf6_single_widget, "text"):
+            value = data.get("sf6_pressure_gauge_value")
+            if value is None:
+                phase_values = data.get("sf6_pressure_gauge_values") or {}
+                if isinstance(phase_values, dict):
+                    value = phase_values.get("phase_a")
+            if value is not None:
+                sf6_single_widget.text = str(value)
+
+        for widget_key in (
+            "sf6_alarm_appearance_value",
+            "sf6_alarm_appearance_unit",
+            "sf6_block_appearance_value",
+            "sf6_block_appearance_unit",
+            "sf6_alarm_disappearance_value",
+            "sf6_alarm_disappearance_unit",
+            "sf6_block_disappearance_value",
+            "sf6_block_disappearance_unit",
+        ):
+            widget = measurements.get(widget_key)
+            if widget is not None and hasattr(widget, "text"):
+                value = data.get(widget_key)
+                if value is not None:
+                    widget.text = str(value)
+
+        post_sf6_quality_widgets = measurements.get("post_sf6_quality") or {}
+        if isinstance(post_sf6_quality_widgets, dict):
+            post_sf6_quality_data = data.get("post_sf6_quality") or {}
+            if isinstance(post_sf6_quality_data, dict):
+                for row_key, widgets in post_sf6_quality_widgets.items():
+                    if not isinstance(widgets, (tuple, list)) or not widgets:
+                        continue
+                    value = post_sf6_quality_data.get(row_key)
+                    target_widget = widgets[0]
+                    if (
+                        value is not None
+                        and target_widget is not None
+                        and hasattr(target_widget, "text")
+                    ):
+                        target_widget.text = str(value)
+
+    def _normalize_sf6_pressure_payload(self, payload, has_multiple_valves=False):
+        if not isinstance(payload, dict):
+            return payload
+
+        def _flatten_sf6_payload(candidate):
+            flattened = dict(candidate)
+            for nested_key in ("extra_measurements", "measurements"):
+                nested = flattened.get(nested_key)
+                if isinstance(nested, dict):
+                    flattened = {**nested, **flattened}
+            return flattened
+
+        def _is_missing(value):
+            return value is None or (isinstance(value, str) and value.strip() == "")
+
+        def _coalesce_non_missing(primary, fallback):
+            if not _is_missing(primary):
+                return primary
+            return fallback
+
+        normalized = _flatten_sf6_payload(payload)
+        phase_values = normalized.get("sf6_pressure_gauge_values")
+        if not isinstance(phase_values, dict):
+            phase_values = {}
+
+        for phase_key in ("phase_a", "phase_b", "phase_c"):
+            direct_value = normalized.get(f"sf6_pressure_gauge_value_{phase_key}")
+            if not _is_missing(direct_value) and _is_missing(
+                phase_values.get(phase_key)
+            ):
+                phase_values[phase_key] = direct_value
+
+        legacy_value = normalized.get("sf6_pressure_gauge_value")
+        any_phase_value = any(
+            not _is_missing(phase_values.get(key))
+            for key in ("phase_a", "phase_b", "phase_c")
+        )
+        if not _is_missing(legacy_value) and not any_phase_value:
+            phase_values = {
+                "phase_a": legacy_value,
+                "phase_b": legacy_value,
+                "phase_c": legacy_value,
+            }
+            any_phase_value = True
+
+        selected = next(
+            (
+                phase_values.get(key)
+                for key in ("phase_a", "phase_b", "phase_c")
+                if not _is_missing(phase_values.get(key))
+            ),
+            None,
+        )
+        if _is_missing(selected) and not _is_missing(legacy_value):
+            selected = legacy_value
+
+        if not _is_missing(selected):
+            baseline = _coalesce_non_missing(phase_values.get("phase_a"), selected)
+            if not has_multiple_valves:
+                phase_values = {
+                    "phase_a": baseline,
+                    "phase_b": baseline,
+                    "phase_c": baseline,
+                }
+            else:
+                for phase_key in ("phase_a", "phase_b", "phase_c"):
+                    if _is_missing(phase_values.get(phase_key)):
+                        phase_values[phase_key] = baseline
+            normalized["sf6_pressure_gauge_values"] = {
+                key: phase_values.get(key) for key in ("phase_a", "phase_b", "phase_c")
+            }
+            normalized["sf6_pressure_gauge_value"] = _coalesce_non_missing(
+                normalized["sf6_pressure_gauge_values"].get("phase_a"), baseline
+            )
+            for phase_key in ("phase_a", "phase_b", "phase_c"):
+                if not _is_missing(
+                    normalized["sf6_pressure_gauge_values"].get(phase_key)
+                ):
+                    normalized[f"sf6_pressure_gauge_value_{phase_key}"] = normalized[
+                        "sf6_pressure_gauge_values"
+                    ][phase_key]
+        return normalized
+
     def _normalize_form_measurement_payload(self, payload):
         if not isinstance(payload, dict):
             return {}
 
         normalized = dict(payload)
-        nested_measurements = normalized.get("measurements")
-        if isinstance(nested_measurements, dict):
-            for key, value in nested_measurements.items():
-                normalized.setdefault(key, value)
-            if "extra_measurements" not in normalized:
-                normalized["extra_measurements"] = nested_measurements
+        for nested_key in ("extra_measurements", "measurements"):
+            nested_measurements = normalized.get(nested_key)
+            if isinstance(nested_measurements, dict):
+                for key, value in nested_measurements.items():
+                    normalized.setdefault(key, value)
+                if (
+                    nested_key == "measurements"
+                    and "extra_measurements" not in normalized
+                ):
+                    normalized["extra_measurements"] = nested_measurements
+
+        def _is_missing(value):
+            return value is None or (isinstance(value, str) and value.strip() == "")
+
+        sf6_phase_values = normalized.get("sf6_pressure_gauge_values")
+        if isinstance(sf6_phase_values, dict):
+            for phase_key in ("phase_a", "phase_b", "phase_c"):
+                phase_value = sf6_phase_values.get(phase_key)
+                if not _is_missing(phase_value):
+                    normalized.setdefault(
+                        f"sf6_pressure_gauge_value_{phase_key}", phase_value
+                    )
+        else:
+            sf6_phase_values = {}
+
+        legacy_sf6_value = normalized.get("sf6_pressure_gauge_value")
+        for phase_key in ("phase_a", "phase_b", "phase_c"):
+            phase_value = normalized.get(f"sf6_pressure_gauge_value_{phase_key}")
+            if not _is_missing(phase_value):
+                sf6_phase_values.setdefault(phase_key, phase_value)
+        if not _is_missing(legacy_sf6_value) and not any(
+            not _is_missing(value) for value in sf6_phase_values.values()
+        ):
+            sf6_phase_values = {
+                "phase_a": legacy_sf6_value,
+                "phase_b": legacy_sf6_value,
+                "phase_c": legacy_sf6_value,
+            }
+        if any(not _is_missing(value) for value in sf6_phase_values.values()):
+            normalized["sf6_pressure_gauge_values"] = {
+                key: sf6_phase_values.get(key)
+                for key in ("phase_a", "phase_b", "phase_c")
+            }
+            normalized["sf6_pressure_gauge_value"] = sf6_phase_values.get(
+                "phase_a", legacy_sf6_value
+            )
 
         alias_map = {
             "operations_count": "ops_count",
@@ -24478,6 +25296,7 @@ class SubstationApp(App):
             }
 
         normalized = self._normalize_form_measurement_payload(payload)
+        normalized = self._normalize_sf6_pressure_payload(normalized)
         extra_measurements = normalized.get("extra_measurements")
         if not isinstance(extra_measurements, dict):
             extra_measurements = normalized
@@ -24518,6 +25337,21 @@ class SubstationApp(App):
             "sf6_leakage_kg",
             "sf6_leak_methodology",
             "sf6",
+            "sf6_pressure_gauge_value",
+            "sf6_pressure_gauge_values",
+            "sf6_pressure_gauge_unit",
+            "sf6_pressure_gauge_value_phase_a",
+            "sf6_pressure_gauge_value_phase_b",
+            "sf6_pressure_gauge_value_phase_c",
+            "sf6_alarm_appearance_value",
+            "sf6_alarm_appearance_unit",
+            "sf6_block_appearance_value",
+            "sf6_block_appearance_unit",
+            "sf6_alarm_disappearance_value",
+            "sf6_alarm_disappearance_unit",
+            "sf6_block_disappearance_value",
+            "sf6_block_disappearance_unit",
+            "post_sf6_quality",
             "vidar",
         ):
             if key in normalized:
@@ -24585,6 +25419,16 @@ class SubstationApp(App):
     def _has_meaningful_measurement_value(self, value):
         if value is None:
             return False
+
+        if hasattr(value, "active"):
+            return bool(getattr(value, "active", False))
+
+        if hasattr(value, "text"):
+            text = getattr(value, "text", None)
+            if text is None:
+                return False
+            return str(text).strip() != ""
+
         if isinstance(value, dict):
             return any(
                 self._has_meaningful_measurement_value(item) for item in value.values()
@@ -24626,6 +25470,21 @@ class SubstationApp(App):
             "sf6_leakage_kg",
             "sf6_leak_methodology",
             "sf6",
+            "sf6_pressure_gauge_value",
+            "sf6_pressure_gauge_values",
+            "sf6_pressure_gauge_value_phase_a",
+            "sf6_pressure_gauge_value_phase_b",
+            "sf6_pressure_gauge_value_phase_c",
+            "sf6_pressure_gauge_unit",
+            "sf6_alarm_appearance_value",
+            "sf6_alarm_appearance_unit",
+            "sf6_block_appearance_value",
+            "sf6_block_appearance_unit",
+            "sf6_alarm_disappearance_value",
+            "sf6_alarm_disappearance_unit",
+            "sf6_block_disappearance_value",
+            "sf6_block_disappearance_unit",
+            "post_sf6_quality",
             "vidar",
             "extra_measurements",
         )
@@ -24656,6 +25515,21 @@ class SubstationApp(App):
             "sf6_leakage_kg",
             "sf6_leak_methodology",
             "sf6",
+            "sf6_pressure_gauge_value",
+            "sf6_pressure_gauge_values",
+            "sf6_pressure_gauge_value_phase_a",
+            "sf6_pressure_gauge_value_phase_b",
+            "sf6_pressure_gauge_value_phase_c",
+            "sf6_pressure_gauge_unit",
+            "sf6_alarm_appearance_value",
+            "sf6_alarm_appearance_unit",
+            "sf6_block_appearance_value",
+            "sf6_block_appearance_unit",
+            "sf6_alarm_disappearance_value",
+            "sf6_alarm_disappearance_unit",
+            "sf6_block_disappearance_value",
+            "sf6_block_disappearance_unit",
+            "post_sf6_quality",
             "vidar",
             "extra_measurements",
             "measurements_enabled",
