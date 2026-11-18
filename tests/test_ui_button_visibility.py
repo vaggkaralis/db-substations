@@ -1,4 +1,12 @@
 from android_app import SubstationAndroidApp
+from pathlib import Path
+
+
+def test_android_wrapping_layout_uses_dynamic_text_heights():
+    source = Path("android_app.py").read_text(encoding="utf-8")
+
+    assert "texture_size=_sync_detail_label_height" in source
+    assert "texture_size=lambda inst, size: setattr(" in source
 
 
 def test_root_buttons_visible_and_hidden(monkeypatch):
@@ -241,6 +249,11 @@ def test_android_quick_view_close_button_dismisses_popup(monkeypatch):
     class FakeLabel:
         def __init__(self, *args, **kwargs):
             self.kwargs = kwargs
+            self.width = kwargs.get("width", 0)
+            self.height = kwargs.get("height", 0)
+
+        def bind(self, **kwargs):
+            return None
 
     captured = {}
 

@@ -3122,7 +3122,31 @@ class SubstationAndroidApp(App):
         )
         box.bind(minimum_height=box.setter("height"))
         for line in lines:
-            box.add_widget(Label(text=line, size_hint_y=None, height=28))
+            detail_label = Label(
+                text=line,
+                size_hint=(1, None),
+                height=28,
+                halign="left",
+                valign="top",
+            )
+
+            def _sync_detail_label_size(
+                instance,
+                _size,
+                bound_label=detail_label,
+            ):
+                bound_label.text_size = (max(instance.width - 16, 1), None)
+
+            def _sync_detail_label_height(
+                instance,
+                texture_size,
+                bound_label=detail_label,
+            ):
+                bound_label.height = max(28, int(texture_size[1]) + 6)
+
+            detail_label.bind(size=_sync_detail_label_size)
+            detail_label.bind(texture_size=_sync_detail_label_height)
+            box.add_widget(detail_label)
 
         close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=40)
         box.add_widget(close_btn)
@@ -3132,7 +3156,7 @@ class SubstationAndroidApp(App):
 
         popup = Popup(
             title=S["MESSAGES"].get("VIEW_ELEMENT_TITLE", "Προβολή Στοιχείου"),
-            size_hint=(0.85, 0.8),
+            size_hint=(0.92, 0.82),
         )
         popup.content = scroll
         close_btn.bind(on_press=popup.dismiss)
@@ -6878,17 +6902,19 @@ class SubstationAndroidApp(App):
                             markup=True,
                             font_size="15sp",
                             halign="left",
-                            valign="middle",
+                            valign="top",
                             size_hint_y=None,
-                            height=42,
-                            shorten=True,
-                            shorten_from="right",
-                            max_lines=1,
+                            height=38,
                             color=self.theme.get("text", (0.12, 0.18, 0.24, 1)),
                         )
                         line1.bind(
                             size=lambda inst, _size: setattr(
                                 inst, "text_size", (inst.width, None)
+                            )
+                        )
+                        line1.bind(
+                            texture_size=lambda inst, size: setattr(
+                                inst, "height", max(38, size[1] + 4)
                             )
                         )
                         info_layout.add_widget(line1)
@@ -6940,14 +6966,16 @@ class SubstationAndroidApp(App):
                             valign="top",
                             color=self.theme.get("text_muted", (0.35, 0.43, 0.51, 1)),
                             size_hint_y=None,
-                            height=34,
-                            shorten=True,
-                            shorten_from="right",
-                            max_lines=1,
+                            height=24,
                         )
                         line3.bind(
                             size=lambda inst, _size: setattr(
                                 inst, "text_size", (inst.width, None)
+                            )
+                        )
+                        line3.bind(
+                            texture_size=lambda inst, size: setattr(
+                                inst, "height", max(24, size[1] + 2)
                             )
                         )
                         info_layout.add_widget(line3)
@@ -6960,7 +6988,7 @@ class SubstationAndroidApp(App):
                             bound_row=elem_row,
                         ):
                             row_height = max(
-                                160,
+                                168,
                                 int(getattr(bound_info, "height", 0) + 20),
                             )
                             bound_card.height = row_height
@@ -7025,9 +7053,8 @@ class SubstationAndroidApp(App):
                             )
                             elem_card.add_widget(model_usage_btn)
 
-                        elem_row.add_widget(
-                            self._build_gate_tag_widget(gate_name, height=160)
-                        )
+                        gate_tag = self._build_gate_tag_widget(gate_name, height=168)
+                        elem_row.add_widget(gate_tag)
                         elem_row.add_widget(elem_card)
                         grid.add_widget(elem_row)
 
