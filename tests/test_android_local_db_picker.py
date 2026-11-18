@@ -329,6 +329,58 @@ def test_load_substation_elements_uses_icon_only_android_action_buttons(monkeypa
     assert len(_collect_widgets_by_class_name(grid, "DummyIconButton")) == 4
 
 
+def test_load_substation_elements_resizes_each_wrapped_row_independently(monkeypatch):
+    app = android_app.SubstationAndroidApp()
+    app.data_mode = "local"
+    app._local_fetch_elements = lambda _substation_id: [
+        {
+            "id": element_id,
+            "name": f"Breaker {element_id}",
+            "element_type": "Διακόπτης ΜΤ",
+            "breaker_category": "SF6",
+            "serial_number": f"SN-{element_id}-very-long",
+            "manufacturer": "Manufacturer with a long name",
+            "model_name": "Model with a long name",
+            "manufacture_year": "2020",
+            "operating_status": "Ενεργή",
+            "gate": "ΠΥΛΗ 1",
+        }
+        for element_id in (1, 2)
+    ]
+    app._has_element_maintenance_history = lambda _element_id: False
+
+    scheduled_callbacks = []
+    monkeypatch.setattr(
+        android_app.Clock,
+        "schedule_once",
+        lambda callback, _delay: scheduled_callbacks.append(callback),
+    )
+
+    grid = android_app.GridLayout(cols=1)
+    app._load_substation_elements(1, grid)
+
+    rows = [
+        widget
+        for widget in grid.children
+        if widget.__class__.__name__ == "BoxLayout" and len(widget.children) == 2
+    ]
+    assert len(rows) == 2
+    assert len(scheduled_callbacks) == 2
+
+    first_row = rows[0]
+    second_row = rows[1]
+    first_card = first_row.children[1]
+    first_info = first_card.children[0]
+    first_info.height = 230
+    second_row.height = 160
+
+    scheduled_callbacks[0](0)
+
+    assert first_row.height == 250
+    assert first_card.height == 250
+    assert second_row.height == 160
+
+
 def test_get_element_model_usage_groups_prefers_element_model_id(tmp_path):
     app = android_app.SubstationAndroidApp()
     db_path = tmp_path / "android_model_usage.db"

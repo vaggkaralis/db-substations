@@ -1,6 +1,7 @@
 import importlib
 import sqlite3
 import types
+from pathlib import Path
 
 
 def test_import_elements_module_and_delegate_exists():
@@ -8,6 +9,24 @@ def test_import_elements_module_and_delegate_exists():
     # Ensure at least one safe delegate exists (doesn't require an app instance)
     assert hasattr(mod, "show_add_element_popup_delegate")
     assert hasattr(mod, "show_add_subelement_entry_popup")
+
+
+def test_element_save_flow_has_renderable_loading_popup():
+    source = Path("elements.py").read_text(encoding="utf-8")
+
+    assert 'title=S["TITLES"].get("SAVING", "Αποθήκευση")' in source
+    assert "Γίνεται αποθήκευση..." in source
+    assert "Clock.schedule_once" in source
+    assert "loading_popup.open()" in source
+    assert "loading_popup.dismiss()" in source
+    assert 'hasattr(app, "_show_loading_popup")' in source
+
+
+def test_desktop_app_exposes_loading_popup_helper():
+    source = Path("DBrun.py").read_text(encoding="utf-8")
+
+    assert "def _show_loading_popup" in source
+    assert "auto_dismiss=False" in source
 
 
 def test_show_element_history_ignores_orphan_links(monkeypatch):

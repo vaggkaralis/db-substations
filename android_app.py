@@ -6889,16 +6889,22 @@ class SubstationAndroidApp(App):
                         info_layout.add_widget(line3)
                         elem_card.add_widget(info_layout)
 
-                        def _sync_row_height(*_args):
+                        def _sync_row_height(
+                            *_args,
+                            bound_info=info_layout,
+                            bound_card=elem_card,
+                            bound_row=elem_row,
+                        ):
                             row_height = max(
                                 160,
-                                int(getattr(info_layout, "height", 0) + 20),
+                                int(getattr(bound_info, "height", 0) + 20),
                             )
-                            elem_card.height = row_height
-                            elem_row.height = row_height
+                            bound_card.height = row_height
+                            bound_row.height = row_height
 
-                        info_layout.bind(height=lambda *_args: _sync_row_height())
+                        info_layout.bind(height=_sync_row_height)
                         _sync_row_height()
+                        Clock.schedule_once(_sync_row_height, 0)
 
                         manual_link = (elem.get("onedrive_manual_link") or "").strip()
                         if not manual_link:

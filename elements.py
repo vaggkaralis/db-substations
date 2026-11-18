@@ -2669,6 +2669,7 @@ def show_edit_element_popup(
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.spinner import Spinner
     from kivy.uix.textinput import TextInput
+    from kivy.clock import Clock
 
     from popups import show_message_popup
 
@@ -2988,14 +2989,10 @@ def show_edit_element_popup(
 
     save_state = {"busy": False, "completed": False}
 
-    def save_changes():
-        if save_state["busy"] or save_state["completed"]:
+    def _execute_save_changes(loading_popup):
+        """Execute the save after the loading popup has been allowed to render."""
+        if save_state["completed"]:
             return
-        save_state["busy"] = True
-        try:
-            save_btn.disabled = True
-        except Exception:
-            pass
 
         try:
             name_val = _normalize_element_name(field_inputs["name"].text)
@@ -3284,6 +3281,10 @@ def show_edit_element_popup(
                 fallback_filter_name=substation_name,
             )
             save_state["completed"] = True
+            try:
+                loading_popup.dismiss()
+            except Exception:
+                pass
             _dismiss_popup_safely(popup)
             _dismiss_popup_safely(parent_popup)
             _dismiss_popup_safely(grandparent_popup)
@@ -3303,11 +3304,55 @@ def show_edit_element_popup(
                 )
         finally:
             save_state["busy"] = False
+            try:
+                loading_popup.dismiss()
+            except Exception:
+                pass
             if not save_state["completed"]:
                 try:
                     save_btn.disabled = False
                 except Exception:
                     pass
+
+    def save_changes():
+        if save_state["busy"] or save_state["completed"]:
+            return
+        save_state["busy"] = True
+        try:
+            save_btn.disabled = True
+        except Exception:
+            pass
+
+        if hasattr(app, "_show_loading_popup"):
+            loading_popup = app._show_loading_popup(
+                "Γίνεται αποθήκευση...\nΠαρακαλώ περιμένετε."
+            )
+        else:
+            loading_popup = Popup(
+                title=S["TITLES"].get("SAVING", "Αποθήκευση"),
+                size_hint=(0.72, 0.22),
+                auto_dismiss=False,
+            )
+            loading_layout = BoxLayout(
+                orientation="vertical",
+                padding=18,
+                spacing=10,
+            )
+            loading_layout.add_widget(
+                Label(
+                    text="Γίνεται αποθήκευση...\nΠαρακαλώ περιμένετε.",
+                    halign="center",
+                    valign="middle",
+                )
+            )
+            loading_popup.content = loading_layout
+            loading_popup.open()
+
+        # Give the loading popup one event-loop turn before starting database/sync work.
+        Clock.schedule_once(
+            lambda _dt: _execute_save_changes(loading_popup),
+            0.05,
+        )
 
     save_btn = Button(text=S["BUTTONS"]["SAVE"])
     save_btn.bind(on_press=lambda x: save_changes())
