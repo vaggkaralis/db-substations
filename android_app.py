@@ -2887,26 +2887,38 @@ class SubstationAndroidApp(App):
         )
         popup = Popup(
             title=f"Πληροφορίες Στοιχείων - {substation_name or 'Υποσταθμός'}",
-            size_hint=(0.72, 0.8),
+            size_hint=(0.9, 0.8),
         )
         if parent_popup is not None:
             popup._dbs_origin_popup = parent_popup
 
         content = BoxLayout(orientation="vertical", padding=10, spacing=10)
-        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        scroll = ScrollView(
+            bar_width=10, scroll_type=["bars", "content"], do_scroll_x=False
+        )
         label = Label(
             text="\n".join(summary_lines),
             markup=True,
             halign="left",
             valign="top",
+            size_hint=(None, None),
             size_hint_y=None,
-            text_size=(None, None),
+            text_size=(0, None),
         )
-        label.bind(
-            texture_size=lambda instance, size: setattr(
-                instance, "size", (instance.width, size[1])
+
+        def _sync_summary_label_width(*_args):
+            label_width = max((getattr(scroll, "width", 0) or 0) - 16, 0)
+            label.width = label_width
+            label.text_size = (label_width, None)
+
+        if hasattr(label, "bind"):
+            label.bind(
+                texture_size=lambda instance, size: setattr(instance, "height", size[1])
             )
-        )
+        if hasattr(scroll, "bind"):
+            scroll.bind(width=lambda *_args: _sync_summary_label_width())
+        _sync_summary_label_width()
+
         scroll.add_widget(label)
         content.add_widget(scroll)
 
@@ -6485,7 +6497,7 @@ class SubstationAndroidApp(App):
         summary_row = BoxLayout(
             orientation="horizontal",
             size_hint_y=None,
-            height=52,
+            height=74,
             spacing=12,
         )
         name_label.size_hint_x = 1
@@ -6494,8 +6506,8 @@ class SubstationAndroidApp(App):
         action_wrap = BoxLayout(
             orientation="horizontal",
             size_hint=(None, None),
-            width=44,
-            height=44,
+            width=74,
+            height=74,
             padding=[0, 0, 0, 0],
             spacing=0,
         )
@@ -6505,7 +6517,7 @@ class SubstationAndroidApp(App):
                 self.show_substation_element_summary(sid, sname, None)
             ),
             icon_color=(0.15, 0.55, 0.8, 1),
-            size=(38, 38),
+            size=(68, 68),
         )
         info_btn.size_hint = (None, None)
         info_btn.pos_hint = {"center_y": 0.5}
