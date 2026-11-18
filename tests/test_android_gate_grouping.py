@@ -248,3 +248,17 @@ def test_build_gate_tag_widget_uses_compact_gate_text():
     texts = _collect_texts(widget)
     assert "Π1-3" in texts
     assert "ΠΥΛΗ 1-3" not in texts
+
+
+def test_build_element_left_tags_places_gate_then_hemizygos_tag():
+    app = android_app.SubstationAndroidApp()
+
+    widget = app._build_element_left_tags(
+        "ΠΥΛΗ 1",
+        "Ημιζυγός 2",
+        height=160,
+    )
+
+    texts = _collect_texts(widget)
+    assert "Π1" in texts
+    assert "ΗΖ 2" in texts

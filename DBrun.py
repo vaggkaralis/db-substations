@@ -7510,6 +7510,38 @@ class SubstationApp(App):
 
         return (2, label.casefold())
 
+    @staticmethod
+    def _normalize_main_switch_flag(is_main_switch):
+        if is_main_switch is None:
+            return None
+        if isinstance(is_main_switch, bool):
+            return int(is_main_switch)
+        if isinstance(is_main_switch, (int, float)):
+            return int(is_main_switch)
+
+        text = str(is_main_switch).strip()
+        if not text:
+            return None
+        try:
+            return int(float(text))
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def mv_breaker_display_sort_rank(cls, is_main_switch):
+        normalized = cls._normalize_main_switch_flag(is_main_switch)
+        # MV subtype order inside each gate + hemizygos:
+        # Main -> Line -> Capacitor -> Interconnection -> rest.
+        if normalized == 1:
+            return 1
+        if normalized == 0:
+            return 2
+        if normalized == 3:
+            return 3
+        if normalized == 2:
+            return 4
+        return 5
+
     # Utility to sort element rows for display using the requested gate order.
     @staticmethod
     def sort_element_gate_display(element_rows):
@@ -11561,18 +11593,7 @@ class SubstationApp(App):
                         elif elem_type == "Motor Drive":
                             return (3, hemizygos_rank, 0, elem_name)
                         elif elem_type == self.ELEM_BREAKER_MT:
-                            # MV subtype order inside each gate + hemizygos:
-                            # Main -> Line -> Capacitor -> Interconnection -> rest.
-                            if is_main_switch == 1:
-                                mv_rank = 1
-                            elif is_main_switch == 0:
-                                mv_rank = 2
-                            elif is_main_switch == 3:
-                                mv_rank = 3
-                            elif is_main_switch == 2:
-                                mv_rank = 4
-                            else:
-                                mv_rank = 5
+                            mv_rank = self.mv_breaker_display_sort_rank(is_main_switch)
                             return (4, hemizygos_rank, mv_rank, elem_name)
                         else:
                             return (5, hemizygos_rank, 0, elem_name)
@@ -20291,31 +20312,21 @@ class SubstationApp(App):
                     installation_space,
                 ) = elem
 
-                # Priority order: HV breaker, Transformer, Motor Drive, MV main breaker, MV interconnection breaker, MV line breaker, MV capacitor breaker, rest
+                hemizygos_rank = SubstationApp.hemizygos_display_sort_key(hemizygos)
+
+                # Match the substation element view:
+                # global element category, then hemizygos, then MV breaker subtype.
                 if elem_type == self.ELEM_BREAKER_YT:
-                    return (1, elem_name)
+                    return (1, hemizygos_rank, 0, elem_name)
                 elif self._is_transformer(elem_type):
-                    return (2, elem_name)
+                    return (2, hemizygos_rank, 0, elem_name)
                 elif elem_type == "Motor Drive":
-                    return (3, elem_name)
-                elif (
-                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 1
-                ):  # Main breaker
-                    return (4, elem_name)
-                elif (
-                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 2
-                ):  # Interconnection breaker
-                    return (5, elem_name)
-                elif (
-                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 0
-                ):  # Line breaker
-                    return (6, elem_name)
-                elif (
-                    elem_type == self.ELEM_BREAKER_MT and is_main_switch == 3
-                ):  # Capacitor breaker
-                    return (7, elem_name)
+                    return (3, hemizygos_rank, 0, elem_name)
+                elif elem_type == self.ELEM_BREAKER_MT:
+                    mv_rank = self.mv_breaker_display_sort_rank(is_main_switch)
+                    return (4, hemizygos_rank, mv_rank, elem_name)
                 else:
-                    return (8, elem_name)
+                    return (5, hemizygos_rank, 0, elem_name)
 
             # Group elements by gate
             gates_dict = {}
@@ -20345,14 +20356,14 @@ class SubstationApp(App):
                     gates_dict[gate_key] = []
                 gates_dict[gate_key].append(elem)
 
-            # Sort elements within each gate according to priority
+            # Sort elements within each gate exactly like the substation element view.
             for gate_key in gates_dict:
                 gates_dict[gate_key].sort(key=get_element_priority)
 
-            # Display elements grouped by gate
-            # Show gates in order: ΠΥΛΗ 1, ΠΥΛΗ 2, etc., then unassigned
-            sorted_gates = sorted(
-                [g for g in gates_dict.keys() if g.startswith("ΠΥΛΗ")]
+            # Display elements grouped by gate in the same visual gate order.
+            gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+            sorted_gates = self.sort_gate_labels_for_display(
+                [g for g in gates_dict.keys() if g.startswith(gate_prefix)]
             )
             unreg_val = get_unreg()
             if unreg_val in gates_dict:
@@ -28085,14 +28096,26 @@ class SubstationApp(App):
                                 pass
 
                         def _reopen_history():
-                            self.show_substation_maintenance_history(
-                                substation_id,
-                                substation_name,
-                                parent_display_popup,
-                                current_element_filter.get("id"),
-                                current_element_filter.get("name"),
-                                include_maintenance_ids=include_maintenance_ids,
-                            )
+                            def _do_reopen(_dt=None):
+                                try:
+                                    popup.dismiss()
+                                except Exception:
+                                    pass
+                                self.show_substation_maintenance_history(
+                                    substation_id,
+                                    substation_name,
+                                    parent_display_popup,
+                                    current_element_filter.get("id"),
+                                    current_element_filter.get("name"),
+                                    include_maintenance_ids=include_maintenance_ids,
+                                )
+
+                            try:
+                                from kivy.clock import Clock
+
+                                Clock.schedule_once(_do_reopen, 0)
+                            except Exception:
+                                _do_reopen()
 
                         self.show_maintenance_menu(
                             None,
@@ -28112,14 +28135,27 @@ class SubstationApp(App):
                     if not _is_dga_maintenance_type(maint_type):
 
                         def _reopen_history_view():
-                            self.show_substation_maintenance_history(
-                                substation_id,
-                                substation_name,
-                                parent_display_popup,
-                                current_element_filter.get("id"),
-                                current_element_filter.get("name"),
-                                include_maintenance_ids=include_maintenance_ids,
-                            )
+                            def _do_reopen(_dt=None):
+                                try:
+                                    if p is not None:
+                                        p.dismiss()
+                                except Exception:
+                                    pass
+                                self.show_substation_maintenance_history(
+                                    substation_id,
+                                    substation_name,
+                                    parent_display_popup,
+                                    current_element_filter.get("id"),
+                                    current_element_filter.get("name"),
+                                    include_maintenance_ids=include_maintenance_ids,
+                                )
+
+                            try:
+                                from kivy.clock import Clock
+
+                                Clock.schedule_once(_do_reopen, 0)
+                            except Exception:
+                                _do_reopen()
 
                         return lambda x: self.show_maintenance_menu(
                             None,
@@ -28159,14 +28195,26 @@ class SubstationApp(App):
 
                 def make_rebuild_folder_handler(m_id):
                     def _reopen_history_view():
-                        self.show_substation_maintenance_history(
-                            substation_id,
-                            substation_name,
-                            parent_display_popup,
-                            current_element_filter.get("id"),
-                            current_element_filter.get("name"),
-                            include_maintenance_ids=include_maintenance_ids,
-                        )
+                        def _do_reopen(_dt=None):
+                            try:
+                                popup.dismiss()
+                            except Exception:
+                                pass
+                            self.show_substation_maintenance_history(
+                                substation_id,
+                                substation_name,
+                                parent_display_popup,
+                                current_element_filter.get("id"),
+                                current_element_filter.get("name"),
+                                include_maintenance_ids=include_maintenance_ids,
+                            )
+
+                        try:
+                            from kivy.clock import Clock
+
+                            Clock.schedule_once(_do_reopen, 0)
+                        except Exception:
+                            _do_reopen()
 
                     return lambda _x: self._confirm_rebuild_maintenance_storage_paths(
                         m_id,

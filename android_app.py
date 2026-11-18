@@ -2366,6 +2366,16 @@ class SubstationAndroidApp(App):
             return f"{compact_prefix}{gate_text[len(normalized_prefix) :].strip()}"
         return gate_text
 
+    def _format_hemizygos_tag_text(self, hemizygos_name):
+        value = str(hemizygos_name or "").strip()
+        if not value:
+            return ""
+        if value.endswith("1"):
+            return "ΗΖ 1"
+        if value.endswith("2"):
+            return "ΗΖ 2"
+        return value
+
     def _element_display_sort_key(self, elem):
         elem_type = str(elem.get("element_type") or "").strip()
         elem_name = str(elem.get("name") or "").strip().casefold()
@@ -3197,6 +3207,66 @@ class SubstationAndroidApp(App):
         )
         container.add_widget(tag)
         container.add_widget(Label(text="", size_hint_y=1))
+        return container
+
+    def _build_hemizygos_tag_widget(self, hemizygos_name, *, height=110):
+        tag_text = self._format_hemizygos_tag_text(hemizygos_name)
+        if not tag_text:
+            return Label(text="", size_hint=(None, 1), width=0)
+
+        tag_height = max(72, min(int(height or 72), 92))
+        tag = Button(
+            text=tag_text,
+            size_hint=(None, None),
+            size=(58, tag_height),
+            disabled=True,
+        )
+        try:
+            tag.background_normal = ""
+            tag.background_down = ""
+            tag.background_color = get_gate_color(f"hemizygos:{hemizygos_name}")
+            tag.color = (1, 1, 1, 1)
+            tag.bold = True
+            tag.halign = "center"
+            tag.valign = "middle"
+            tag.bind(
+                size=lambda instance, _value: setattr(
+                    instance,
+                    "text_size",
+                    (max(instance.width - 10, 0), max(instance.height - 10, 0)),
+                )
+            )
+            if autosize_button_text:
+                autosize_button_text(tag, max_sp=16, min_sp=9)
+        except Exception:
+            pass
+
+        container = BoxLayout(
+            orientation="vertical",
+            size_hint=(None, 1),
+            width=58,
+            padding=[0, 8, 0, 0],
+        )
+        container.add_widget(tag)
+        container.add_widget(Label(text="", size_hint_y=1))
+        return container
+
+    def _build_element_left_tags(self, gate_name, hemizygos_name, *, height=110):
+        container = BoxLayout(
+            orientation="horizontal",
+            size_hint=(None, 1),
+            width=116 if str(hemizygos_name or "").strip() else 58,
+            spacing=0,
+            padding=[0, 0, 0, 0],
+        )
+        container.add_widget(self._build_gate_tag_widget(gate_name, height=height))
+        if str(hemizygos_name or "").strip():
+            container.add_widget(
+                self._build_hemizygos_tag_widget(
+                    hemizygos_name,
+                    height=height,
+                )
+            )
         return container
 
     def _change_log_has_content(self):
@@ -6837,37 +6907,12 @@ class SubstationAndroidApp(App):
                     hemizygos_sections = self._group_elements_by_hemizygos(
                         gate_elements
                     )
-                    show_hemizygos_sections = any(
-                        elem.get("hemizygos") for elem in gate_elements
-                    )
                     hemizygos_entries = []
                     for hemizygos_name, hemizygos_elements in hemizygos_sections:
-                        if show_hemizygos_sections:
-                            hemizygos_entries.append(
-                                ("hemizygos_header", hemizygos_name)
-                            )
                         for hemizygos_elem in hemizygos_elements:
                             hemizygos_entries.append(("element", hemizygos_elem))
 
                     for entry in hemizygos_entries:
-                        if entry[0] == "hemizygos_header":
-                            hemi_header = Label(
-                                text=f"[b]{entry[1]}[/b]",
-                                markup=True,
-                                size_hint_y=None,
-                                height=30,
-                                halign="left",
-                                valign="middle",
-                                color=self.theme.get("primary", (0.15, 0.55, 0.8, 1)),
-                            )
-                            hemi_header.bind(
-                                size=lambda inst, _size: setattr(
-                                    inst, "text_size", (inst.width, inst.height)
-                                )
-                            )
-                            grid.add_widget(hemi_header)
-                            continue
-
                         elem = entry[1]
                         elem_row = BoxLayout(
                             size_hint_y=None,
@@ -7053,8 +7098,12 @@ class SubstationAndroidApp(App):
                             )
                             elem_card.add_widget(model_usage_btn)
 
-                        gate_tag = self._build_gate_tag_widget(gate_name, height=168)
-                        elem_row.add_widget(gate_tag)
+                        left_tags = self._build_element_left_tags(
+                            gate_name,
+                            elem.get("hemizygos"),
+                            height=168,
+                        )
+                        elem_row.add_widget(left_tags)
                         elem_row.add_widget(elem_card)
                         grid.add_widget(elem_row)
 
@@ -8034,14 +8083,7 @@ class SubstationAndroidApp(App):
                             ("header", gate_name, len(gate_elements))
                         )
                         hemi_sections = self._group_elements_by_hemizygos(gate_elements)
-                        show_hemizygos = any(
-                            elem.get("hemizygos") for elem in gate_elements
-                        )
                         for hemi_name, hemi_elements in hemi_sections:
-                            if show_hemizygos:
-                                ordered_entries.append(
-                                    ("hemizygos_header", gate_name, hemi_name)
-                                )
                             for gate_elem in hemi_elements:
                                 ordered_entries.append(
                                     ("element", gate_name, gate_elem)
@@ -8066,24 +8108,6 @@ class SubstationAndroidApp(App):
                                 )
                             )
                             content_layout.add_widget(gate_header)
-                            continue
-                        if entry[0] == "hemizygos_header":
-                            hemi_name = entry[2]
-                            hemi_header = Label(
-                                text=f"[b]{hemi_name}[/b]",
-                                markup=True,
-                                size_hint_y=None,
-                                height=30,
-                                halign="left",
-                                valign="middle",
-                                color=self.theme.get("primary", (0.15, 0.55, 0.8, 1)),
-                            )
-                            hemi_header.bind(
-                                size=lambda inst, _size: setattr(
-                                    inst, "text_size", (inst.width, inst.height)
-                                )
-                            )
-                            content_layout.add_widget(hemi_header)
                             continue
 
                         _kind, gate_name, elem = entry
@@ -9482,8 +9506,10 @@ class SubstationAndroidApp(App):
                         )
                         elem_row.bind(minimum_height=elem_row.setter("height"))
                         elem_row.add_widget(
-                            self._build_gate_tag_widget(
-                                gate_name, height=max(140, int(elem_box.height or 140))
+                            self._build_element_left_tags(
+                                gate_name,
+                                elem.get("hemizygos"),
+                                height=max(140, int(elem_box.height or 140)),
                             )
                         )
                         elem_row.add_widget(elem_box)

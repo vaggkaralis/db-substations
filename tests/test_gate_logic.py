@@ -115,6 +115,13 @@ def test_sort_gate_labels_for_display_requested_order():
     assert ordered == ["ΠΥΛΗ 1-3", "ΠΥΛΗ 1", "ΠΥΛΗ 1-2", "ΠΥΛΗ 2", "ΠΥΛΗ 2-3", "ΠΥΛΗ 3"]
 
 
+def test_mv_breaker_display_sort_rank_matches_substation_view():
+    assert SubstationApp.mv_breaker_display_sort_rank("1") == 1
+    assert SubstationApp.mv_breaker_display_sort_rank("0") == 2
+    assert SubstationApp.mv_breaker_display_sort_rank("3") == 3
+    assert SubstationApp.mv_breaker_display_sort_rank("2") == 4
+
+
 def test_init_db_adds_hemizygos_column():
     conn = init_db(":memory:")
     cursor = conn.cursor()
