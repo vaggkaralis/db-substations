@@ -2705,10 +2705,21 @@ class SubstationAndroidApp(App):
         def _format_oil_summary(total_liters):
             if total_liters <= 0:
                 return ""
-            summary = summarize_oil_requirement(total_liters, tolerance_pct=0.0)
-            adjusted_liters = float(summary.get("base_liters") or 0.0)
-            barrels = int(summary.get("rounded_barrels") or 0)
-            return f"{_format_numeric(adjusted_liters, 1)} L / {barrels} βαρέλια"
+            base_summary = summarize_oil_requirement(total_liters, tolerance_pct=0.0)
+            base_liters = float(base_summary.get("base_liters") or 0.0)
+            base_barrels = int(base_summary.get("rounded_barrels") or 0)
+
+            reserve_summary = summarize_oil_requirement(
+                total_liters, tolerance_pct=10.0
+            )
+            reserve_liters = float(reserve_summary.get("adjusted_liters") or 0.0)
+            reserve_barrels = int(reserve_summary.get("rounded_barrels") or 0)
+
+            return (
+                f"{_format_numeric(base_liters, 1)} L / {base_barrels} βαρέλια "
+                f"(απόθεμα 10%: {_format_numeric(reserve_liters, 1)} L / "
+                f"{reserve_barrels} βαρέλια)"
+            )
 
         def _build_category_summary(label, total, category_counts, oil_liters, sf6_kg):
             if total <= 0:
@@ -6785,15 +6796,21 @@ class SubstationAndroidApp(App):
                         )
 
                         info_layout = BoxLayout(
-                            orientation="vertical", size_hint_x=1, spacing=8
+                            orientation="vertical",
+                            size_hint=(1, None),
+                            spacing=6,
                         )
+                        info_layout.bind(minimum_height=info_layout.setter("height"))
 
                         elem_type_display = elem["element_type"]
                         if elem.get("breaker_category"):
                             elem_type_display += f" ({elem['breaker_category']})"
+                        element_id_display = (
+                            elem.get("id") if elem.get("id") not in (None, "") else "-"
+                        )
 
                         line1 = Label(
-                            text=f"[b]{elem['name']}[/b] - {elem_type_display}",
+                            text=f"[b]{elem['name']}[/b] (ID: {element_id_display}) - {elem_type_display}",
                             markup=True,
                             font_size="15sp",
                             halign="left",
@@ -6822,21 +6839,30 @@ class SubstationAndroidApp(App):
                                 "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
                             ),
                         ]
+                        summary_text = self._build_element_summary_text(
+                            elem,
+                            is_transformer=summary_is_transformer,
+                        )
+                        if summary_text.startswith("ID: ") and " | " in summary_text:
+                            summary_text = summary_text.split(" | ", 1)[1]
+
                         line2 = Label(
-                            text=self._build_element_summary_text(
-                                elem,
-                                is_transformer=summary_is_transformer,
-                            ),
+                            text=summary_text,
                             font_size="11sp",
                             halign="left",
                             valign="top",
                             color=self.theme.get("text_muted", (0.35, 0.43, 0.51, 1)),
                             size_hint_y=None,
-                            height=54,
+                            height=0,
                         )
                         line2.bind(
                             size=lambda inst, _size: setattr(
                                 inst, "text_size", (inst.width, None)
+                            )
+                        )
+                        line2.bind(
+                            texture_size=lambda inst, size: setattr(
+                                inst, "height", max(34, size[1] + 2)
                             )
                         )
                         info_layout.add_widget(line2)
@@ -6862,6 +6888,17 @@ class SubstationAndroidApp(App):
                         )
                         info_layout.add_widget(line3)
                         elem_card.add_widget(info_layout)
+
+                        def _sync_row_height(*_args):
+                            row_height = max(
+                                160,
+                                int(getattr(info_layout, "height", 0) + 20),
+                            )
+                            elem_card.height = row_height
+                            elem_row.height = row_height
+
+                        info_layout.bind(height=lambda *_args: _sync_row_height())
+                        _sync_row_height()
 
                         manual_link = (elem.get("onedrive_manual_link") or "").strip()
                         if not manual_link:

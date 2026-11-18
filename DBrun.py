@@ -11765,7 +11765,10 @@ class SubstationApp(App):
                             power_display = (
                                 f"{effective_power} MVA" if effective_power else "-"
                             )
-                            elem_first_line = f"{j}. [b][size=18]{elem_name}[/size][/b] - {display_elem_type}{breaker_info}{inactive_marker}"
+                            elem_first_line = (
+                                f"{j}. [b][size=18]{elem_name}[/size][/b] "
+                                f"(ID: {elem_id}) - {display_elem_type}{breaker_info}{inactive_marker}"
+                            )
                             summary_bits = [
                                 f"Κατ.: {model_manufacturer or manufacturer or '-'}",
                                 f"Μοντ.: {model_name or '-'}",
@@ -16414,10 +16417,21 @@ class SubstationApp(App):
         def _format_oil_summary(total_liters):
             if total_liters <= 0:
                 return ""
-            summary = summarize_oil_requirement(total_liters, tolerance_pct=0.0)
-            adjusted_liters = float(summary.get("base_liters") or 0.0)
-            barrels = int(summary.get("rounded_barrels") or 0)
-            return f"{_format_numeric(adjusted_liters, 1)} L / {barrels} βαρέλια"
+            base_summary = summarize_oil_requirement(total_liters, tolerance_pct=0.0)
+            base_liters = float(base_summary.get("base_liters") or 0.0)
+            base_barrels = int(base_summary.get("rounded_barrels") or 0)
+
+            reserve_summary = summarize_oil_requirement(
+                total_liters, tolerance_pct=10.0
+            )
+            reserve_liters = float(reserve_summary.get("adjusted_liters") or 0.0)
+            reserve_barrels = int(reserve_summary.get("rounded_barrels") or 0)
+
+            return (
+                f"{_format_numeric(base_liters, 1)} L / {base_barrels} βαρέλια "
+                f"(απόθεμα 10%: {_format_numeric(reserve_liters, 1)} L / "
+                f"{reserve_barrels} βαρέλια)"
+            )
 
         def _build_category_summary(label, total, category_counts, oil_liters, sf6_kg):
             if total <= 0:
@@ -20545,7 +20559,7 @@ class SubstationApp(App):
                     display_name = format_maintenance_element_name(
                         elem_name, operating_status
                     )
-                    elem_display = f"[b]{display_name}[/b] - {display_type}"
+                    elem_display = f"[b]{display_name}[/b] (ID: {elem_id or 'N/A'}) - {display_type}"
                     if breaker_category:
                         elem_display += f" ({breaker_category})"
 

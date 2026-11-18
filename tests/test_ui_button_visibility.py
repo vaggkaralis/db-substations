@@ -60,7 +60,7 @@ def test_android_element_summary_omits_voltage_and_keeps_required_fields():
     assert "20kV" not in summary
 
 
-def test_android_substation_summary_uses_base_oil_capacity_without_tolerance(tmp_path):
+def test_android_substation_summary_shows_base_and_10pct_reserve_oil_capacity(tmp_path):
     db_path = tmp_path / "android_summary.db"
     app = SubstationAndroidApp()
     app.local_db_path = str(db_path)
@@ -108,7 +108,7 @@ def test_android_substation_summary_uses_base_oil_capacity_without_tolerance(tmp
     joined = "\n".join(lines)
 
     assert "288 L / 2 βαρέλια" in joined
-    assert "316.8 L" not in joined
+    assert "απόθεμα 10%: 316.8 L / 2 βαρέλια" in joined
 
 
 def test_android_element_detail_lines_include_full_metadata():

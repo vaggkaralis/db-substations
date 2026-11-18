@@ -219,6 +219,7 @@ def test_load_substation_elements_renders_gate_headers(monkeypatch):
     texts = _collect_texts(grid)
     assert any("ΠΥΛΗ 1 (1 στοιχεία)" in text for text in texts)
     assert any("ΠΥΛΗ 2 (1 στοιχεία)" in text for text in texts)
+    assert any("(ID: 1)" in text for text in texts)
 
 
 def test_build_gate_tag_widget_uses_compact_gate_text():

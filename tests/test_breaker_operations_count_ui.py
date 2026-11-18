@@ -56,7 +56,7 @@ def test_desktop_element_summary_includes_element_id():
     assert "ID: 77" in summary
 
 
-def test_desktop_substation_summary_uses_base_oil_capacity_without_tolerance(
+def test_desktop_substation_summary_shows_base_and_10pct_reserve_oil_capacity(
     monkeypatch,
 ):
     conn = sqlite3.connect(":memory:")
@@ -113,7 +113,7 @@ def test_desktop_substation_summary_uses_base_oil_capacity_without_tolerance(
     texts = _collect_texts(captured["popup"].content)
     joined = "\n".join(texts)
     assert "288 L / 2 βαρέλια" in joined
-    assert "316.8 L" not in joined
+    assert "απόθεμα 10%: 316.8 L / 2 βαρέλια" in joined
 
 
 def test_operations_count_strings_exist_in_both_modules():
