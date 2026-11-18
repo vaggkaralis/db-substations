@@ -2386,39 +2386,43 @@ class SubstationAndroidApp(App):
         except (TypeError, ValueError):
             is_main_switch = -1
 
-        def hemizygos_sort_key(label):
-            if not label:
-                return (2, "")
-            match = re.search(r"(\d+)", label)
+        if not hemizygos_label:
+            hemizygos_rank = (2, "")
+        else:
+            match = re.search(r"(\d+)", hemizygos_label)
             if match:
                 try:
                     rank = int(match.group(1))
                     if rank in (1, 2):
-                        return (rank - 1, label.casefold())
+                        hemizygos_rank = (rank - 1, hemizygos_label.casefold())
+                    else:
+                        hemizygos_rank = (2, hemizygos_label.casefold())
                 except ValueError:
-                    pass
-            return (2, label.casefold())
-
-        hemizygos_rank = hemizygos_sort_key(hemizygos_label)
+                    hemizygos_rank = (2, hemizygos_label.casefold())
+            else:
+                hemizygos_rank = (2, hemizygos_label.casefold())
 
         # Match desktop ordering: HV breaker, transformer, motor drive,
-        # MV main breaker, MV interconnection breaker, MV line breaker,
-        # MV capacitor breaker, then everything else.
+        # MV main, line, capacitor, interconnection, then everything else.
         if elem_type == hv_breaker_type:
             return (1, hemizygos_rank, elem_name)
         if self._is_transformer(elem_type):
             return (2, hemizygos_rank, elem_name)
         if elem_type == "Motor Drive":
             return (3, hemizygos_rank, elem_name)
-        if elem_type == mv_breaker_type and is_main_switch == 1:
-            return (4, hemizygos_rank, elem_name)
-        if elem_type == mv_breaker_type and is_main_switch == 2:
-            return (5, hemizygos_rank, elem_name)
-        if elem_type == mv_breaker_type and is_main_switch == 0:
-            return (6, hemizygos_rank, elem_name)
-        if elem_type == mv_breaker_type and is_main_switch == 3:
-            return (7, hemizygos_rank, elem_name)
-        return (8, hemizygos_rank, elem_name)
+        if elem_type == mv_breaker_type:
+            if is_main_switch == 1:
+                mv_rank = 1
+            elif is_main_switch == 0:
+                mv_rank = 2
+            elif is_main_switch == 3:
+                mv_rank = 3
+            elif is_main_switch == 2:
+                mv_rank = 4
+            else:
+                mv_rank = 5
+            return (4, hemizygos_rank, mv_rank, elem_name)
+        return (5, hemizygos_rank, 0, elem_name)
 
     def _group_elements_by_gate(self, elements):
         grouped = {}
@@ -2439,6 +2443,31 @@ class SubstationAndroidApp(App):
         if unregistered in grouped:
             ordered.append(unregistered)
         return [(gate_name, grouped[gate_name]) for gate_name in ordered]
+
+    def _group_elements_by_hemizygos(self, gate_elements):
+        """Return visible hemizygos sections in the same order as desktop."""
+        grouped = {}
+        for elem in gate_elements or []:
+            label = str(elem.get("hemizygos") or "").strip()
+            key = label or "Χωρίς Ημιζυγό"
+            grouped.setdefault(key, []).append(elem)
+
+        numbered = []
+        other = []
+        for label, elements in grouped.items():
+            match = re.search(r"(\d+)", str(label))
+            if match and int(match.group(1)) in (1, 2):
+                numbered.append((int(match.group(1)), label, elements))
+            else:
+                other.append((label, elements))
+
+        sections = [
+            (label, elements)
+            for _rank, label, elements in sorted(numbered, key=lambda item: item[0])
+        ]
+        for label, elements in sorted(other, key=lambda item: item[0].casefold()):
+            sections.append((label, elements))
+        return sections
 
     def _build_element_summary_text(self, element_data, is_transformer=False):
         """Return the compact row summary shown in the element list."""
@@ -5068,7 +5097,7 @@ class SubstationAndroidApp(App):
                    e.maintenance_date, e.voltage_level, e.manufacturer, e.type,
                    e.manufacture_year, e.model, e.model_version, e.operating_status,
                    e.installation_space, e.maintenance_cycle, e.operations_count, e.gate,
-                   e.is_main_switch, e.element_model_id, em.breaker_category,
+                   e.is_main_switch, e.hemizygos, e.element_model_id, em.breaker_category,
                    em.model_name, em.manufacturer as model_manufacturer,
                    em.manual_pdf, em.onedrive_manual_link
             FROM elements e
@@ -5099,6 +5128,7 @@ class SubstationAndroidApp(App):
             "operations_count",
             "gate",
             "is_main_switch",
+            "hemizygos",
             "element_model_id",
             "breaker_category",
             "model_name",
@@ -6780,7 +6810,41 @@ class SubstationAndroidApp(App):
                     )
                     grid.add_widget(gate_header)
 
-                    for elem in gate_elements:
+                    hemizygos_sections = self._group_elements_by_hemizygos(
+                        gate_elements
+                    )
+                    show_hemizygos_sections = any(
+                        elem.get("hemizygos") for elem in gate_elements
+                    )
+                    hemizygos_entries = []
+                    for hemizygos_name, hemizygos_elements in hemizygos_sections:
+                        if show_hemizygos_sections:
+                            hemizygos_entries.append(
+                                ("hemizygos_header", hemizygos_name)
+                            )
+                        for hemizygos_elem in hemizygos_elements:
+                            hemizygos_entries.append(("element", hemizygos_elem))
+
+                    for entry in hemizygos_entries:
+                        if entry[0] == "hemizygos_header":
+                            hemi_header = Label(
+                                text=f"[b]{entry[1]}[/b]",
+                                markup=True,
+                                size_hint_y=None,
+                                height=30,
+                                halign="left",
+                                valign="middle",
+                                color=self.theme.get("primary", (0.15, 0.55, 0.8, 1)),
+                            )
+                            hemi_header.bind(
+                                size=lambda inst, _size: setattr(
+                                    inst, "text_size", (inst.width, inst.height)
+                                )
+                            )
+                            grid.add_widget(hemi_header)
+                            continue
+
+                        elem = entry[1]
                         elem_row = BoxLayout(
                             size_hint_y=None,
                             height=176,
@@ -7942,8 +8006,19 @@ class SubstationAndroidApp(App):
                         ordered_entries.append(
                             ("header", gate_name, len(gate_elements))
                         )
-                        for gate_elem in gate_elements:
-                            ordered_entries.append(("element", gate_name, gate_elem))
+                        hemi_sections = self._group_elements_by_hemizygos(gate_elements)
+                        show_hemizygos = any(
+                            elem.get("hemizygos") for elem in gate_elements
+                        )
+                        for hemi_name, hemi_elements in hemi_sections:
+                            if show_hemizygos:
+                                ordered_entries.append(
+                                    ("hemizygos_header", gate_name, hemi_name)
+                                )
+                            for gate_elem in hemi_elements:
+                                ordered_entries.append(
+                                    ("element", gate_name, gate_elem)
+                                )
 
                     for entry in ordered_entries:
                         if entry[0] == "header":
@@ -7964,6 +8039,24 @@ class SubstationAndroidApp(App):
                                 )
                             )
                             content_layout.add_widget(gate_header)
+                            continue
+                        if entry[0] == "hemizygos_header":
+                            hemi_name = entry[2]
+                            hemi_header = Label(
+                                text=f"[b]{hemi_name}[/b]",
+                                markup=True,
+                                size_hint_y=None,
+                                height=30,
+                                halign="left",
+                                valign="middle",
+                                color=self.theme.get("primary", (0.15, 0.55, 0.8, 1)),
+                            )
+                            hemi_header.bind(
+                                size=lambda inst, _size: setattr(
+                                    inst, "text_size", (inst.width, inst.height)
+                                )
+                            )
+                            content_layout.add_widget(hemi_header)
                             continue
 
                         _kind, gate_name, elem = entry

@@ -110,9 +110,9 @@ def test_group_elements_by_gate_sorts_gate_members_like_desktop():
         "Transformer",
         "Drive",
         "MV Central Breaker",
-        "Interconnection Breaker",
         "Line Breaker",
         "Capacitor Breaker",
+        "Interconnection Breaker",
         "Other",
     ]
 
@@ -167,6 +167,24 @@ def test_group_elements_by_gate_places_hemizygos_1_before_hemizygos_2():
         "Transformer Hemizygos 1",
         "MV Breaker Hemizygos 1",
         "MV Breaker Hemizygos 2",
+    ]
+
+
+def test_group_elements_by_hemizygos_returns_visible_sections():
+    app = android_app.SubstationAndroidApp()
+
+    sections = app._group_elements_by_hemizygos(
+        [
+            {"id": 2, "hemizygos": "Ημιζυγός 2", "name": "B"},
+            {"id": 1, "hemizygos": "Ημιζυγός 1", "name": "A"},
+            {"id": 3, "hemizygos": "", "name": "C"},
+        ]
+    )
+
+    assert [name for name, _elements in sections] == [
+        "Ημιζυγός 1",
+        "Ημιζυγός 2",
+        "Χωρίς Ημιζυγό",
     ]
 
 
