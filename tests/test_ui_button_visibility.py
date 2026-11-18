@@ -33,6 +33,7 @@ def test_root_buttons_visible_and_hidden(monkeypatch):
 def test_android_element_summary_omits_voltage_and_keeps_required_fields():
     app = SubstationAndroidApp()
     element = {
+        "id": 123,
         "serial_number": "SN-100",
         "manufacturer": "Siemens",
         "model_name": "Model A",
@@ -48,6 +49,7 @@ def test_android_element_summary_omits_voltage_and_keeps_required_fields():
 
     summary = app._build_element_summary_text(element)
 
+    assert "ID: 123" in summary
     assert "S/N: SN-100" in summary
     assert "Κατ.: Siemens" in summary
     assert "Μοντ.: Model A" in summary
@@ -56,6 +58,57 @@ def test_android_element_summary_omits_voltage_and_keeps_required_fields():
     assert "Τελ. Συντ.: 2024-06-10" in summary
     assert "Αριθμός Χειρισμών: 44" in summary
     assert "20kV" not in summary
+
+
+def test_android_substation_summary_uses_base_oil_capacity_without_tolerance(tmp_path):
+    db_path = tmp_path / "android_summary.db"
+    app = SubstationAndroidApp()
+    app.local_db_path = str(db_path)
+
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            gate TEXT,
+            element_type TEXT,
+            breaker_category TEXT,
+            element_model_id INTEGER,
+            substation_id INTEGER,
+            parent_element_id INTEGER,
+            operating_status TEXT
+        );
+        CREATE TABLE element_models (
+            id INTEGER PRIMARY KEY,
+            oil_capacity_l REAL,
+            sf6_capacity_kg REAL,
+            oil_weight_kg REAL
+        );
+        """
+    )
+    cur.execute(
+        "INSERT INTO element_models (id, oil_capacity_l, sf6_capacity_kg, oil_weight_kg) VALUES (1, 288, NULL, NULL)"
+    )
+    cur.execute(
+        """
+        INSERT INTO elements
+            (id, name, gate, element_type, breaker_category, element_model_id, substation_id, parent_element_id, operating_status)
+        VALUES
+            (1, 'Ρ-255', 'ΠΥΛΗ 1', 'Διακόπτης ΜΤ', 'Ελαίου', 1, 10, 0, 'Ενεργή')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    lines = app._build_substation_element_summary_lines(10, "ΓΡΕΒΕΝΑ")
+    joined = "\n".join(lines)
+
+    assert "288 L / 2 βαρέλια" in joined
+    assert "316.8 L" not in joined
 
 
 def test_android_element_detail_lines_include_full_metadata():

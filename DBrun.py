@@ -14707,6 +14707,8 @@ class SubstationApp(App):
 
     def _build_element_summary_text(self, element_data, is_transformer=False):
         """Return the compact row summary shown in the element list."""
+        element_id = element_data.get("id")
+        element_id_display = element_id if element_id not in (None, "") else "-"
         serial_number = element_data.get("serial_number") or "-"
         manufacturer = element_data.get("manufacturer") or "-"
         model_name = element_data.get("model_name") or element_data.get("model") or "-"
@@ -14729,6 +14731,7 @@ class SubstationApp(App):
         )
 
         details = [
+            f"ID: {element_id_display}",
             f"S/N: {serial_number}",
             f"Κατ.: {model_manufacturer or manufacturer}",
             f"Μοντ.: {model_name}",
@@ -16411,8 +16414,8 @@ class SubstationApp(App):
         def _format_oil_summary(total_liters):
             if total_liters <= 0:
                 return ""
-            summary = summarize_oil_requirement(total_liters)
-            adjusted_liters = float(summary.get("adjusted_liters") or 0.0)
+            summary = summarize_oil_requirement(total_liters, tolerance_pct=0.0)
+            adjusted_liters = float(summary.get("base_liters") or 0.0)
             barrels = int(summary.get("rounded_barrels") or 0)
             return f"{_format_numeric(adjusted_liters, 1)} L / {barrels} βαρέλια"
 

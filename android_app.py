@@ -2442,6 +2442,8 @@ class SubstationAndroidApp(App):
 
     def _build_element_summary_text(self, element_data, is_transformer=False):
         """Return the compact row summary shown in the element list."""
+        element_id = element_data.get("id")
+        element_id_display = element_id if element_id not in (None, "") else "-"
         serial_number = element_data.get("serial_number") or "-"
         manufacturer = element_data.get("manufacturer") or "-"
         model_name = element_data.get("model_name") or element_data.get("model") or "-"
@@ -2466,6 +2468,7 @@ class SubstationAndroidApp(App):
         )
 
         details = [
+            f"ID: {element_id_display}",
             f"S/N: {serial_number}",
             f"Κατ.: {model_manufacturer or manufacturer}",
             f"Μοντ.: {model_name}",
@@ -2702,8 +2705,8 @@ class SubstationAndroidApp(App):
         def _format_oil_summary(total_liters):
             if total_liters <= 0:
                 return ""
-            summary = summarize_oil_requirement(total_liters)
-            adjusted_liters = float(summary.get("adjusted_liters") or 0.0)
+            summary = summarize_oil_requirement(total_liters, tolerance_pct=0.0)
+            adjusted_liters = float(summary.get("base_liters") or 0.0)
             barrels = int(summary.get("rounded_barrels") or 0)
             return f"{_format_numeric(adjusted_liters, 1)} L / {barrels} βαρέλια"
 
@@ -6769,13 +6772,13 @@ class SubstationAndroidApp(App):
                     for elem in gate_elements:
                         elem_row = BoxLayout(
                             size_hint_y=None,
-                            height=160,
+                            height=176,
                             spacing=8,
                             orientation="horizontal",
                         )
                         elem_card = BoxLayout(
                             size_hint=(1, None),
-                            height=160,
+                            height=176,
                             spacing=8,
                             padding=[10, 10],
                             orientation="horizontal",
@@ -6826,13 +6829,10 @@ class SubstationAndroidApp(App):
                             ),
                             font_size="11sp",
                             halign="left",
-                            valign="middle",
+                            valign="top",
                             color=self.theme.get("text_muted", (0.35, 0.43, 0.51, 1)),
                             size_hint_y=None,
-                            height=36,
-                            shorten=True,
-                            shorten_from="right",
-                            max_lines=1,
+                            height=54,
                         )
                         line2.bind(
                             size=lambda inst, _size: setattr(

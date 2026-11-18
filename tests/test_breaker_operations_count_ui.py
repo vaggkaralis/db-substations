@@ -1,6 +1,7 @@
 import DBrun
 import dbsubstations.strings as packaged_strings
 import json
+import sqlite3
 import kivy.uix.popup as popup_module
 import strings
 from kivy.uix.boxlayout import BoxLayout
@@ -41,6 +42,78 @@ def test_breaker_operations_count_row_shows_last_value(monkeypatch):
         object.__new__(DBrun.SubstationApp), {"operations_count": 321}
     )
     assert "Αριθμός Χειρισμών: 321" in summary
+
+
+def test_desktop_element_summary_includes_element_id():
+    summary = DBrun.SubstationApp._build_element_summary_text(
+        object.__new__(DBrun.SubstationApp),
+        {
+            "id": 77,
+            "serial_number": "SN-1",
+            "operations_count": 10,
+        },
+    )
+    assert "ID: 77" in summary
+
+
+def test_desktop_substation_summary_uses_base_oil_capacity_without_tolerance(
+    monkeypatch,
+):
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        """
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            gate TEXT,
+            element_type TEXT,
+            breaker_category TEXT,
+            element_model_id INTEGER,
+            substation_id INTEGER,
+            parent_element_id INTEGER,
+            operating_status TEXT
+        );
+        CREATE TABLE element_models (
+            id INTEGER PRIMARY KEY,
+            oil_capacity_l REAL,
+            sf6_capacity_kg REAL,
+            oil_weight_kg REAL
+        );
+        INSERT INTO element_models (id, oil_capacity_l, sf6_capacity_kg, oil_weight_kg)
+        VALUES (1, 288, NULL, NULL);
+        INSERT INTO elements
+            (id, name, gate, element_type, breaker_category, element_model_id, substation_id, parent_element_id, operating_status)
+        VALUES
+            (1, 'Ρ-255', 'ΠΥΛΗ 1', 'Διακόπτης ΜΤ', 'Ελαίου', 1, 10, 0, 'Ενεργή');
+        """
+    )
+
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, *args, **kwargs):
+            self.content = None
+            captured["popup"] = self
+
+        def open(self):
+            return None
+
+        def dismiss(self):
+            return None
+
+    monkeypatch.setattr(popup_module, "Popup", DummyPopup)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = conn
+    app.ELEM_BREAKER_YT = "Διακόπτης ΥΤ"
+    app.ELEM_BREAKER_MT = "Διακόπτης ΜΤ"
+
+    app.show_substation_element_summary(10, "ΓΡΕΒΕΝΑ", None)
+
+    texts = _collect_texts(captured["popup"].content)
+    joined = "\n".join(texts)
+    assert "288 L / 2 βαρέλια" in joined
+    assert "316.8 L" not in joined
 
 
 def test_operations_count_strings_exist_in_both_modules():
