@@ -652,6 +652,7 @@ try:
     _log_dir = os.path.abspath(os.path.dirname(__file__))
     _crash_log_path = os.path.join(_log_dir, "app_crash.log")
     _fault_log_path = os.path.join(_log_dir, "faulthandler.log")
+    _issue_a_log_path = os.path.join(_log_dir, "issue_a_diagnostics.log")
     _fault_stream = None
     _console_stream = _safe_console_stream(sys.__stdout__)
 
@@ -702,6 +703,8 @@ try:
 
     SYNC_LOGGER = logging.getLogger("SYNC")
     SYNC_LOGGER.setLevel(logging.INFO)
+    ISSUE_A_LOGGER = logging.getLogger("ISSUE_A")
+    ISSUE_A_LOGGER.setLevel(logging.INFO)
 
     if not any(
         isinstance(handler, logging.FileHandler)
@@ -714,6 +717,19 @@ try:
             logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         )
         _root_logger.addHandler(_file_handler)
+
+    if not any(
+        isinstance(handler, logging.FileHandler)
+        and getattr(handler, "baseFilename", None) == os.path.abspath(_issue_a_log_path)
+        for handler in ISSUE_A_LOGGER.handlers
+    ):
+        _issue_a_handler = logging.FileHandler(_issue_a_log_path, encoding="utf-8")
+        _issue_a_handler.setLevel(logging.INFO)
+        _issue_a_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        ISSUE_A_LOGGER.addHandler(_issue_a_handler)
+        ISSUE_A_LOGGER.propagate = False
 
     try:
         _fault_stream = open(_fault_log_path, "a", encoding="utf-8")
@@ -766,6 +782,7 @@ try:
 except Exception:
     APP_LOGGER = logging.getLogger("APP")
     SYNC_LOGGER = logging.getLogger("SYNC")
+    ISSUE_A_LOGGER = logging.getLogger("ISSUE_A")
 
 # Gate color manager (consistent colors across the app)
 GATE_COLOR_PALETTE = [
@@ -1646,6 +1663,17 @@ class SubstationApp(App):
         self._launch_screen_name = None
         self._launch_screen_payload = None
         self._launch_parent_pid = None
+        self._last_popup_gc_ts = 0.0
+        self._taskbar_icon_applied = False
+        self._taskbar_icon_retry_scheduled = False
+        self._window_hwnd_observed = 0
+        self._window_icon_watch_event = None
+        self._icon_apply_next_allowed_ts = 0.0
+        self._icon_apply_fail_streak = 0
+        self._issue_a_diag_enabled = _coerce_bool_flag(
+            get_app_setting("issue_a_diagnostics_enabled", True)
+        )
+        self._issue_a_diag_last_sample_ts = 0.0
         for arg in sys.argv[1:]:
             if arg.startswith("--dbs-open-screen="):
                 self._launch_screen_name = arg.split("=", 1)[1].strip() or None
@@ -1688,10 +1716,12 @@ class SubstationApp(App):
         except Exception:
             pass
 
-        # Disable custom taskbar/window branding to keep the default OS icon
-        # and avoid stale or inconsistent tray branding across child windows.
+        # Apply one canonical icon to every process/window so taskbar entries
+        # cannot drift between Python, fallback, and DEDDIE branding.
         try:
-            self.icon = ""
+            resolved_icon = self._resolve_app_icon_path()
+            if resolved_icon:
+                self.icon = resolved_icon
         except Exception:
             pass
 
@@ -1787,11 +1817,16 @@ class SubstationApp(App):
             return
         if getattr(self, "_parent_watch_event", None) is not None:
             return
+        self._issue_a_log_event(
+            "parent_watcher_started",
+            parent_pid=int(getattr(self, "_launch_parent_pid", 0) or 0),
+        )
 
         def _watch_parent(_dt):
             if self._is_parent_process_alive():
                 return True
             APP_LOGGER.info("Parent process exited; closing child window")
+            self._issue_a_log_event("parent_process_exited")
             self._allow_exit_without_sync_prompt = True
             Clock.schedule_once(lambda *_: self.stop(), 0)
             return False
@@ -1809,7 +1844,12 @@ class SubstationApp(App):
         except Exception:
             pass
         try:
-            widget.clear_widgets()
+            clear_widgets = getattr(widget, "clear_widgets", None)
+            if callable(clear_widgets):
+                try:
+                    clear_widgets(do_unbind=True)
+                except TypeError:
+                    clear_widgets()
         except Exception:
             pass
         try:
@@ -1821,6 +1861,79 @@ class SubstationApp(App):
         except Exception:
             pass
 
+    def _run_light_popup_gc(self):
+        """Run only cheap generation-zero collection on popup teardown."""
+        now_ts = time.monotonic()
+        if now_ts - float(getattr(self, "_last_popup_gc_ts", 0.0) or 0.0) < 3.0:
+            return
+        self._last_popup_gc_ts = now_ts
+        try:
+            import gc
+
+            gc.collect(0)
+        except Exception:
+            pass
+
+    def _release_popup_content(self, popup, *, deep=False, defer=False):
+        if popup is None:
+            return
+        popup_content = getattr(popup, "content", None)
+        if popup_content is None:
+            return
+
+        try:
+            popup.content = None
+        except Exception:
+            pass
+
+        if defer:
+            try:
+                Clock.schedule_once(
+                    lambda *_args: self._release_popup_widget_content(
+                        popup_content, deep=deep
+                    ),
+                    0.05,
+                )
+                return
+            except Exception:
+                pass
+
+        self._release_popup_widget_content(popup_content, deep=deep)
+
+    def _release_popup_widget_content(self, popup_content, *, deep=False):
+        """Release detached popup widgets without keeping work on the close frame."""
+        if popup_content is None:
+            return
+        try:
+            if deep:
+                self._clear_popup_widget_tree(popup_content)
+            else:
+                try:
+                    popup_content.clear_widgets(do_unbind=True)
+                except TypeError:
+                    popup_content.clear_widgets()
+        except Exception:
+            pass
+        self._run_light_popup_gc()
+
+    def _bind_popup_auto_cleanup(self, popup, *, deep=False):
+        if popup is None or getattr(popup, "_dbs_auto_cleanup_bound", False):
+            return popup
+        setattr(popup, "_dbs_auto_cleanup_bound", True)
+
+        def _on_popup_dismiss(*_args):
+            try:
+                popup.unbind(on_dismiss=_on_popup_dismiss)
+            except Exception:
+                pass
+            self._release_popup_content(popup, deep=deep, defer=True)
+
+        try:
+            popup.bind(on_dismiss=_on_popup_dismiss)
+        except Exception:
+            pass
+        return popup
+
     def _dismiss_popup_and_maybe_close_child_window(
         self,
         popup,
@@ -1828,19 +1941,12 @@ class SubstationApp(App):
         close_child_window=True,
     ):
         try:
-            import gc
-
             from kivy.clock import Clock
         except Exception:
-            try:
-                import gc
-            except Exception:
-                gc = None
             Clock = None
 
         try:
             if popup is not None:
-                popup_content = getattr(popup, "content", None)
                 try:
                     popup.dismiss()
                 except Exception:
@@ -1853,19 +1959,11 @@ class SubstationApp(App):
                         pass
 
                 def _cleanup_popup(*_args):
-                    try:
-                        self._clear_popup_widget_tree(popup_content)
-                    except Exception:
-                        pass
-                    try:
-                        popup.content = None
-                    except Exception:
-                        pass
-                    try:
-                        if gc is not None:
-                            gc.collect()
-                    except Exception:
-                        pass
+                    if close_child_window and getattr(
+                        self, "_launch_screen_name", None
+                    ):
+                        return
+                    self._release_popup_content(popup, deep=True, defer=True)
 
                 try:
                     if Clock is not None:
@@ -2536,6 +2634,8 @@ class SubstationApp(App):
         APP_LOGGER.info("Building desktop UI")
         self._apply_theme()
         self._apply_window_icon()
+        self._start_window_icon_watchdog()
+        self._issue_a_log_snapshot("build_start")
         try:
             APP_LOGGER.info(
                 "STARTUP INFO - Window.size=%s dpi=%s cwd=%s",
@@ -2570,6 +2670,8 @@ class SubstationApp(App):
         """Refresh sync state when returning from child windows/external edits."""
         if not focused:
             return
+        self._ensure_windows_taskbar_identity()
+        self._issue_a_log_snapshot("window_focus")
         try:
             from kivy.clock import Clock
         except Exception:
@@ -2596,18 +2698,224 @@ class SubstationApp(App):
         Clock.schedule_once(_refresh_if_current, 0.9)
         Clock.schedule_once(_refresh_if_current, 2.0)
 
+    def _get_windows_memory_snapshot(self):
+        if sys.platform != "win32":
+            return {}
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                    ("PrivateUsage", ctypes.c_size_t),
+                ]
+
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            get_process_memory_info = psapi.GetProcessMemoryInfo
+            get_process_memory_info.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX),
+                wintypes.DWORD,
+            ]
+            get_process_memory_info.restype = wintypes.BOOL
+
+            counters = PROCESS_MEMORY_COUNTERS_EX()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS_EX)
+            process_handle = kernel32.GetCurrentProcess()
+            ok = get_process_memory_info(
+                process_handle,
+                ctypes.byref(counters),
+                counters.cb,
+            )
+            if not ok:
+                return {}
+
+            return {
+                "working_set_mb": round(
+                    float(int(counters.WorkingSetSize) / (1024.0 * 1024.0)),
+                    2,
+                ),
+                "private_mb": round(
+                    float(int(counters.PrivateUsage) / (1024.0 * 1024.0)),
+                    2,
+                ),
+                "pagefile_mb": round(
+                    float(int(counters.PagefileUsage) / (1024.0 * 1024.0)),
+                    2,
+                ),
+                "page_faults": int(counters.PageFaultCount),
+            }
+        except Exception:
+            return {}
+
+    def _issue_a_log_event(self, event_name, **fields):
+        if not bool(getattr(self, "_issue_a_diag_enabled", False)):
+            return
+        try:
+            payload = {
+                "event": str(event_name or "").strip() or "event",
+                "pid": int(os.getpid()),
+                "screen": str(getattr(self, "_launch_screen_name", "") or ""),
+                "hwnd": int(self._get_window_hwnd() or 0),
+                "hwnd_observed": int(getattr(self, "_window_hwnd_observed", 0) or 0),
+                "icon_applied": bool(getattr(self, "_taskbar_icon_applied", False)),
+                "icon_retry_scheduled": bool(
+                    getattr(self, "_taskbar_icon_retry_scheduled", False)
+                ),
+            }
+            payload.update(fields or {})
+            ISSUE_A_LOGGER.info(
+                "%s",
+                json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str),
+            )
+        except Exception:
+            pass
+
+    def _issue_a_log_snapshot(self, reason):
+        if not bool(getattr(self, "_issue_a_diag_enabled", False)):
+            return
+        mem = self._get_windows_memory_snapshot()
+        gc_counts = ()
+        try:
+            import gc
+
+            gc_counts = gc.get_count()
+        except Exception:
+            gc_counts = ()
+
+        child_count = 0
+        try:
+            from popups import get_launched_child_process_count
+
+            child_count = int(get_launched_child_process_count() or 0)
+        except Exception:
+            child_count = 0
+
+        self._issue_a_log_event(
+            "snapshot",
+            reason=str(reason or ""),
+            pending_changes=int(len(getattr(self, "_pending_changes", []) or [])),
+            popup_gc_last_ts=float(getattr(self, "_last_popup_gc_ts", 0.0) or 0.0),
+            thread_count=int(threading.active_count()),
+            launched_child_processes=child_count,
+            gc_gen0=int(gc_counts[0]) if len(gc_counts) > 0 else 0,
+            gc_gen1=int(gc_counts[1]) if len(gc_counts) > 1 else 0,
+            gc_gen2=int(gc_counts[2]) if len(gc_counts) > 2 else 0,
+            **mem,
+        )
+
     def _resolve_app_icon_path(self):
-        """Keep the default OS taskbar branding; custom app icons are intentionally disabled."""
+        """Resolve the canonical application ICO used by all Windows processes/windows."""
+        candidates = []
+        if getattr(sys, "frozen", False):
+            candidates.extend(
+                [
+                    os.path.join(sys._MEIPASS, "deddie_logo.ico"),
+                    os.path.join(sys._MEIPASS, "logo_deddie.ico"),
+                ]
+            )
+        candidates.extend(
+            [
+                os.path.join(os.path.dirname(__file__), "deddie_logo.ico"),
+                os.path.join(os.path.dirname(__file__), "logo_deddie.ico"),
+                os.path.join(os.path.dirname(__file__), "deddie_logo.png"),
+                os.path.join(os.path.dirname(__file__), "logo_deddie.png"),
+            ]
+        )
+        for candidate in candidates:
+            if not candidate or not os.path.isfile(candidate):
+                continue
+            resolved = self._resolve_windows_icon_file(candidate)
+            if resolved:
+                return resolved
         return ""
 
     def _apply_window_icon(self):
         try:
-            # Deliberately leave the OS default icon in place to avoid the stale
-            # mixed Python/Deddie branding seen across multiple open windows.
-            self.icon = ""
-            APP_LOGGER.info("Custom app icon disabled; using default OS branding")
+            icon_path = self._resolve_app_icon_path()
+            if icon_path:
+                self.icon = icon_path
+                APP_LOGGER.info("Applied canonical app icon: %s", icon_path)
+                self._issue_a_log_event(
+                    "window_icon_resolved",
+                    icon_path=str(icon_path),
+                )
+                if sys.platform == "win32":
+                    self._apply_windows_taskbar_icon(icon_path)
+            else:
+                APP_LOGGER.warning("Canonical app icon not found")
+                self._issue_a_log_event("window_icon_missing")
         except Exception:
             logging.exception("Failed to clear custom app window icon")
+
+    def _ensure_windows_taskbar_identity(self):
+        if sys.platform != "win32":
+            return
+
+        icon_path = self._resolve_app_icon_path()
+        if not icon_path:
+            return
+
+        now_ts = float(time.time())
+        next_allowed_ts = float(
+            getattr(self, "_icon_apply_next_allowed_ts", 0.0) or 0.0
+        )
+        if now_ts < next_allowed_ts:
+            return
+
+        hwnd = self._get_window_hwnd()
+        if not hwnd:
+            if not getattr(self, "_taskbar_icon_applied", False):
+                self._apply_windows_taskbar_icon(icon_path, _retry=0)
+            return
+
+        previous_hwnd = int(getattr(self, "_window_hwnd_observed", 0) or 0)
+        if previous_hwnd != int(hwnd):
+            self._window_hwnd_observed = int(hwnd)
+            self._taskbar_icon_applied = False
+            self._taskbar_icon_retry_scheduled = False
+            self._icon_apply_next_allowed_ts = 0.0
+            self._issue_a_log_event(
+                "hwnd_changed",
+                previous_hwnd=int(previous_hwnd),
+                new_hwnd=int(hwnd),
+            )
+
+        if not getattr(self, "_taskbar_icon_applied", False):
+            self._apply_windows_taskbar_icon(icon_path, _retry=0)
+
+    def _start_window_icon_watchdog(self):
+        if sys.platform != "win32":
+            return
+        if getattr(self, "_window_icon_watch_event", None) is not None:
+            return
+
+        def _watch_icon_state(_dt):
+            try:
+                self._ensure_windows_taskbar_identity()
+                now_ts = float(time.time())
+                last_ts = float(
+                    getattr(self, "_issue_a_diag_last_sample_ts", 0.0) or 0.0
+                )
+                if now_ts - last_ts >= 5.0:
+                    self._issue_a_diag_last_sample_ts = now_ts
+                    self._issue_a_log_snapshot("watchdog_5s")
+            except Exception:
+                APP_LOGGER.exception("Window icon watchdog failed")
+            return True
+
+        self._window_icon_watch_event = Clock.schedule_interval(_watch_icon_state, 2.0)
 
     def _resolve_windows_icon_file(self, icon_path):
         normalized = str(icon_path or "").strip()
@@ -2658,12 +2966,43 @@ class SubstationApp(App):
         except Exception:
             pass
 
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                active_hwnd = int(user32.GetActiveWindow() or 0)
+                if active_hwnd:
+                    return active_hwnd
+
+                foreground_hwnd = int(user32.GetForegroundWindow() or 0)
+                if foreground_hwnd:
+                    fg_pid = wintypes.DWORD(0)
+                    user32.GetWindowThreadProcessId(
+                        wintypes.HWND(foreground_hwnd),
+                        ctypes.byref(fg_pid),
+                    )
+                    if int(fg_pid.value or 0) == int(os.getpid()):
+                        return foreground_hwnd
+            except Exception:
+                pass
+
         return 0
 
-    def _apply_windows_taskbar_icon(self, icon_path):
-        """Custom taskbar branding is intentionally disabled for stability."""
+    def _apply_windows_taskbar_icon(self, icon_path, _retry=0):
+        """Apply the canonical icon to this process window on Windows."""
         if sys.platform != "win32":
             return
+        if getattr(self, "_taskbar_icon_applied", False):
+            return
+        if int(_retry) == 0:
+            now_ts = float(time.time())
+            next_allowed_ts = float(
+                getattr(self, "_icon_apply_next_allowed_ts", 0.0) or 0.0
+            )
+            if now_ts < next_allowed_ts:
+                return
 
         try:
             import ctypes
@@ -2674,9 +3013,91 @@ class SubstationApp(App):
         except Exception:
             pass
 
-        # Avoid assigning any custom taskbar icon; the default OS icon is more
-        # stable and prevents the mixed Python/Deddie branding seen in practice.
-        return
+        resolved_icon = self._resolve_windows_icon_file(icon_path)
+        if not resolved_icon:
+            return
+
+        try:
+            hwnd = self._get_window_hwnd()
+            if not hwnd:
+                if int(_retry) >= 20:
+                    fail_streak = (
+                        int(getattr(self, "_icon_apply_fail_streak", 0) or 0) + 1
+                    )
+                    self._icon_apply_fail_streak = fail_streak
+                    backoff_seconds = min(300.0, float(5 * (2 ** min(fail_streak, 6))))
+                    self._icon_apply_next_allowed_ts = float(
+                        time.time() + backoff_seconds
+                    )
+                    self._issue_a_log_event(
+                        "icon_apply_retry_exhausted",
+                        retry=int(_retry),
+                        fail_streak=int(fail_streak),
+                        backoff_seconds=float(backoff_seconds),
+                    )
+                    return
+                if getattr(self, "_taskbar_icon_retry_scheduled", False):
+                    return
+                from kivy.clock import Clock
+
+                self._taskbar_icon_retry_scheduled = True
+                if int(_retry) in {0, 5, 10, 15, 19}:
+                    self._issue_a_log_event(
+                        "icon_apply_retry_scheduled",
+                        retry=int(_retry),
+                    )
+
+                def _retry_apply(_dt):
+                    self._taskbar_icon_retry_scheduled = False
+                    self._apply_windows_taskbar_icon(
+                        resolved_icon,
+                        _retry=int(_retry) + 1,
+                    )
+
+                Clock.schedule_once(
+                    _retry_apply,
+                    0.1,
+                )
+                return
+
+            import ctypes
+
+            icon_big = ctypes.windll.user32.LoadImageW(
+                None,
+                resolved_icon,
+                1,
+                0,
+                0,
+                0x00000010,
+            )
+            icon_small = ctypes.windll.user32.LoadImageW(
+                None,
+                resolved_icon,
+                1,
+                16,
+                16,
+                0x00000010,
+            )
+            if icon_big:
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, icon_big)
+            if icon_small:
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, icon_small)
+            self._window_hwnd_observed = int(hwnd)
+            self._taskbar_icon_applied = True
+            self._taskbar_icon_retry_scheduled = False
+            self._icon_apply_fail_streak = 0
+            self._icon_apply_next_allowed_ts = 0.0
+            self._issue_a_log_event(
+                "icon_apply_success",
+                retry=int(_retry),
+                icon_path=str(resolved_icon),
+                hwnd=int(hwnd),
+                icon_big_loaded=bool(icon_big),
+                icon_small_loaded=bool(icon_small),
+            )
+        except Exception:
+            logging.exception("Failed to apply Windows taskbar icon")
+            self._issue_a_log_event("icon_apply_exception", retry=int(_retry))
 
     def _check_db_compatibility(self):
         """Check if the database version is compatible with the app version.
@@ -3407,7 +3828,7 @@ class SubstationApp(App):
         except Exception:
             interval_minutes = 15
         # Schedule periodic probe using minutes setting (converted to seconds).
-        Clock.schedule_interval(
+        self._periodic_sync_event = Clock.schedule_interval(
             self._run_periodic_sync_cycle, int(interval_minutes) * 60
         )
         self._update_sync_button_status()
@@ -3509,58 +3930,76 @@ class SubstationApp(App):
         )
 
     def on_stop(self):
+        self._issue_a_log_snapshot("on_stop")
         self._cleanup_before_exit()
 
     def _cleanup_before_exit(self):
         if getattr(self, "_cleanup_completed", False):
             return
         self._cleanup_completed = True
-        try:
-            import gc
+        is_child_window = bool(getattr(self, "_launch_screen_name", None))
+        if not is_child_window:
+            try:
+                from popups import terminate_launched_child_processes
 
-            gc.collect()
+                terminate_launched_child_processes()
+            except Exception:
+                pass
+        try:
+            periodic_sync_event = getattr(self, "_periodic_sync_event", None)
+            if periodic_sync_event is not None and hasattr(
+                periodic_sync_event, "cancel"
+            ):
+                periodic_sync_event.cancel()
+            self._periodic_sync_event = None
         except Exception:
             pass
         try:
-            from popups import terminate_launched_child_processes
-
-            terminate_launched_child_processes()
+            parent_watch_event = getattr(self, "_parent_watch_event", None)
+            if parent_watch_event is not None and hasattr(parent_watch_event, "cancel"):
+                parent_watch_event.cancel()
+            self._parent_watch_event = None
         except Exception:
             pass
         try:
-            import gc
-
-            gc.collect()
+            window_icon_watch_event = getattr(self, "_window_icon_watch_event", None)
+            if window_icon_watch_event is not None and hasattr(
+                window_icon_watch_event, "cancel"
+            ):
+                window_icon_watch_event.cancel()
+            self._window_icon_watch_event = None
         except Exception:
             pass
+        self._issue_a_log_snapshot("cleanup_after_cancel_events")
         try:
-            # Export pending changes before closing
-            self._export_pending_changes(show_popup=True)
+            self._export_pending_changes(show_popup=False)
         except Exception:
             pass
-        try:
-            from sync_service import maintain_backup_set, resolve_backup_root
+        if not is_child_window:
+            try:
+                from sync_service import maintain_backup_set, resolve_backup_root
 
-            if getattr(self, "db_path", None) and os.path.exists(self.db_path):
-                maintain_backup_set(
-                    self.db_path,
-                    resolve_backup_root(self.db_path),
-                    reason="shutdown",
-                    hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
-                )
-        except Exception:
-            logging.exception("Failed to create shutdown backup")
+                if getattr(self, "db_path", None) and os.path.exists(self.db_path):
+                    maintain_backup_set(
+                        self.db_path,
+                        resolve_backup_root(self.db_path),
+                        reason="shutdown",
+                        hot_keep=int(get_app_setting("backup_hot_keep", 3) or 3),
+                    )
+            except Exception:
+                logging.exception("Failed to create shutdown backup")
         try:
             if getattr(self, "conn", None):
                 self.conn.close()
                 self.conn = None
         except Exception:
             pass
-        try:
-            if self.root:
-                self.root.clear_widgets()
-        except Exception:
-            pass
+        if not is_child_window:
+            try:
+                if self.root:
+                    self.root.clear_widgets()
+            except Exception:
+                pass
 
     def _apply_theme(self):
         """Apply a logo-based theme to common UI widgets."""
@@ -3733,10 +4172,13 @@ class SubstationApp(App):
                 next_widget.focus = True
         return True
 
-    def show_maintenance_menu_popup(self, instance=None):
-        # Delegated implementation in maintenance.py
-        from maintenance import show_maintenance_menu_popup as _m
-
+    def _get_maintenance_popup_ui(
+        self,
+        *,
+        include_export=False,
+        include_eml=True,
+        include_pdf=True,
+    ):
         ui = {
             "Popup": Popup,
             "BoxLayout": BoxLayout,
@@ -3747,20 +4189,31 @@ class SubstationApp(App):
             "Spinner": Spinner,
             "ask_open_file": ask_open_file,
             "show_message_popup": show_message_popup,
-            "parse_eml_file": parse_eml_file,
-            "parse_pdf_file": parse_pdf_file,
         }
-        try:
-            # provide export helper if available
-            from excel_io import export_maintenances_per_substation
+        if include_eml:
+            ui["parse_eml_file"] = parse_eml_file
+        if include_pdf:
+            ui["parse_pdf_file"] = parse_pdf_file
+        if include_export:
+            export_fn = getattr(self, "_cached_export_maint_per_substation", None)
+            if export_fn is None:
+                try:
+                    from excel_io import export_maintenances_per_substation
 
+                    export_fn = export_maintenances_per_substation
+                except Exception:
+                    export_fn = False
+                self._cached_export_maint_per_substation = export_fn
             ui["export_maintenances_per_substation"] = (
-                export_maintenances_per_substation
+                None if export_fn is False else export_fn
             )
-        except Exception:
-            ui["export_maintenances_per_substation"] = None
+        return ui
 
-        return _m(self, ui)
+    def show_maintenance_menu_popup(self, instance=None):
+        # Delegated implementation in maintenance.py
+        from maintenance import show_maintenance_menu_popup as _m
+
+        return _m(self, self._get_maintenance_popup_ui(include_export=True))
 
     def show_due_substations_popup(self, parent_popup=None):
         if getattr(
@@ -3788,20 +4241,11 @@ class SubstationApp(App):
     def _show_import_maintenance_email_dialog(self, parent_popup=None):
         from maintenance import _show_import_maintenance_email_dialog as _m
 
-        ui = {
-            "Popup": Popup,
-            "BoxLayout": BoxLayout,
-            "Label": Label,
-            "Button": Button,
-            "TextInput": TextInput,
-            "FileChooserListView": FileChooserListView,
-            "Spinner": Spinner,
-            "ask_open_file": ask_open_file,
-            "show_message_popup": show_message_popup,
-            "parse_eml_file": parse_eml_file,
-            "parse_pdf_file": parse_pdf_file,
-        }
-        return _m(self, ui, parent_popup)
+        return _m(
+            self,
+            self._get_maintenance_popup_ui(include_pdf=True),
+            parent_popup,
+        )
 
     def _import_maintenance_from_email_file(self, file_path):
         from maintenance import _import_maintenance_from_email_file as _m
@@ -3916,19 +4360,11 @@ class SubstationApp(App):
     def _show_import_maintenance_pdf_dialog(self, parent_popup=None):
         from maintenance import _show_import_maintenance_pdf_dialog as _m
 
-        ui = {
-            "Popup": Popup,
-            "BoxLayout": BoxLayout,
-            "Label": Label,
-            "Button": Button,
-            "TextInput": TextInput,
-            "FileChooserListView": FileChooserListView,
-            "Spinner": Spinner,
-            "ask_open_file": ask_open_file,
-            "show_message_popup": show_message_popup,
-            "parse_pdf_file": parse_pdf_file,
-        }
-        return _m(self, ui, parent_popup)
+        return _m(
+            self,
+            self._get_maintenance_popup_ui(include_eml=False, include_pdf=True),
+            parent_popup,
+        )
 
     def _import_maintenance_from_pdf_file(self, file_path):
         from maintenance import _import_maintenance_from_pdf_file as _m
@@ -4144,21 +4580,9 @@ class SubstationApp(App):
     ):
         from maintenance import open_maintenance_from_email_payload as _m
 
-        ui = {
-            "Popup": Popup,
-            "BoxLayout": BoxLayout,
-            "Label": Label,
-            "Button": Button,
-            "TextInput": TextInput,
-            "FileChooserListView": FileChooserListView,
-            "Spinner": Spinner,
-            "ask_open_file": ask_open_file,
-            "show_message_popup": show_message_popup,
-            "parse_eml_file": parse_eml_file,
-        }
         return _m(
             self,
-            ui,
+            self._get_maintenance_popup_ui(include_pdf=False),
             payload,
             forced_substation,
             after_save_callback=after_save_callback,
@@ -10731,6 +11155,9 @@ class SubstationApp(App):
         popup = (
             reuse_popup if reuse_popup else Popup(title=title, size_hint=(0.95, 0.9))
         )
+        if reuse_popup is not None:
+            self._release_popup_content(reuse_popup, deep=False)
+        self._bind_popup_auto_cleanup(popup, deep=False)
         popup.title = title
         popup._dbs_filter_name = filter_name
         popup._dbs_element_type_filter = element_type_filter if show_elements else None
@@ -12103,6 +12530,18 @@ class SubstationApp(App):
         popup.content = main_layout
         if not reuse_popup:
             popup.open()
+            if show_elements and substations:
+                sub_id = int(substations[0][0])
+                sub_name = str(substations[0][1] or "")
+
+                def _prompt_substation_conflicts(_dt):
+                    self._show_substation_conflict_popup(
+                        sub_id,
+                        sub_name,
+                        parent_popup=popup,
+                    )
+
+                Clock.schedule_once(_prompt_substation_conflicts, 0.15)
 
     def create_substations_template(self, instance):
         success, message = create_substations_template(os.path.dirname(__file__))
@@ -12651,38 +13090,6 @@ class SubstationApp(App):
         actor = current_user.get("name") or "desktop"
         hot_keep = int(get_app_setting("backup_hot_keep", 3) or 3)
         backup_on_change = bool(get_app_setting("sync_backup_on_change", True))
-
-        if self._sync_requires_structure_refresh(local_pending_tables):
-            _notify_progress(
-                10,
-                S["MESSAGES"].get(
-                    "STARTUP_SYNC_DATA_ONEDRIVE",
-                    "Συγχρονισμός δεδομένων με OneDrive...",
-                ),
-                S["MESSAGES"].get(
-                    "SYNC_PROGRESS_STRUCTURE", "Συγχρονισμός δομής φακέλων..."
-                ),
-            )
-            try:
-                structure_progress = _stage_progress_callback(
-                    10,
-                    24,
-                    S["MESSAGES"].get(
-                        "SYNC_PROGRESS_STRUCTURE",
-                        "Συγχρονισμός δομής φακέλων...",
-                    ),
-                )
-                structure_result = sync_all_substation_structures(
-                    work_conn,
-                    db_path=self.db_path,
-                    quiet=True,
-                    progress_callback=structure_progress,
-                )
-            except Exception as exc:
-                logging.exception(
-                    "Failed to sync shared OneDrive folder structures during manual sync"
-                )
-                stage_errors.append(f"Συγχρονισμός δομής φακέλων: {exc}")
 
         _notify_progress(
             26,
@@ -15161,6 +15568,7 @@ class SubstationApp(App):
         )
         popup_ref["popup"] = popup
         popup.content = scroll
+        self._bind_popup_auto_cleanup(popup, deep=False)
         popup.open()
 
     def _read_elements_file(self, file_path):
@@ -16379,6 +16787,110 @@ class SubstationApp(App):
 
         return _f(self, substation_id, substation_name, parent_popup)
 
+    def _show_substation_conflict_popup(
+        self, substation_id, substation_name, parent_popup=None
+    ):
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
+        from reports import show_confirm
+        from substation_conflicts import (
+            detect_substation_conflicts,
+            set_substation_conflict_exception,
+        )
+
+        issues = detect_substation_conflicts(self.conn, substation_id)
+        if not issues:
+            return False
+
+        popup = Popup(
+            title=f"Προβλήματα Υποσταθμού - {substation_name or ''}",
+            size_hint=(0.92, 0.82),
+        )
+        if parent_popup is not None:
+            popup._dbs_origin_popup = parent_popup
+        self._bind_popup_auto_cleanup(popup, deep=True)
+
+        content = BoxLayout(orientation="vertical", padding=10, spacing=8)
+        scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
+        rows = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            spacing=8,
+            padding=4,
+        )
+        rows.bind(minimum_height=rows.setter("height"))
+
+        def _refresh_popup(*_args):
+            popup.dismiss()
+            Clock.schedule_once(
+                lambda _dt: self._show_substation_conflict_popup(
+                    substation_id,
+                    substation_name,
+                    parent_popup,
+                ),
+                0,
+            )
+
+        for issue in issues:
+            row = BoxLayout(size_hint_y=None, height=96, spacing=8)
+            message = Label(
+                text=f"[b]{issue['title']}[/b]\n{issue['message']}",
+                markup=True,
+                halign="left",
+                valign="top",
+                size_hint_x=0.72,
+            )
+            message.bind(
+                size=lambda inst, _val: setattr(
+                    inst,
+                    "text_size",
+                    (max(10, inst.width - 8), None),
+                )
+            )
+            exception_btn = Button(
+                text="Ορισμός εξαίρεσης",
+                size_hint_x=0.28,
+            )
+
+            def _confirm_exception(_btn, issue_data=issue):
+                def _set_exception():
+                    set_substation_conflict_exception(
+                        self.conn,
+                        substation_id,
+                        issue_data["type"],
+                        issue_data["key"],
+                        f"{issue_data['title']}: {issue_data['message']}",
+                    )
+                    _refresh_popup()
+
+                show_confirm(
+                    "Επιβεβαίωση εξαίρεσης",
+                    f"Θέλετε να ορίσετε εξαίρεση για το πρόβλημα;\n\n"
+                    f"{issue_data['title']}\n{issue_data['message']}",
+                    yes_callback=_set_exception,
+                    yes_text="ΝΑΙ",
+                    no_text="ΟΧΙ",
+                    size_hint=(0.72, 0.42),
+                )
+
+            exception_btn.bind(on_press=_confirm_exception)
+            row.add_widget(message)
+            row.add_widget(exception_btn)
+            rows.add_widget(row)
+
+        scroll.add_widget(rows)
+        content.add_widget(scroll)
+
+        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=42)
+        close_btn.bind(on_press=popup.dismiss)
+        content.add_widget(close_btn)
+        popup.content = content
+        popup.open()
+        return True
+
     def show_substation_element_summary(
         self, substation_id, substation_name, parent_popup
     ):
@@ -16613,6 +17125,19 @@ class SubstationApp(App):
         summary_lines.extend(
             gate_lines or ["  - Δεν υπάρχουν καταχωρημένες πύλες με ενεργά στοιχεία."]
         )
+        try:
+            from substation_conflicts import detect_substation_conflicts
+
+            conflict_issues = detect_substation_conflicts(self.conn, substation_id)
+        except Exception:
+            logging.exception("Failed to detect substation conflicts")
+            conflict_issues = []
+        summary_lines.extend(["", "[b]Έλεγχοι / Προβλήματα Υποσταθμού:[/b]"])
+        if conflict_issues:
+            for issue in conflict_issues:
+                summary_lines.append(f"  - [b]{issue['title']}[/b]: {issue['message']}")
+        else:
+            summary_lines.append("  - Δεν βρέθηκαν προβλήματα.")
 
         popup = Popup(
             title=f"Πληροφορίες Στοιχείων - {substation_name}",
@@ -17695,6 +18220,7 @@ class SubstationApp(App):
         close_btn.bind(on_press=popup.dismiss)
 
         render_checklists()
+        self._bind_popup_auto_cleanup(popup, deep=True)
         popup.content = main_layout
         popup.open()
 
@@ -17998,6 +18524,11 @@ class SubstationApp(App):
             "Επεξεργασία Συντήρησης" if maintenance_id else "Καταχώρηση Συντήρησης"
         )
         popup = Popup(title=popup_title, size_hint=(0.9, 0.95))
+        self._issue_a_log_event(
+            "maintenance_editor_open",
+            maintenance_id=int(maintenance_id or 0),
+            mode="edit" if maintenance_id else "create",
+        )
 
         # Create a scrollable container for all content
         scroll_view = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -20610,24 +21141,6 @@ class SubstationApp(App):
                         detail_display += f"\n{ops_label}: {operations_count}"
 
                     model_tags_box = None
-                    try:
-                        from model_management import _build_model_context_tags
-
-                        model_tags_box = _build_model_context_tags(
-                            elem_type,
-                            breaker_category=breaker_category,
-                            installation_space=installation_space or "-",
-                            manufacturer=manufacturer,
-                            app_instance=self,
-                        )
-                        if model_tags_box:
-                            model_tags_box.size_hint = (None, None)
-                            model_tags_box.height = 22
-                            model_tags_box.width = 176
-                    except Exception:
-                        import traceback
-
-                        traceback.print_exc()
 
                     content_row = BoxLayout(
                         orientation="horizontal",
@@ -22885,7 +23398,7 @@ class SubstationApp(App):
             add_element_btn.width = max(min_width, text_width)
 
         add_element_btn.bind(texture_size=lambda *_: _resize_add_button())
-        Window.bind(size=lambda *_: _resize_add_button())
+        Window.bind(size=_resize_add_button)
         # schedule one resize after layout so initial texture metrics are correct
         from kivy.clock import Clock
 
@@ -23219,15 +23732,6 @@ class SubstationApp(App):
                     "UPDATE maintenance SET data_json=? WHERE id=?",
                     (maintenance_data_json, maintenance_id),
                 )
-                try:
-                    invalidate_maintenance_reports(
-                        self.conn, maintenance_id, delete_files=True
-                    )
-                except Exception:
-                    logging.exception(
-                        "Failed to invalidate maintenance PDFs for maintenance %s",
-                        maintenance_id,
-                    )
                 c.execute(
                     "DELETE FROM maintenance_people WHERE maintenance_id=?",
                     (maintenance_id,),
@@ -23740,40 +24244,6 @@ class SubstationApp(App):
                         maintenance_id,
                     )
 
-            # Ensure hybrid OneDrive/local folder structure before commit.
-            # If folder creation fails, maintenance creation must be blocked.
-            try:
-                folder_result = ensure_maintenance_folders(
-                    self.conn,
-                    maintenance_id=maintenance_id,
-                    substation_id=substation_id,
-                    maintenance_name=maintenance_name,
-                    maintenance_type=maintenance_type,
-                    date_time=maintenance_date,
-                    element_ids=[elem_id for elem_id, _widgets in selected_elements],
-                    attachment_paths=staged_attachment_paths,
-                    db_path=self.db_path,
-                )
-                primary_media_folder = folder_result.get("primary_media_folder")
-                if primary_media_folder:
-                    existing_primary_media_folder = primary_media_folder
-                    c.execute(
-                        "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
-                        (primary_media_folder, maintenance_id),
-                    )
-            except Exception as exc:
-                self.conn.rollback()
-                show_message_popup(
-                    S["TITLES"].get("ERROR", "Σφάλμα"),
-                    S["MESSAGES"]
-                    .get(
-                        "MAINT_FOLDERS_CREATE_FAILED_FMT",
-                        "Failed to create maintenance folder structure.\nThe entry was cancelled.\n\n{error}",
-                    )
-                    .format(error=str(exc)),
-                )
-                return
-
             # Persist pending tasks for incomplete maintenances
             try:
                 if completed_state:
@@ -23823,6 +24293,61 @@ class SubstationApp(App):
             )
 
             self.conn.commit()
+            post_save_element_ids = [elem_id for elem_id, _widgets in selected_elements]
+            post_save_attachment_paths = list(staged_attachment_paths)
+
+            def _finish_maintenance_post_save():
+                worker_conn = None
+                try:
+                    import sqlite3
+
+                    worker_conn = sqlite3.connect(self.db_path, timeout=30)
+                    invalidate_maintenance_reports(
+                        worker_conn,
+                        maintenance_id,
+                        delete_files=True,
+                    )
+                    folder_result = ensure_maintenance_folders(
+                        worker_conn,
+                        maintenance_id=maintenance_id,
+                        substation_id=substation_id,
+                        maintenance_name=maintenance_name,
+                        maintenance_type=maintenance_type,
+                        date_time=maintenance_date,
+                        element_ids=post_save_element_ids,
+                        attachment_paths=post_save_attachment_paths,
+                        db_path=self.db_path,
+                    )
+                    primary_media_folder = folder_result.get("primary_media_folder")
+                    if primary_media_folder:
+                        worker_cur = worker_conn.cursor()
+                        worker_cur.execute(
+                            "UPDATE maintenance SET onedrive_media_folder_link=? WHERE id=?",
+                            (primary_media_folder, maintenance_id),
+                        )
+                        worker_conn.commit()
+                except Exception:
+                    logging.exception(
+                        "Failed maintenance post-save folder/report synchronization"
+                    )
+                finally:
+                    if worker_conn is not None:
+                        try:
+                            worker_conn.close()
+                        except Exception:
+                            pass
+
+            threading.Thread(
+                target=_finish_maintenance_post_save,
+                daemon=True,
+                name="maintenance-post-save",
+            ).start()
+            self._issue_a_log_event(
+                "maintenance_editor_save",
+                maintenance_id=int(maintenance_id or 0),
+                selected_elements=int(len(selected_elements)),
+                mode="edit" if maintenance_record else "create",
+            )
             popup.dismiss()
             success_msg = (
                 "Η συντήρηση ενημερώθηκε!"
@@ -23863,6 +24388,11 @@ class SubstationApp(App):
         cancel_btn = Button(text=S["BUTTONS"].get("CANCEL", "Ακύρωση"), size_hint_x=0.5)
 
         def _cancel_maintenance_editor(_instance=None):
+            self._issue_a_log_event(
+                "maintenance_editor_cancel",
+                maintenance_id=int(maintenance_id or 0),
+                mode="edit" if maintenance_record else "create",
+            )
             should_close_child_window = not callable(after_cancel_callback)
             self._dismiss_popup_and_maybe_close_child_window(
                 popup,
@@ -23892,6 +24422,18 @@ class SubstationApp(App):
         datetime_input.bind(text=lambda *_args: _update_save_button_state())
         responsible_spinner.bind(text=lambda *_args: _update_save_button_state())
         maintenance_type_spinner.bind(text=lambda *_args: _update_save_button_state())
+        self._bind_popup_auto_cleanup(popup, deep=True)
+        try:
+
+            def _unbind_window_resize(*_args):
+                try:
+                    Window.unbind(size=_resize_add_button)
+                except Exception:
+                    pass
+
+            popup.bind(on_dismiss=_unbind_window_resize)
+        except Exception:
+            pass
         refresh_wizard_view()
         _update_save_button_state()
         popup.open()
@@ -24198,6 +24740,7 @@ class SubstationApp(App):
         main_layout.add_widget(buttons_layout)
 
         popup.bind(on_dismiss=_continue_to_form)
+        self._bind_popup_auto_cleanup(popup, deep=True)
         popup.content = main_layout
         popup.open()
         return True
@@ -26875,6 +27418,7 @@ class SubstationApp(App):
             ),
             size_hint=(0.95, 0.9),
         )
+        self._bind_popup_auto_cleanup(popup, deep=False)
 
         main_layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
 
@@ -27514,6 +28058,7 @@ class SubstationApp(App):
         popup = Popup(
             title=f"Ιστορικό Συντήρησης: {substation_name}", size_hint=(0.95, 0.9)
         )
+        self._bind_popup_auto_cleanup(popup, deep=False)
         main_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
 
         action_bar = BoxLayout(size_hint_y=None, height=40, spacing=8)
@@ -31990,26 +32535,13 @@ class SubstationApp(App):
         c.execute("SELECT id, name FROM substations ORDER BY name")
         substations = c.fetchall()
 
-        # Load all DGA measurement rows joined with element and maintenance info
-        c.execute("""
-            SELECT dm.id, dm.maintenance_id, dm.element_id, e.name, e.serial_number, e.manufacturer,
-                   dm.substation_id, s.name AS substation_name,
-                   dm.measurement_date, dm.sampling_date, dm.report_path, dm.created_at,
-                   dm.h2, dm.c2h2, dm.c2h4, dm.c2h6, dm.co, dm.co2, dm.ch4, dm.o2, dm.c3h8, dm.n2, dm.h2o,
-                   dm.density, dm.humidity, dm.dielectric_strength, dm.loss_factor, dm.surface_tension
-            FROM dga_measurements dm
-            LEFT JOIN elements e ON dm.element_id = e.id
-            LEFT JOIN substations s ON dm.substation_id = s.id
-            ORDER BY dm.measurement_date DESC, dm.created_at DESC
-            """)
-        rows = c.fetchall()
-
         popup = Popup(
             title=S["MESSAGES"].get(
                 "MEASUREMENTS_HISTORY_LABEL", "Measurements History"
             ),
             size_hint=(0.94, 0.9),
         )
+        self._bind_popup_auto_cleanup(popup, deep=False)
         main = BoxLayout(orientation="vertical", padding=10, spacing=8)
 
         # Filter row: label with selected substation, 'Επιλογή' button, then 'Ολα' button
@@ -32059,8 +32591,25 @@ class SubstationApp(App):
         def render_rows():
             content.clear_widgets()
             sel_sub = selected_sub.get("id")
+            query_params = []
+            query = """
+                SELECT dm.id, dm.maintenance_id, dm.element_id, e.name, e.serial_number, e.manufacturer,
+                       dm.substation_id, s.name AS substation_name,
+                       dm.measurement_date, dm.sampling_date, dm.report_path, dm.created_at,
+                       dm.h2, dm.c2h2, dm.c2h4, dm.c2h6, dm.co, dm.co2, dm.ch4, dm.o2, dm.c3h8, dm.n2, dm.h2o,
+                       dm.density, dm.humidity, dm.dielectric_strength, dm.loss_factor, dm.surface_tension
+                FROM dga_measurements dm
+                LEFT JOIN elements e ON dm.element_id = e.id
+                LEFT JOIN substations s ON dm.substation_id = s.id
+            """
+            if sel_sub:
+                query += " WHERE dm.substation_id = ?"
+                query_params.append(sel_sub)
+            query += " ORDER BY dm.measurement_date DESC, dm.created_at DESC"
 
-            for row in rows:
+            row_cursor = self.conn.cursor()
+            row_cursor.execute(query, query_params)
+            for row in row_cursor.fetchall():
                 (
                     dga_id,
                     maintenance_id,

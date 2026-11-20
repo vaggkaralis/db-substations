@@ -2454,6 +2454,13 @@ class SubstationAndroidApp(App):
             ordered.append(unregistered)
         return [(gate_name, grouped[gate_name]) for gate_name in ordered]
 
+    def _order_gate_elements_for_display(self, gate_elements):
+        """Keep category order while preserving hemizygos/MV subtype order."""
+        return sorted(
+            gate_elements or [],
+            key=self._element_display_sort_key,
+        )
+
     def _group_elements_by_hemizygos(self, gate_elements):
         """Return visible hemizygos sections in the same order as desktop."""
         grouped = {}
@@ -6904,16 +6911,7 @@ class SubstationAndroidApp(App):
                     )
                     grid.add_widget(gate_header)
 
-                    hemizygos_sections = self._group_elements_by_hemizygos(
-                        gate_elements
-                    )
-                    hemizygos_entries = []
-                    for hemizygos_name, hemizygos_elements in hemizygos_sections:
-                        for hemizygos_elem in hemizygos_elements:
-                            hemizygos_entries.append(("element", hemizygos_elem))
-
-                    for entry in hemizygos_entries:
-                        elem = entry[1]
+                    for elem in self._order_gate_elements_for_display(gate_elements):
                         elem_row = BoxLayout(
                             size_hint_y=None,
                             height=176,
@@ -8082,12 +8080,10 @@ class SubstationAndroidApp(App):
                         ordered_entries.append(
                             ("header", gate_name, len(gate_elements))
                         )
-                        hemi_sections = self._group_elements_by_hemizygos(gate_elements)
-                        for hemi_name, hemi_elements in hemi_sections:
-                            for gate_elem in hemi_elements:
-                                ordered_entries.append(
-                                    ("element", gate_name, gate_elem)
-                                )
+                        for gate_elem in self._order_gate_elements_for_display(
+                            gate_elements
+                        ):
+                            ordered_entries.append(("element", gate_name, gate_elem))
 
                     for entry in ordered_entries:
                         if entry[0] == "header":

@@ -2710,6 +2710,11 @@ def show_edit_element_popup(
 
     popup = Popup(title=f"Επεξεργασία: {name}", size_hint=(0.9, 0.9))
     popup._dbs_origin_popup = parent_popup
+    try:
+        if hasattr(app, "_bind_popup_auto_cleanup"):
+            app._bind_popup_auto_cleanup(popup, deep=True)
+    except Exception:
+        pass
     main_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
     scroll = ScrollView(bar_width=10, scroll_type=["bars", "content"])
@@ -3252,26 +3257,6 @@ def show_edit_element_popup(
                     "delete", "elements", {"id": duplicate_element_id}
                 )
 
-            try:
-                sync_substation_gate_folders(
-                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
-                )
-                sync_transformer_subelement_folders(
-                    app.conn, substation_id, db_path=getattr(app, "db_path", None)
-                )
-            except Exception as exc:
-                app.conn.rollback()
-                show_message_popup(
-                    S["TITLES"].get("ERROR", "Σφάλμα"),
-                    S["MESSAGES"]
-                    .get(
-                        "GATE_FOLDERS_SYNC_EDIT_FAILED_FMT",
-                        "Failed to sync gate folders.\nChanges were cancelled.\n\n{error}",
-                    )
-                    .format(error=str(exc)),
-                )
-                return
-
             app.conn.commit()
 
             refresh_state = _capture_substation_popup_state(
@@ -3280,34 +3265,134 @@ def show_edit_element_popup(
                 grandparent_popup,
                 fallback_filter_name=substation_name,
             )
-            save_state["completed"] = True
-            try:
-                loading_popup.dismiss()
-            except Exception:
-                pass
-            _dismiss_popup_safely(popup)
-            _dismiss_popup_safely(parent_popup)
-            _dismiss_popup_safely(grandparent_popup)
-            if substation_name:
-                show_message_popup(
-                    "Επιτυχία",
-                    "Οι αλλαγές αποθηκεύτηκαν!",
-                    callback=lambda state=refresh_state: (
-                        _restore_substation_popup_state(app, state)
-                    ),
-                )
-            else:
-                show_message_popup(
-                    "Επιτυχία",
-                    "Οι αλλαγές αποθηκεύτηκαν!",
-                    callback=lambda: app.show_records(None),
-                )
+
+            gate_changed = gate_value != (gate or "")
+            name_changed = name_val != (name or "")
+            subelement_types = set(getattr(app, "SUBELEMENT_TYPES", []) or [])
+            is_transformer = "μετασχημα" in str(elem_type).lower()
+            needs_gate_sync = gate_changed
+            needs_subelement_sync = bool(
+                name_changed and (elem_type in subelement_types or is_transformer)
+            )
+
+            if not needs_gate_sync and not needs_subelement_sync:
+                save_state["completed"] = True
+                try:
+                    loading_popup.dismiss()
+                except Exception:
+                    pass
+                _dismiss_popup_safely(popup)
+                _dismiss_popup_safely(parent_popup)
+                _dismiss_popup_safely(grandparent_popup)
+                if substation_name:
+                    show_message_popup(
+                        "Επιτυχία",
+                        "Οι αλλαγές αποθηκεύτηκαν!",
+                        callback=lambda state=refresh_state: (
+                            _restore_substation_popup_state(app, state)
+                        ),
+                    )
+                else:
+                    show_message_popup(
+                        "Επιτυχία",
+                        "Οι αλλαγές αποθηκεύτηκαν!",
+                        callback=lambda: app.show_records(None),
+                    )
+                return
+
+            def _finish_background_folder_sync(sync_error=None):
+                save_state["completed"] = True
+                try:
+                    loading_popup.dismiss()
+                except Exception:
+                    pass
+                _dismiss_popup_safely(popup)
+                _dismiss_popup_safely(parent_popup)
+                _dismiss_popup_safely(grandparent_popup)
+                if sync_error:
+
+                    def _restore_after_sync_warning():
+                        if substation_name:
+                            _restore_substation_popup_state(app, refresh_state)
+                        else:
+                            app.show_records(None)
+
+                    show_message_popup(
+                        S["TITLES"].get("WARNING", "Προειδοποίηση"),
+                        "Οι αλλαγές αποθηκεύτηκαν, αλλά ο συγχρονισμός φακέλων χρειάζεται επανέλεγχο:\n"
+                        f"{sync_error}",
+                        callback=_restore_after_sync_warning,
+                    )
+                elif substation_name:
+                    show_message_popup(
+                        "Επιτυχία",
+                        "Οι αλλαγές αποθηκεύτηκαν!",
+                        callback=lambda state=refresh_state: (
+                            _restore_substation_popup_state(app, state)
+                        ),
+                    )
+                else:
+                    show_message_popup(
+                        "Επιτυχία",
+                        "Οι αλλαγές αποθηκεύτηκαν!",
+                        callback=lambda: app.show_records(None),
+                    )
+
+            def _sync_folders_in_background():
+                import sqlite3
+
+                worker_error = None
+                worker_conn = None
+                try:
+                    db_path = getattr(app, "db_path", None)
+                    if db_path:
+                        worker_conn = sqlite3.connect(db_path, timeout=30)
+                        if needs_gate_sync:
+                            sync_substation_gate_folders(
+                                worker_conn,
+                                substation_id,
+                                db_path=db_path,
+                            )
+                        if needs_subelement_sync:
+                            sync_transformer_subelement_folders(
+                                worker_conn,
+                                substation_id,
+                                db_path=db_path,
+                            )
+                except Exception as exc:
+                    worker_error = str(exc)
+                finally:
+                    if worker_conn is not None:
+                        try:
+                            worker_conn.close()
+                        except Exception:
+                            pass
+
+                try:
+                    from kivy.clock import Clock
+
+                    Clock.schedule_once(
+                        lambda _dt: _finish_background_folder_sync(worker_error),
+                        0,
+                    )
+                except Exception:
+                    _finish_background_folder_sync(worker_error)
+
+            import threading
+
+            save_state["folder_sync_started"] = True
+            threading.Thread(
+                target=_sync_folders_in_background,
+                daemon=True,
+                name="element-folder-sync",
+            ).start()
         finally:
             save_state["busy"] = False
-            try:
-                loading_popup.dismiss()
-            except Exception:
-                pass
+            if not save_state.get("folder_sync_started"):
+                try:
+                    loading_popup.dismiss()
+                except Exception:
+                    pass
             if not save_state["completed"]:
                 try:
                     save_btn.disabled = False

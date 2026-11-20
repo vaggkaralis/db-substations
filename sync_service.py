@@ -69,6 +69,96 @@ def resolve_local_sync_tracker_path(sync_root: str) -> str:
     return os.path.join(APP_DATA_DIR, "sync_state", f"processed_{root_slug}.json")
 
 
+def resolve_local_sync_scan_state_path(
+    sync_root: str, local_tracker_path: str | None = None
+) -> str:
+    """Store accepted-folder scan state per sync root for this device."""
+    if local_tracker_path:
+        scope_key = os.path.abspath(local_tracker_path)
+    else:
+        scope_key = os.path.abspath(sync_root)
+    root_slug = uuid.uuid5(uuid.NAMESPACE_URL, scope_key).hex
+    return os.path.join(APP_DATA_DIR, "sync_state", f"accepted_scan_{root_slug}.json")
+
+
+def resolve_local_sync_retention_state_path(sync_root: str) -> str:
+    """Store retention-run cadence state per sync root for this device."""
+    scope_key = os.path.abspath(sync_root)
+    root_slug = uuid.uuid5(uuid.NAMESPACE_URL, scope_key).hex
+    return os.path.join(APP_DATA_DIR, "sync_state", f"retention_state_{root_slug}.json")
+
+
+def _load_local_scan_state(path: str) -> dict:
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_local_scan_state(path: str, data: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data or {}, fh, ensure_ascii=False, indent=2)
+
+
+def _load_retention_state(path: str) -> dict:
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_retention_state(path: str, data: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data or {}, fh, ensure_ascii=False, indent=2)
+
+
+def _retention_should_run(sync_root: str, min_interval_minutes: int) -> bool:
+    interval_seconds = max(0, int(min_interval_minutes or 0)) * 60
+    if interval_seconds <= 0:
+        return True
+
+    state_path = resolve_local_sync_retention_state_path(sync_root)
+    state = _load_retention_state(state_path)
+    last_run_ts = float(state.get("last_run_ts", 0.0) or 0.0)
+    if last_run_ts <= 0:
+        return True
+    return (time.time() - last_run_ts) >= float(interval_seconds)
+
+
+def _mark_retention_ran(sync_root: str) -> None:
+    state_path = resolve_local_sync_retention_state_path(sync_root)
+    _save_retention_state(
+        state_path,
+        {
+            "last_run_ts": float(time.time()),
+            "updated_at": _utc_now_iso(),
+        },
+    )
+
+
+def _build_accepted_scan_marker(accepted_dir: str, tracker_path: str) -> dict:
+    def _mtime_ns(path: str):
+        try:
+            return int(getattr(os.stat(path), "st_mtime_ns", 0) or 0)
+        except Exception:
+            return None
+
+    return {
+        "accepted_dir_mtime_ns": _mtime_ns(accepted_dir),
+        "shared_tracker_mtime_ns": _mtime_ns(tracker_path),
+    }
+
+
 def _get_file_fingerprint(file_path: str) -> dict:
     try:
         stat = os.stat(file_path)
@@ -186,6 +276,8 @@ def _apply_generic_table_change(
     table: str,
     op: str,
     data: dict,
+    cols_info: list[str] | None = None,
+    commit_changes: bool = True,
 ) -> str:
     """Apply a simple id-based insert/update/delete change.
 
@@ -200,10 +292,11 @@ def _apply_generic_table_change(
         if not cur.fetchone():
             return "already_applied"
         cur.execute(f"DELETE FROM {table} WHERE id=?", (record_id,))
-        conn.commit()
+        if commit_changes:
+            conn.commit()
         return "accepted"
 
-    cols_info = [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
+    cols_info = cols_info or [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
 
     if op == "update":
         if not record_id:
@@ -221,7 +314,8 @@ def _apply_generic_table_change(
             f"UPDATE {table} SET {assignments} WHERE id=?",
             [data[key] for key in update_keys] + [record_id],
         )
-        conn.commit()
+        if commit_changes:
+            conn.commit()
         return "accepted"
 
     if op != "insert":
@@ -245,10 +339,12 @@ def _apply_generic_table_change(
             f"INSERT INTO {table} ({columns}) VALUES ({placeholders})",
             [data[k] for k in insert_keys],
         )
-        conn.commit()
+        if commit_changes:
+            conn.commit()
         return "accepted"
     except sqlite3.IntegrityError:
-        conn.rollback()
+        if commit_changes:
+            conn.rollback()
         return "conflict"
 
 
@@ -257,9 +353,13 @@ def _apply_isolation_request_change(
     conn: sqlite3.Connection,
     op: str,
     data: dict,
+    request_cols: list[str] | None = None,
+    commit_changes: bool = True,
 ) -> str:
     request_id = data.get("id")
-    request_cols = [r[1] for r in cur.execute("PRAGMA table_info(isolation_requests)")]
+    request_cols = request_cols or [
+        r[1] for r in cur.execute("PRAGMA table_info(isolation_requests)")
+    ]
 
     if op == "delete":
         if not request_id:
@@ -275,7 +375,8 @@ def _apply_isolation_request_change(
             "DELETE FROM isolation_request_elements WHERE request_id=?", (request_id,)
         )
         cur.execute("DELETE FROM isolation_requests WHERE id=?", (request_id,))
-        conn.commit()
+        if commit_changes:
+            conn.commit()
         return "accepted"
 
     element_ids = []
@@ -308,7 +409,8 @@ def _apply_isolation_request_change(
                     "INSERT OR IGNORE INTO isolation_request_elements (request_id, element_id) VALUES (?, ?)",
                     (request_id, elem_id),
                 )
-        conn.commit()
+        if commit_changes:
+            conn.commit()
         return "accepted"
 
     if op != "insert":
@@ -340,10 +442,12 @@ def _apply_isolation_request_change(
                 "INSERT OR IGNORE INTO isolation_request_elements (request_id, element_id) VALUES (?, ?)",
                 (request_id, elem_id),
             )
-        conn.commit()
+        if commit_changes:
+            conn.commit()
         return "accepted"
     except sqlite3.IntegrityError:
-        conn.rollback()
+        if commit_changes:
+            conn.rollback()
         return "conflict"
 
 
@@ -466,7 +570,7 @@ def _apply_change_log_to_db(
     file_path: str,
     tracker: dict | None = None,
     filename: str | None = None,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, dict]:
     """
     Apply changes from a JSONL file to the database (idempotent).
 
@@ -477,7 +581,7 @@ def _apply_change_log_to_db(
         filename: Filename for tracking (defaults to basename of file_path)
 
     Returns:
-        Tuple of (accepted, already_applied, conflicts)
+        Tuple of (accepted, already_applied, conflicts, payload_summary)
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(file_path)
@@ -491,17 +595,39 @@ def _apply_change_log_to_db(
     accepted = 0
     already_applied = 0
     conflicts = 0
+    payload_entries = 0
+    payload_insert_entries = 0
+    payload_table_counts: dict[str, int] = {}
+    table_columns_cache: dict[str, list[str]] = {}
 
     cur = conn.cursor()
+
+    def _get_table_columns(table_name: str) -> list[str]:
+        if table_name not in table_columns_cache:
+            table_columns_cache[table_name] = [
+                r[1] for r in cur.execute(f"PRAGMA table_info({table_name})")
+            ]
+        return table_columns_cache[table_name]
+
+    maint_cols = _get_table_columns("maintenance")
+    isolation_request_cols = _get_table_columns("isolation_requests")
+
     with open(file_path, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:
                 continue
+            payload_entries += 1
             obj = json.loads(line)
             op = obj.get("operation")
             table = obj.get("table")
             data = obj.get("data") or {}
+            if op == "insert":
+                payload_insert_entries += 1
+                table_key = str(table or "unknown")
+                payload_table_counts[table_key] = (
+                    int(payload_table_counts.get(table_key, 0) or 0) + 1
+                )
 
             if table == "maintenance":
                 maint_id = data.get("id")
@@ -566,9 +692,6 @@ def _apply_change_log_to_db(
                             if isinstance(row, (tuple, list))
                             else row["substation_id"]
                         )
-                        maint_cols = [
-                            r[1] for r in cur.execute("PRAGMA table_info(maintenance)")
-                        ]
                         update_keys = [
                             k for k in data.keys() if k in maint_cols and k != "id"
                         ]
@@ -657,9 +780,6 @@ def _apply_change_log_to_db(
                         conflicts += 1
                         continue
 
-                maint_cols = [
-                    r[1] for r in cur.execute("PRAGMA table_info(maintenance)")
-                ]
                 maint_keys = [k for k in data.keys() if k in maint_cols]
                 if maint_keys:
                     try:
@@ -732,7 +852,14 @@ def _apply_change_log_to_db(
                 continue
 
             if table == "isolation_requests":
-                result = _apply_isolation_request_change(cur, conn, op, data)
+                result = _apply_isolation_request_change(
+                    cur,
+                    conn,
+                    op,
+                    data,
+                    request_cols=isolation_request_cols,
+                    commit_changes=True,
+                )
                 if result == "accepted":
                     accepted += 1
                 elif result == "already_applied":
@@ -741,7 +868,15 @@ def _apply_change_log_to_db(
                     conflicts += 1
                 continue
 
-            result = _apply_generic_table_change(cur, conn, table, op, data)
+            result = _apply_generic_table_change(
+                cur,
+                conn,
+                table,
+                op,
+                data,
+                cols_info=_get_table_columns(table),
+                commit_changes=True,
+            )
             if result == "accepted":
                 accepted += 1
             elif result == "already_applied":
@@ -749,7 +884,16 @@ def _apply_change_log_to_db(
             elif result == "conflict":
                 conflicts += 1
 
-    return (accepted, already_applied, conflicts)
+    return (
+        accepted,
+        already_applied,
+        conflicts,
+        {
+            "entries": int(payload_entries),
+            "insert_entries": int(payload_insert_entries),
+            "table_counts": payload_table_counts,
+        },
+    )
 
 
 def process_sync_inbox(
@@ -774,11 +918,20 @@ def process_sync_inbox(
     local_tracker_path = local_tracker_path or resolve_local_sync_tracker_path(
         sync_root
     )
+    local_scan_state_path = resolve_local_sync_scan_state_path(
+        sync_root, local_tracker_path=local_tracker_path
+    )
     local_tracker = _load_processed_tracker(local_tracker_path)
+    local_scan_state = _load_local_scan_state(local_scan_state_path)
     local_device_id = get_sync_device_id()
 
     # Shared tracker remains in the sync root for audit/conflict UI.
     tracker = _load_processed_tracker(tracker_path)
+    accepted_scan_marker_before = _build_accepted_scan_marker(
+        accepted_dir, tracker_path
+    )
+    previous_accepted_scan_marker = local_scan_state.get("accepted_scan_marker")
+    scan_accepted_dir = accepted_scan_marker_before != previous_accepted_scan_marker
 
     files = []
     seen_original_names: set[str] = set()
@@ -792,24 +945,25 @@ def process_sync_inbox(
         files.append((item, src))
         seen_original_names.add(item)
 
-    for item in sorted(os.listdir(accepted_dir)):
-        src = os.path.join(accepted_dir, item)
-        if not os.path.isfile(src):
-            continue
-        if not item.lower().endswith((".json", ".jsonl")):
-            continue
-        # Extract original filename (remove timestamp prefix if present)
-        parts = item.split("_", 3)
-        if len(parts) >= 4:  # yyyymmdd_hhmmss_ffffff_originalname
-            original_name = "_".join(parts[3:])
-        else:
-            original_name = item
-        # Only add if not already processed in this sync cycle
-        # (to avoid duplicates from pending and accepted)
-        if original_name in seen_original_names:
-            continue
-        files.append((original_name, src))
-        seen_original_names.add(original_name)
+    if scan_accepted_dir:
+        for item in sorted(os.listdir(accepted_dir)):
+            src = os.path.join(accepted_dir, item)
+            if not os.path.isfile(src):
+                continue
+            if not item.lower().endswith((".json", ".jsonl")):
+                continue
+            # Extract original filename (remove timestamp prefix if present)
+            parts = item.split("_", 3)
+            if len(parts) >= 4:  # yyyymmdd_hhmmss_ffffff_originalname
+                original_name = "_".join(parts[3:])
+            else:
+                original_name = item
+            # Only add if not already processed in this sync cycle
+            # (to avoid duplicates from pending and accepted)
+            if original_name in seen_original_names:
+                continue
+            files.append((original_name, src))
+            seen_original_names.add(original_name)
 
     accepted = 0
     already_applied = 0
@@ -836,11 +990,11 @@ def process_sync_inbox(
             pass
         file_summary = None
 
-        def _ensure_file_summary() -> dict:
+        def _ensure_file_summary(payload_summary: dict | None = None) -> dict:
             nonlocal file_summary
             if file_summary is not None:
                 return file_summary
-            payload_summary = _summarize_change_file(src)
+            payload_summary = payload_summary or _summarize_change_file(src)
             file_summary = {
                 "source_file": original_name,
                 "entries": int(payload_summary.get("entries", 0) or 0),
@@ -927,13 +1081,13 @@ def process_sync_inbox(
                 file_summaries.append(file_summary)
                 continue
 
-            file_accepted, file_already_applied, file_conflicts = (
+            file_accepted, file_already_applied, file_conflicts, payload_summary = (
                 _apply_change_log_to_db(conn, src, tracker, original_name)
             )
 
             # Determine overall status
             if file_conflicts > 0:
-                file_summary = _ensure_file_summary()
+                file_summary = _ensure_file_summary(payload_summary)
                 event["status"] = "conflict"
                 event["details"] = {
                     "accepted": file_accepted,
@@ -963,7 +1117,7 @@ def process_sync_inbox(
                 }
             elif file_already_applied == 0 and file_accepted == 0:
                 # File had no applicable changes
-                file_summary = _ensure_file_summary()
+                file_summary = _ensure_file_summary(payload_summary)
                 event["status"] = "rejected"
                 event["reason"] = "No applicable changes found"
                 file_summary["status"] = "rejected"
@@ -989,7 +1143,7 @@ def process_sync_inbox(
                     **file_fingerprint,
                 }
             elif file_already_applied > 0 and file_accepted == 0:
-                file_summary = _ensure_file_summary()
+                file_summary = _ensure_file_summary(payload_summary)
                 event["status"] = "already_applied"
                 event["count"] = file_already_applied
                 file_summary["status"] = "already_applied"
@@ -1013,7 +1167,7 @@ def process_sync_inbox(
                     **file_fingerprint,
                 }
             else:
-                file_summary = _ensure_file_summary()
+                file_summary = _ensure_file_summary(payload_summary)
                 event["status"] = "accepted"
                 event["details"] = {
                     "accepted": file_accepted,
@@ -1081,6 +1235,15 @@ def process_sync_inbox(
     # Save updated tracker
     _save_processed_tracker(tracker_path, tracker)
     _save_processed_tracker(local_tracker_path, local_tracker)
+    _save_local_scan_state(
+        local_scan_state_path,
+        {
+            "accepted_scan_marker": _build_accepted_scan_marker(
+                accepted_dir, tracker_path
+            ),
+            "updated_at": _utc_now_iso(),
+        },
+    )
 
     return {
         "processed": len(file_summaries),
@@ -1397,6 +1560,9 @@ def run_sync_cycle(
 
     retention_enabled = bool(get_app_setting("sync_retention_enabled", True))
     retention_days = int(get_app_setting("sync_retention_days", 60) or 60)
+    retention_min_interval_minutes = int(
+        get_app_setting("sync_retention_min_interval_minutes", 15) or 15
+    )
     retention_summary = {
         "enabled": retention_enabled,
         "max_age_days": max(1, retention_days),
@@ -1406,10 +1572,17 @@ def run_sync_cycle(
     }
 
     if retention_enabled:
-        retention_summary = prune_old_sync_change_files(
-            effective_sync_root,
-            max_age_days=max(1, retention_days),
-        )
+        if _retention_should_run(effective_sync_root, retention_min_interval_minutes):
+            retention_summary = prune_old_sync_change_files(
+                effective_sync_root,
+                max_age_days=max(1, retention_days),
+            )
+            _mark_retention_ran(effective_sync_root)
+        else:
+            retention_summary["skipped_recent"] = True
+            retention_summary["min_interval_minutes"] = max(
+                0, int(retention_min_interval_minutes)
+            )
 
     snapshot_path = None
     if create_backup_on_change and sync_summary["accepted"] > 0:

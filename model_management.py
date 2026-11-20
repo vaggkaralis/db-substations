@@ -408,6 +408,8 @@ def _breaker_role_match_sql(selected_role, elem_breaker_mt, elem_breaker_yt):
 def search_elements(
     app_instance,
     *,
+    name_query=None,
+    substation_id=None,
     element_type_filter=None,
     breaker_category_filter=None,
     breaker_role_filter=None,
@@ -450,6 +452,18 @@ def search_elements(
 
     all_option = S["MESSAGES"].get("ALL_OPTION", "(Όλα)")
     all_breakers_label = S["MESSAGES"].get("ALL_BREAKERS_OPTION", "Όλοι οι Διακόπτες")
+    name_query = str(name_query or "").strip()
+    if name_query:
+        sql += " AND LOWER(COALESCE(e.name, '')) LIKE LOWER(?)"
+        params.append(f"%{name_query}%")
+    if substation_id is not None:
+        try:
+            substation_id = int(substation_id)
+        except (TypeError, ValueError):
+            substation_id = None
+    if substation_id is not None:
+        sql += " AND e.substation_id = ?"
+        params.append(substation_id)
     if not include_inactive:
         sql += " AND COALESCE(TRIM(e.operating_status), '') NOT IN ('Ανενεργή', 'Απόσυρση')"
     if element_type_filter and element_type_filter != all_option:
@@ -1982,6 +1996,72 @@ def show_element_search_popup(app_instance, parent_popup=None):
 
     filter_grid.add_widget(
         Label(
+            text=S["MESSAGES"].get("ELEMENT_NAME_FILTER_LABEL", "Όνομα Στοιχείου:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    name_input = TextInput(
+        hint_text=S["MESSAGES"].get("ELEMENT_NAME_FILTER_HINT", "Πληκτρολογήστε όνομα"),
+        multiline=False,
+        size_hint_y=None,
+        height=36,
+    )
+    filter_grid.add_widget(name_input)
+
+    filter_grid.add_widget(
+        Label(
+            text=S["MESSAGES"].get("FILTER_SUBSTATION", "Υποσταθμός:"),
+            size_hint_y=None,
+            height=32,
+        )
+    )
+    substation_box = BoxLayout(size_hint_y=None, height=36, spacing=6)
+    selected_substation = {
+        "id": None,
+        "name": all_option,
+    }
+    selected_substation_label = Label(
+        text=all_option,
+        size_hint_x=0.72,
+        halign="left",
+        valign="middle",
+    )
+    selected_substation_label.bind(
+        size=lambda inst, val: setattr(inst, "text_size", val)
+    )
+    substation_box.add_widget(selected_substation_label)
+    select_substation_btn = Button(
+        text=S["MESSAGES"].get("SELECT_SUBSTATION_BTN", "Επιλογή"),
+        size_hint_x=0.28,
+    )
+    substation_box.add_widget(select_substation_btn)
+    filter_grid.add_widget(substation_box)
+
+    c.execute("SELECT id, name FROM substations ORDER BY name ASC")
+    substations = [(row[0], row[1] or "-") for row in (c.fetchall() or [])]
+
+    def _on_substation_selected(substation_name):
+        for substation_id, name in substations:
+            if name == substation_name:
+                selected_substation["id"] = substation_id
+                selected_substation["name"] = name
+                selected_substation_label.text = name
+                break
+
+    select_substation_btn.bind(
+        on_press=lambda *_args: (
+            app_instance._show_substation_selection_window_with_callback(
+                popup,
+                substations,
+                _on_substation_selected,
+                title=S["MESSAGES"].get("FILTER_SUBSTATION", "Επιλογή Υποσταθμού"),
+            )
+        )
+    )
+
+    filter_grid.add_widget(
+        Label(
             text=S["MESSAGES"].get("FILTER_TYPE_LABEL", "Τύπος Στοιχείου:"),
             size_hint_y=None,
             height=32,
@@ -2159,6 +2239,14 @@ def show_element_search_popup(app_instance, parent_popup=None):
         sort_spinner.text = saved_filters["sort_order"]
     if saved_filters.get("include_inactive"):
         include_inactive_checkbox.active = saved_filters["include_inactive"]
+    if saved_filters.get("name_query"):
+        name_input.text = saved_filters["name_query"]
+    saved_substation_id = saved_filters.get("substation_id")
+    saved_substation_name = saved_filters.get("substation_name")
+    if saved_substation_id is not None and saved_substation_name:
+        selected_substation["id"] = saved_substation_id
+        selected_substation["name"] = saved_substation_name
+        selected_substation_label.text = saved_substation_name
 
     action_row = BoxLayout(size_hint_y=None, height=42, spacing=8)
     results_summary = Label(text="", size_hint_x=0.68, halign="left", valign="middle")
@@ -2385,6 +2473,8 @@ def show_element_search_popup(app_instance, parent_popup=None):
 
         has_meaningful_filter = any(
             [
+                bool(name_input.text.strip()),
+                selected_substation["id"] is not None,
                 element_type_spinner.text != all_option,
                 breaker_category_spinner.text != all_option,
                 breaker_role_spinner.text != all_option,
@@ -2417,6 +2507,8 @@ def show_element_search_popup(app_instance, parent_popup=None):
         }
         rows = search_elements(
             app_instance,
+            name_query=name_input.text,
+            substation_id=selected_substation["id"],
             element_type_filter=element_type_spinner.text,
             breaker_category_filter=breaker_category_spinner.text,
             breaker_role_filter=breaker_role_spinner.text,
@@ -2430,6 +2522,9 @@ def show_element_search_popup(app_instance, parent_popup=None):
         _render_results(rows, search_executed=True)
 
     def _reset_filters(*_args):
+        name_input.text = ""
+        selected_substation.update({"id": None, "name": all_option})
+        selected_substation_label.text = all_option
         element_type_spinner.text = all_option
         breaker_category_spinner.text = all_option
         breaker_role_spinner.text = all_option
@@ -2457,6 +2552,9 @@ def show_element_search_popup(app_instance, parent_popup=None):
     def _capture_filter_state():
         """Capture current filter state for persistence across popup reopenings."""
         filters = {
+            "name_query": name_input.text,
+            "substation_id": selected_substation["id"],
+            "substation_name": selected_substation["name"],
             "element_type": element_type_spinner.text,
             "breaker_category": breaker_category_spinner.text,
             "breaker_role": breaker_role_spinner.text,

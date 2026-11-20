@@ -247,6 +247,25 @@ def test_search_elements_applies_greater_than_distance_limit():
     assert {row[11] for row in rows} == {"MID SUB", "FAR SUB"}
 
 
+def test_search_elements_filters_by_element_name_case_insensitively():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+
+    rows = search_elements(app, name_query="sf6")
+
+    assert {row[2] for row in rows} == {"MV SF6 CENTRAL", "HV SF6"}
+
+
+def test_search_elements_filters_by_specific_substation():
+    conn = _setup_db()
+    app = _DummyApp(conn)
+
+    rows = search_elements(app, substation_id=3)
+
+    assert {row[11] for row in rows} == {"FAR SUB"}
+    assert {row[2] for row in rows} == {"HV SF6", "TR 1"}
+
+
 def test_search_elements_hides_inactive_by_default():
     conn = _setup_db()
     app = _DummyApp(conn)

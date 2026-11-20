@@ -188,6 +188,54 @@ def test_group_elements_by_hemizygos_returns_visible_sections():
     ]
 
 
+def test_order_gate_elements_keeps_category_before_hemizygos():
+    app = android_app.SubstationAndroidApp()
+    hv_breaker = android_app.S.get("MESSAGES", {}).get(
+        "ELEMENT_BREAKER_YT", "Διακόπτης ΥΤ"
+    )
+    mv_breaker = android_app.S.get("MESSAGES", {}).get(
+        "ELEMENT_BREAKER_MT", "Διακόπτης ΜΤ"
+    )
+
+    ordered = app._order_gate_elements_for_display(
+        [
+            {
+                "id": 1,
+                "element_type": mv_breaker,
+                "name": "MV Hemizygos 2",
+                "hemizygos": "Ημιζυγός 2",
+                "is_main_switch": 0,
+            },
+            {
+                "id": 2,
+                "element_type": mv_breaker,
+                "name": "MV Hemizygos 1",
+                "hemizygos": "Ημιζυγός 1",
+                "is_main_switch": 1,
+            },
+            {
+                "id": 3,
+                "element_type": "Μετασχηματιστής 150/20KV",
+                "name": "Transformer",
+                "hemizygos": "Ημιζυγός 2",
+            },
+            {
+                "id": 4,
+                "element_type": hv_breaker,
+                "name": "HV",
+                "hemizygos": "Ημιζυγός 1",
+            },
+        ]
+    )
+
+    assert [elem["name"] for elem in ordered] == [
+        "HV",
+        "Transformer",
+        "MV Hemizygos 1",
+        "MV Hemizygos 2",
+    ]
+
+
 def test_load_substation_elements_renders_gate_headers(monkeypatch):
     app = android_app.SubstationAndroidApp()
     grid = android_app.GridLayout(cols=1)

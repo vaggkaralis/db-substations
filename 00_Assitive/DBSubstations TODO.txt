@@ -12,17 +12,41 @@ To be verified:
 *************** Running: ***********************
 ************************************************
 Following must be resolved:
-- in the android app the units of the measurements when adding a new maintenance need to be aligned with the units used on the desktop app (e.g. maintenance of MV vacuum breaker - but it must be ckecked for all types of elements).
-
-- in the add/edit maintenance form, when a new instance is created, the responsible is prefilled with the name of the user that is currently logged in (which is correct). the problem is that when tis responsible is changed by the user (through the dropdown list) the name of the preselected responsible (current user) stays selected (which is wrong)
-
 - measurement data of an element's maintenance history on android app are printed without units. also, I think that not all measurements are displayed, some are skipped. check and fix.
 
 - in a previous attempt, we added the deddie logo in the tray icon off the app on the windows task bar, when the desktop app i running. I want you to remove it. The fact is that it didn't work (app is running on a python logo), but sometimes some of the windows that are open turn to this deddie logo, while other open remain onthe python and it is just sad. I want a safe removal of the deddie logo from the app tray in the windows task bar and be careful so that we don't have any errors or regressions afterwards.
 
+- when i save changes for an element in the substation element view it hangs and i have to wait to click on ok in the save success popup ("Οι αλλαγές αποθηκεύτηκαν") after saving. at least if it has too take longer, wait until it is ready to throw the success popup nd until it is displayed, show a suitable loading popup
+
+- the memory usage still grows a lot as i do changes in the database (for example changing element data in the substation element view). this doesn't make much sense to me, as i expect that the memory usage is not so demanding and it shouldn't grow so rapidly as i use the desktop app. we need to find the root cause here and optimize that. the app gets really slow in the end!
+
 **********************************************
 **************** TODO: ***********************
 **********************************************
+- app version on the android app
+
+- settings in android app (onlyicon button "gear") menu has no suitable wrapping of the text. Also the button in the menu need to grow double in hight so that the user can click with the finger easier.
+
+
+- when i close an extra window, a loading popup shall appear until its ready, because it takes longer and i see an empty screen until the window closes
+
+- conflicts in the substation (name, serial number etc.) shall be recognized and when issues are found :
+1. a popup shall be prompted when opening the substation element view
+2. this information shall be available in the "Πληροφορίες Στοιχείων" menu
+What shall be checked:
+a. duplicate names, serial numbers
+b. elements without gate
+c. Medium Voltage breakers without ΗΜΙΖΥΓΟ, if ΗΜΙΖΥΓΟ is available for the substation
+d. gates without or multiple transformers and HV breakers. also each gate shall have one MV main breaker, except when we have ΗΜΙΖΥΓΟΥΣ, then each ΗΜΙΖΥΓΟΣ shall have only one MV main breaker
+e. maintenances of the substation where elements of other substation are linked
+The popup menu shall give the user the option to set exception for the issue (so for each issue there shall be a button to se the exception and a subsequent to confirm exception y/n)
+
+- the onlyicon button next to each element in the substation element view on the android phone need to get 50% bigger to be able to touch with the finger. the challenge is to keep the wrapping and alignment of the elements in order, avoiding overlappings and beeig able to see the full text of the element's data summary	
+
+- in the android app the units of the measurements when adding a new maintenance need to be aligned with the units used on the desktop app (e.g. maintenance of MV vacuum breaker - but it must be ckecked for all types of elements). the isolation resistance of the breakers for example is still MΩ, GΩ, kΩ instead of MΩ, GΩ, TΩ. 
+
+- list of models inside the "Πληροφορίες Στοιχείων" menu, per element category (Transformers. HV/MV breakers, etc.)
+
 - Να ψάξει μέσα στο φάκελο των μόνο γραμμικών και να βγάλει λίστα ανα υποσταθμό (για να μπορώ να κάνω έλεγχο) με τους ΒΜΣ για να δούμε στατιστικά τι ισχύ έχουν
 
 - make it work -> full MV maintenance from android

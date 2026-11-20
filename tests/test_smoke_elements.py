@@ -20,6 +20,8 @@ def test_element_save_flow_has_renderable_loading_popup():
     assert "loading_popup.open()" in source
     assert "loading_popup.dismiss()" in source
     assert 'hasattr(app, "_show_loading_popup")' in source
+    assert "threading.Thread" in source
+    assert "element-folder-sync" in source
 
 
 def test_desktop_app_exposes_loading_popup_helper():
@@ -27,6 +29,33 @@ def test_desktop_app_exposes_loading_popup_helper():
 
     assert "def _show_loading_popup" in source
     assert "auto_dismiss=False" in source
+    assert "clear_widgets(do_unbind=True)" in source
+    assert "gc.collect(0)" in source
+
+
+def test_windows_icon_is_canonical_and_applied_to_hwnd():
+    dbrun_source = Path("DBrun.py").read_text(encoding="utf-8")
+    popups_source = Path("popups.py").read_text(encoding="utf-8")
+
+    assert "SetCurrentProcessExplicitAppUserModelID" in dbrun_source
+    assert "SendMessageW" in dbrun_source
+    assert "0x0080" in dbrun_source
+    assert "def _ensure_windows_taskbar_identity" in dbrun_source
+    assert "def _start_window_icon_watchdog" in dbrun_source
+    assert "Clock.schedule_interval(_watch_icon_state, 2.0)" in dbrun_source
+    assert "issue_a_diagnostics.log" in dbrun_source
+    assert "def _issue_a_log_snapshot" in dbrun_source
+    assert "def _issue_a_log_event" in dbrun_source
+    assert "_icon_apply_next_allowed_ts" in dbrun_source
+    assert "backoff_seconds" in dbrun_source
+    assert "child_launch_request" in popups_source
+    assert "child_launch_spawned" in popups_source
+    assert "maintenance_editor_open" in dbrun_source
+    assert "maintenance_editor_save" in dbrun_source
+    assert "maintenance_editor_cancel" in dbrun_source
+    assert "_bind_popup_auto_cleanup(popup, deep=True)" in dbrun_source
+    assert "deddie_logo.ico" in dbrun_source
+    assert "deddie_logo.ico" in popups_source
 
 
 def test_show_element_history_ignores_orphan_links(monkeypatch):

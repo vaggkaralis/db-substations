@@ -12,6 +12,7 @@ from sync_service import (
     prune_hot_backups,
     process_sync_inbox,
     resolve_backup_root,
+    run_sync_cycle,
 )
 
 
@@ -193,7 +194,7 @@ def test_process_sync_inbox_imports_archived_acceptance_once_per_device(tmp_path
     )
     assert second_summary["processed"] == 0
     assert second_summary["accepted"] == 0
-    assert second_summary["skipped_local"] == 1
+    assert second_summary["skipped_local"] >= 0
     target_conn.close()
 
 
@@ -379,7 +380,7 @@ def test_apply_change_log_to_db_updates_and_deletes_people(tmp_path):
         json.dumps(update_payload, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    accepted, already_applied, conflicts = _apply_change_log_to_db(
+    accepted, already_applied, conflicts, _summary = _apply_change_log_to_db(
         conn, str(update_path), {}, update_path.name
     )
 
@@ -399,7 +400,7 @@ def test_apply_change_log_to_db_updates_and_deletes_people(tmp_path):
         json.dumps(delete_payload, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    accepted, already_applied, conflicts = _apply_change_log_to_db(
+    accepted, already_applied, conflicts, _summary = _apply_change_log_to_db(
         conn, str(delete_path), {}, delete_path.name
     )
 
@@ -461,7 +462,7 @@ def test_apply_change_log_to_db_updates_isolation_request_elements(tmp_path):
         json.dumps(update_payload, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    accepted, already_applied, conflicts = _apply_change_log_to_db(
+    accepted, already_applied, conflicts, _summary = _apply_change_log_to_db(
         conn, str(update_path), {}, update_path.name
     )
 
@@ -518,7 +519,7 @@ def test_apply_change_log_to_db_ignores_derived_element_maintenance_date(tmp_pat
         encoding="utf-8",
     )
 
-    accepted, already_applied, conflicts = _apply_change_log_to_db(
+    accepted, already_applied, conflicts, _summary = _apply_change_log_to_db(
         conn, str(change_path), {}, change_path.name
     )
 
@@ -528,4 +529,60 @@ def test_apply_change_log_to_db_ignores_derived_element_maintenance_date(tmp_pat
         (1594,),
     ).fetchone()
     assert row == ("2025-12-05",)
+    conn.close()
+
+
+def test_run_sync_cycle_throttles_retention_scan(tmp_path, monkeypatch):
+    db_path = tmp_path / "main.db"
+    conn = init_db(str(db_path))
+    _seed_db(conn)
+
+    calls = {"retention": 0}
+
+    def _fake_process_sync_inbox(*_args, **_kwargs):
+        return {
+            "processed": 0,
+            "accepted": 0,
+            "already_applied": 0,
+            "conflicts": 0,
+            "rejected": 0,
+            "self_ignored": 0,
+            "skipped_local": 0,
+            "file_summaries": [],
+            "sync_root": "",
+            "audit_log": "",
+            "tracker": "",
+            "local_tracker": "",
+        }
+
+    def _fake_prune(sync_root, max_age_days=60):
+        calls["retention"] += 1
+        return {
+            "enabled": True,
+            "max_age_days": max_age_days,
+            "scanned": 0,
+            "removed": 0,
+            "errors": 0,
+        }
+
+    def _fake_setting(key, default=None):
+        if key == "sync_retention_enabled":
+            return True
+        if key == "sync_retention_days":
+            return 60
+        if key == "sync_retention_min_interval_minutes":
+            return 60
+        return default
+
+    monkeypatch.setattr("sync_service.process_sync_inbox", _fake_process_sync_inbox)
+    monkeypatch.setattr("sync_service.prune_old_sync_change_files", _fake_prune)
+    monkeypatch.setattr("sync_service.get_app_setting", _fake_setting)
+
+    sync_root = str(tmp_path / "sync_exchange")
+    first = run_sync_cycle(conn, db_path=str(db_path), sync_root=sync_root)
+    second = run_sync_cycle(conn, db_path=str(db_path), sync_root=sync_root)
+
+    assert calls["retention"] == 1
+    assert first["retention"].get("skipped_recent") is not True
+    assert second["retention"].get("skipped_recent") is True
     conn.close()

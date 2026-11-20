@@ -9,6 +9,7 @@ not installed.
 
 import importlib
 import json
+import logging
 import os
 import struct
 import subprocess
@@ -16,9 +17,8 @@ import sys
 import tempfile
 import uuid
 
-import gc
-
 _LAUNCHED_CHILD_PROCESSES = []
+ISSUE_A_LOGGER = logging.getLogger("ISSUE_A")
 
 
 def _prune_launched_child_processes():
@@ -37,6 +37,11 @@ def _prune_launched_child_processes():
     return survivors
 
 
+def get_launched_child_process_count():
+    """Return count of still-running child app processes."""
+    return len(_prune_launched_child_processes())
+
+
 try:
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
@@ -50,7 +55,51 @@ except Exception:
 
 
 def _resolve_app_icon_path():
-    """Keep the default OS taskbar/window icon instead of custom branding."""
+    """Resolve the canonical application icon for native menus and Kivy launch."""
+    base_dir = os.path.dirname(__file__)
+    candidates = []
+    if getattr(sys, "frozen", False):
+        candidates.extend(
+            [
+                os.path.join(getattr(sys, "_MEIPASS", base_dir), "deddie_logo.ico"),
+                os.path.join(getattr(sys, "_MEIPASS", base_dir), "logo_deddie.ico"),
+            ]
+        )
+    candidates.extend(
+        [
+            os.path.join(base_dir, "deddie_logo.ico"),
+            os.path.join(base_dir, "logo_deddie.ico"),
+            os.path.join(base_dir, "deddie_logo.png"),
+            os.path.join(base_dir, "logo_deddie.png"),
+        ]
+    )
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            if candidate.lower().endswith(".ico"):
+                return candidate
+            try:
+                from PIL import Image as PILImage
+
+                ico_path = os.path.join(tempfile.gettempdir(), "dbsubstations_app.ico")
+                with PILImage.open(candidate) as image:
+                    rgba = image.convert("RGBA")
+                    rgba.thumbnail((256, 256))
+                    rgba.save(
+                        ico_path,
+                        format="ICO",
+                        sizes=[
+                            (16, 16),
+                            (32, 32),
+                            (48, 48),
+                            (64, 64),
+                            (128, 128),
+                            (256, 256),
+                        ],
+                    )
+                if os.path.isfile(ico_path):
+                    return ico_path
+            except Exception:
+                pass
     return ""
 
 
@@ -321,12 +370,35 @@ root.mainloop()
     ]
 
     try:
-        subprocess.Popen(
+        helper_proc = subprocess.Popen(
             command,
             cwd=os.getcwd(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        ISSUE_A_LOGGER.info(
+            json.dumps(
+                {
+                    "event": "desktop_menu_spawned",
+                    "pid": int(os.getpid()),
+                    "child_pid": int(getattr(helper_proc, "pid", 0) or 0),
+                    "title": str(title or ""),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
     except Exception:
+        ISSUE_A_LOGGER.info(
+            json.dumps(
+                {
+                    "event": "desktop_menu_spawn_failed",
+                    "pid": int(os.getpid()),
+                    "title": str(title or ""),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
         return False
 
     def _poll_result(_dt):
@@ -365,17 +437,24 @@ def _resolve_app_entry_script():
     """
     candidates = []
     argv0 = (sys.argv[0] if sys.argv else "") or ""
+    executable = os.path.abspath(getattr(sys, "executable", "") or "")
     cwd = os.getcwd()
     module_dir = os.path.dirname(__file__)
-    for candidate in [
-        os.path.join(cwd, "DBrun.py"),
-        os.path.join(cwd, "DBrun.exe"),
-        os.path.join(cwd, "dbsubstations.exe"),
-        os.path.join(module_dir, "DBrun.py"),
-        os.path.join(module_dir, "DBrun.exe"),
-        os.path.join(module_dir, "dbsubstations.exe"),
-        argv0,
-    ]:
+    probe_order = []
+    if getattr(sys, "frozen", False) and executable:
+        probe_order.append(executable)
+    probe_order.extend(
+        [
+            os.path.join(cwd, "DBrun.py"),
+            os.path.join(cwd, "DBrun.exe"),
+            os.path.join(cwd, "dbsubstations.exe"),
+            os.path.join(module_dir, "DBrun.py"),
+            os.path.join(module_dir, "DBrun.exe"),
+            os.path.join(module_dir, "dbsubstations.exe"),
+            argv0,
+        ]
+    )
+    for candidate in probe_order:
         if not candidate:
             continue
         normalized = os.path.abspath(candidate)
@@ -417,6 +496,17 @@ def launch_app_screen(screen_name, payload=None):
         _prune_launched_child_processes()
         script = _resolve_app_entry_script()
         if not script:
+            ISSUE_A_LOGGER.info(
+                json.dumps(
+                    {
+                        "event": "child_launch_no_entry",
+                        "pid": int(os.getpid()),
+                        "screen": str(screen_name or ""),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
             return False
         command = _build_launch_command(
             script,
@@ -424,14 +514,50 @@ def launch_app_screen(screen_name, payload=None):
             payload,
             parent_pid=os.getpid(),
         )
+        ISSUE_A_LOGGER.info(
+            json.dumps(
+                {
+                    "event": "child_launch_request",
+                    "pid": int(os.getpid()),
+                    "screen": str(screen_name or ""),
+                    "script": str(script),
+                    "command": list(command),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
         child_proc = subprocess.Popen(
             command,
             cwd=os.getcwd(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         _LAUNCHED_CHILD_PROCESSES.append(child_proc)
+        ISSUE_A_LOGGER.info(
+            json.dumps(
+                {
+                    "event": "child_launch_spawned",
+                    "pid": int(os.getpid()),
+                    "screen": str(screen_name or ""),
+                    "child_pid": int(getattr(child_proc, "pid", 0) or 0),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
         return True
     except Exception:
+        ISSUE_A_LOGGER.info(
+            json.dumps(
+                {
+                    "event": "child_launch_failed",
+                    "pid": int(os.getpid()),
+                    "screen": str(screen_name or ""),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
         return False
 
 
@@ -449,10 +575,6 @@ def terminate_launched_child_processes():
         except Exception:
             continue
     _prune_launched_child_processes()
-    try:
-        gc.collect()
-    except Exception:
-        pass
 
 
 def create_popup(title, size_hint, **kwargs):
@@ -552,6 +674,18 @@ def show_message_popup(title: str, message: str, callback=None) -> None:
     close_btn.bind(on_press=on_close)
     layout.add_widget(close_btn)
 
+    def _release_message_popup(*_args):
+        try:
+            try:
+                layout.clear_widgets(do_unbind=True)
+            except TypeError:
+                layout.clear_widgets()
+            close_btn.unbind(on_press=on_close)
+            popup.content = None
+        except Exception:
+            pass
+
+    popup.bind(on_dismiss=_release_message_popup)
     popup.content = layout
     popup.open()
 

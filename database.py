@@ -27,6 +27,22 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         cursor.execute("PRAGMA synchronous = NORMAL")
     except Exception:
         pass
+    try:
+        cursor.execute("PRAGMA cache_size = -8192")
+    except Exception:
+        pass
+    try:
+        cursor.execute("PRAGMA temp_store = FILE")
+    except Exception:
+        pass
+    try:
+        cursor.execute("PRAGMA mmap_size = 0")
+    except Exception:
+        pass
+    try:
+        cursor.execute("PRAGMA wal_autocheckpoint = 100")
+    except Exception:
+        pass
 
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS substations (id INTEGER PRIMARY KEY, name TEXT, location TEXT, adoption_date TEXT, base_distance_km REAL)"
@@ -66,6 +82,20 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
 
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, parent_element_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, hemizygos TEXT DEFAULT '', vector_group TEXT DEFAULT '', FOREIGN KEY(substation_id) REFERENCES substations(id), FOREIGN KEY(parent_element_id) REFERENCES elements(id) ON DELETE SET NULL)"
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS substation_conflict_exceptions (
+            id INTEGER PRIMARY KEY,
+            substation_id INTEGER NOT NULL,
+            issue_key TEXT NOT NULL,
+            issue_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(substation_id, issue_key),
+            FOREIGN KEY(substation_id) REFERENCES substations(id) ON DELETE CASCADE
+        )
+        """
     )
 
     # Maintenance tracking tables
