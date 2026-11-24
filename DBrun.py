@@ -49,6 +49,7 @@ from maintenance_type_utils import (
     is_fault_maintenance_type as _is_fault_maintenance_type,
     is_recurring_maintenance_type as _is_recurring_maintenance_type,
 )
+from measurement_units import bind_insulation_unit_auto_switch
 from importers import (
     import_elements_from_csv,
     import_elements_from_excel,
@@ -84,6 +85,19 @@ from validation import (
     filter_people_for_maintenance,
     group_people_by_category,
 )
+
+
+def _clear_maintenance_date_filter(
+    date_filter,
+    year_spinner,
+    month_spinner,
+    year_all_option,
+    month_all_option,
+):
+    date_filter["year"] = year_all_option
+    date_filter["month"] = month_all_option
+    year_spinner.text = year_all_option
+    month_spinner.text = month_all_option
 
 
 def _elements_missing_gate_warning_rows(conn, substation_id):
@@ -4393,7 +4407,11 @@ class SubstationApp(App):
         except Exception:
             norm = (elem_type or "").lower()
         return (
-            ("150/20" in (elem_type or "")) or ("150/20" in norm) or ("μετασχη" in norm)
+            ("150/20" in (elem_type or ""))
+            or ("150/20" in norm)
+            or ("μετασχη" in norm)
+            or ("μ/σ" in norm)
+            or ("m/s" in norm)
         )
 
     def _is_subelement_type(self, elem_type: str) -> bool:
@@ -7828,6 +7846,18 @@ class SubstationApp(App):
         transformers = c.fetchall()
         num_gates = len(transformers)
 
+        # If substation has no transformers, check if it's marked as a no-transformer exception
+        # and generate at least Gate 1 for MV breakers
+        if num_gates == 0:
+            try:
+                from substation_conflicts import is_substation_no_transformer_exception
+
+                if is_substation_no_transformer_exception(self.conn, substation_id):
+                    gate_numbers = [1]
+                    num_gates = 1
+            except Exception:
+                pass
+
         # If no explicit gate labels exist, keep sequential 1..N behavior.
         if not gate_numbers:
             gate_numbers = [i + 1 for i in range(num_gates)]
@@ -7882,6 +7912,145 @@ class SubstationApp(App):
         return [get_unreg()] + gates
 
     @staticmethod
+    def _normalize_gate_label_key(gate_label):
+        return " ".join(str(gate_label or "").split()).casefold()
+
+    @staticmethod
+    def _gate_component_sort_key(component):
+        token = str(component or "").strip()
+        match = re.match(r"^(\d+)(?:\.(\d+))?$", token)
+        if match:
+            major = int(match.group(1))
+            minor = int(match.group(2)) if match.group(2) is not None else 0
+            return (0, major, minor)
+        return (1, token.casefold())
+
+    @classmethod
+    def _build_interconnection_gate_labels(cls, regular_gate_labels):
+        gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+        suffixes = []
+        seen = set()
+        for gate in regular_gate_labels or []:
+            gate_text = str(gate or "").strip()
+            if not gate_text:
+                continue
+            prefix_text = f"{gate_prefix} "
+            if not gate_text.casefold().startswith(prefix_text.casefold()):
+                continue
+            suffix = gate_text[len(prefix_text) :].strip()
+            if not suffix:
+                continue
+            key = suffix.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            suffixes.append(suffix)
+
+        if len(suffixes) < 2:
+            return []
+
+        suffixes = sorted(suffixes, key=cls._gate_component_sort_key)
+        labels = []
+        for i in range(len(suffixes)):
+            for j in range(i + 1, len(suffixes)):
+                labels.append(f"{gate_prefix} {suffixes[i]}-{suffixes[j]}")
+        return labels
+
+    def _substation_has_hemizygos(self, substation_id):
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM elements
+                WHERE substation_id=?
+                  AND TRIM(COALESCE(hemizygos, '')) != ''
+                LIMIT 1
+                """,
+                (substation_id,),
+            )
+            return cursor.fetchone() is not None
+        except Exception:
+            return False
+
+    def _get_split_mv_parent_gates(self, substation_id):
+        gate_prefix = S["MESSAGES"].get("GATE_PREFIX", "ΠΥΛΗ")
+        gate_pattern = re.compile(
+            rf"^{re.escape(gate_prefix)}\s*(\d+)$",
+            flags=re.IGNORECASE,
+        )
+        split_parent_gates = set()
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT gate
+                FROM elements
+                WHERE substation_id=?
+                  AND split_mv_gates=1
+                  AND (operating_status IS NULL OR operating_status='Ενεργή')
+                """,
+                (substation_id,),
+            )
+        except Exception:
+            return split_parent_gates
+
+        for (raw_gate,) in cursor.fetchall() or []:
+            gate_text = str(raw_gate or "").strip()
+            if not gate_text:
+                continue
+            match = gate_pattern.match(gate_text)
+            if not match:
+                continue
+            split_parent_gates.add(
+                self._normalize_gate_label_key(f"{gate_prefix} {int(match.group(1))}")
+            )
+        return split_parent_gates
+
+    def get_available_gates_for_element(
+        self, substation_id, element_type=None, *, is_interconnection=None
+    ):
+        gates = list(self.get_available_gates(substation_id, is_interconnection))
+        if str(element_type or "").strip() != str(self.ELEM_BREAKER_MT):
+            return gates
+
+        split_parent_gates = self._get_split_mv_parent_gates(substation_id)
+        regular_gates = list(self.get_available_gates(substation_id, False))
+        unreg = get_unreg()
+        regular_non_unreg = [gate for gate in regular_gates if gate != unreg]
+
+        expanded_regular = []
+        for gate in regular_non_unreg:
+            normalized_gate = self._normalize_gate_label_key(gate)
+            if normalized_gate in split_parent_gates:
+                expanded_regular.append(f"{gate}.1")
+                expanded_regular.append(f"{gate}.2")
+            else:
+                expanded_regular.append(gate)
+
+        inter_labels = self._build_interconnection_gate_labels(expanded_regular)
+
+        if is_interconnection is True:
+            if self._substation_has_hemizygos(substation_id):
+                gates = [unreg] + expanded_regular + inter_labels
+            else:
+                gates = [unreg] + inter_labels
+        elif is_interconnection is False:
+            gates = [unreg] + expanded_regular
+        else:
+            gates = [unreg] + expanded_regular + inter_labels
+
+        deduped = []
+        seen = set()
+        for gate in gates:
+            key = self._normalize_gate_label_key(gate)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(gate)
+        return deduped
+
+    @staticmethod
     def get_available_hemizygos_options(include_empty=True):
         options = list(HEMIZYGOS_OPTIONS)
         if include_empty:
@@ -7903,13 +8072,18 @@ class SubstationApp(App):
         if gate in priority_order:
             return (0, priority_order.index(gate))
 
-        inter_match = re.match(rf"{re.escape(gate_prefix)} (\d+)-(\d+)$", gate)
+        inter_match = re.match(rf"{re.escape(gate_prefix)} ([^-]+)-([^-]+)$", gate)
         if inter_match:
-            return (1, int(inter_match.group(1)), int(inter_match.group(2)))
+            return (
+                1,
+                SubstationApp._gate_component_sort_key(inter_match.group(1)),
+                SubstationApp._gate_component_sort_key(inter_match.group(2)),
+            )
 
-        regular_match = re.match(rf"{re.escape(gate_prefix)} (\d+)$", gate)
+        regular_match = re.match(rf"{re.escape(gate_prefix)} ([^ ]+)$", gate)
         if regular_match:
-            return (2, int(regular_match.group(1)))
+            token = regular_match.group(1)
+            return (2, SubstationApp._gate_component_sort_key(token))
 
         return (3, gate)
 
@@ -16751,15 +16925,24 @@ class SubstationApp(App):
         grandparent_popup=None,
     ):
         from elements import show_edit_element_popup as _f
+        import traceback
 
-        return _f(
-            self,
-            element_id,
-            substation_id,
-            parent_popup,
-            substation_name,
-            grandparent_popup,
-        )
+        try:
+            return _f(
+                self,
+                element_id,
+                substation_id,
+                parent_popup,
+                substation_name,
+                grandparent_popup,
+            )
+        except Exception as exc:
+            logging.exception("show_edit_element_popup failed")
+            show_message_popup(
+                S["TITLES"].get("ERROR", "Σφάλμα"),
+                f"Σφάλμα στο άνοιγμα επεξεργασίας στοιχείου:\n{exc}\n\n{traceback.format_exc()}",
+            )
+            return None
 
     def confirm_delete_element(
         self,
@@ -16804,9 +16987,19 @@ class SubstationApp(App):
         issues = detect_substation_conflicts(self.conn, substation_id)
         if not issues:
             return False
+        problem_issues = [
+            issue
+            for issue in issues
+            if str(issue.get("severity", "problem")).strip().casefold() != "warning"
+        ]
+        warning_issues = [
+            issue
+            for issue in issues
+            if str(issue.get("severity", "problem")).strip().casefold() == "warning"
+        ]
 
         popup = Popup(
-            title=f"Προβλήματα Υποσταθμού - {substation_name or ''}",
+            title=f"Έλεγχοι Υποσταθμού - {substation_name or ''}",
             size_hint=(0.92, 0.82),
         )
         if parent_popup is not None:
@@ -16834,52 +17027,86 @@ class SubstationApp(App):
                 0,
             )
 
-        for issue in issues:
-            row = BoxLayout(size_hint_y=None, height=96, spacing=8)
-            message = Label(
-                text=f"[b]{issue['title']}[/b]\n{issue['message']}",
+        def _add_section(title, section_issues, color_hex):
+            if not section_issues:
+                return
+            section_label = Label(
+                text=f"[b][color={color_hex}]{title} ({len(section_issues)})[/color][/b]",
                 markup=True,
+                size_hint_y=None,
+                height=28,
                 halign="left",
-                valign="top",
-                size_hint_x=0.72,
+                valign="middle",
             )
-            message.bind(
+            section_label.bind(
                 size=lambda inst, _val: setattr(
-                    inst,
-                    "text_size",
-                    (max(10, inst.width - 8), None),
+                    inst, "text_size", (inst.width, inst.height)
                 )
             )
-            exception_btn = Button(
-                text="Ορισμός εξαίρεσης",
-                size_hint_x=0.28,
-            )
+            rows.add_widget(section_label)
 
-            def _confirm_exception(_btn, issue_data=issue):
-                def _set_exception():
-                    set_substation_conflict_exception(
-                        self.conn,
-                        substation_id,
-                        issue_data["type"],
-                        issue_data["key"],
-                        f"{issue_data['title']}: {issue_data['message']}",
+            for issue in section_issues:
+                row = BoxLayout(size_hint_y=None, height=96, spacing=8)
+                message = Label(
+                    text=f"[b]{issue['title']}[/b]\n{issue['message']}",
+                    markup=True,
+                    halign="left",
+                    valign="top",
+                    size_hint_x=0.72,
+                )
+                message.bind(
+                    size=lambda inst, _val: setattr(
+                        inst,
+                        "text_size",
+                        (max(10, inst.width - 8), None),
                     )
-                    _refresh_popup()
-
-                show_confirm(
-                    "Επιβεβαίωση εξαίρεσης",
-                    f"Θέλετε να ορίσετε εξαίρεση για το πρόβλημα;\n\n"
-                    f"{issue_data['title']}\n{issue_data['message']}",
-                    yes_callback=_set_exception,
-                    yes_text="ΝΑΙ",
-                    no_text="ΟΧΙ",
-                    size_hint=(0.72, 0.42),
+                )
+                exception_btn = Button(
+                    text="Ορισμός εξαίρεσης",
+                    size_hint_x=0.28,
                 )
 
-            exception_btn.bind(on_press=_confirm_exception)
-            row.add_widget(message)
-            row.add_widget(exception_btn)
-            rows.add_widget(row)
+                def _confirm_exception(_btn, issue_data=issue):
+                    def _set_exception():
+                        exception_message = (
+                            f"{issue_data['title']}: {issue_data['message']}"
+                        )
+                        set_substation_conflict_exception(
+                            self.conn,
+                            substation_id,
+                            issue_data["type"],
+                            issue_data["key"],
+                            exception_message,
+                        )
+                        self._append_change_log(
+                            "insert",
+                            "substation_conflict_exceptions",
+                            {
+                                "substation_id": int(substation_id),
+                                "issue_key": str(issue_data["key"]),
+                                "issue_type": str(issue_data["type"]),
+                                "message": str(exception_message),
+                            },
+                        )
+                        _refresh_popup()
+
+                    show_confirm(
+                        "Επιβεβαίωση εξαίρεσης",
+                        f"Θέλετε να ορίσετε εξαίρεση για το εύρημα;\n\n"
+                        f"{issue_data['title']}\n{issue_data['message']}",
+                        yes_callback=_set_exception,
+                        yes_text="ΝΑΙ",
+                        no_text="ΟΧΙ",
+                        size_hint=(0.72, 0.42),
+                    )
+
+                exception_btn.bind(on_press=_confirm_exception)
+                row.add_widget(message)
+                row.add_widget(exception_btn)
+                rows.add_widget(row)
+
+        _add_section("Προβλήματα", problem_issues, "ff4d4d")
+        _add_section("Προειδοποιήσεις", warning_issues, "ffcc33")
 
         scroll.add_widget(rows)
         content.add_widget(scroll)
@@ -16966,6 +17193,14 @@ class SubstationApp(App):
                 f"{reserve_barrels} βαρέλια)"
             )
 
+        def _format_oil_with_barrels(oil_liters):
+            """Format oil quantity with barrels for individual items (transformers, HV breakers)."""
+            if oil_liters <= 0:
+                return ""
+            summary = summarize_oil_requirement(oil_liters, tolerance_pct=0.0)
+            barrels = int(summary.get("rounded_barrels") or 0)
+            return f"{_format_numeric(oil_liters, 1)} L / {barrels} βαρέλια"
+
         def _build_category_summary(label, total, category_counts, oil_liters, sf6_kg):
             if total <= 0:
                 return ""
@@ -16988,8 +17223,8 @@ class SubstationApp(App):
 
         rows = self.conn.execute(
             """
-            SELECT e.gate, e.element_type, e.breaker_category,
-                   em.oil_capacity_l, em.sf6_capacity_kg, em.oil_weight_kg
+            SELECT e.id, e.name, e.gate, e.element_type, e.breaker_category,
+                   em.model_name, em.oil_capacity_l, em.sf6_capacity_kg, em.oil_weight_kg
             FROM elements e
             LEFT JOIN element_models em ON em.id = e.element_model_id
             WHERE e.substation_id = ?
@@ -17019,37 +17254,99 @@ class SubstationApp(App):
                 "category_counts": defaultdict(int),
                 "oil_liters": 0.0,
                 "sf6_kg": 0.0,
+                "hv_transformer_details": [],
             }
         )
+        missing_oil_model_values = []
+        missing_sf6_model_values = []
 
         for (
+            element_id,
+            element_name,
             gate_name,
             element_type,
             breaker_category,
+            model_name,
             oil_capacity_l,
             sf6_capacity_kg,
             oil_weight_kg,
         ) in rows:
             gate_key = str(gate_name or "").strip() or "Χωρίς Πύλη"
+            element_name_text = str(element_name or "").strip() or "Χωρίς Όνομα"
+            model_name_text = str(model_name or "").strip() or "-"
             normalized_type = str(element_type or "").strip()
             normalized_category = _normalize_breaker_category(breaker_category)
             oil_liters = _get_oil_liters(oil_capacity_l, oil_weight_kg)
             sf6_kg = _coerce_float(sf6_capacity_kg) or 0.0
+            has_oil_model_value = (
+                _coerce_float(oil_capacity_l) is not None
+                or _coerce_float(oil_weight_kg) is not None
+            )
+            has_sf6_model_value = _coerce_float(sf6_capacity_kg) is not None
+            element_descriptor = (
+                f"{element_name_text} (ID: {element_id}, Πύλη: {gate_key}, "
+                f"Μοντέλο: {model_name_text})"
+            )
 
             if normalized_type == self.ELEM_BREAKER_YT:
                 hv_total += 1
                 if normalized_category == "SF6":
+                    quantity_text = (
+                        f"SF6: {_format_numeric(sf6_kg, 1)} kg"
+                        if has_sf6_model_value
+                        else "SF6: χωρίς ποσότητα μοντέλου"
+                    )
+                elif normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
+                    quantity_text = (
+                        f"λάδι: {_format_oil_with_barrels(oil_liters)}"
+                        if has_oil_model_value
+                        else "λάδι: χωρίς ποσότητα μοντέλου"
+                    )
+                else:
+                    quantity_text = ""
+                detail_parts = [
+                    f"[b]Διακόπτης ΥΤ {element_name_text}[/b]",
+                    f"ID: {element_id}",
+                    f"Μοντέλο: {model_name_text}",
+                    f"Κατηγορία: {normalized_category or '-'}",
+                ]
+                if quantity_text:
+                    detail_parts.append(quantity_text)
+                gate_summary[gate_key]["hv_transformer_details"].append(
+                    " | ".join(detail_parts)
+                )
+                if normalized_category == "SF6":
                     hv_category_counts["SF6"] += 1
                     hv_sf6_kg += sf6_kg
+                    if not has_sf6_model_value:
+                        missing_sf6_model_values.append(element_descriptor)
                 elif normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
                     hv_category_counts[normalized_category] += 1
                     hv_oil_liters += oil_liters
+                    if not has_oil_model_value:
+                        missing_oil_model_values.append(element_descriptor)
                 elif normalized_category == "Κενού":
                     hv_category_counts["Κενού"] += 1
 
             elif "μετασχηματιστ" in normalized_type.casefold():
                 transformer_total += 1
                 transformer_oil_liters += oil_liters
+                gate_summary[gate_key]["hv_transformer_details"].append(
+                    " | ".join(
+                        [
+                            f"[b]Μετασχηματιστής {element_name_text}[/b]",
+                            f"ID: {element_id}",
+                            f"Μοντέλο: {model_name_text}",
+                            (
+                                f"λάδι: {_format_oil_with_barrels(oil_liters)}"
+                                if has_oil_model_value
+                                else "λάδι: χωρίς ποσότητα μοντέλου"
+                            ),
+                        ]
+                    )
+                )
+                if not has_oil_model_value:
+                    missing_oil_model_values.append(element_descriptor)
 
             elif normalized_type == self.ELEM_BREAKER_MT:
                 mv_total += 1
@@ -17061,9 +17358,13 @@ class SubstationApp(App):
                 if normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
                     mv_oil_liters += oil_liters
                     gate_summary[gate_key]["oil_liters"] += oil_liters
+                    if not has_oil_model_value:
+                        missing_oil_model_values.append(element_descriptor)
                 if normalized_category == "SF6":
                     mv_sf6_kg += sf6_kg
                     gate_summary[gate_key]["sf6_kg"] += sf6_kg
+                    if not has_sf6_model_value:
+                        missing_sf6_model_values.append(element_descriptor)
 
         total_lines = []
         if hv_total > 0:
@@ -17100,18 +17401,22 @@ class SubstationApp(App):
         for gate_name in sorted(gate_summary):
             gate_bucket = gate_summary[gate_name]
             gate_mv_total = int(gate_bucket.get("mv_total") or 0)
-            if gate_mv_total <= 0:
+            hv_transformer_details = gate_bucket.get("hv_transformer_details") or []
+            if gate_mv_total <= 0 and not hv_transformer_details:
                 continue
             gate_lines.append(f"  - {gate_name}:")
-            gate_lines.append(
-                _build_category_summary(
-                    "Διακόπτες ΜΤ",
-                    gate_mv_total,
-                    gate_bucket["category_counts"],
-                    float(gate_bucket.get("oil_liters") or 0.0),
-                    float(gate_bucket.get("sf6_kg") or 0.0),
+            for detail in hv_transformer_details:
+                gate_lines.append(f"      - {detail}")
+            if gate_mv_total > 0:
+                gate_lines.append(
+                    _build_category_summary(
+                        "Διακόπτες ΜΤ",
+                        gate_mv_total,
+                        gate_bucket["category_counts"],
+                        float(gate_bucket.get("oil_liters") or 0.0),
+                        float(gate_bucket.get("sf6_kg") or 0.0),
+                    )
                 )
-            )
 
         summary_lines = [
             f"[b]{substation_name}[/b]",
@@ -17125,6 +17430,25 @@ class SubstationApp(App):
         summary_lines.extend(
             gate_lines or ["  - Δεν υπάρχουν καταχωρημένες πύλες με ενεργά στοιχεία."]
         )
+        if missing_oil_model_values or missing_sf6_model_values:
+            summary_lines.extend(
+                [
+                    "",
+                    "[b][color=#ff0000]ΠΡΟΕΙΔΟΠΟΙΗΣΗ: Λείπουν ποσότητες στο μοντέλο στοιχείων.[/color][/b]",
+                ]
+            )
+            if missing_oil_model_values:
+                summary_lines.append(
+                    "[b][color=#ff0000]Λείπει ποσότητα λαδιού για:[/color][/b]"
+                )
+                for item in missing_oil_model_values:
+                    summary_lines.append(f"[color=#ff0000]  - {item}[/color]")
+            if missing_sf6_model_values:
+                summary_lines.append(
+                    "[b][color=#ff0000]Λείπει ποσότητα SF6 για:[/color][/b]"
+                )
+                for item in missing_sf6_model_values:
+                    summary_lines.append(f"[color=#ff0000]  - {item}[/color]")
         try:
             from substation_conflicts import detect_substation_conflicts
 
@@ -17132,12 +17456,71 @@ class SubstationApp(App):
         except Exception:
             logging.exception("Failed to detect substation conflicts")
             conflict_issues = []
-        summary_lines.extend(["", "[b]Έλεγχοι / Προβλήματα Υποσταθμού:[/b]"])
-        if conflict_issues:
-            for issue in conflict_issues:
-                summary_lines.append(f"  - [b]{issue['title']}[/b]: {issue['message']}")
+        problem_issues = [
+            issue
+            for issue in conflict_issues
+            if str(issue.get("severity", "problem")).strip().casefold() != "warning"
+        ]
+        warning_issues = [
+            issue
+            for issue in conflict_issues
+            if str(issue.get("severity", "problem")).strip().casefold() == "warning"
+        ]
+        summary_lines.extend(["", "[b]Έλεγχοι Υποσταθμού:[/b]"])
+        summary_lines.append(
+            f"  - [b][color=#ff4d4d]Προβλήματα: {len(problem_issues)}[/color][/b]"
+        )
+        if problem_issues:
+            for issue in problem_issues:
+                summary_lines.append(
+                    f"    - [b]{issue['title']}[/b]: {issue['message']}"
+                )
         else:
-            summary_lines.append("  - Δεν βρέθηκαν προβλήματα.")
+            summary_lines.append("    - Δεν βρέθηκαν προβλήματα.")
+        summary_lines.append(
+            f"  - [b][color=#ffcc33]Προειδοποιήσεις: {len(warning_issues)}[/color][/b]"
+        )
+        if warning_issues:
+            for issue in warning_issues:
+                summary_lines.append(
+                    f"    - [b]{issue['title']}[/b]: {issue['message']}"
+                )
+        else:
+            summary_lines.append("    - Δεν βρέθηκαν προειδοποιήσεις.")
+
+        summary_lines.extend(["", "[b]Εξαιρέσεις Υποσταθμού:[/b]"])
+        try:
+            from substation_conflicts import (
+                is_substation_no_transformer_exception,
+                get_substation_exception_details,
+            )
+
+            is_exception = is_substation_no_transformer_exception(
+                self.conn, substation_id
+            )
+            if is_exception:
+                try:
+                    details = get_substation_exception_details(self.conn, substation_id)
+                    if details:
+                        reason = details.get("reason", "Δεν προσδιορίστηκε λόγος")
+                        created_at = details.get("created_at", "")
+                        summary_lines.append(
+                            "  - [b][color=#0099ff]Χωρίς Μετασχηματιστή:[/color][/b]"
+                        )
+                        summary_lines.append(f"    Λόγος: {reason}")
+                        if created_at:
+                            summary_lines.append(
+                                f"    Ημερομηνία Ορισμού: {created_at}"
+                            )
+                except Exception:
+                    summary_lines.append(
+                        "  - [b][color=#0099ff]Χωρίς Μετασχηματιστή:[/color][/b]"
+                    )
+            else:
+                summary_lines.append("  - Δεν έχουν ορίσει εξαιρέσεις.")
+        except Exception as exc_err:
+            logging.debug(f"Could not load exception details: {exc_err}")
+            summary_lines.append("  - Δεν ήταν δυνατό να φορτωθούν οι εξαιρέσεις.")
 
         popup = Popup(
             title=f"Πληροφορίες Στοιχείων - {substation_name}",
@@ -17156,16 +17539,35 @@ class SubstationApp(App):
             text_size=(None, None),
         )
         label.bind(
-            texture_size=lambda instance, size: setattr(
-                instance, "size", (instance.width, size[1])
-            )
+            size=lambda instance, _size: setattr(
+                instance, "text_size", (max(10, instance.width - 8), None)
+            ),
+            texture_size=lambda instance, size: setattr(instance, "height", size[1]),
         )
         scroll.add_widget(label)
         content.add_widget(scroll)
 
-        close_btn = Button(text=S["BUTTONS"]["CLOSE"], size_hint_y=None, height=42)
+        actions = BoxLayout(size_hint_y=None, height=42, spacing=8)
+        if conflict_issues:
+            resolve_conflicts_btn = Button(
+                text="Επίλυση / Εξαιρέσεις Προβλημάτων",
+                size_hint_x=0.65,
+            )
+            resolve_conflicts_btn.bind(
+                on_press=lambda _btn: self._show_substation_conflict_popup(
+                    substation_id,
+                    substation_name,
+                    popup,
+                )
+            )
+            actions.add_widget(resolve_conflicts_btn)
+        close_btn = Button(
+            text=S["BUTTONS"]["CLOSE"],
+            size_hint_x=0.35 if conflict_issues else 1.0,
+        )
         close_btn.bind(on_press=popup.dismiss)
-        content.add_widget(close_btn)
+        actions.add_widget(close_btn)
+        content.add_widget(actions)
 
         popup.content = content
         popup.open()
@@ -22250,6 +22652,19 @@ class SubstationApp(App):
                             open_fc_layout.add_widget(Label(text="", size_hint_x=0.35))
                             details_container.add_widget(open_fc_layout)
 
+                            for insulation_input, insulation_unit in (
+                                (ins_closed_fa, ins_closed_fa_unit),
+                                (ins_closed_fb, ins_closed_fb_unit),
+                                (ins_closed_fc, ins_closed_fc_unit),
+                                (ins_open_fa, ins_open_fa_unit),
+                                (ins_open_fb, ins_open_fb_unit),
+                                (ins_open_fc, ins_open_fc_unit),
+                            ):
+                                bind_insulation_unit_auto_switch(
+                                    insulation_input,
+                                    insulation_unit,
+                                )
+
                             details_container.add_widget(
                                 Label(
                                     text=S["MESSAGES"].get(
@@ -23308,6 +23723,7 @@ class SubstationApp(App):
                 }
             )
 
+            self._sync_selected_element_details_visibility(element_widgets)
             _refresh_elements_container_visibility()
             _refresh_selected_elements_summary()
 
@@ -24893,7 +25309,9 @@ class SubstationApp(App):
         cursor_pos = getattr(text_input, "cursor_pos", None)
         if isinstance(cursor_pos, (tuple, list)) and len(cursor_pos) > 1:
             try:
-                cursor_local_y = float(cursor_pos[1])
+                cursor_local_y = float(cursor_pos[1]) - float(
+                    getattr(text_input, "y", 0) or 0
+                )
                 if -line_height <= cursor_local_y <= text_input_height + line_height:
                     return widget_y + cursor_local_y
             except Exception:
@@ -29237,9 +29655,13 @@ class SubstationApp(App):
             render_cards()
 
         def _clear_date_filters(_instance=None):
-            current_date_filter["year"] = year_all_option
-            current_date_filter["month"] = month_all_option
-            year_filter_spinner.text = year_all_option
+            _clear_maintenance_date_filter(
+                current_date_filter,
+                year_filter_spinner,
+                month_filter_spinner,
+                year_all_option,
+                month_all_option,
+            )
             _refresh_month_spinner_options()
             render_cards()
 

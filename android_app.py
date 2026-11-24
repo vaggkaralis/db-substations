@@ -23,6 +23,8 @@ import threading
 import traceback
 from datetime import datetime
 
+from measurement_units import bind_insulation_unit_auto_switch
+
 
 def _configure_kivy_environment():
     """Point Kivy state to a writable app-private directory on Android."""
@@ -2767,6 +2769,14 @@ class SubstationAndroidApp(App):
                 f"{reserve_barrels} βαρέλια)"
             )
 
+        def _format_oil_with_barrels(oil_liters):
+            """Format oil quantity with barrels for individual items (transformers, HV breakers)."""
+            if oil_liters <= 0:
+                return ""
+            summary = summarize_oil_requirement(oil_liters, tolerance_pct=0.0)
+            barrels = int(summary.get("rounded_barrels") or 0)
+            return f"{_format_numeric(oil_liters, 1)} L / {barrels} βαρέλια"
+
         def _build_category_summary(label, total, category_counts, oil_liters, sf6_kg):
             if total <= 0:
                 return ""
@@ -2791,13 +2801,12 @@ class SubstationAndroidApp(App):
             conn = sqlite3.connect(self.local_db_path)
             rows = conn.execute(
                 """
-                SELECT e.gate, e.element_type, e.breaker_category,
-                       em.oil_capacity_l, em.sf6_capacity_kg, em.oil_weight_kg
+                SELECT e.id, e.name, e.gate, e.element_type, e.breaker_category,
+                       em.model_name, em.oil_capacity_l, em.sf6_capacity_kg, em.oil_weight_kg
                 FROM elements e
                 LEFT JOIN element_models em ON em.id = e.element_model_id
                 WHERE e.substation_id = ?
                   AND COALESCE(e.parent_element_id, 0)=0
-                  AND (COALESCE(TRIM(e.operating_status), '') = '' OR TRIM(e.operating_status) = 'Ενεργή')
                 ORDER BY e.gate, e.name
                 """,
                 (substation_id,),
@@ -2833,36 +2842,100 @@ class SubstationAndroidApp(App):
                 "category_counts": defaultdict(int),
                 "oil_liters": 0.0,
                 "sf6_kg": 0.0,
+                "hv_transformer_details": [],
             }
         )
+        missing_oil_model_values = []
+        missing_sf6_model_values = []
 
         for (
+            element_id,
+            element_name,
             gate_name,
             element_type,
             breaker_category,
+            model_name,
             oil_capacity_l,
             sf6_capacity_kg,
             oil_weight_kg,
         ) in rows:
             gate_key = str(gate_name or "").strip() or "Χωρίς Πύλη"
+            element_name_text = str(element_name or "").strip() or "Χωρίς Όνομα"
+            model_name_text = str(model_name or "").strip() or "-"
             normalized_type = str(element_type or "").strip()
             normalized_category = _normalize_breaker_category(breaker_category)
             oil_liters = _get_oil_liters(oil_capacity_l, oil_weight_kg)
             sf6_kg = _coerce_float(sf6_capacity_kg) or 0.0
+            has_oil_model_value = (
+                _coerce_float(oil_capacity_l) is not None
+                or _coerce_float(oil_weight_kg) is not None
+            )
+            has_sf6_model_value = _coerce_float(sf6_capacity_kg) is not None
+            element_descriptor = (
+                f"{element_name_text} (ID: {element_id}, Πύλη: {gate_key}, "
+                f"Μοντέλο: {model_name_text})"
+            )
 
             if normalized_type == self.ELEM_BREAKER_YT:
                 hv_total += 1
                 if normalized_category == "SF6":
+                    quantity_text = (
+                        f"SF6: {_format_numeric(sf6_kg, 1)} kg"
+                        if has_sf6_model_value
+                        else "SF6: χωρίς ποσότητα μοντέλου"
+                    )
+                elif normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
+                    quantity_text = (
+                        f"λάδι: {_format_oil_with_barrels(oil_liters)}"
+                        if has_oil_model_value
+                        else "λάδι: χωρίς ποσότητα μοντέλου"
+                    )
+                else:
+                    quantity_text = ""
+                detail_parts = [
+                    f"[b]Διακόπτης ΥΤ {element_name_text}[/b]",
+                    f"ID: {element_id}",
+                    f"Μοντέλο: {model_name_text}",
+                    f"Κατηγορία: {normalized_category or '-'}",
+                ]
+                if quantity_text:
+                    detail_parts.append(quantity_text)
+                gate_summary[gate_key]["hv_transformer_details"].append(
+                    " | ".join(detail_parts)
+                )
+                if normalized_category == "SF6":
                     hv_category_counts["SF6"] += 1
                     hv_sf6_kg += sf6_kg
+                    if not has_sf6_model_value:
+                        missing_sf6_model_values.append(element_descriptor)
                 elif normalized_category in {"Ελαίου", "Πτωχού Ελαίου"}:
                     hv_category_counts[normalized_category] += 1
                     hv_oil_liters += oil_liters
+                    if not has_oil_model_value:
+                        missing_oil_model_values.append(element_descriptor)
                 elif normalized_category == "Κενού":
                     hv_category_counts["Κενού"] += 1
+
             elif "μετασχηματιστ" in normalized_type.casefold():
                 transformer_total += 1
                 transformer_oil_liters += oil_liters
+                gate_summary[gate_key]["hv_transformer_details"].append(
+                    " | ".join(
+                        [
+                            f"[b]Μετασχηματιστής {element_name_text}[/b]",
+                            f"ID: {element_id}",
+                            f"Μοντέλο: {model_name_text}",
+                            (
+                                f"λάδι: {_format_oil_with_barrels(oil_liters)}"
+                                if has_oil_model_value
+                                else "λάδι: χωρίς ποσότητα μοντέλου"
+                            ),
+                        ]
+                    )
+                )
+                if not has_oil_model_value:
+                    missing_oil_model_values.append(element_descriptor)
+
             elif normalized_type == self.ELEM_BREAKER_MT:
                 mv_total += 1
                 if normalized_category:
@@ -2912,18 +2985,22 @@ class SubstationAndroidApp(App):
         for gate_name in sorted(gate_summary):
             gate_bucket = gate_summary[gate_name]
             gate_mv_total = int(gate_bucket.get("mv_total") or 0)
-            if gate_mv_total <= 0:
+            hv_transformer_details = gate_bucket.get("hv_transformer_details") or []
+            if gate_mv_total <= 0 and not hv_transformer_details:
                 continue
             gate_lines.append(f"  - {gate_name}:")
-            gate_lines.append(
-                _build_category_summary(
-                    "Διακόπτες ΜΤ",
-                    gate_mv_total,
-                    gate_bucket["category_counts"],
-                    float(gate_bucket.get("oil_liters") or 0.0),
-                    float(gate_bucket.get("sf6_kg") or 0.0),
+            for detail in hv_transformer_details:
+                gate_lines.append(f"      - {detail}")
+            if gate_mv_total > 0:
+                gate_lines.append(
+                    _build_category_summary(
+                        "Διακόπτες ΜΤ",
+                        gate_mv_total,
+                        gate_bucket["category_counts"],
+                        float(gate_bucket.get("oil_liters") or 0.0),
+                        float(gate_bucket.get("sf6_kg") or 0.0),
+                    )
                 )
-            )
 
         summary_lines = [
             f"[b]{substation_name or 'Υποσταθμός'}[/b]",
@@ -2937,6 +3014,80 @@ class SubstationAndroidApp(App):
         summary_lines.extend(
             gate_lines or ["  - Δεν υπάρχουν καταχωρημένες πύλες με ενεργά στοιχεία."]
         )
+
+        if missing_oil_model_values or missing_sf6_model_values:
+            summary_lines.extend(
+                ["", "[b]ΠΡΟΕΙΔΟΠΟΙΗΣΗ: Λείπουν ποσότητες στο μοντέλο στοιχείων.[/b]"]
+            )
+            if missing_oil_model_values:
+                summary_lines.append("[b]Λείπει ποσότητα λαδιού για:[/b]")
+                for item in missing_oil_model_values:
+                    summary_lines.append(f"  - {item}")
+            if missing_sf6_model_values:
+                summary_lines.append("[b]Λείπει ποσότητα SF6 για:[/b]")
+                for item in missing_sf6_model_values:
+                    summary_lines.append(f"  - {item}")
+
+        try:
+            from substation_conflicts import detect_substation_conflicts
+
+            conflict_issues = detect_substation_conflicts(
+                sqlite3.connect(self.local_db_path), substation_id
+            )
+        except Exception:
+            conflict_issues = []
+
+        problem_issues = [
+            issue for issue in conflict_issues if issue.get("type") == "problem"
+        ]
+        warning_issues = [
+            issue for issue in conflict_issues if issue.get("type") == "warning"
+        ]
+
+        if problem_issues or warning_issues:
+            summary_lines.extend(["", "[b]Προβλήματα & Προειδοποιήσεις:[/b]"])
+            if problem_issues:
+                for issue in problem_issues:
+                    summary_lines.append(
+                        f"    - [b]{issue['title']}[/b]: {issue['message']}"
+                    )
+            if warning_issues:
+                for issue in warning_issues:
+                    summary_lines.append(
+                        f"    - [b]{issue['title']}[/b]: {issue['message']}"
+                    )
+
+        summary_lines.extend(["", "[b]Εξαιρέσεις Υποσταθμού:[/b]"])
+        try:
+            from substation_conflicts import (
+                is_substation_no_transformer_exception,
+                get_substation_exception_details,
+            )
+
+            is_exception = is_substation_no_transformer_exception(
+                sqlite3.connect(self.local_db_path), substation_id
+            )
+            if is_exception:
+                try:
+                    details = get_substation_exception_details(
+                        sqlite3.connect(self.local_db_path), substation_id
+                    )
+                    if details:
+                        reason = details.get("reason", "Δεν προσδιορίστηκε λόγος")
+                        created_at = details.get("created_at", "")
+                        summary_lines.append("  - [b]Χωρίς Μετασχηματιστή:[/b]")
+                        summary_lines.append(f"    Λόγος: {reason}")
+                        if created_at:
+                            summary_lines.append(
+                                f"    Ημερομηνία Ορισμού: {created_at}"
+                            )
+                except Exception:
+                    summary_lines.append("  - [b]Χωρίς Μετασχηματιστή:[/b]")
+            else:
+                summary_lines.append("  - Δεν έχουν ορίσει εξαιρέσεις.")
+        except Exception:
+            summary_lines.append("  - Δεν ήταν δυνατό να φορτωθούν οι εξαιρέσεις.")
+
         return summary_lines
 
     def show_substation_element_summary(
@@ -8300,10 +8451,15 @@ class SubstationAndroidApp(App):
                                 phase_layout.add_widget(value_input)
                                 unit_spinner = Spinner(
                                     text="GΩ",
-                                    values=["GΩ", "MΩ", "kΩ"],
+                                    values=["GΩ", "MΩ", "kΩ", "TΩ"],
                                     size_hint_x=0.25,
                                 )
                                 phase_layout.add_widget(unit_spinner)
+                                bind_insulation_unit_auto_switch(
+                                    value_input,
+                                    unit_spinner,
+                                    Clock,
+                                )
                                 measurements_fields_container.add_widget(phase_layout)
                                 measurements[f"ins_closed_{phase}"] = value_input
                                 measurements[f"ins_closed_{phase}_unit"] = unit_spinner
@@ -8333,10 +8489,15 @@ class SubstationAndroidApp(App):
                                 phase_layout.add_widget(value_input)
                                 unit_spinner = Spinner(
                                     text="GΩ",
-                                    values=["GΩ", "MΩ", "kΩ"],
+                                    values=["GΩ", "MΩ", "kΩ", "TΩ"],
                                     size_hint_x=0.25,
                                 )
                                 phase_layout.add_widget(unit_spinner)
+                                bind_insulation_unit_auto_switch(
+                                    value_input,
+                                    unit_spinner,
+                                    Clock,
+                                )
                                 measurements_fields_container.add_widget(phase_layout)
                                 measurements[f"ins_open_{phase}"] = value_input
                                 measurements[f"ins_open_{phase}_unit"] = unit_spinner

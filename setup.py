@@ -27,7 +27,7 @@ def build_setup_kwargs():
     )
     return {
         "name": "dbsubstations",
-        "version": "1.5.4",
+        "version": "1.5.5",
         "py_modules": py_modules,
         "packages": sorted(set(namespace_packages + regular_packages)),
         "include_package_data": True,

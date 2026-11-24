@@ -81,7 +81,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
     """)
 
     cursor.execute(
-        "CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, parent_element_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, hemizygos TEXT DEFAULT '', vector_group TEXT DEFAULT '', FOREIGN KEY(substation_id) REFERENCES substations(id), FOREIGN KEY(parent_element_id) REFERENCES elements(id) ON DELETE SET NULL)"
+        "CREATE TABLE IF NOT EXISTS elements (id INTEGER PRIMARY KEY, substation_id INTEGER, parent_element_id INTEGER, element_type TEXT, name TEXT, serial_number TEXT, maintenance_date TEXT, voltage_level TEXT, manufacturer TEXT, type TEXT, gate TEXT, hemizygos TEXT DEFAULT '', vector_group TEXT DEFAULT '', split_mv_gates INTEGER DEFAULT 0, FOREIGN KEY(substation_id) REFERENCES substations(id), FOREIGN KEY(parent_element_id) REFERENCES elements(id) ON DELETE SET NULL)"
     )
     cursor.execute(
         """
@@ -554,6 +554,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                     is_main_switch INTEGER DEFAULT 0,
                     operations_count INTEGER DEFAULT 0,
                     vector_group TEXT DEFAULT '',
+                    split_mv_gates INTEGER DEFAULT 0,
                     FOREIGN KEY(substation_id) REFERENCES substations(id),
                     FOREIGN KEY(parent_element_id) REFERENCES elements(id) ON DELETE SET NULL,
                     CHECK((element_type NOT IN ('Διακόπτης ΥΤ', 'Διακόπτης ΜΤ')) OR (breaker_category IS NOT NULL AND TRIM(breaker_category) != ''))
@@ -586,6 +587,7 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
                     "is_main_switch",
                     "operations_count",
                     "vector_group",
+                    "split_mv_gates",
                 ]
                 if c in existing_cols
             ]
@@ -750,6 +752,14 @@ def init_db(db_path: str = None) -> sqlite3.Connection:
         try:
             cursor.execute(
                 "ALTER TABLE elements ADD COLUMN is_main_switch INTEGER DEFAULT 0"
+            )
+        except Exception:
+            pass
+
+    if "split_mv_gates" not in elem_columns:
+        try:
+            cursor.execute(
+                "ALTER TABLE elements ADD COLUMN split_mv_gates INTEGER DEFAULT 0"
             )
         except Exception:
             pass

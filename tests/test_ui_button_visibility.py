@@ -92,6 +92,7 @@ def test_android_substation_summary_shows_base_and_10pct_reserve_oil_capacity(tm
         );
         CREATE TABLE element_models (
             id INTEGER PRIMARY KEY,
+            model_name TEXT,
             oil_capacity_l REAL,
             sf6_capacity_kg REAL,
             oil_weight_kg REAL
@@ -99,7 +100,7 @@ def test_android_substation_summary_shows_base_and_10pct_reserve_oil_capacity(tm
         """
     )
     cur.execute(
-        "INSERT INTO element_models (id, oil_capacity_l, sf6_capacity_kg, oil_weight_kg) VALUES (1, 288, NULL, NULL)"
+        "INSERT INTO element_models (id, model_name, oil_capacity_l, sf6_capacity_kg, oil_weight_kg) VALUES (1, 'Test Model', 288, NULL, NULL)"
     )
     cur.execute(
         """

@@ -23,23 +23,17 @@ Following must be resolved:
 **********************************************
 **************** TODO: ***********************
 **********************************************
+- in the add/edit maintenance menu, in the measurement data, display the corresponding value from the last measrument (last maintenance in time) if available, if not, display nothing 
+
+- Καρτέλα "Μεγάλα θέματα υποσταθμού" ανά στοιχείο
+
+- Εκτύπωση συντεταγμένων Υ/Σ
+
+- still "Συγχρονισμός δεδομένων με OneDrive ... - Προετοιμασία συγχρονισμού ..." -> "Συγχρονισμός δεδομένων με OneDrive ... - Επεξεργασία εισερχομένων αλλαγών ..." takes too long sometimes. What could be the root cause of that? We shall optimize it if necessary because sync process lasts too long because of it (not always though).
+
 - app version on the android app
 
 - settings in android app (onlyicon button "gear") menu has no suitable wrapping of the text. Also the button in the menu need to grow double in hight so that the user can click with the finger easier.
-
-
-- when i close an extra window, a loading popup shall appear until its ready, because it takes longer and i see an empty screen until the window closes
-
-- conflicts in the substation (name, serial number etc.) shall be recognized and when issues are found :
-1. a popup shall be prompted when opening the substation element view
-2. this information shall be available in the "Πληροφορίες Στοιχείων" menu
-What shall be checked:
-a. duplicate names, serial numbers
-b. elements without gate
-c. Medium Voltage breakers without ΗΜΙΖΥΓΟ, if ΗΜΙΖΥΓΟ is available for the substation
-d. gates without or multiple transformers and HV breakers. also each gate shall have one MV main breaker, except when we have ΗΜΙΖΥΓΟΥΣ, then each ΗΜΙΖΥΓΟΣ shall have only one MV main breaker
-e. maintenances of the substation where elements of other substation are linked
-The popup menu shall give the user the option to set exception for the issue (so for each issue there shall be a button to se the exception and a subsequent to confirm exception y/n)
 
 - the onlyicon button next to each element in the substation element view on the android phone need to get 50% bigger to be able to touch with the finger. the challenge is to keep the wrapping and alignment of the elements in order, avoiding overlappings and beeig able to see the full text of the element's data summary	
 
@@ -48,6 +42,8 @@ The popup menu shall give the user the option to set exception for the issue (so
 - list of models inside the "Πληροφορίες Στοιχείων" menu, per element category (Transformers. HV/MV breakers, etc.)
 
 - Να ψάξει μέσα στο φάκελο των μόνο γραμμικών και να βγάλει λίστα ανα υποσταθμό (για να μπορώ να κάνω έλεγχο) με τους ΒΜΣ για να δούμε στατιστικά τι ισχύ έχουν
+
+- learn the code! we need to go thorugh the ocde together so that i have a full overview and understanding of it. it is also a good chance to find possible optimizations for the code to make it better and increase performance possibly. Other questions: is ther backend/frontend?
 
 - make it work -> full MV maintenance from android
 

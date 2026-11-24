@@ -92,6 +92,68 @@ def test_get_available_gates_fills_missing_for_unassigned_transformer():
     assert "ΠΥΛΗ 2" in regular
 
 
+def test_get_available_gates_for_mv_split_transformer():
+    app, sid = setup_app_with_substation_and_transformers(["T1", "T2", "T3"])
+    c = app.conn.cursor()
+    c.execute(
+        "UPDATE elements SET gate=?, split_mv_gates=1 WHERE substation_id=? AND name=?",
+        ("ΠΥΛΗ 3", sid, "T3"),
+    )
+    c.execute(
+        "UPDATE elements SET gate=? WHERE substation_id=? AND name=?",
+        ("ΠΥΛΗ 1", sid, "T1"),
+    )
+    c.execute(
+        "UPDATE elements SET gate=? WHERE substation_id=? AND name=?",
+        ("ΠΥΛΗ 2", sid, "T2"),
+    )
+    app.conn.commit()
+
+    regular = app.get_available_gates(sid, False)
+    mv_gates = app.get_available_gates_for_element(
+        sid,
+        ELEM_BREAKER_MT,
+        is_interconnection=False,
+    )
+
+    assert "ΠΥΛΗ 3" in regular
+    assert "ΠΥΛΗ 3" not in mv_gates
+    assert "ΠΥΛΗ 3.1" in mv_gates
+    assert "ΠΥΛΗ 3.2" in mv_gates
+
+
+def test_get_available_interconnection_gates_for_mv_split_transformer():
+    app, sid = setup_app_with_substation_and_transformers(["T1", "T2", "T3"])
+    c = app.conn.cursor()
+    c.execute(
+        "UPDATE elements SET gate=? WHERE substation_id=? AND name=?",
+        ("ΠΥΛΗ 1", sid, "T1"),
+    )
+    c.execute(
+        "UPDATE elements SET gate=? WHERE substation_id=? AND name=?",
+        ("ΠΥΛΗ 2", sid, "T2"),
+    )
+    c.execute(
+        "UPDATE elements SET gate=?, split_mv_gates=1 WHERE substation_id=? AND name=?",
+        ("ΠΥΛΗ 3", sid, "T3"),
+    )
+    app.conn.commit()
+
+    inter = app.get_available_gates_for_element(
+        sid,
+        ELEM_BREAKER_MT,
+        is_interconnection=True,
+    )
+
+    assert "ΠΥΛΗ 1-2" in inter
+    assert "ΠΥΛΗ 1-3.1" in inter
+    assert "ΠΥΛΗ 1-3.2" in inter
+    assert "ΠΥΛΗ 2-3.1" in inter
+    assert "ΠΥΛΗ 2-3.2" in inter
+    assert "ΠΥΛΗ 3.1-3.2" in inter
+    assert "ΠΥΛΗ 2-3" not in inter
+
+
 def test_get_available_hemizygos_options():
     options = SubstationApp.get_available_hemizygos_options()
     assert options[0] == S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")

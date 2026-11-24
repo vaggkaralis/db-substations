@@ -14,6 +14,27 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
 
+def test_clear_maintenance_date_filter_resets_both_spinners():
+    date_filter = {"year": "2026", "month": "Νοε"}
+    year_spinner = type("Spinner", (), {"text": "2026"})()
+    month_spinner = type("Spinner", (), {"text": "Νοε"})()
+
+    DBrun._clear_maintenance_date_filter(
+        date_filter,
+        year_spinner,
+        month_spinner,
+        "(Όλα έτη)",
+        "(Όλοι οι μήνες)",
+    )
+
+    assert date_filter == {
+        "year": "(Όλα έτη)",
+        "month": "(Όλοι οι μήνες)",
+    }
+    assert year_spinner.text == "(Όλα έτη)"
+    assert month_spinner.text == "(Όλοι οι μήνες)"
+
+
 def _collect_texts(widget):
     texts = []
     text = getattr(widget, "text", None)
@@ -42,6 +63,32 @@ def test_breaker_operations_count_row_shows_last_value(monkeypatch):
         object.__new__(DBrun.SubstationApp), {"operations_count": 321}
     )
     assert "Αριθμός Χειρισμών: 321" in summary
+
+
+def test_selected_element_details_are_restored_during_bulk_edit_load():
+    app = object.__new__(DBrun.SubstationApp)
+    calls = []
+    checkbox = type("Checkbox", (), {"active": True})()
+    details = Widget()
+    row = Widget()
+
+    def ensure_details():
+        if details.parent is None:
+            row.add_widget(details)
+        calls.append(True)
+
+    widgets = {
+        7: {
+            "checkbox": checkbox,
+            "ensure_details": ensure_details,
+            "details_container": details,
+        }
+    }
+
+    app._sync_selected_element_details_visibility(widgets)
+
+    assert details.parent is row
+    assert calls == [True]
 
 
 def test_desktop_element_summary_includes_element_id():
@@ -75,12 +122,14 @@ def test_desktop_substation_summary_shows_base_and_10pct_reserve_oil_capacity(
         );
         CREATE TABLE element_models (
             id INTEGER PRIMARY KEY,
+            model_name TEXT,
             oil_capacity_l REAL,
             sf6_capacity_kg REAL,
             oil_weight_kg REAL
         );
-        INSERT INTO element_models (id, oil_capacity_l, sf6_capacity_kg, oil_weight_kg)
-        VALUES (1, 288, NULL, NULL);
+        INSERT INTO element_models
+            (id, model_name, oil_capacity_l, sf6_capacity_kg, oil_weight_kg)
+        VALUES (1, 'Model Oil', 288, NULL, NULL);
         INSERT INTO elements
             (id, name, gate, element_type, breaker_category, element_model_id, substation_id, parent_element_id, operating_status)
         VALUES
@@ -114,6 +163,73 @@ def test_desktop_substation_summary_shows_base_and_10pct_reserve_oil_capacity(
     joined = "\n".join(texts)
     assert "288 L / 2 βαρέλια" in joined
     assert "απόθεμα 10%: 316.8 L / 2 βαρέλια" in joined
+
+
+def test_desktop_substation_summary_lists_hv_breakers_and_transformers_per_gate(
+    monkeypatch,
+):
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        """
+        CREATE TABLE elements (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            gate TEXT,
+            element_type TEXT,
+            breaker_category TEXT,
+            element_model_id INTEGER,
+            substation_id INTEGER,
+            parent_element_id INTEGER,
+            operating_status TEXT
+        );
+        CREATE TABLE element_models (
+            id INTEGER PRIMARY KEY,
+            model_name TEXT,
+            oil_capacity_l REAL,
+            sf6_capacity_kg REAL,
+            oil_weight_kg REAL
+        );
+        INSERT INTO element_models
+            (id, model_name, oil_capacity_l, sf6_capacity_kg, oil_weight_kg)
+        VALUES
+            (1, 'SF6 HV', NULL, 42, NULL),
+            (2, 'TR 150/20', 12000, NULL, NULL);
+        INSERT INTO elements
+            (id, name, gate, element_type, breaker_category, element_model_id,
+             substation_id, parent_element_id, operating_status)
+        VALUES
+            (1, 'Δ-101', 'ΠΥΛΗ 1', 'Διακόπτης ΥΤ', 'SF6', 1, 10, 0, 'Ενεργή'),
+            (2, 'ΜΣ 1', 'ΠΥΛΗ 1', 'Μετασχηματιστής', 'Ελαίου', 2, 10, 0, 'Ενεργή');
+        """
+    )
+    captured = {}
+
+    class DummyPopup:
+        def __init__(self, *args, **kwargs):
+            self.content = None
+            captured["popup"] = self
+
+        def open(self):
+            return None
+
+        def dismiss(self):
+            return None
+
+    monkeypatch.setattr(popup_module, "Popup", DummyPopup)
+
+    app = object.__new__(DBrun.SubstationApp)
+    app.conn = conn
+    app.ELEM_BREAKER_YT = "Διακόπτης ΥΤ"
+    app.ELEM_BREAKER_MT = "Διακόπτης ΜΤ"
+
+    app.show_substation_element_summary(10, "ΥΠΟΣΤΑΘΜΟΣ", None)
+
+    joined = "\n".join(_collect_texts(captured["popup"].content))
+    assert "ΠΥΛΗ 1:" in joined
+    assert "Διακόπτης ΥΤ Δ-101" in joined
+    assert "Μοντέλο: SF6 HV | Κατηγορία: SF6 | SF6: 42 kg" in joined
+    assert "Μετασχηματιστής ΜΣ 1" in joined
+    assert "Μοντέλο: TR 150/20 | λάδι: 12000 L" in joined
 
 
 def test_operations_count_strings_exist_in_both_modules():

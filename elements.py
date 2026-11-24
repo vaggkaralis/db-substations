@@ -35,7 +35,33 @@ def _get_allowed_gates_for_selection(
             )
         else:
             is_interconnection = is_main_switch == 2
+    gate_helper = getattr(app, "get_available_gates_for_element", None)
+    if callable(gate_helper):
+        return list(
+            gate_helper(
+                substation_id,
+                element_type,
+                is_interconnection=is_interconnection,
+            )
+        )
     return list(app.get_available_gates(substation_id, is_interconnection))
+
+
+def _is_transformer_element_type(app, element_type):
+    helper = getattr(app, "_is_transformer", None)
+    if callable(helper):
+        try:
+            return bool(helper(element_type))
+        except Exception:
+            pass
+    text = str(element_type or "").strip().casefold()
+    return (
+        "150/20" in text
+        or "μετασχημ" in text
+        or "transform" in text
+        or "μ/σ" in text
+        or "m/s" in text
+    )
 
 
 def _normalize_gate_spinner_text(gate_text, allowed_gates):
@@ -159,6 +185,20 @@ def _table_has_column(conn, table_name, column_name):
         return any(row[1] == column_name for row in rows)
     except Exception:
         return False
+
+
+def _ensure_split_mv_gates_column(conn):
+    if _table_has_column(conn, "elements", "split_mv_gates"):
+        return True
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "ALTER TABLE elements ADD COLUMN split_mv_gates INTEGER DEFAULT 0"
+        )
+        conn.commit()
+    except Exception:
+        pass
+    return _table_has_column(conn, "elements", "split_mv_gates")
 
 
 def _show_no_history_maintenance_options(
@@ -1411,6 +1451,8 @@ def show_add_subelement_popup(
 def show_add_element_popup(app, instance):
     from popups import show_message_popup
 
+    _ensure_split_mv_gates_column(app.conn)
+
     # Get list of substations
     c = app.conn.cursor()
     c.execute("SELECT id, name FROM substations ORDER BY name")
@@ -1439,6 +1481,7 @@ def show_add_element_popup(app, instance):
     # Create popup
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
+    from kivy.uix.checkbox import CheckBox
     from kivy.uix.label import Label
     from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
@@ -1517,7 +1560,11 @@ def show_add_element_popup(app, instance):
     layout.add_widget(gate_label)
 
     # Get initial gates for the first substation
-    initial_gates = app.get_available_gates(app.substations_map[substation_names[0]])
+    initial_gates = _get_allowed_gates_for_selection(
+        app,
+        app.substations_map[substation_names[0]],
+        element_spinner.text,
+    )
     unreg = S["MESSAGES"].get("UNREGISTERED_PLACEHOLDER", "(Μη καταχωρημένο)")
     empty = S["MESSAGES"].get("EMPTY_PLACEHOLDER", "(Κενό)")
     gate_spinner = Spinner(
@@ -1527,6 +1574,37 @@ def show_add_element_popup(app, instance):
         height=40,
     )
     layout.add_widget(gate_spinner)
+
+    split_mv_gates_row = BoxLayout(
+        orientation="horizontal",
+        size_hint_y=None,
+        height=0,
+        spacing=8,
+        opacity=0,
+        disabled=True,
+    )
+    split_mv_gates_checkbox = CheckBox(
+        active=False,
+        size_hint=(None, None),
+        size=(34, 34),
+    )
+    split_mv_gates_row.add_widget(split_mv_gates_checkbox)
+    split_mv_gates_row.add_widget(
+        Label(
+            text="Ο μετασχηματιστής τροφοδοτεί δύο πύλες ΜΤ (x.1 / x.2)",
+            halign="left",
+            valign="middle",
+        )
+    )
+    layout.add_widget(split_mv_gates_row)
+
+    def _set_split_mv_visibility(selected_element_type):
+        visible = _is_transformer_element_type(app, selected_element_type)
+        split_mv_gates_row.height = 36 if visible else 0
+        split_mv_gates_row.opacity = 1 if visible else 0
+        split_mv_gates_checkbox.disabled = not visible
+        if not visible:
+            split_mv_gates_checkbox.active = False
 
     layout.add_widget(Label(text="Ημιζυγός:", size_hint_y=None, height=30))
     hemizygos_values = app.get_available_hemizygos_options()
@@ -1566,15 +1644,12 @@ def show_add_element_popup(app, instance):
     # Update gates when substation changes
     def on_substation_change(spinner, text):
         substation_id = app.substations_map[text]
-        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
-            if breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
-            ):
-                available_gates = app.get_available_gates(substation_id, True)
-            else:
-                available_gates = app.get_available_gates(substation_id, False)
-        else:
-            available_gates = app.get_available_gates(substation_id, False)
+        available_gates = _get_allowed_gates_for_selection(
+            app,
+            substation_id,
+            element_spinner.text,
+            breaker_type=breaker_type_spinner.text,
+        )
         gate_spinner.values = available_gates
         gate_spinner.text = available_gates[0] if available_gates else unreg
 
@@ -1595,13 +1670,12 @@ def show_add_element_popup(app, instance):
 
     def on_breaker_type_change(spinner, text):
         substation_id = app.substations_map[substation_spinner.text]
-        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
-            if text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
-                available_gates = app.get_available_gates(substation_id, True)
-            else:
-                available_gates = app.get_available_gates(substation_id, False)
-        else:
-            available_gates = app.get_available_gates(substation_id, False)
+        available_gates = _get_allowed_gates_for_selection(
+            app,
+            substation_id,
+            element_spinner.text,
+            breaker_type=text,
+        )
         gate_spinner.values = available_gates
         gate_spinner.text = available_gates[0] if available_gates else unreg
 
@@ -1704,12 +1778,12 @@ def show_add_element_popup(app, instance):
                 layout.add_widget(breaker_type_spinner, index=idx)
                 layout.add_widget(breaker_type_label, index=idx + 1)
             substation_id = app.substations_map[substation_spinner.text]
-            if breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
-            ):
-                available_gates = app.get_available_gates(substation_id, True)
-            else:
-                available_gates = app.get_available_gates(substation_id, False)
+            available_gates = _get_allowed_gates_for_selection(
+                app,
+                substation_id,
+                text,
+                breaker_type=breaker_type_spinner.text,
+            )
             gate_spinner.values = available_gates
             gate_spinner.text = available_gates[0] if available_gates else unreg
         else:
@@ -1717,7 +1791,11 @@ def show_add_element_popup(app, instance):
                 layout.remove_widget(breaker_type_label)
                 layout.remove_widget(breaker_type_spinner)
             substation_id = app.substations_map[substation_spinner.text]
-            available_gates = app.get_available_gates(substation_id, False)
+            available_gates = _get_allowed_gates_for_selection(
+                app,
+                substation_id,
+                text,
+            )
             gate_spinner.values = available_gates
             gate_spinner.text = available_gates[0] if available_gates else unreg
 
@@ -1726,6 +1804,7 @@ def show_add_element_popup(app, instance):
             [_derived] if _derived else list(app.VOLTAGE_LEVELS)
         )
         voltage_level_spinner.text = _derived or empty
+        _set_split_mv_visibility(text)
 
     element_spinner.bind(text=on_element_type_change)
     on_element_type_change(element_spinner, element_spinner.text)
@@ -1895,6 +1974,14 @@ def show_add_element_popup(app, instance):
                 selected_model,
                 fallback_power_mva=rated_power_input.text,
             )
+            split_mv_gates_value = (
+                1
+                if (
+                    _is_transformer_element_type(app, element_type)
+                    and split_mv_gates_checkbox.active
+                )
+                else 0
+            )
 
             maintenance_cycle = values.get("maintenance_cycle", "0")
             try:
@@ -1932,7 +2019,7 @@ def show_add_element_popup(app, instance):
 
             try:
                 c.execute(
-                    "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group, split_mv_gates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         substation_id,
                         element_type,
@@ -1954,6 +2041,7 @@ def show_add_element_popup(app, instance):
                         breaker_category_value,
                         power_val_to_set,
                         vector_group_input.text.strip(),
+                        split_mv_gates_value,
                     ),
                 )
             except sqlite3.IntegrityError:
@@ -2664,6 +2752,7 @@ def show_edit_element_popup(
 ):
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
+    from kivy.uix.checkbox import CheckBox
     from kivy.uix.label import Label
     from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
@@ -2675,38 +2764,79 @@ def show_edit_element_popup(
 
     # Fetch element data
     c = app.conn.cursor()
-    c.execute(
-        "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group, parent_element_id FROM elements WHERE id=?",
-        (element_id,),
-    )
+    has_split_mv_gates_col = _ensure_split_mv_gates_column(app.conn)
+    try:
+        if has_split_mv_gates_col:
+            c.execute(
+                "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group, parent_element_id, COALESCE(split_mv_gates, 0) FROM elements WHERE id=?",
+                (element_id,),
+            )
+        else:
+            c.execute(
+                "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group, parent_element_id FROM elements WHERE id=?",
+                (element_id,),
+            )
+    except sqlite3.OperationalError:
+        # Compatibility fallback for databases that still miss the new column.
+        has_split_mv_gates_col = False
+        c.execute(
+            "SELECT element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, manufacture_year, element_model_id, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group, parent_element_id FROM elements WHERE id=?",
+            (element_id,),
+        )
     element = c.fetchone()
 
     if not element:
         show_message_popup(S["TITLES"]["ERROR"], S["MESSAGES"]["ELEMENT_NOT_FOUND"])
         return
 
-    (
-        elem_type,
-        name,
-        serial_num,
-        maint_date,
-        voltage_level,
-        manufacturer,
-        model,
-        model_version,
-        install_space,
-        op_status,
-        maint_cycle,
-        manuf_year,
-        model_id,
-        gate,
-        hemizygos,
-        is_main_switch,
-        breaker_category,
-        power_mva,
-        vector_group,
-        parent_element_id,
-    ) = element
+    if len(element) >= 21:
+        (
+            elem_type,
+            name,
+            serial_num,
+            maint_date,
+            voltage_level,
+            manufacturer,
+            model,
+            model_version,
+            install_space,
+            op_status,
+            maint_cycle,
+            manuf_year,
+            model_id,
+            gate,
+            hemizygos,
+            is_main_switch,
+            breaker_category,
+            power_mva,
+            vector_group,
+            parent_element_id,
+            split_mv_gates,
+        ) = element
+    else:
+        (
+            elem_type,
+            name,
+            serial_num,
+            maint_date,
+            voltage_level,
+            manufacturer,
+            model,
+            model_version,
+            install_space,
+            op_status,
+            maint_cycle,
+            manuf_year,
+            model_id,
+            gate,
+            hemizygos,
+            is_main_switch,
+            breaker_category,
+            power_mva,
+            vector_group,
+            parent_element_id,
+        ) = element
+        split_mv_gates = 0
 
     popup = Popup(title=f"Επεξεργασία: {name}", size_hint=(0.9, 0.9))
     popup._dbs_origin_popup = parent_popup
@@ -2869,6 +2999,28 @@ def show_edit_element_popup(
         text=current_gate_text, values=available_gates, size_hint_y=None, height=40
     )
     layout.add_widget(gate_spinner)
+    split_mv_gates_checkbox = None
+    if _is_transformer_element_type(app, elem_type):
+        split_mv_gates_row = BoxLayout(
+            orientation="horizontal",
+            size_hint_y=None,
+            height=36,
+            spacing=8,
+        )
+        split_mv_gates_checkbox = CheckBox(
+            active=bool(split_mv_gates),
+            size_hint=(None, None),
+            size=(34, 34),
+        )
+        split_mv_gates_row.add_widget(split_mv_gates_checkbox)
+        split_mv_gates_row.add_widget(
+            Label(
+                text="Ο μετασχηματιστής τροφοδοτεί δύο πύλες ΜΤ (x.1 / x.2)",
+                halign="left",
+                valign="middle",
+            )
+        )
+        layout.add_widget(split_mv_gates_row)
 
     layout.add_widget(Label(text="Ημιζυγός:", size_hint_y=None, height=30))
     hemizygos_values = app.get_available_hemizygos_options()
@@ -2921,10 +3073,12 @@ def show_edit_element_popup(
         )
 
     def on_breaker_type_change(spinner, text):
-        is_interconnection = text == S["MESSAGES"].get(
-            "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
+        available_gates = _get_allowed_gates_for_selection(
+            app,
+            substation_id,
+            elem_type,
+            breaker_type=text,
         )
-        available_gates = app.get_available_gates(substation_id, is_interconnection)
         gate_spinner.values = available_gates
         if gate_spinner.text not in available_gates:
             gate_spinner.text = available_gates[0] if available_gates else unreg
@@ -3188,38 +3342,60 @@ def show_edit_element_popup(
                 selected_model,
                 fallback_power_mva=rated_power_input.text,
             )
+            split_mv_col_available = bool(has_split_mv_gates_col)
+            split_mv_gates_value = (
+                1
+                if (
+                    split_mv_gates_checkbox is not None
+                    and split_mv_gates_checkbox.active
+                    and _is_transformer_element_type(app, elem_type)
+                )
+                else 0
+            )
+            if split_mv_gates_value and not split_mv_col_available:
+                split_mv_col_available = _ensure_split_mv_gates_column(app.conn)
+                if not split_mv_col_available:
+                    show_message_popup(
+                        S["TITLES"].get("ERROR", "Σφάλμα"),
+                        "Δεν ήταν δυνατή η ενεργοποίηση διαχωρισμού πύλης (split_mv_gates).",
+                    )
+                    return
 
             target_element_id = canonical_element_id or element_id
 
             try:
-                c.execute(
-                    """UPDATE elements SET 
+                update_sql = """UPDATE elements SET 
                                     name=?, serial_number=?, maintenance_date=?, voltage_level=?, manufacturer=?, model=?, model_version=?,
                                     installation_space=?, operating_status=?, 
-                                    maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, hemizygos=?, is_main_switch=?, breaker_category=?, power_mva=?, vector_group=?
-                                    WHERE id=?""",
-                    (
-                        name_val,
-                        field_inputs["serial_number"].text.strip(),
-                        field_inputs["maintenance_date"].text.strip(),
-                        voltage_level_value,
-                        field_inputs["manufacturer"].text.strip(),
-                        stored_model_name,
-                        field_inputs["model_version"].text.strip(),
-                        field_inputs["installation_space"].text,
-                        field_inputs["operating_status"].text,
-                        cycle_val,
-                        field_inputs["manufacture_year"].text.strip(),
-                        new_model_id,
-                        gate_value,
-                        hemizygos_value,
-                        new_is_main_switch,
-                        breaker_category_value,
-                        power_val_to_set,
-                        vector_group_input.text.strip(),
-                        target_element_id,
-                    ),
-                )
+                                    maintenance_cycle=?, manufacture_year=?, element_model_id=?, gate=?, hemizygos=?, is_main_switch=?, breaker_category=?, power_mva=?, vector_group=?"""
+                update_values = [
+                    name_val,
+                    field_inputs["serial_number"].text.strip(),
+                    field_inputs["maintenance_date"].text.strip(),
+                    voltage_level_value,
+                    field_inputs["manufacturer"].text.strip(),
+                    stored_model_name,
+                    field_inputs["model_version"].text.strip(),
+                    field_inputs["installation_space"].text,
+                    field_inputs["operating_status"].text,
+                    cycle_val,
+                    field_inputs["manufacture_year"].text.strip(),
+                    new_model_id,
+                    gate_value,
+                    hemizygos_value,
+                    new_is_main_switch,
+                    breaker_category_value,
+                    power_val_to_set,
+                    vector_group_input.text.strip(),
+                ]
+                if split_mv_col_available and _is_transformer_element_type(
+                    app, elem_type
+                ):
+                    update_sql += ", split_mv_gates=?"
+                    update_values.append(split_mv_gates_value)
+                update_sql += " WHERE id=?"
+                update_values.append(target_element_id)
+                c.execute(update_sql, tuple(update_values))
             except sqlite3.IntegrityError:
                 app.conn.rollback()
                 show_message_popup(
@@ -3251,6 +3427,8 @@ def show_edit_element_popup(
                 "power_mva": power_val_to_set,
                 "vector_group": vector_group_input.text.strip(),
             }
+            if split_mv_col_available and _is_transformer_element_type(app, elem_type):
+                element_data["split_mv_gates"] = split_mv_gates_value
             app._append_change_log("update", "elements", element_data)
             for duplicate_element_id in merged_duplicate_ids:
                 app._append_change_log(
@@ -3457,6 +3635,7 @@ def show_add_element_popup_for_substation(
 ):
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
+    from kivy.uix.checkbox import CheckBox
     from kivy.uix.label import Label
     from kivy.uix.popup import Popup
     from kivy.uix.scrollview import ScrollView
@@ -3464,6 +3643,8 @@ def show_add_element_popup_for_substation(
     from kivy.uix.textinput import TextInput
 
     from popups import show_message_popup
+
+    _ensure_split_mv_gates_column(app.conn)
 
     popup = Popup(
         title=S["MESSAGES"].get("ADD_ELEMENT_TITLE", "Προσθήκη Στοιχείου"),
@@ -3517,7 +3698,11 @@ def show_add_element_popup_for_substation(
     gate_label = Label(text="Πύλη (Gate):", size_hint_y=None, height=30)
     input_layout.add_widget(gate_label)
 
-    initial_gates = app.get_available_gates(substation_id)
+    initial_gates = _get_allowed_gates_for_selection(
+        app,
+        substation_id,
+        element_spinner.text,
+    )
     gate_spinner = Spinner(
         text=(
             initial_gates[0]
@@ -3533,6 +3718,37 @@ def show_add_element_popup_for_substation(
         height=40,
     )
     input_layout.add_widget(gate_spinner)
+
+    split_mv_gates_row = BoxLayout(
+        orientation="horizontal",
+        size_hint_y=None,
+        height=0,
+        spacing=8,
+        opacity=0,
+        disabled=True,
+    )
+    split_mv_gates_checkbox = CheckBox(
+        active=False,
+        size_hint=(None, None),
+        size=(34, 34),
+    )
+    split_mv_gates_row.add_widget(split_mv_gates_checkbox)
+    split_mv_gates_row.add_widget(
+        Label(
+            text="Ο μετασχηματιστής τροφοδοτεί δύο πύλες ΜΤ (x.1 / x.2)",
+            halign="left",
+            valign="middle",
+        )
+    )
+    input_layout.add_widget(split_mv_gates_row)
+
+    def _set_split_mv_visibility(selected_element_type):
+        visible = _is_transformer_element_type(app, selected_element_type)
+        split_mv_gates_row.height = 36 if visible else 0
+        split_mv_gates_row.opacity = 1 if visible else 0
+        split_mv_gates_checkbox.disabled = not visible
+        if not visible:
+            split_mv_gates_checkbox.active = False
 
     input_layout.add_widget(Label(text="Ημιζυγός:", size_hint_y=None, height=30))
     hemizygos_values = app.get_available_hemizygos_options()
@@ -3570,15 +3786,12 @@ def show_add_element_popup_for_substation(
 
     def on_substation_change(spinner, text):
         selected_substation_id = substation_map[text]
-        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
-            if breaker_type_spinner.text == S["MESSAGES"].get(
-                "BREAKER_LABEL_INTERCON", "Διασυνδετικός"
-            ):
-                available_gates = app.get_available_gates(selected_substation_id, True)
-            else:
-                available_gates = app.get_available_gates(selected_substation_id, False)
-        else:
-            available_gates = app.get_available_gates(selected_substation_id, False)
+        available_gates = _get_allowed_gates_for_selection(
+            app,
+            selected_substation_id,
+            element_spinner.text,
+            breaker_type=breaker_type_spinner.text,
+        )
         gate_spinner.values = available_gates
         gate_spinner.text = (
             available_gates[0]
@@ -3602,13 +3815,12 @@ def show_add_element_popup_for_substation(
 
     def on_breaker_type_change(spinner, text):
         selected_substation_id = substation_map[substation_spinner.text]
-        if element_spinner.text in app.BREAKER_ELEMENT_TYPES:
-            if text == S["MESSAGES"].get("BREAKER_LABEL_INTERCON", "Διασυνδετικός"):
-                available_gates = app.get_available_gates(selected_substation_id, True)
-            else:
-                available_gates = app.get_available_gates(selected_substation_id, False)
-        else:
-            available_gates = app.get_available_gates(selected_substation_id, False)
+        available_gates = _get_allowed_gates_for_selection(
+            app,
+            selected_substation_id,
+            element_spinner.text,
+            breaker_type=text,
+        )
         gate_spinner.values = available_gates
         gate_spinner.text = available_gates[0] if available_gates else unreg
 
@@ -3745,10 +3957,12 @@ def show_add_element_popup_for_substation(
                     breaker_type_label,
                     index=input_layout.children.index(breaker_type_spinner) + 1,
                 )
-                if breaker_type_spinner.text == "Διασυνδετικός":
-                    available_gates = app.get_available_gates(substation_id, True)
-                else:
-                    available_gates = app.get_available_gates(substation_id, False)
+                available_gates = _get_allowed_gates_for_selection(
+                    app,
+                    substation_id,
+                    text,
+                    breaker_type=breaker_type_spinner.text,
+                )
                 gate_spinner.values = available_gates
                 if gate_spinner.text not in available_gates:
                     gate_spinner.text = (
@@ -3762,7 +3976,11 @@ def show_add_element_popup_for_substation(
             if breaker_type_label in input_layout.children:
                 input_layout.remove_widget(breaker_type_label)
                 input_layout.remove_widget(breaker_type_spinner)
-            available_gates = app.get_available_gates(substation_id, False)
+            available_gates = _get_allowed_gates_for_selection(
+                app,
+                substation_id,
+                text,
+            )
             gate_spinner.values = available_gates
             if gate_spinner.text not in available_gates:
                 gate_spinner.text = (
@@ -3780,6 +3998,7 @@ def show_add_element_popup_for_substation(
         voltage_level_spinner.text = _derived or S["MESSAGES"].get(
             "EMPTY_PLACEHOLDER", "(Κενό)"
         )
+        _set_split_mv_visibility(text)
 
     element_spinner.bind(text=on_element_type_change)
     on_element_type_change(element_spinner, element_spinner.text)
@@ -3948,6 +4167,14 @@ def show_add_element_popup_for_substation(
             selected_model,
             fallback_power_mva=rated_power_input.text,
         )
+        split_mv_gates_value = (
+            1
+            if (
+                _is_transformer_element_type(app, element_type)
+                and split_mv_gates_checkbox.active
+            )
+            else 0
+        )
 
         voltage_level_value = (
             voltage_level_spinner.text
@@ -3968,7 +4195,7 @@ def show_add_element_popup_for_substation(
                 element_type, breaker_type_spinner.text, gate_value
             )
             c.execute(
-                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO elements (substation_id, element_type, name, serial_number, maintenance_date, voltage_level, manufacturer, model, model_version, installation_space, operating_status, maintenance_cycle, element_model_id, manufacture_year, gate, hemizygos, is_main_switch, breaker_category, power_mva, vector_group, split_mv_gates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     selected_substation_id,
                     element_type,
@@ -3990,6 +4217,7 @@ def show_add_element_popup_for_substation(
                     breaker_category_value,
                     power_val_to_set,
                     vector_group_input.text.strip(),
+                    split_mv_gates_value,
                 ),
             )
         except ValueError as e:
@@ -4029,6 +4257,7 @@ def show_add_element_popup_for_substation(
             "breaker_category": breaker_category_value,
             "vector_group": vector_group_input.text.strip(),
             "power_mva": power_val_to_set,
+            "split_mv_gates": split_mv_gates_value,
         }
         app._append_change_log("insert", "elements", element_data)
 

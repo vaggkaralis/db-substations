@@ -21,7 +21,7 @@ def _build_scroll_context(*, scroll_y, widget_y, cursor_y):
 
     text_input = TextInput(text="line1\nline2\nline3", multiline=True, height=320)
     text_input.y = widget_y
-    text_input.cursor_pos = (0, cursor_y)
+    text_input.cursor_pos = (0, widget_y + cursor_y)
     text_input.focus = True
     container.add_widget(text_input)
 
